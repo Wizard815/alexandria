@@ -4,6 +4,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install git for MCP repository management
+RUN apk add --no-cache git
+
 # Install dependencies
 COPY package*.json ./
 RUN npm ci --only=production
@@ -12,11 +15,17 @@ RUN npm ci --only=production
 COPY src/ ./src/
 COPY tsconfig.json ./
 
+# Copy admin GUI
+COPY ../library/admin-gui ./admin-gui
+
+# Create MCP modules directory
+RUN mkdir -p /app/mcp-modules
+
 # Build
 RUN npm run build
 
-# Expose port
-EXPOSE 8080
+# Expose port (default 8090)
+EXPOSE 8090
 
 # Run
 CMD ["node", "dist/index.js"]

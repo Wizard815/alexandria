@@ -1,121 +1,219 @@
-import { DndClient } from "@alexandria/client";
-import { useState, useEffect } from "react";
-import { Login } from "./components/Login.tsx";
-
-interface AppState {
-  client: DndClient;
-  currentWorldId: string | null;
-  selectedNodeId: string | null;
-  role: 'dm' | 'player' | null;
-}
+import { useState, useEffect } from 'react';
+import { DndClient } from '@alexandria/client';
+import { PlayerView, PlayerAppState, World, Player } from './types';
+import { Login } from './components/Login.tsx';
 
 export default function App() {
-  const [state, setState] = useState<AppState | null>(null);
-  const [nodes, setNodes] = useState<import("@alexandria/schema").Node[]>([]);
+  const [view, setView] = useState<PlayerView>('overview');
+  const [world, setWorld] = useState<World | null>(null);
+  const [playerProfile, setPlayerProfile] = useState<Player | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
-  async function handleLogin(client: DndClient) {
-    setState({ client, currentWorldId: null, selectedNodeId: null, role: null });
-  }
+  // Load data from local storage on mount
+  useEffect(() => {
+    const storedWorld = localStorage.getItem('alexandria_world');
+    const storedPlayer = localStorage.getItem('alexandria_player');
+    
+    if (storedWorld) setWorld(JSON.parse(storedWorld));
+    if (storedPlayer) setPlayerProfile(JSON.parse(storedPlayer));
+  }, []);
 
-  async function loadWorlds(client: DndClient) {
+  // Save world to local storage
+  useEffect(() => {
+    if (world) localStorage.setItem('alexandria_world', JSON.stringify(world));
+  }, [world]);
+
+  // Save player to local storage
+  useEffect(() => {
+    if (playerProfile) localStorage.setItem('alexandria_player', JSON.stringify(playerProfile));
+  }, [playerProfile]);
+
+  async function handleWorldSelect(worldId: string, client: DndClient) {
     setLoading(true);
-    setError("");
+    setError('');
+    
     try {
-      const response = await client.listWorlds();
-      if (!response.error && response.data?.worlds) {
-        setNodes(response.data.worlds as any);
+      const worldResponse = await client.getWorld(worldId);
+      if (!worldResponse.error && worldResponse.data?.world) {
+        setWorld(worldResponse.data.world as World);
+        
+        // Load player profile
+        const playerResponse = await client.getPlayerByWorld(worldId);
+        if (!playerResponse.error && playerResponse.data?.player) {
+          setPlayerProfile(playerResponse.data.player as Player);
+        } else if (!playerResponse.error) {
+          // Create new player profile
+          const newPlayer = await createPlayerProfile(client, worldId);
+          setPlayerProfile(newPlayer);
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load worlds");
+      setError(err instanceof Error ? err.message : 'Failed to load world');
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    if (state?.client) {
-      loadWorlds(state.client);
-    }
-  }, [state?.client]);
-
-  if (!state) {
-    return <Login onSuccess={handleLogin} />;
+  async function createPlayerProfile(client: DndClient, worldId: string): Promise<Player> {
+    const newPlayer = {
+      id: Date.now().toString(),
+      worldId,
+      userId: 'player-user-id',
+      characterName: 'My Character',
+      characterLevel: 1,
+      characterClass: '',
+      characterRace: '',
+      imageUrl: '',
+      hp: 10,
+      maxHp: 10,
+      ac: 10,
+      speed: 30,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    // Save locally
+    setPlayerProfile(newPlayer);
+    localStorage.setItem('alexandria_player', JSON.stringify(newPlayer));
+    
+    return newPlayer;
   }
 
-  if (!state.currentWorldId) {
+  // If no world selected, show world picker
+  if (!world) {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
         <header className="bg-gray-800 border-b border-gray-700 px-4 py-3">
-          <h1 className="text-lg font-bold">Alexandria Desktop</h1>
+          <h1 className="text-lg font-bold">Alexandria Player</h1>
         </header>
         <main className="p-4">
           <h2 className="text-xl font-semibold mb-4">Select a World</h2>
           {loading && <p>Loading...</p>}
           {!loading && (
-            <WorldPicker onWorldSelect={handleWorldSelect} client={state.client} />
+            <WorldPicker onWorldSelect={handleWorldSelect} />
           )}
         </main>
       </div>
     );
   }
 
-  if (!state.role) {
+  // If no player profile, create one
+  if (!playerProfile) {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
         <header className="bg-gray-800 border-b border-gray-700 px-4 py-3">
-          <h1 className="text-lg font-bold">Select Your Role</h1>
+          <h1 className="text-lg font-bold">Alexandria Player</h1>
         </header>
         <main className="p-4">
-          <div className="space-y-4 max-w-md mx-auto">
-            <button
-              onClick={() => setState({ ...state, role: 'dm' })}
-              className="block w-full p-6 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
-            >
-              <h3 className="text-xl font-bold">DM Mode</h3>
-              <p className="text-gray-400 mt-2">Battle maps, transcription logs, session notes</p>
-            </button>
-            <button
-              onClick={() => setState({ ...state, role: 'player' })}
-              className="block w-full p-6 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
-            >
-              <h3 className="text-xl font-bold">Player Mode</h3>
-              <p className="text-gray-400 mt-2">Character sheets, inventory, session notes</p>
-            </button>
-          </div>
+          <h2 className="text-xl font-semibold mb-4">Creating Player Profile</h2>
+          <p>Loading player data...</p>
         </main>
       </div>
     );
   }
 
-  return <DMView state={state} onLogout={() => setState(null)} />;
+  // Main player app
+  return (
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center gap-4">
+        <h1 className="text-lg font-bold">Alexandria Player</h1>
+        <div className="text-sm text-gray-400">{world.name}</div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar Navigation */}
+        <nav className="w-48 border-r border-gray-700 flex flex-col">
+          <div className="p-4">
+            <h2 className="text-sm font-semibold text-gray-400 mb-2">PLAYER INFO</h2>
+            <div className="bg-gray-800 rounded p-2 mb-4">
+              <h3 className="font-bold text-blue-400">{playerProfile.characterName}</h3>
+              <p className="text-sm text-gray-400">
+                Lvl {playerProfile.characterLevel} {playerProfile.characterRace}
+                {playerProfile.characterClass && ` ${playerProfile.characterClass}`}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => setView('overview')}
+                className={`w-full text-left px-3 py-2 rounded transition ${
+                  view === 'overview' ? 'bg-blue-600 text-white' : 'hover:bg-gray-700'
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setView('inventory')}
+                className={`w-full text-left px-3 py-2 rounded transition ${
+                  view === 'inventory' ? 'bg-blue-600 text-white' : 'hover:bg-gray-700'
+                }`}
+              >
+                Inventory
+              </button>
+              <button
+                onClick={() => setView('travel')}
+                className={`w-full text-left px-3 py-2 rounded transition ${
+                  view === 'travel' ? 'bg-blue-600 text-white' : 'hover:bg-gray-700'
+                }`}
+              >
+                Travel Log
+              </button>
+              <button
+                onClick={() => setView('sessions')}
+                className={`w-full text-left px-3 py-2 rounded transition ${
+                  view === 'sessions' ? 'bg-blue-600 text-white' : 'hover:bg-gray-700'
+                }`}
+              >
+                Sessions
+              </button>
+              <button
+                onClick={() => setView('settings')}
+                className={`w-full text-left px-3 py-2 rounded transition ${
+                  view === 'settings' ? 'bg-blue-600 text-white' : 'hover:bg-gray-700'
+                }`}
+              >
+                Settings
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto p-4">
+          <ViewContent 
+            view={view} 
+            playerProfile={playerProfile} 
+            world={world}
+            setView={setView}
+          />
+        </main>
+      </div>
+    </div>
+  );
 }
 
-function handleWorldSelect(worldId: string) {
-  // This will be implemented when we have a proper client
-}
-
-function WorldPicker({ onWorldSelect, client }: any) {
+function WorldPicker({ onWorldSelect }: { onWorldSelect: (worldId: string) => void }) {
   const [worlds, setWorlds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   useEffect(() => {
     async function load() {
       try {
-        const response = await client.listWorlds();
-        if (!response.error && response.data?.worlds) {
-          setWorlds(response.data.worlds);
+        const response = await fetch('/api/worlds');
+        if (!response.ok) throw new Error('Failed to load worlds');
+        const data = await response.json();
+        if (data.worlds) {
+          setWorlds(data.worlds);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to list worlds");
+        setError(err instanceof Error ? err.message : 'Failed to list worlds');
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, [client]);
+  }, []);
 
   if (loading) return <p className="text-gray-400">Loading worlds...</p>;
   if (error) return <p className="text-red-400">{error}</p>;
@@ -137,84 +235,60 @@ function WorldPicker({ onWorldSelect, client }: any) {
   );
 }
 
-function DMView({ state, onLogout }: any) {
-  const [activeTab, setActiveTab] = useState('tree');
-  const [nodes, setNodes] = useState<import("@alexandria/schema").Node[]>([]);
-
-  useEffect(() => {
-    if (state?.client && state.currentWorldId) {
-      loadNodes();
-    }
-  }, [state?.client, state?.currentWorldId]);
-
-  async function loadNodes() {
-    try {
-      const response = await state.client.listNodes(state.currentWorldId!);
-      if (!response.error && response.data?.nodes) {
-        setNodes(response.data.nodes);
-      }
-    } catch (err) {
-      console.error("Failed to load nodes:", err);
-    }
+function ViewContent({ view, playerProfile, world, setView }: any) {
+  switch (view) {
+    case 'overview':
+      return <OverviewView playerProfile={playerProfile} world={world} setView={setView} />;
+    case 'inventory':
+      return <InventoryView playerProfile={playerProfile} />;
+    case 'travel':
+      return <TravelLogView playerProfile={playerProfile} />;
+    case 'sessions':
+      return <SessionLogView playerProfile={playerProfile} />;
+    case 'settings':
+      return <SettingsView playerProfile={playerProfile} />;
+    default:
+      return <OverviewView playerProfile={playerProfile} world={world} setView={setView} />;
   }
+}
 
+function OverviewView({ playerProfile, world, setView }: any) {
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
-      <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center gap-4">
-        <h1 className="text-lg font-bold">DM Dashboard</h1>
-        <button onClick={onLogout} className="text-xs text-gray-400 hover:text-white ml-auto">
-          Logout
-        </button>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-1/3 border-r border-gray-700 flex flex-col">
-          <div className="border-b border-gray-700 p-2">
-            <div className="flex gap-2">
-              <TabButton active={activeTab === 'tree'} onClick={() => setActiveTab('tree')} label="Tree" />
-              <TabButton active={activeTab === 'map'} onClick={() => setActiveTab('map')} label="Map" />
-              <TabButton active={activeTab === 'transcription'} onClick={() => setActiveTab('transcription')} label="Transcription" />
-              <TabButton active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} label="Inventory" />
-            </div>
+    <div className="space-y-4">
+      <div className="bg-gray-800 rounded-lg p-6">
+        <h2 className="text-2xl font-bold mb-4">Character Overview</h2>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-gray-700 p-4 rounded">
+            <h3 className="text-gray-400 text-sm">Hit Points</h3>
+            <p className="text-2xl font-bold">{playerProfile.hp} / {playerProfile.maxHp}</p>
           </div>
-
-          {activeTab === 'tree' && (
-            <div className="flex-1 overflow-y-auto p-2">
-              <h3 className="text-sm font-semibold mb-2">World Tree</h3>
-              {nodes.map(node => (
-                <div key={node.id} className="px-2 py-1 cursor-pointer hover:bg-gray-700">
-                  {node.title}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'map' && (
-            <div className="flex-1 overflow-y-auto p-2">
-              <h3 className="text-sm font-semibold mb-2">Battle Map</h3>
-              <div className="text-center text-gray-500 py-8">Map visualization would go here</div>
-            </div>
-          )}
-
-          {activeTab === 'transcription' && (
-            <div className="flex-1 overflow-y-auto p-2">
-              <h3 className="text-sm font-semibold mb-2">Transcription Log</h3>
-              <div className="text-center text-gray-500 py-8">Session transcripts would go here</div>
-            </div>
-          )}
-
-          {activeTab === 'inventory' && (
-            <div className="flex-1 overflow-y-auto p-2">
-              <h3 className="text-sm font-semibold mb-2">Group Inventory</h3>
-              <div className="text-center text-gray-500 py-8">Inventory management would go here</div>
-            </div>
-          )}
+          <div className="bg-gray-700 p-4 rounded">
+            <h3 className="text-gray-400 text-sm">Armor Class</h3>
+            <p className="text-2xl font-bold">{playerProfile.ac}</p>
+          </div>
+          <div className="bg-gray-700 p-4 rounded">
+            <h3 className="text-gray-400 text-sm">Speed</h3>
+            <p className="text-2xl font-bold">{playerProfile.speed} ft</p>
+          </div>
+          <div className="bg-gray-700 p-4 rounded">
+            <h3 className="text-gray-400 text-sm">Level</h3>
+            <p className="text-2xl font-bold">{playerProfile.characterLevel}</p>
+          </div>
         </div>
+      </div>
 
-        <div className="w-2/3 p-4 overflow-y-auto">
-          <div className="bg-gray-800 rounded p-4">
-            <h2 className="text-xl font-bold mb-2">Content Area</h2>
-            <p className="text-gray-400">Select a world from the sidebar to begin</p>
+      <div className="bg-gray-800 rounded-lg p-6">
+        <h3 className="text-xl font-bold mb-4">World Status</h3>
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <span className="text-gray-400">World Name</span>
+            <span className="font-bold">{world.name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Date Tracker</span>
+            <button onClick={() => setView('travel')} className="text-blue-400 hover:text-blue-300">
+              View/Update Date
+            </button>
           </div>
         </div>
       </div>
@@ -222,15 +296,80 @@ function DMView({ state, onLogout }: any) {
   );
 }
 
-function TabButton({ active, onClick, label }: any) {
+function InventoryView({ playerProfile }: any) {
   return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1 text-sm rounded transition ${
-        active ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-      }`}
-    >
-      {label}
-    </button>
+    <div className="space-y-4">
+      <div className="bg-gray-800 rounded-lg p-6">
+        <h2 className="text-2xl font-bold mb-4">Inventory</h2>
+        <div className="bg-gray-700 p-4 rounded mb-4">
+          <h3 className="text-lg font-bold mb-2">Player Inventory</h3>
+          <p className="text-gray-400">No items yet</p>
+        </div>
+        <div className="bg-gray-700 p-4 rounded">
+          <h3 className="text-lg font-bold mb-2">Party Inventory</h3>
+          <p className="text-gray-400">No party items yet</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TravelLogView({ playerProfile }: any) {
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800 rounded-lg p-6">
+        <h2 className="text-2xl font-bold mb-4">Travel Log</h2>
+        <div className="bg-gray-700 p-4 rounded">
+          <h3 className="text-lg font-bold mb-2">Current Date</h3>
+          <p className="text-xl">Year 1 - Spring - Day 1</p>
+          <p className="text-gray-400">Time Passed: 0 days</p>
+        </div>
+        <div className="mt-4 bg-gray-700 p-4 rounded">
+          <h3 className="text-lg font-bold mb-2">Recent Travel Logs</h3>
+          <p className="text-gray-400">No travel logs yet</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SessionLogView({ playerProfile }: any) {
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800 rounded-lg p-6">
+        <h2 className="text-2xl font-bold mb-4">Session Logs</h2>
+        <div className="bg-gray-700 p-4 rounded">
+          <h3 className="text-lg font-bold mb-2">Your Session Notes</h3>
+          <p className="text-gray-400">No session logs yet</p>
+        </div>
+        <div className="mt-4 bg-gray-700 p-4 rounded">
+          <h3 className="text-lg font-bold mb-2">Party Session Notes</h3>
+          <p className="text-gray-400">No party session logs yet</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({ playerProfile }: any) {
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800 rounded-lg p-6">
+        <h2 className="text-2xl font-bold mb-4">Settings</h2>
+        <div className="space-y-4">
+          <div className="bg-gray-700 p-4 rounded">
+            <h3 className="text-lg font-bold mb-2">Character Settings</h3>
+            <button className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
+              Edit Character
+            </button>
+          </div>
+          <div className="bg-gray-700 p-4 rounded">
+            <h3 className="text-lg font-bold mb-2">Sync Settings</h3>
+            <p className="text-gray-400 mb-2">Sync with Library: Online</p>
+            <p className="text-gray-400">Last Sync: Just now</p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

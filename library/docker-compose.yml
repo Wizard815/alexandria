@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  legendkeeper-mcp:
+    image: ghcr.io/chase-roohms/legendkeeper-mcp:latest
+    container_name: legendkeeper-mcp
+    restart: unless-stopped
+    env_file: LegendKeeperMCP/.env
+    environment:
+      MCP_TRANSPORT: http
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in LegendKeeperMCP/.env}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./LegendKeeperMCP/uploads:/uploads:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  librarian:
+    build:
+      context: ../librarian
+      dockerfile: Dockerfile
+    container_name: librarian
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./LegendKeeperMCP:/data/legendkeeper:ro
+      - ./admin-gui:/admin-gui:ro
+      - mcp-modules:/app/mcp-modules
+    environment:
+      - MCP_LEGENDKEEPER_URL=http://legendkeeper-mcp:8000
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN}
+      - LIBRARIAN_PORT=${LIBRARIAN_PORT:-8090}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme123}
+      - MAIN_MODEL_TYPE=${MAIN_MODEL_TYPE:-local}
+      - MAIN_MODEL_URL=${MAIN_MODEL_URL:-http://localhost:11434}
+      - MAIN_MODEL_NAME=${MAIN_MODEL_NAME:-llama3:70b}
+      - FALLBACK_MODEL_TYPE=${FALLBACK_MODEL_TYPE:-openrouter}
+      - FALLBACK_API_KEY=${FALLBACK_API_KEY:-}
+      - FALLBACK_MODEL_NAME=${FALLBACK_MODEL_NAME:-google/gemini-2.0-flash-exp:free}
+      - MCP_LEGENDKEEPER_API_KEY=${MCP_LEGENDKEEPER_API_KEY:-}
+      - MCP_KANKA_URL=${MCP_KANKA_URL:-}
+      - MCP_KANKA_API_KEY=${MCP_KANKA_API_KEY:-}
+      - MCP_GENERIC_URL=${MCP_GENERIC_URL:-}
+      - MCP_GENERIC_API_KEY=${MCP_GENERIC_API_KEY:-}
+      - DEFAULT_MCP=${DEFAULT_MCP:-legendkeeper}
+    depends_on:
+      - legendkeeper-mcp
+
+volumes:
+  mcp-modules:

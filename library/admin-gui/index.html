@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alexandria Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .sidebar { transition: all 0.3s ease; }
+        .nav-item:hover { background-color: #374151; }
+        .nav-item.active { background-color: #4b5563; border-left: 4px solid #3b82f6; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="sidebar w-64 bg-gray-800 border-r border-gray-700">
+            <div class="p-4 border-b border-gray-700">
+                <h1 class="text-xl font-bold text-blue-400">Alexandria Admin</h1>
+                <p class="text-sm text-gray-400">Configuration Portal</p>
+                <div class="mt-2 text-xs bg-blue-900 p-1 rounded">
+                    Port: <span id="port-display">8090</span>
+                </div>
+            </div>
+            <nav class="mt-4">
+                <button onclick="showTab('overview')" class="nav-item w-full text-left px-4 py-3 text-gray-300 hover:text-white flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                    Overview
+                </button>
+                <button onclick="showTab('scribes')" class="nav-item w-full text-left px-4 py-3 text-gray-300 hover:text-white flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    Scribes
+                </button>
+                <button onclick="showTab('models')" class="nav-item w-full text-left px-4 py-3 text-gray-300 hover:text-white flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Models
+                </button>
+                <button onclick="showTab('mcp')" class="nav-item w-full text-left px-4 py-3 text-gray-300 hover:text-white flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                    MCP Modules
+                </button>
+            </nav>
+            <div class="absolute bottom-0 w-full p-4 border-t border-gray-700">
+                <button onclick="logout()" class="w-full text-sm text-gray-400 hover:text-white">Logout</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-6 max-w-4xl mx-auto">
+                <div id="overview" class="tab-content">
+                    <h2 class="text-2xl font-bold mb-6">Overview</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                            <h3 class="text-gray-400 text-sm mb-1">Active Scribes</h3>
+                            <p class="text-3xl font-bold" id="active-scribes">0</p>
+                        </div>
+                        <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                            <h3 class="text-gray-400 text-sm mb-1">Loaded MCP Modules</h3>
+                            <p class="text-3xl font-bold" id="mcp-modules">0</p>
+                        </div>
+                        <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                            <h3 class="text-gray-400 text-sm mb-1">Librarian Status</h3>
+                            <p class="text-3xl font-bold text-green-400" id="librarian-status">Online</p>
+                        </div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                        <h3 class="text-xl font-bold mb-4">Quick Actions</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <button onclick="showTab('scribes')" class="bg-blue-600 hover:bg-blue-700 p-4 rounded-lg transition">Manage Scribes</button>
+                            <button onclick="showTab('models')" class="bg-purple-600 hover:bg-purple-700 p-4 rounded-lg transition">Configure Models</button>
+                            <button onclick="showTab('mcp')" class="bg-green-600 hover:bg-green-700 p-4 rounded-lg transition">Configure MCP</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="scribes" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6">Scribes Configuration</h2>
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+                        <h3 class="text-xl font-bold mb-4">Add New Scribe</h3>
+                        <form onsubmit="addScribe(event)">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Username</label>
+                                    <input type="text" id="scribe-username" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none" required>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Role</label>
+                                    <select id="scribe-role" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                        <option value="dm">DM (Full Access)</option>
+                                        <option value="player">Player (Limited Access)</option>
+                                        <option value="guest">Guest (Read-only)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium mb-1">MCP Access Level</label>
+                                <select id="scribe-mcp-access" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <option value="full">Full Access (All MCP Tools)</option>
+                                    <option value="read">Read-only Access</option>
+                                    <option value="custom">Custom (Specific Tools)</option>
+                                </select>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium mb-1">Linked World (Optional)</label>
+                                <input type="text" id="scribe-world" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="World ID">
+                            </div>
+                            <button type="submit" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition">Add Scribe</button>
+                        </form>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                        <h3 class="text-xl font-bold mb-4">Active Scribes</h3>
+                        <div id="scribes-list" class="space-y-2">
+                            <p class="text-gray-400">Loading scribes...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="models" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6">Model Configuration</h2>
+                    
+                    <!-- Main Model -->
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+                        <h3 class="text-xl font-bold mb-4">Main Model (Primary AI)</h3>
+                        <form onsubmit="saveMainModel(event)">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Model Type</label>
+                                    <select id="main-model-type" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                        <option value="local">Local LLM (Ollama, LM Studio)</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="openrouter">OpenRouter</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Model Name</label>
+                                    <input type="text" id="main-model-name" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">API URL</label>
+                                    <input type="text" id="main-model-url" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                            </div>
+                            <button type="submit" class="mt-4 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition">Save Main Model</button>
+                        </form>
+                    </div>
+
+                    <!-- Fallback Model -->
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                        <h3 class="text-xl font-bold mb-4">Fallback Model (Backup AI)</h3>
+                        <form onsubmit="saveFallbackModel(event)">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Model Type</label>
+                                    <select id="fallback-model-type" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                        <option value="openrouter">OpenRouter</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="local">Local LLM</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">API Key</label>
+                                    <input type="password" id="fallback-api-key" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <p class="text-xs text-gray-500 mt-1">Leave empty to keep current value</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Model Name</label>
+                                    <input type="text" id="fallback-model-name" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                            </div>
+                            <button type="submit" class="mt-4 bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition">Save Fallback Model</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="mcp" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6">MCP Modules Configuration</h2>
+                    
+                    <!-- Load New MCP -->
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+                        <h3 class="text-xl font-bold mb-4">Load New MCP Module</h3>
+                        <form onsubmit="loadMcpModule(event)">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">MCP Repository URL</label>
+                                    <input type="text" id="mcp-github-url" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="https://github.com/chase-roohms/legendkeeper-mcp">
+                                    <p class="text-xs text-gray-500 mt-1">Can be any GitHub repository with MCP implementation</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">API Key (if required)</label>
+                                    <input type="password" id="mcp-api-key" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <p class="text-xs text-gray-500 mt-1">Leave empty if no API key required</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Campaign/Project ID (if required)</label>
+                                    <input type="text" id="mcp-campaign-id" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                            </div>
+                            <button type="submit" class="mt-4 bg-green-600 hover:bg-green-700 px-4 py-2 rounded transition">Load MCP Module</button>
+                        </form>
+                    </div>
+
+                    <!-- Update MCP -->
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+                        <h3 class="text-xl font-bold mb-4">Update MCP Module (No Downtime)</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Select MCP to Update</label>
+                                <select id="update-mcp-select" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <option value="">Select MCP to update</option>
+                                </select>
+                            </div>
+                            <button onclick="updateMcpModule()" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded transition">Update MCP</button>
+                            <p class="text-xs text-gray-500">This will pull latest changes, rebuild, and hot-swap the module - no service interruption</p>
+                        </div>
+                    </div>
+
+                    <!-- Loaded Modules -->
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                        <h3 class="text-xl font-bold mb-4">Loaded MCP Modules</h3>
+                        <div id="mcp-modules-list" class="space-y-4">
+                            <p class="text-gray-400">Loading MCP modules...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get port from environment
+        const PORT = process.env.LIBRARIAN_PORT || '8090';
+        document.getElementById('port-display').textContent = PORT;
+
+        // Tab switching
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabName).classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+        }
+
+        // Logout
+        function logout() {
+            localStorage.removeItem('alexandriaAdminToken');
+            window.location.href = '/';
+        }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchApi('/api/admin/overview');
+            fetchApi('/api/admin/scribes');
+            fetchApi('/api/admin/mcp/modules');
+            fetchApi('/api/admin/config');
+        });
+
+        function fetchApi(endpoint) {
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            fetch(endpoint, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (endpoint.includes('overview')) renderOverview(data);
+                if (endpoint.includes('scribes')) renderScribes(data);
+                if (endpoint.includes('mcp/modules')) renderMcpModules(data);
+                if (endpoint.includes('config')) renderConfig(data);
+            })
+            .catch(err => console.error('Failed to fetch:', err));
+        }
+
+        function renderOverview(data) {
+            document.getElementById('active-scribes').textContent = data.activeScribes || 0;
+            document.getElementById('mcp-modules').textContent = data.mcpModules || 0;
+        }
+
+        function renderScribes(scribes) {
+            const container = document.getElementById('scribes-list');
+            if (!scribes || scribes.length === 0) {
+                container.innerHTML = '<p class="text-gray-400">No scribes configured yet</p>';
+                return;
+            }
+            container.innerHTML = scribes.map(scribe => `
+                <div class="bg-gray-700 p-4 rounded-lg flex justify-between items-center">
+                    <div>
+                        <h4 class="font-bold text-blue-400">${scribe.username}</h4>
+                        <div class="flex gap-2 mt-2">
+                            <span class="px-2 py-1 rounded text-sm ${scribe.role === 'dm' ? 'bg-blue-600' : 'bg-gray-600'}">${scribe.role}</span>
+                            <span class="px-2 py-1 rounded text-sm ${scribe.mcpAccess === 'full' ? 'bg-green-600' : 'bg-yellow-600'}">${scribe.mcpAccess}</span>
+                        </div>
+                    </div>
+                    <button onclick="deleteScribe('${scribe.id}')" class="text-red-400 hover:text-red-300">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function addScribe(e) {
+            e.preventDefault();
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            fetch('/api/admin/scribes', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({
+                    username: document.getElementById('scribe-username').value,
+                    role: document.getElementById('scribe-role').value,
+                    mcpAccess: document.getElementById('scribe-mcp-access').value,
+                    worldId: document.getElementById('scribe-world').value || undefined
+                })
+            })
+            .then(r => r.json())
+            .then(() => {
+                alert('Scribe added successfully');
+                fetchApi('/api/admin/scribes');
+            })
+            .catch(err => alert('Failed: ' + err.message));
+        }
+
+        function deleteScribe(id) {
+            if (!confirm('Delete this scribe?')) return;
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            fetch(`/api/admin/scribes/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(r => r.json())
+            .then(() => {
+                alert('Scribe deleted');
+                fetchApi('/api/admin/scribes');
+            })
+            .catch(err => alert('Failed: ' + err.message));
+        }
+
+        function renderMcpModules(data) {
+            const container = document.getElementById('mcp-modules-list');
+            if (!data.modules || data.modules.length === 0) {
+                container.innerHTML = '<p class="text-gray-400">No MCP modules loaded</p>';
+                return;
+            }
+            container.innerHTML = data.modules.map(module => `
+                <div class="bg-gray-700 p-4 rounded-lg">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-bold text-green-400">${module.name}</h4>
+                            <p class="text-sm text-gray-400">Type: ${module.type} | Version: ${module.version}</p>
+                        </div>
+                        <button onclick="unloadMcp('${module.type}')" class="text-red-400 hover:text-red-300">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function loadMcpModule(e) {
+            e.preventDefault();
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            const githubUrl = document.getElementById('mcp-github-url').value;
+            
+            fetch('/api/admin/mcp/load', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({
+                    type: githubUrl.includes('legendkeeper') ? 'legendkeeper' : 
+                          githubUrl.includes('kanka') ? 'kanka' : 'generic',
+                    githubUrl,
+                    apiKey: document.getElementById('mcp-api-key').value || undefined,
+                    campaignId: document.getElementById('mcp-campaign-id').value || undefined
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                alert(data.message || 'MCP module loaded');
+                fetchApi('/api/admin/mcp/modules');
+            })
+            .catch(err => alert('Failed: ' + err.message));
+        }
+
+        function updateMcpModule() {
+            const repoName = document.getElementById('update-mcp-select').value;
+            if (!repoName) {
+                alert('Please select an MCP to update');
+                return;
+            }
+            
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            fetch(`/api/admin/mcp/update/${repoName}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(r => r.json())
+            .then(data => {
+                alert(data.message);
+                fetchApi('/api/admin/mcp/modules');
+            })
+            .catch(err => alert('Failed: ' + err.message));
+        }
+
+        function unloadMcp(type) {
+            if (!confirm('Unload this MCP module?')) return;
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            fetch('/api/admin/mcp/unload', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ type })
+            })
+            .then(r => r.json())
+            .then(() => {
+                alert('MCP unloaded');
+                fetchApi('/api/admin/mcp/modules');
+            })
+            .catch(err => alert('Failed: ' + err.message));
+        }
+
+        function saveMainModel(e) {
+            e.preventDefault();
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            fetch('/api/admin/config/models/main', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({
+                    type: document.getElementById('main-model-type').value,
+                    url: document.getElementById('main-model-url').value,
+                    name: document.getElementById('main-model-name').value
+                })
+            })
+            .then(r => r.json())
+            .then(() => alert('Main model saved'))
+            .catch(err => alert('Failed: ' + err.message));
+        }
+
+        function saveFallbackModel(e) {
+            e.preventDefault();
+            const token = btoa(`${process.env.ADMIN_USERNAME || 'admin'}:${process.env.ADMIN_PASSWORD || 'changeme123'}`);
+            const apiKey = document.getElementById('fallback-api-key').value;
+            fetch('/api/admin/config/models/fallback', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({
+                    type: document.getElementById('fallback-model-type').value,
+                    apiKey: apiKey || undefined,
+                    name: document.getElementById('fallback-model-name').value
+                })
+            })
+            .then(r => r.json())
+            .then(() => alert('Fallback model saved'))
+            .catch(err => alert('Failed: ' + err.message));
+        }
+    </script>
+</body>
+</html>
