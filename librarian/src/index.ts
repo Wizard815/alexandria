@@ -129,17 +129,174 @@ app.post('/v1/local/embeddings', async (req, res) => {
   }
 });
 
-// Start server
+// ====================
+// MCP World Builder Gateway (Kanka, LegendKeeper, Generic)
+// ====================
+
+// MCP server configurations
+const MCP_SERVERS: Record<string, string> = {
+  kanka: process.env.MCP_KANKA_URL || 'http://localhost:3333',
+  legendkeeper: process.env.MCP_LEGENDKEEPER_URL || 'http://localhost:3334',
+  generic: process.env.MCP_GENERIC_URL || 'http://localhost:3335',
+};
+
+// MCP proxy endpoint - generic routing based on world type
+app.post('/mcp/:worldType/*', async (req, res) => {
+  const { worldType } = req.params;
+  const worldUrl = MCP_SERVERS[worldType];
+
+  if (!worldUrl) {
+    return res.status(404).json({ 
+      error: `Unknown world type: ${worldType}`,
+      availableTypes: Object.keys(MCP_SERVERS)
+    });
+  }
+
+  try {
+    // Get the path after /mcp/:worldType/
+    const path = req.params[0] || '';
+    const url = `${worldUrl}/${path}`;
+
+    const body = req.body;
+
+    const response = await fetch(url, {
+      method: req.method,
+      headers: { 
+        'Content-Type': 'application/json',
+        ...req.headers.authorization && { 'Authorization': req.headers.authorization }
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MCP ${worldType} error: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error(`MCP ${worldType} error:`, error);
+    res.status(error.status || 500).json({ 
+      error: error.message,
+      worldType,
+      suggestions: [
+        'Check if MCP server is running',
+        'Verify MCP_SERVERS configuration in .env',
+        `Try: MCP_${worldType.toUpperCase()}_URL=http://your-server:port`
+      ]
+    });
+  }
+});
+
+// Direct MCP server endpoints for convenience
+app.post('/mcp/kanka/*', async (req, res) => {
+  const path = req.params[0] || '';
+  const url = `${MCP_SERVERS.kanka}/${path}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: req.method,
+      headers: { 
+        'Content-Type': 'application/json',
+        ...req.headers.authorization && { 'Authorization': req.headers.authorization }
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MCP Kanka error: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error('MCP Kanka error:', error);
+    res.status(error.status || 500).json({ 
+      error: error.message,
+      suggestions: [
+        'Check MCP Kanka server is running',
+        'Verify MCP_KANKA_URL in .env',
+        'Default: MCP_KANKA_URL=http://localhost:3333'
+      ]
+    });
+  }
+});
+
+app.post('/mcp/legendkeeper/*', async (req, res) => {
+  const path = req.params[0] || '';
+  const url = `${MCP_SERVERS.legendkeeper}/${path}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: req.method,
+      headers: { 
+        'Content-Type': 'application/json',
+        ...req.headers.authorization && { 'Authorization': req.headers.authorization }
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MCP LegendKeeper error: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error('MCP LegendKeeper error:', error);
+    res.status(error.status || 500).json({ 
+      error: error.message,
+      suggestions: [
+        'Check MCP LegendKeeper server is running',
+        'Verify MCP_LEGENDKEEPER_URL in .env',
+        'Default: MCP_LEGENDKEEPER_URL=http://localhost:3334'
+      ]
+    });
+  }
+});
+
+// World builder status endpoint
+app.get('/mcp/status', (req, res) => {
+  res.json({
+    mcp: {
+      kanka: MCP_SERVERS.kanka,
+      legendkeeper: MCP_SERVERS.legendkeeper,
+      generic: MCP_SERVERS.generic
+    }
+  });
+});
+
+// ====================
+// Start Server
+// ====================
+
 app.listen(PORT, () => {
   console.log(`Alexandria Librarian running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`OpenAI proxy:`);
-  console.log(`  - Chat: http://localhost:${PORT}/v1/chat/completions`);
-  console.log(`  - Embeddings: http://localhost:${PORT}/v1/embeddings`);
-  console.log(`  - Models: http://localhost:${PORT}/v1/models`);
+  console.log('');
+  console.log('Health check:');
+  console.log(`  http://localhost:${PORT}/health`);
+  console.log('');
+  console.log('OpenAI Proxy:');
+  console.log(`  Chat:    http://localhost:${PORT}/v1/chat/completions`);
+  console.log(`  Embeddings: http://localhost:${PORT}/v1/embeddings`);
+  console.log(`  Models:    http://localhost:${PORT}/v1/models`);
+  console.log('');
+  
   if (LOCAL_LLM_URL) {
-    console.log(`Local LLM proxy (${LOCAL_LLM_URL}):`);
-    console.log(`  - Chat: http://localhost:${PORT}/v1/local/chat/completions`);
-    console.log(`  - Embeddings: http://localhost:${PORT}/v1/local/embeddings`);
+    console.log('Local LLM Proxy:');
+    console.log(`  Chat:    http://localhost:${PORT}/v1/local/chat/completions`);
+    console.log(`  Embeddings: http://localhost:${PORT}/v1/local/embeddings`);
+    console.log(`  URL:     ${LOCAL_LLM_URL}`);
+    console.log('');
   }
+  
+  console.log('MCP World Builder Gateway:');
+  console.log(`  Status:     http://localhost:${PORT}/mcp/status`);
+  console.log(`  Generic:    http://localhost:${PORT}/mcp/:worldType/*`);
+  console.log(`  Kanka:      http://localhost:${PORT}/mcp/kanka/*`);
+  console.log(`  LegendKeeper: http://localhost:${PORT}/mcp/legendkeeper/*`);
+  console.log('');
 });
