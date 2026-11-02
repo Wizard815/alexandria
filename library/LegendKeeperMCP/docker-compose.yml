@@ -1,0 +1,24 @@
+# LegendKeeper MCP server (HTTP transport)
+# Endpoint: http://192.168.20.7:8000/mcp   (auth: Bearer token from .env)
+# Portable to Unraid: copy this file + .env, or recreate as a Docker template
+# with the same image/env/port.
+services:
+  legendkeeper-mcp:
+    image: ghcr.io/chase-roohms/legendkeeper-mcp:latest
+    container_name: legendkeeper-mcp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MCP_TRANSPORT: http
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env (e.g. openssl rand -hex 32)}
+    ports:
+      - "8000:8000" # LAN-reachable; protected by MCP_AUTH_TOKEN
+    volumes:
+      - ./uploads:/uploads:ro # images you want the assistant to be able to upload
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

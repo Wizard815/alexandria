@@ -1,0 +1,24 @@
+{
+  "name": "alexandria-root",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "librarian",
+    "embeddings",
+    "library",
+    "scribes",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:librarian": "npm run dev -w librarian",
+    "dev:embeddings": "npm run dev -w embeddings",
+    "dev:desktop": "npm run dev -w desktop",
+    "dev:mobile": "npm run start -w mobile",
+    "dev:all": "concurrently 'npm run dev:librarian' 'npm run dev:embeddings'",
+    "build": "npm run build -w packages/schema && npm run build -w packages/client",
+    "test": "npm run test -w packages/schema && npm run test -w packages/client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
