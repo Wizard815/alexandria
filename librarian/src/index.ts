@@ -2,27 +2,37 @@ import express from 'express';
 import cors from 'cors';
 import { OpenAI } from 'openai';
 import { MCPModuleLoader } from './mcp/loader';
+import adminRoutes from './admin/routes';
+import playerApiRoutes from './player-api/routes';
 
 const app = express();
-const PORT = process.env.OPENAI_PROXY_PORT || 8080;
+const PORT = parseInt(process.env.LIBRARIAN_PORT || '8090');
 
 app.use(cors());
 app.use(express.json());
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-});
-
+// Initialize module loader
 const moduleLoader = new MCPModuleLoader();
+app.set('moduleLoader', moduleLoader);
 
+// Serve admin GUI
+app.use('/admin', express.static('admin-gui'));
+
+// Health check (no auth required)
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    mcpModules: moduleLoader.getModuleNames()
+    version: '2.0.0',
+    mcpModules: moduleLoader.getModuleNames(),
+    port: PORT
   });
+});
+
+// OpenAI proxy
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
 });
 
 app.post('/v1/chat/completions', async (req, res) => {
@@ -60,6 +70,7 @@ app.get('/v1/models', async (req, res) => {
   }
 });
 
+// Local LLM proxy
 const LOCAL_LLM_URL = process.env.LOCAL_LLM_URL;
 
 app.post('/v1/local/chat/completions', async (req, res) => {
@@ -94,11 +105,12 @@ app.post('/v1/local/embeddings', async (req, res) => {
   }
 });
 
+// MCP endpoints
 app.post('/v1/mcp/load', async (req, res) => {
   try {
-    const { type, apiKey, campaignId, projectId, apiUrl } = req.body;
+    const { type, apiKey, campaignId, projectId, apiUrl, githubUrl } = req.body;
     if (!type) return res.status(400).json({ error: 'Module type is required' });
-    const config = { type, apiKey, campaignId, projectId, apiUrl };
+    const config = { type, apiKey, campaignId, projectId, apiUrl, githubUrl };
     const module = await moduleLoader.loadModule(config);
     res.json({
       success: true,
@@ -113,10 +125,11 @@ app.post('/v1/mcp/load', async (req, res) => {
 
 app.post('/v1/mcp/unload', async (req, res) => {
   try {
-    const { type } = req.body;
-    if (!type) return res.status(400).json({ error: 'Module type is required' });
-    await moduleLoader.unloadModule(type);
-    res.json({ success: true, message: `Unloaded MCP module: ${type}` });
+    const { type, repoName } = req.body;
+    if (!type && !repoName) return res.status(400).json({ error: 'type or repoName is required' });
+    const identifier = repoName || type;
+    await moduleLoader.unloadModule(identifier);
+    res.json({ success: true, message: `Unloaded MCP module: ${identifier}` });
   } catch (error: any) {
     console.error('Error unloading MCP module:', error);
     res.status(500).json({ error: error.message });
@@ -187,10 +200,31 @@ app.post('/v1/mcp/:type/*', async (req, res) => {
   }
 });
 
+// Admin API routes
+app.use('/api/admin', adminRoutes);
+
+// Player API routes
+app.use('/api/player', playerApiRoutes);
+
+// Library API routes (unified)
+app.use('/api/library', (req, res) => {
+  res.json({
+    message: 'Library API available',
+    endpoints: {
+      admin: '/api/admin/*',
+      player: '/api/player/*'
+    }
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Alexandria Librarian running on port ${PORT}`);
   console.log('Health: http://localhost:' + PORT + '/health');
+  console.log('Admin UI: http://localhost:' + PORT + '/admin');
   console.log('OpenAI: /v1/chat/completions, /v1/embeddings, /v1/models');
   console.log('Local LLM: /v1/local/chat/completions, /v1/local/embeddings');
   console.log('MCP: /v1/mcp/load, /v1/mcp/unload, /v1/mcp/modules, /v1/mcp/:type/status, /v1/mcp/:type/*');
+  console.log('Admin API: /api/admin/*');
+  console.log('Player API: /api/player/*');
+  console.log('Library API: /api/library/*');
 });
