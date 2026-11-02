@@ -1,0 +1,17 @@
+{
+    auto_https off
+}
+
+:80
+
+route /api/* {
+    reverse_proxy librarian:8080
+}
+
+route /admin/* {
+    file_server
+}
+
+route / {
+    file_server
+}
