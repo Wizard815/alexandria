@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS invites (
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('vault', 'git', 'kanka')),
+  kind TEXT NOT NULL CHECK (kind IN ('vault', 'git', 'kanka', 'mcp')),
   name TEXT NOT NULL,
   config TEXT NOT NULL DEFAULT '{}',
   default_visibility TEXT NOT NULL DEFAULT 'dm',

@@ -15,6 +15,8 @@ export default function libraryRoutes(d: Deps) {
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   r.get('/pages/:id', (req, res) => res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer)));
   r.get('/search', (req, res) => res.json(L.search(ctx(res).world.id, str(req.query.q, 'q', { max: 200 }), ctx(res).viewer)));
+  // DM: shared pages that look like they contain DM notes written as prose.
+  r.get('/lint', requireDM, (_req, res) => res.json(L.lint(ctx(res).world.id)));
   r.get('/relations', (_req, res) => res.json(L.relations(ctx(res).world.id, ctx(res).viewer)));
 
   // Write a page: either { markdown } with frontmatter in it, or

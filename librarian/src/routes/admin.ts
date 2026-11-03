@@ -132,7 +132,7 @@ export default function adminRoutes(d: Deps) {
   });
   r.post('/worlds/:id/sources', (req, res) => {
     if (!one(db, 'SELECT 1 FROM worlds WHERE id = ?', String(req.params.id))) throw new HttpError(404, 'World not found');
-    const kind = oneOf(req.body?.kind, 'kind', ['vault', 'git', 'kanka'] as const);
+    const kind = oneOf(req.body?.kind, 'kind', ['vault', 'git', 'kanka', 'mcp'] as const);
     const cfg = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
     validateConfig(kind, cfg, d.vaultsDir);
     const sid = id('src_');
@@ -145,7 +145,7 @@ export default function adminRoutes(d: Deps) {
     const src = one<SourceRow>(db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));
     if (!src) throw new HttpError(404, 'Source not found');
     try {
-      const n = await syncSource(src, { library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch }, me(res));
+      const n = await syncSource(src, { library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env }, me(res));
       run(db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${n} pages`, src.id);
       audit(db, src.world_id, me(res), 'source.sync', `${src.id} ${n}`);
       res.json({ pages: n });
