@@ -30,7 +30,7 @@ docker-compose up -d --build
 
 ### 3. Access Admin GUI
 
-Open http://localhost:8090/admin (default: user `admin`, password `changeme123`)
+Create the admin on first run (the first account is the admin): `curl -X POST localhost:8090/api/setup -H 'Content-Type: application/json' -d '{"username":"wizard","password":"at least ten characters"}'`. See `librarian/README.md`.
 
 ## Features
 
@@ -62,8 +62,8 @@ Open http://localhost:8090/admin (default: user `admin`, password `changeme123`)
 ### Librarian Configuration
 ```
 LIBRARIAN_PORT=8090
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=changeme123
+ALX_DATA_DIR=/data
+ALX_VAULTS_DIR=/vaults
 ```
 
 ### Model Configuration

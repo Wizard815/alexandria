@@ -1,31 +1,14 @@
-# Alexandria Librarian - Dockerfile
-
-FROM node:20-alpine
-
+# Alexandria librarian
+FROM node:24-alpine
 WORKDIR /app
-
-# Install git for MCP repository management
+# git is used by git sources (cloned read-only into the data folder)
 RUN apk add --no-cache git
-
-# Install dependencies
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copy source
-COPY src/ ./src/
+COPY package.json ./
+RUN npm install --omit=dev --no-audit --no-fund
 COPY tsconfig.json ./
-
-# Copy admin GUI
-COPY ../library/admin-gui ./admin-gui
-
-# Create MCP modules directory
-RUN mkdir -p /app/mcp-modules
-
-# Build
-RUN npm run build
-
-# Expose port (default 8090)
+COPY src ./src
+ENV ALX_DATA_DIR=/data LIBRARIAN_PORT=8090
+VOLUME /data
 EXPOSE 8090
-
-# Run
-CMD ["node", "dist/index.js"]
+USER node
+CMD ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "src/index.ts"]
