@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { type DB, one, all, run, tx } from './db.ts';
 import { type FM, type FMValue, joinFrontmatter, splitFrontmatter } from './frontmatter.ts';
-import { normVisibility, playerCopy, type Viewer } from './policy.ts';
+import { normVisibility, playerCopy, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
 import { HttpError, id, now } from './util.ts';
 
 export interface PageInput {
@@ -85,14 +85,19 @@ export class Library {
     this.dataDir = dataDir;
   }
 
-  save(worldId: string, input: PageInput, by: string | null) {
+  /**
+   * Save a page. In batch mode (imports) the player copy is left empty until
+   * rebuildPlayerCopies runs at the end, so players never see a half-scrubbed
+   * page while a sync is running.
+   */
+  save(worldId: string, input: PageInput, by: string | null, opts: { batch?: boolean } = {}) {
     const p = safePagePath(input.path);
     const fm: FM = { ...(input.frontmatter ?? {}) };
     const visibility = normVisibility(input.visibility ?? fm.visibility ?? null);
     const title = String(input.title || fm.title || path.basename(p, '.md')).slice(0, 200);
     const body = input.body ?? '';
     if (body.length > 2_000_000) throw new HttpError(413, 'Page too large');
-    const pc = playerCopy(visibility, fm, body);
+    const pc = opts.batch ? null : playerCopy(visibility, fm, body);
     const existing = one<{ id: string }>(this.db, 'SELECT id FROM pages WHERE world_id = ? AND path = ?', worldId, p);
     const pid = existing?.id ?? id('pg_');
     tx(this.db, () => {
@@ -113,8 +118,42 @@ export class Library {
           id('rel_'), worldId, title, r.to, r.kind, !r.secret && visibility === 'party' ? 'party' : 'dm', pid);
       }
     });
-    this.mirror(worldId, p, fm, body, visibility, pc);
+    if (!opts.batch) this.rebuildPlayerCopies(worldId);
+    else this.mirror(worldId, p, fm, body, visibility, null);
     return { id: pid, path: p, title, visibility };
+  }
+
+  /** Shared pages whose player copy still reads like it has DM notes in it. */
+  lint(worldId: string) {
+    return all<any>(this.db, `SELECT id, path, title, player_body FROM pages WHERE world_id = ? AND player_body IS NOT NULL`, worldId)
+      .map((p) => ({ id: p.id, path: p.path, title: p.title, hints: secretHints(p.player_body) }))
+      .filter((p) => p.hints.length);
+  }
+
+  /** Titles (lower case) of pages players must not learn about. */
+  hiddenTitles(worldId: string): Set<string> {
+    return new Set(all<{ t: string }>(this.db, `SELECT lower(title) AS t FROM pages WHERE world_id = ? AND visibility <> 'party'`, worldId).map((r) => r.t));
+  }
+
+  /**
+   * Recompute every player copy in a world: redact DM parts, then replace
+   * links to DM-only pages. Runs after each DM save and after each sync,
+   * because hiding one page changes what other pages may say about it.
+   */
+  rebuildPlayerCopies(worldId: string) {
+    const hidden = this.hiddenTitles(worldId);
+    const pages = all<any>(this.db, 'SELECT id, path, title, visibility, frontmatter, body FROM pages WHERE world_id = ?', worldId);
+    tx(this.db, () => {
+      run(this.db, 'DELETE FROM fts_party WHERE world_id = ?', worldId);
+      for (const pg of pages) {
+        const fm = JSON.parse(pg.frontmatter);
+        let pc = playerCopy(pg.visibility, fm, pg.body);
+        if (pc) pc = { fm: scrubHiddenValues(pc.fm, hidden), body: scrubHiddenLinks(pc.body, hidden) };
+        run(this.db, 'UPDATE pages SET player_frontmatter = ?, player_body = ? WHERE id = ?', pc ? JSON.stringify(pc.fm) : null, pc ? pc.body : null, pg.id);
+        if (pc) run(this.db, 'INSERT INTO fts_party (page_id, world_id, title, body) VALUES (?, ?, ?, ?)', pg.id, worldId, pg.title, pc.body);
+        this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc);
+      }
+    });
   }
 
   remove(worldId: string, pageId: string) {
@@ -127,6 +166,7 @@ export class Library {
     });
     const dir = this.worldDir(worldId);
     if (dir) for (const sub of ['vault', 'party']) fs.rmSync(path.join(dir, sub, pg.path), { force: true });
+    this.rebuildPlayerCopies(worldId);
   }
 
   /** Pages for this viewer. Players only ever get the player copy. */
@@ -180,12 +220,16 @@ export class Library {
         else if (ent.isFile() && ent.name.toLowerCase().endsWith('.md')) {
           const { fm, body } = splitFrontmatter(fs.readFileSync(full, 'utf8'));
           const rel = path.relative(root, full).split(path.sep).join('/');
-          this.save(worldId, { path: rel, body, frontmatter: fm, visibility: (fm.visibility as string) ?? defaultVisibility, sourceId }, by);
+          this.save(worldId, { path: rel, body, frontmatter: fm, visibility: (fm.visibility as string) ?? defaultVisibility, sourceId }, by, { batch: true });
           count++;
         }
       }
     };
-    walk(root);
+    try {
+      walk(root);
+    } finally {
+      this.rebuildPlayerCopies(worldId);
+    }
     return count;
   }
 
