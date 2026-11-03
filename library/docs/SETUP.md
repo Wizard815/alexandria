@@ -55,12 +55,8 @@ cat .env
 
 ### Required Configuration
 
-#### Admin Credentials
-```env
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=changeme123
-```
-Password can contain special characters like `$`, `!`, `@`, `#`, `%`, etc.
+#### Admin account
+There is no default password. On first run, create the admin with `POST /api/setup` (see `librarian/README.md`). The first account is always the admin.
 
 #### MCP Module Configuration
 Each MCP module needs a GitHub URL:
@@ -218,7 +214,7 @@ Each scribe:
 ### Test Admin GUI
 ```
 Open http://localhost:8090/admin
-Login: admin / changeme123
+Create the admin on first run (the first account is the admin): `curl -X POST localhost:8090/api/setup -H 'Content-Type: application/json' -d '{"username":"wizard","password":"at least ten characters"}'`. See `librarian/README.md`.
 ```
 
 ### Test Librarian Health
@@ -229,10 +225,10 @@ curl http://localhost:8090/health
 ### Test Admin API
 ```bash
 # Get overview
-curl -H "Authorization: Bearer $(echo -n 'admin:changeme123' | base64)" http://localhost:8090/api/admin/overview
+curl -H "Authorization: Bearer $ALX_TOKEN" http://localhost:8090/api/admin/overview
 
 # List scribes
-curl -H "Authorization: Bearer $(echo -n 'admin:changeme123' | base64)" http://localhost:8090/api/admin/scribes
+curl -H "Authorization: Bearer $ALX_TOKEN" http://localhost:8090/api/admin/accounts
 ```
 
 ### Test MCP Module Load
@@ -252,7 +248,7 @@ Use the Admin GUI to load a module from a GitHub URL.
 - Review logs: `docker-compose logs librarian`
 
 ### Authentication failures
-- Verify `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set
+- Sign in with the account you made at `POST /api/setup`; an admin can issue a reset code from `POST /api/admin/accounts/:id/reset-code`
 - Check Authorization header format: `Bearer base64(username:password)`
 - Ensure admin credentials in `.env` are correct
 
