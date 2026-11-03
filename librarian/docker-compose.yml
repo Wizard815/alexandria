@@ -1,38 +1,15 @@
-# Alexandria Librarian - Docker Configuration
-
-version: '3.8'
-
+# Alexandria librarian
 services:
   librarian:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     ports:
-      - "${OPENAI_PROXY_PORT:-8080}:8080"
+      - "${LIBRARIAN_PORT:-8090}:8090"
+    env_file: .env
     environment:
-      # OpenAI
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
-      - OPENAI_PROXY_PORT=${OPENAI_PROXY_PORT:-8080}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
-      
-      # Local LLM
-      - LOCAL_LLM_URL=${LOCAL_LLM_URL}
-      - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL}
-      
-      # MCP World Builders
-      - MCP_KANKA_URL=${MCP_KANKA_URL}
-      - MCP_LEGENDKEEPER_URL=${MCP_LEGENDKEEPER_URL}
-      - MCP_GENERIC_URL=${MCP_GENERIC_URL}
-      
-      # Embedding DB
-      - EMBEDDING_DB_URL=${EMBEDDING_DB_URL}
+      ALX_DATA_DIR: /data
+      ALX_VAULTS_DIR: /vaults
     volumes:
-      - ./logs:/app/logs
+      - ./data:/data
+      # Folders of Markdown (Obsidian, Lokus, Otterly vaults) the admin may add as sources
+      - ${VAULTS_DIR:-./vaults}:/vaults:ro
     restart: unless-stopped
-    networks:
-      - alexandria-network
-
-networks:
-  alexandria-network:
-    driver: bridge
