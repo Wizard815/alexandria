@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canSee, redactMarkdown, playerFrontmatter, healthForPlayers, mergeSettings, DEFAULT_SETTINGS } from '../src/core/policy.ts';
+import { canSee, secretHints, redactMarkdown, playerFrontmatter, healthForPlayers, mergeSettings, DEFAULT_SETTINGS } from '../src/core/policy.ts';
 import { splitFrontmatter } from '../src/core/frontmatter.ts';
 import { relationsFromFrontmatter } from '../src/core/library.ts';
 
@@ -52,4 +52,9 @@ test('TestPolicy_HealthWordsAndSettings', () => {
   assert.throws(() => mergeSettings(DEFAULT_SETTINGS, { coins: 'diamonds' }));
   assert.throws(() => mergeSettings(DEFAULT_SETTINGS, { trackWeight: 'yes' }));
   assert.equal(mergeSettings(DEFAULT_SETTINGS, { messageDays: null }).messageDays, null);
+});
+
+test('TestPolicy_SecretHintsFlagProseSecrets', () => {
+  assert.deepEqual(secretHints('Publicly known: a port.\nThe secret: smugglers.\n**DM note:** x\nfine'), ['line 2', 'line 3']);
+  assert.deepEqual(secretHints('A secretive town. Dominic is a gem merchant.'), []);
 });

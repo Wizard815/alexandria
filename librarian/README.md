@@ -119,13 +119,24 @@ source's `defaultVisibility` is `party` or a page says `visibility: party`.
 - **kanka**: a Kanka campaign. Config: `{"campaignId": "123", "token": "…"}`.
   Entities Kanka marks private are always DM-only. The token is never sent
   back by the API.
+- **mcp**: an MCP server, either the LegendKeeper MCP or mcp-kanka, over
+  HTTP or a local server the operator listed in `ALX_MCP_STDIO`. Only read
+  tools are called. See [docs/MCP_SOURCES.md](docs/MCP_SOURCES.md) for
+  setup and how each server marks DM-only content.
+
+After every sync, player copies are rebuilt:
+- links to DM-only pages become `(hidden)`, so players don't learn those
+  pages' names
+- `GET /library/lint` (DM) lists shared pages that still read like DM
+  notes, such as "The secret:" or "DM note:"
 
 ## Not built yet
 
 - The old MCP module gateway in `src/mcp/` isn't wired in. It doesn't
   compile, and it shells out to `git` with unescaped input. A world's
   Kanka, git and vault data now come in through sources instead.
-- LegendKeeper as a source.
+- Importing Kanka relations, timelines and reminders, and LegendKeeper
+  maps and timelines (see docs/MCP_SOURCES.md).
 - Writing to the calendar from a calendar app (CalDAV write-back). The
   feed is a read-only iCalendar subscription, which Apple Calendar,
   Thunderbird, DAVx⁵ and Google can all subscribe to.
