@@ -104,6 +104,40 @@ export function redactMarkdown(body: string): string {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
+/**
+ * Replace wiki links to DM-only pages so players don't learn those pages'
+ * names: [[Hidden Cult]] -> (hidden), [[Hidden Cult|the cult]] -> the cult.
+ */
+export function scrubHiddenLinks(text: string, hidden: Set<string>): string {
+  if (!hidden.size) return text;
+  return text.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (m, target: string, label?: string) => {
+    if (!hidden.has(target.trim().toLowerCase())) return m;
+    return label && label.trim().toLowerCase() !== target.trim().toLowerCase() ? label : '(hidden)';
+  });
+}
+
+export function scrubHiddenValues<T>(v: T, hidden: Set<string>): T {
+  if (typeof v === 'string') return scrubHiddenLinks(v, hidden) as T;
+  if (Array.isArray(v)) return v.map((x) => scrubHiddenValues(x, hidden)) as T;
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubHiddenValues(x, hidden)])) as T;
+  return v;
+}
+
+/**
+ * Phrases that suggest DM-only text written as plain prose ("The secret:",
+ * "DM note:") rather than in a secret block. The leak guard cannot know such
+ * text is secret, so shared pages containing it are listed for the DM.
+ */
+const SECRET_HINT = /\b(dm|gm)[ -]?(only|notes?|brief)\b|\bthe secret\b|\bsecret(ly)?:|\bplayers? (don't|do not|must not) know\b|\bhidden from (the )?players?\b/i;
+
+export function secretHints(body: string): string[] {
+  const out: string[] = [];
+  body.split('\n').forEach((line, i) => {
+    if (SECRET_HINT.test(line)) out.push(`line ${i + 1}`);
+  });
+  return out;
+}
+
 /** Player copy of a page, or null when the page is not shared with the party. */
 export function playerCopy(visibility: string, fm: FM, body: string): { fm: FM; body: string } | null {
   if (normVisibility(visibility) !== 'party') return null;
