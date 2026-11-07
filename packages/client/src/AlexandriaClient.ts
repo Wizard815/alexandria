@@ -80,6 +80,9 @@ export class WorldClient {
     return this.c.request<T>(method, `/api/worlds/${encodeURIComponent(this.id)}${path}`, body, query);
   }
 
+  /** Any world API call, e.g. call('POST', '/live/combat/next'). Path is relative to /api/worlds/:world. */
+  call<T = any>(method: string, path: string, body?: unknown, query?: Q) { return this.r<T>(method, path, body, query); }
+
   info() { return this.r('GET', ''); }
   members() { return this.r<any[]>('GET', '/members'); }
   settings() { return this.r('GET', '/settings'); }
@@ -185,6 +188,8 @@ export class WorldClient {
           if (data.length) onEvent({ type, data: JSON.parse(data.join('\n')) });
         }
       }
+      // The server closed the stream (restart, deploy): let the caller reconnect.
+      if (!ctl.signal.aborted) throw new AlexandriaError(0, 'Live updates closed');
     })().catch((err) => {
       if (!ctl.signal.aborted) onError?.(err);
     });
