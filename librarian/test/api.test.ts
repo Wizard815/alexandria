@@ -355,3 +355,34 @@ test('TestModels_ProxyNeedsAuth', async () => {
   assert.equal((await call('POST', '/v1/chat/completions', undefined, { messages: [] })).status, 401);
   assert.equal((await call('GET', '/v1/models', T.jess)).status, 503, 'no endpoint configured');
 });
+
+test('TestKeys_ReadKeysCannotWriteAndOnlyDmGetsWrite', async () => {
+  const rk = (await ok('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'phone', worldId: W })).key;
+  assert.equal((await call('POST', `/api/worlds/${W}/messages`, rk, { members: [ID.tom] })).status, 403, 'read key cannot post');
+  assert.equal((await call('GET', `/api/worlds/${W}/library/pages`, rk)).status, 200);
+  assert.equal((await call('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'w', worldId: W, access: 'write' })).status, 403, 'players get read keys only');
+  const wk = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', label: 'dm tools', worldId: W, access: 'write' })).key;
+  await ok('PUT', `/api/worlds/${W}/library/pages`, wk, { path: 'from-key', body: 'hi' });
+});
+
+test('TestMcpServer_ReadAndWriteTools', async () => {
+  const rpc = async (key: string, method: string, params: any = {}) => {
+    const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    return { status: r.status, body: await r.json() as any };
+  };
+  const rk = (await ok('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'ai', worldId: W })).key;
+  const wk = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', label: 'ai', worldId: W, access: 'write' })).key;
+  assert.equal((await rpc(T.jess, 'initialize')).status, 401, 'sessions cannot use /mcp');
+  assert.ok((await rpc(rk, 'initialize')).body.result.instructions.includes('read-only'));
+  const readTools = (await rpc(rk, 'tools/list')).body.result.tools.map((t: any) => t.name);
+  const writeTools = (await rpc(wk, 'tools/list')).body.result.tools.map((t: any) => t.name);
+  assert.ok(readTools.includes('search_library') && !readTools.includes('save_page'));
+  assert.ok(writeTools.includes('save_page'));
+  const denied = await rpc(rk, 'tools/call', { name: 'save_page', arguments: { path: 'x', markdown: 'y' } });
+  assert.ok(denied.body.error, 'read key cannot call write tools');
+  const s = await rpc(rk, 'tools/call', { name: 'search_library', arguments: { query: 'poisoned' } });
+  assert.equal(JSON.parse(s.body.result.content[0].text).length, 0, 'player AI search uses the party index');
+  const saved = await rpc(wk, 'tools/call', { name: 'save_page', arguments: { path: 'mcp/Note', markdown: 'From the DM AI.' } });
+  assert.equal(saved.body.result.isError, false);
+  assert.equal(JSON.parse(saved.body.result.content[0].text).visibility, 'dm');
+});
