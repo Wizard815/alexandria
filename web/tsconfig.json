@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "noUnusedLocals": false,
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "@alx/client": [
+        "../packages/client/src/AlexandriaClient.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "../packages/client/src/AlexandriaClient.ts"
+  ]
+}
