@@ -1,130 +1,82 @@
-# Alexandria - The D&D World App
+# Alexandria
 
-A modern D&D campaign management system with a librarian (mother container), library (LegendKeeper MCP), and scribes (desktop/mobile apps).
-
-## Architecture
+A D&D campaign app for the whole table. The DM runs the world: library,
+combat, quick events, calendar, inventory, map. Players get their own view
+of it, on a laptop or a phone. Nothing the DM keeps secret reaches a
+player.
 
 ```
-Alexandria/
-├── librarian/          # Mother container - OpenAI proxy, embedding DB
-├── library/            # LegendKeeper MCP server (the library)
-├── scribes/
-│   ├── desktop/        # Desktop app for DM/Player
-│   └── mobile/         # Mobile app for on-the-go access
-└── embeddings/         # Embedding database for local search
+alexandria/
+├── librarian/   # The server: API, live updates, MCP endpoint, leak guard (Node.js)
+├── web/         # The app: admin, DM and player screens (React + Vite)
+├── packages/
+│   └── client/  # Typed API client used by the app (and future desktop/mobile builds)
+├── library/     # Docker setup for the LegendKeeper MCP server
+└── scribes/     # Older desktop/mobile skeletons
 ```
 
-## Roles
+## Run it
 
-- **Librarian (librarian/)**: The central container that handles:
-  - OpenAI API proxy for parallel LLM usage
-  - Embedding database for semantic search
-  - Connection to local LLMs (Argos, Ollama, etc.)
-  
-- **Library (library/)**: The LegendKeeper MCP server that provides:
-  - D&D world data access
-  - Node/page management
-  - Map and marker tools
-  
-- **Scribes (scribes/)**: Desktop and mobile apps that:
-  - Search the library using embeddings
-  - Read and write D&D content
-  - Sync with the librarian for AI assistance
-
-## Quick Start
-
-### 1. Configure the Library (LegendKeeper MCP)
+Needs Node 22.13 or newer.
 
 ```bash
-cd library
-cp .env.example .env
-# Edit .env with your LegendKeeper API key
-docker compose up -d
+cd web && npm install && npm run build && cd ..   # build the app
+cd librarian && npm install && npm start           # serves the app and the API on :8090
 ```
 
-### 2. Configure the Librarian
+Open http://localhost:8090. The first visit asks you to create the admin
+account. Then:
+1. **Library admin → Worlds:** make a world and pick its DM.
+2. **As the DM, World settings → Invites:** make an invite code for each
+   player.
+3. **Players open `/join`**, enter the code and pick a username and
+   password. That's all they set up.
 
-```bash
-cd librarian
-npm install
-cp .env.example .env
-# Edit .env with your OpenAI API key
-npm run dev
-```
+Docker: `docker compose up -d --build` builds the app and runs everything
+in one container (data in `./data`).
 
-### 3. Run the Embedding Database
+Development: `npm run dev:librarian` and `npm run dev:web`. Vite serves
+the app on :5173 and passes API calls to the librarian.
 
-```bash
-cd embeddings
-npm install
-cp .env.example .env
-npm run dev
-```
+## Who can see what
 
-### 4. Build the Scribes
+- **Admin** is the plumbing: accounts, worlds, sources. It opens no world's
+  secrets.
+- **DM** sees and changes everything in their world.
+- **Players** see only what the DM shares. Every record is checked on the
+  server. Library pages get a player copy with DM-only parts removed.
+  Players' "only me" notes are hidden from the DM too.
 
-```bash
-cd scribes/desktop
-npm install
-npm run dev
+See [librarian/README.md](librarian/README.md) for the rules and the
+full API.
 
-cd scribes/mobile
-npm install
-npm start
-```
+## Connect an AI (MCP)
 
-## Environment Variables
+The librarian is an MCP server at `/mcp`.
+- **Players get a read-only key automatically when they join.** The join
+  screen shows ready-to-paste settings for Claude, Cursor and Claude Code.
+  Their AI sees only what that player can see, and can't change anything.
+- **The DM can make a write key** under "Connect an AI". Their AI can then
+  save pages, add NPCs, schedule sessions, send quick events and hand out
+  items.
 
-### Librarian (.env)
-```
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_PROXY_PORT=8080
-EMBEDDING_MODEL=text-embedding-3-small
-```
+Keys are stored only as hashes and shown once. Read keys refuse every
+write, and a write key stops writing if its owner stops being the DM.
 
-### Library (.env)
-```
-LEGENDKEEPER_API_KEY=your_legendkeeper_api_key
-MCP_AUTH_TOKEN=your_secure_token
-MCP_TRANSPORT=http
-```
+## World sources
 
-### Embeddings (.env)
-```
-EMBEDDING_DB_PORT=8081
-OPENAI_PROXY_URL=http://localhost:8080
-EMBEDDING_MODEL=text-embedding-3-small
-```
+A world's library can come from LegendKeeper or Kanka (through their MCP
+servers or the Kanka API), from an Obsidian-style Markdown vault, or from
+a git repo of reference files. Imports are read-only, and anything a
+source hides stays DM-only. See
+[librarian/docs/MCP_SOURCES.md](librarian/docs/MCP_SOURCES.md).
 
-## How It Works
+## Models
 
-1. **Scribes** connect to the **Librarian** for AI-powered search
-2. The **Librarian** proxies OpenAI API calls and manages embeddings
-3. **Embeddings** stores vector representations of D&D content
-4. The **Library** (LegendKeeper MCP) provides structured D&D data
-5. When a scribe searches, it uses embeddings to find relevant content from the library
-
-## Local LLM Integration
-
-The Librarian can connect to local LLMs like:
-- **Argos**: Run your own models with llama.cpp
-- **Ollama**: Simple local LLM server
-- **LM Studio**: GUI for local models
-
-Configure in `librarian/.env`:
-```
-LOCAL_LLM_URL=http://localhost:11434
-LOCAL_LLM_MODEL=llama3:70b
-```
-
-## Platform Support
-
-- **Linux**: Desktop app via Tauri
-- **Windows**: Desktop app via Tauri
-- **macOS**: Desktop app via Tauri
-- **Android**: Mobile app via Expo
-- **iOS**: Mobile app via Expo
+`/v1/chat/completions`, `/v1/embeddings` and `/v1/models` pass through to
+any OpenAI-compatible endpoint: OpenAI, Argos, Ollama or LM Studio. Only
+signed-in callers can use them. Set `MODEL_BASE_URL` and `MODEL_API_KEY`
+(or `LOCAL_LLM_URL`) in `librarian/.env`.
 
 ## License
 

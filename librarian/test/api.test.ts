@@ -386,3 +386,20 @@ test('TestMcpServer_ReadAndWriteTools', async () => {
   assert.equal(saved.body.result.isError, false);
   assert.equal(JSON.parse(saved.body.result.content[0].text).visibility, 'dm');
 });
+
+test('TestJoin_AutoReadOnlyMcpKeyAndSignedInJoin', async () => {
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'newbie', password: 'player pass 123' });
+  assert.equal(j.mcp.access, 'read');
+  assert.ok(j.mcp.key.startsWith('alx_scr_') && j.mcp.url.endsWith('/mcp'));
+  assert.equal(j.mcp.config.mcpServers.alexandria.headers.Authorization, `Bearer ${j.mcp.key}`);
+  assert.equal((await call('POST', `/api/worlds/${W}/messages`, j.mcp.key, { members: [ID.tom] })).status, 403, 'auto key is read-only');
+  const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${j.mcp.key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  assert.ok(!(await r.json() as any).result.tools.some((t: any) => t.name === 'save_page'));
+  // An existing signed-in player joins another world with a code.
+  const w2 = await ok('POST', '/api/admin/worlds', T.admin, { name: 'Second World', dmAccountId: ID.dm });
+  const inv2 = await ok('POST', `/api/worlds/${w2.id}/invites`, T.dm, { role: 'player' });
+  const j2 = await ok('POST', '/api/join', T.tom, { code: inv2.code });
+  assert.equal(j2.account.id, ID.tom);
+  assert.equal(j2.token, T.tom);
+});
