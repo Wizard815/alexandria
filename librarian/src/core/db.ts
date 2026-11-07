@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   key_hash TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL,
   last_used_at TEXT,
-  revoked INTEGER NOT NULL DEFAULT 0
+  revoked INTEGER NOT NULL DEFAULT 0,
+  access TEXT NOT NULL DEFAULT 'read' CHECK (access IN ('read', 'write'))
 );
 
 CREATE TABLE IF NOT EXISTS reset_codes (
@@ -349,7 +350,15 @@ CREATE TABLE IF NOT EXISTS audit (
 export function openDb(file: string): DB {
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Small additive migrations for databases made by older versions. */
+function migrate(db: DB) {
+  const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as any[]).map((c) => c.name);
+  // Keys made before read/write access existed stay read-only.
+  if (!cols('api_keys').includes('access')) db.exec(`ALTER TABLE api_keys ADD COLUMN access TEXT NOT NULL DEFAULT 'read'`);
 }
 
 type Row = Record<string, any>;
