@@ -76,6 +76,28 @@ All rules live in `src/core/policy.ts`.
    their own world and never carry admin rights. Keys cannot mint keys.
    Keys and sessions are stored only as hashes.
 
+## Keys and the MCP endpoint
+
+| Key | Made by | Can do |
+|---|---|---|
+| Browser session `alx_ses_` | signing in | whatever the account's role allows |
+| Read key `alx_scr_` (`access: read`) | any member; made automatically when a player joins | GET only, in one world |
+| Write key `alx_scr_` (`access: write`) | the DM only | changes in that world while its owner is DM |
+| Admin key `alx_adm_` | admins | the admin API |
+
+`POST /mcp` is an MCP server (Streamable HTTP, stateless) that takes a
+scribe key as the bearer token.
+- A read key lists 11 read tools: `world_info`, `list_pages`,
+  `read_page`, `search_library`, `list_people`, `get_live`,
+  `list_calendar`, and more.
+- A DM's write key adds 8 write tools: `save_page`, `add_person`,
+  `add_quote`, `schedule_session`, `send_quick_event`, `add_item`,
+  `add_coin`, `decide_request`.
+
+Each tool calls the normal API with the caller's key, so the rules above
+apply to AI apps too. `POST /api/join` and `POST /api/keys` return
+ready-to-paste MCP settings (`mcp.config`, `mcp.claudeCode`).
+
 ## Screens → API
 
 All world routes are under `/api/worlds/:world` (id or slug). Send
@@ -83,7 +105,7 @@ All world routes are under `/api/worlds/:world` (id or slug). Send
 
 | Screen (canvas board) | Endpoints |
 |---|---|
-| Sign in, player sign-in | `POST /api/setup`, `POST /api/auth/login`, `POST /api/join` (invite code), `POST /api/auth/reset` |
+| Sign in, player sign-in | `POST /api/setup`, `POST /api/auth/login`, `POST /api/join` (invite code; with a session it adds the world to that account), `POST /api/auth/reset` |
 | Accounts & roles | `/api/admin/accounts` (create gives a one-time reset code), `PATCH …/:id`, `POST …/:id/reset-code` |
 | Worlds | `/api/admin/worlds`, `PUT /api/admin/worlds/:id/members/:account` |
 | World sources | `POST /api/admin/worlds/:id/sources` (vault, git, kanka), `POST /api/admin/sources/:sid/sync` |

@@ -1,4 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import { type DB, openDb, run } from './core/db.ts';
 import { EventHub } from './core/events.ts';
 import { Library } from './core/library.ts';
@@ -32,6 +34,8 @@ export interface Deps {
 }
 
 export interface AppOptions {
+  /** Built web app (web/dist). Served at / with a fallback to index.html. */
+  webDir?: string | null;
   dbFile?: string;
   dataDir?: string | null;
   vaultsDir?: string | null;
@@ -106,6 +110,16 @@ export function createApp(opts: AppOptions = {}) {
 
   app.use('/v1', authenticate(db), modelRoutes(deps));
   app.use('/mcp', mcpServerRoutes(deps));
+
+  if (opts.webDir && fs.existsSync(path.join(opts.webDir, 'index.html'))) {
+    const webDir = opts.webDir;
+    app.use(express.static(webDir, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (f.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+    // Any other GET that is not an API path is a page of the app.
+    app.get(/^\/(?!api\/|mcp|v1\/|dav\/|health).*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(path.join(webDir, 'index.html'));
+    });
+  }
 
   app.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

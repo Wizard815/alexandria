@@ -12,6 +12,8 @@ const { app } = createApp({
   dbFile: process.env.ALX_DB || path.join(dataDir, 'librarian.db'),
   dataDir,
   vaultsDir: process.env.ALX_VAULTS_DIR ? path.resolve(process.env.ALX_VAULTS_DIR) : null,
+  // The React app, built with `npm run build` in web/.
+  webDir: path.resolve(process.env.ALX_WEB_DIR || new URL('../../web/dist', import.meta.url).pathname),
 });
 
 app.listen(port, () => {

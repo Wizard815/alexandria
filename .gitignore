@@ -25,3 +25,7 @@ build/
 # Librarian runtime data
 librarian/data/
 librarian/vaults/
+
+# Root runtime data
+/data/
+/vaults/

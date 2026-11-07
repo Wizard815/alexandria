@@ -1,12 +1,24 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run, tx } from '../core/db.ts';
 import {
-  type Auth, authenticate, checkPassword, createAccount, createKey, createSession, hashPassword,
+  type Auth, authenticate, resolveToken, checkPassword, createAccount, createKey, createSession, hashPassword,
   validatePassword, validateUsername,
 } from '../core/auth.ts';
 import { HttpError, now, oneOf, sha256, str } from '../core/util.ts';
+
+/** Ready-to-paste MCP settings for a scribe key (Claude, Claude Code, Cursor...). */
+export function mcpConnection(req: Request, key: string, access: 'read' | 'write') {
+  const url = `${req.protocol}://${req.get('host')}/mcp`;
+  return {
+    url,
+    key,
+    access,
+    config: { mcpServers: { alexandria: { type: 'http', url, headers: { Authorization: `Bearer ${key}` } } } },
+    claudeCode: `claude mcp add --transport http alexandria ${url} --header "Authorization: Bearer ${key}"`,
+  };
+}
 
 export default function authRoutes(d: Deps) {
   const r = Router();
@@ -65,6 +77,10 @@ export default function authRoutes(d: Deps) {
   });
 
   // Join a world with an invite code from its DM.
+  // Join a world with an invite code from its DM. New players make an
+  // account here; someone already signed in (Bearer session) just joins.
+  // Every join also makes the player's read-only AI key for that world, so
+  // their MCP integration works with no setup.
   r.post('/join', (req, res) => {
     const code = str(req.body?.code, 'code', { max: 100 });
     d.throttle.check(`join|${req.ip}`);
@@ -73,17 +89,27 @@ export default function authRoutes(d: Deps) {
       d.throttle.fail(`join|${req.ip}`);
       throw new HttpError(400, 'That invite code is wrong or has expired');
     }
-    const username = validateUsername(req.body?.username);
-    const password = validatePassword(req.body?.password);
+    const h = req.headers.authorization;
+    const signedIn = h?.startsWith('Bearer alx_ses_') ? resolveToken(db, h.slice(7).trim()) : null;
     const character = str(req.body?.characterName, 'characterName', { max: 80, optional: true }) || null;
+    let token: string;
     const acc = tx(db, () => {
-      const a = createAccount(db, username, password, false, str(req.body?.displayName, 'displayName', { max: 60, optional: true }) || undefined);
+      let a;
+      if (signedIn) {
+        a = signedIn.account;
+        if (one(db, 'SELECT 1 FROM members WHERE world_id = ? AND account_id = ?', inv.world_id, a.id)) throw new HttpError(409, 'You are already in this world');
+      } else {
+        a = createAccount(db, validateUsername(req.body?.username), validatePassword(req.body?.password), false, str(req.body?.displayName, 'displayName', { max: 60, optional: true }) || undefined);
+      }
       run(db, 'INSERT INTO members (world_id, account_id, role, character_name) VALUES (?, ?, ?, ?)', inv.world_id, a.id, inv.role, character);
       run(db, 'UPDATE invites SET used_by = ? WHERE code_hash = ?', a.id, inv.code_hash);
       return a;
     });
-    audit(db, inv.world_id, acc.id, 'join', inv.role);
-    res.status(201).json({ account: acc, token: createSession(db, acc.id), worldId: inv.world_id });
+    token = signedIn ? h!.slice(7).trim() : createSession(db, acc.id);
+    const k = createKey(db, acc.id, 'scribe', 'AI connection (read-only, made at join)', inv.world_id, 'read');
+    audit(db, inv.world_id, acc.id, 'join', `${inv.role}${signedIn ? ' existing account' : ''}`);
+    const world = one<any>(db, 'SELECT slug FROM worlds WHERE id = ?', inv.world_id);
+    res.status(201).json({ account: acc, token, worldId: inv.world_id, worldSlug: world?.slug, mcp: mcpConnection(req, k.key, 'read') });
   });
 
   const A = authenticate(db);
@@ -145,7 +171,7 @@ export default function authRoutes(d: Deps) {
     }
     const k = createKey(db, auth.account.id, scope, label, worldId, access);
     audit(db, worldId, auth.account.id, 'key.create', `${scope} ${access} ${label}`);
-    res.status(201).json({ id: k.id, key: k.key, access, note: 'Copy this key now. It will not be shown again.' });
+    res.status(201).json({ id: k.id, key: k.key, access, note: 'Copy this key now. It will not be shown again.', ...(scope === 'scribe' ? { mcp: mcpConnection(req, k.key, access) } : {}) });
   });
   r.delete('/keys/:id', A, (req, res) => {
     const a = (res.locals.auth as Auth).account;
