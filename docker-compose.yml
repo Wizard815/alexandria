@@ -1,0 +1,16 @@
+# Alexandria in one container: open http://localhost:8090
+services:
+  alexandria:
+    build: .
+    ports:
+      - "${LIBRARIAN_PORT:-8090}:8090"
+    env_file:
+      - path: librarian/.env
+        required: false
+    environment:
+      ALX_DATA_DIR: /data
+      ALX_VAULTS_DIR: /vaults
+    volumes:
+      - ./data:/data
+      - ${VAULTS_DIR:-./vaults}:/vaults:ro
+    restart: unless-stopped

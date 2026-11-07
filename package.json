@@ -4,19 +4,14 @@
   "private": true,
   "workspaces": [
     "librarian",
-    "embeddings",
-    "library",
-    "scribes",
     "packages/*"
   ],
   "scripts": {
-    "dev:librarian": "npm run dev -w librarian",
-    "dev:embeddings": "npm run dev -w embeddings",
-    "dev:desktop": "npm run dev -w desktop",
-    "dev:mobile": "npm run start -w mobile",
-    "dev:all": "concurrently 'npm run dev:librarian' 'npm run dev:embeddings'",
-    "build": "npm run build -w packages/schema && npm run build -w packages/client",
-    "test": "npm run test -w packages/schema && npm run test -w packages/client"
+    "dev:librarian": "npm --prefix librarian run dev",
+    "dev:web": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix librarian start",
+    "test": "npm --prefix librarian test && npm --prefix web run check"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
