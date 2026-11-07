@@ -20,6 +20,8 @@ export interface Auth {
   account: Account;
   via: 'session' | 'admin_key' | 'scribe_key';
   keyWorldId: string | null;
+  /** read keys can only read; write keys and sessions are limited by role. */
+  access: 'read' | 'write';
 }
 
 export interface WorldCtx {
@@ -77,11 +79,11 @@ export function createSession(db: DB, accountId: string): string {
   return token;
 }
 
-export function createKey(db: DB, accountId: string, scope: 'admin' | 'scribe', label: string, worldId: string | null): { id: string; key: string } {
+export function createKey(db: DB, accountId: string, scope: 'admin' | 'scribe', label: string, worldId: string | null, access: 'read' | 'write' = 'read'): { id: string; key: string } {
   const key = secret(scope === 'admin' ? 'alx_adm_' : 'alx_scr_');
   const kid = id('key_');
-  run(db, 'INSERT INTO api_keys (id, account_id, scope, world_id, label, prefix, key_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    kid, accountId, scope, worldId, label, key.slice(0, 12), sha256(key), now());
+  run(db, 'INSERT INTO api_keys (id, account_id, scope, world_id, label, prefix, key_hash, created_at, access) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    kid, accountId, scope, worldId, label, key.slice(0, 12), sha256(key), now(), access);
   return { id: kid, key };
 }
 
@@ -90,15 +92,15 @@ export function resolveToken(db: DB, token: string): Auth | null {
   if (token.startsWith('alx_ses_')) {
     const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, s.expires_at FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ?`, sha256(token));
     if (!row || row.expires_at < now()) return null;
-    return { account: row, via: 'session', keyWorldId: null };
+    return { account: row, via: 'session', keyWorldId: null, access: 'write' };
   }
   if (token.startsWith('alx_adm_') || token.startsWith('alx_scr_')) {
-    const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, k.id AS key_id, k.scope, k.world_id FROM api_keys k JOIN accounts a ON a.id = k.account_id WHERE k.key_hash = ? AND k.revoked = 0`, sha256(token));
+    const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, k.id AS key_id, k.scope, k.world_id, k.access FROM api_keys k JOIN accounts a ON a.id = k.account_id WHERE k.key_hash = ? AND k.revoked = 0`, sha256(token));
     if (!row) return null;
     // An admin key stops working if its account loses the admin flag.
     if (row.scope === 'admin' && !row.is_admin) return null;
     run(db, 'UPDATE api_keys SET last_used_at = ? WHERE id = ?', now(), row.key_id);
-    return { account: row, via: row.scope === 'admin' ? 'admin_key' : 'scribe_key', keyWorldId: row.world_id };
+    return { account: row, via: row.scope === 'admin' ? 'admin_key' : 'scribe_key', keyWorldId: row.world_id, access: row.access === 'write' ? 'write' : 'read' };
   }
   return null;
 }
@@ -115,11 +117,14 @@ function bearer(req: Request): string | null {
   return null;
 }
 
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 export function authenticate(db: DB) {
   return (req: Request, res: Response, next: NextFunction) => {
     const tok = bearer(req);
     const auth = tok ? resolveToken(db, tok) : null;
     if (!auth) throw new HttpError(401, 'Sign in first');
+    if (auth.access === 'read' && !READ_METHODS.has(req.method)) throw new HttpError(403, 'This key is read-only');
     res.locals.auth = auth;
     next();
   };
@@ -146,6 +151,11 @@ export function loadWorld(db: DB) {
     if (auth.via === 'scribe_key' && auth.keyWorldId !== world.id) throw new HttpError(403, 'This key is for another world');
     const m = one<{ role: Role }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', world.id, auth.account.id);
     if (!m) throw new HttpError(404, 'World not found');
+    // A write key only writes while its owner is a DM of this world.
+    if (auth.via !== 'session' && auth.access === 'write' && m.role !== 'dm') {
+      auth.access = 'read';
+      if (!READ_METHODS.has(req.method)) throw new HttpError(403, 'Write keys work only for the DM of this world');
+    }
     const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role } };
     res.locals.w = ctx;
     next();
