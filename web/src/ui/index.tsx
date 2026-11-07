@@ -1,5 +1,5 @@
 // Shared building blocks. Keep screens made of these so both looks match.
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -25,12 +25,18 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 export function Field({ label, help, children }: { label: string; help?: ReactNode; children: ReactNode }) {
+  // Help text sits outside the <label> so it isn't read as part of the
+  // field's name; it is linked to the control with aria-describedby.
+  const helpId = useId();
+  const control = help && isValidElement(children) ? cloneElement(children as ReactElement<any>, { 'aria-describedby': helpId }) : children;
   return (
-    <label className="field">
-      <span className="label">{label}</span>
-      {children}
-      {help && <span className="tiny">{help}</span>}
-    </label>
+    <div className="field">
+      <label className="field" style={{ gap: 5 }}>
+        <span className="label">{label}</span>
+        {control}
+      </label>
+      {help && <span className="tiny" id={helpId}>{help}</span>}
+    </div>
   );
 }
 

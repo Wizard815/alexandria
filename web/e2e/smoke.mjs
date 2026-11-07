@@ -47,15 +47,15 @@ try {
   watch(dm, 'DM');
   await dm.goto(base + '/');
   await dm.waitForURL('**/setup');
-  await dm.getByLabel('Username').fill('wizard');
-  await dm.getByLabel('Password').fill('correct horse battery');
+  await dm.getByLabel('Username', { exact: true }).fill('wizard');
+  await dm.getByLabel('Password', { exact: true }).fill('correct horse battery');
   await dm.getByRole('button', { name: 'Create the admin account' }).click();
   await dm.waitForURL('**/admin/worlds');
   note('setup ok');
 
   // 2. Make a world in Library admin, the admin is its DM.
   await dm.getByRole('button', { name: 'New world' }).click();
-  await dm.getByLabel('Name').fill('BloodEarth');
+  await dm.getByLabel('Name', { exact: true }).fill('BloodEarth');
   await dm.getByRole('button', { name: 'Create world' }).click();
   await dm.getByRole('link', { name: 'Open' }).click();
   await dm.waitForURL('**/w/bloodearth/dm');
