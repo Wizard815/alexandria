@@ -18,6 +18,7 @@ import mapRoutes from './routes/map.ts';
 import peopleRoutes from './routes/people.ts';
 import whiteboardRoutes from './routes/whiteboard.ts';
 import modelRoutes from './routes/models.ts';
+import mcpServerRoutes from './routes/mcpServer.ts';
 
 export interface Deps {
   db: DB;
@@ -104,6 +105,7 @@ export function createApp(opts: AppOptions = {}) {
   app.get('/api/worlds', authenticate(db), listMyWorlds(deps));
 
   app.use('/v1', authenticate(db), modelRoutes(deps));
+  app.use('/mcp', mcpServerRoutes(deps));
 
   app.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
