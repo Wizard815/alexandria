@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Tabs, VisChip, useToast } from '../../ui/index.tsx';
-import { AskModal } from './Lore.tsx';
+import { AskModal } from '../library/AskModal.tsx';
 
 interface Req { id: string; author_id: string; kind: 'edit' | 'new' | 'question'; title: string; body: string; visibility: 'dm' | 'party'; status: 'open' | 'accepted' | 'rejected'; reply: string | null; created_at: string; decided_at: string | null }
 
