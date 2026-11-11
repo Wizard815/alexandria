@@ -73,7 +73,24 @@ export function createApp(opts: AppOptions = {}) {
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 'loopback');
+  // Behind Caddy/nginx, set ALX_TRUST_PROXY (e.g. "1" or "loopback, uniquelocal") so IPs and https are read right.
+  const tp = deps.env.ALX_TRUST_PROXY;
+  app.set('trust proxy', tp === undefined || tp === '' ? 'loopback' : /^\d+$/.test(tp) ? Number(tp) : tp === 'true' ? true : tp);
+  const started = Date.now();
+  // A simple per-IP limit for the API and MCP: protects a small server from runaway clients.
+  const limit = Number(deps.env.ALX_RATE_LIMIT ?? 900);
+  const hits = new Map<string, { n: number; at: number }>();
+  const sweep = setInterval(() => { const cut = Date.now() - 60_000; for (const [k, v] of hits) if (v.at < cut) hits.delete(k); }, 60_000);
+  sweep.unref();
+  app.use(['/api', '/mcp', '/v1'], (req, res, next) => {
+    if (!limit) return next();
+    const k = req.ip ?? 'unknown';
+    const h = hits.get(k);
+    const t = Date.now();
+    if (!h || t - h.at > 60_000) hits.set(k, { n: 1, at: t });
+    else if (++h.n > limit) { res.setHeader('Retry-After', '60'); return res.status(429).json({ error: 'Too many requests. Wait a minute.' }); }
+    next();
+  });
   app.use(express.json({ limit: '4mb' }));
   // Browser apps on other origins (the scribe desktop app in dev, a phone
   // build) must be listed in ALX_CORS_ORIGINS, comma separated.
@@ -91,11 +108,17 @@ export function createApp(opts: AppOptions = {}) {
   });
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
 
-  app.get('/health', (_req, res) => res.json({ status: 'ok', time: now() }));
+  app.get('/health', (_req, res) => {
+    let dbOk = true;
+    try { db.prepare('SELECT 1').get(); } catch { dbOk = false; }
+    res.status(dbOk ? 200 : 503).json({ status: dbOk ? 'ok' : 'db-error', time: now(), uptimeSeconds: Math.round((Date.now() - started) / 1000), version: '0.4.0' });
+  });
 
   // Calendar feed: calendar apps send Basic auth (username + scribe key).
   app.get('/dav/worlds/:world/sessions.ics', authenticate(db), loadWorld(db), icsFeed(deps));
@@ -127,10 +150,12 @@ export function createApp(opts: AppOptions = {}) {
 
   if (opts.webDir && fs.existsSync(path.join(opts.webDir, 'index.html'))) {
     const webDir = opts.webDir;
-    app.use(express.static(webDir, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (f.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+    const csp = "default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    app.use(express.static(webDir, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (f.endsWith('index.html')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Content-Security-Policy', csp); } } }));
     // Any other GET that is not an API path is a page of the app.
     app.get(/^\/(?!api\/|mcp|v1\/|dav\/|health).*/, (_req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Content-Security-Policy', csp);
       res.sendFile(path.join(webDir, 'index.html'));
     });
   }

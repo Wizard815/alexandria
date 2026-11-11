@@ -10,7 +10,9 @@ import { HttpError, now, oneOf, sha256, str } from '../core/util.ts';
 
 /** Ready-to-paste MCP settings for a scribe key (Claude, Claude Code, Cursor...). */
 export function mcpConnection(req: Request, key: string, access: 'read' | 'write') {
-  const url = `${req.protocol}://${req.get('host')}/mcp`;
+  // ALX_PUBLIC_URL (e.g. https://alexandria.example.com) wins over what the request says.
+  const pub = process.env.ALX_PUBLIC_URL?.replace(/\/$/, '');
+  const url = `${pub || `${req.protocol}://${req.get('host')}`}/mcp`;
   return {
     url,
     key,
