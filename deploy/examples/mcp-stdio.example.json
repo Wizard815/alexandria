@@ -1,0 +1,9 @@
+{
+  "kanka": {
+    "command": ["mcp-kanka"],
+    "env": { "KANKA_TOKEN": "put-it-in-.env-not-here", "KANKA_CAMPAIGN_ID": "12345" }
+  },
+  "files": {
+    "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/vaults/campaign"]
+  }
+}

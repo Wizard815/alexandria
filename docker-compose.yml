@@ -1,7 +1,10 @@
 # Alexandria in one container: open http://localhost:8090
 services:
   alexandria:
-    build: .
+    build:
+      context: .
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
     ports:
       - "${LIBRARIAN_PORT:-8090}:8090"
     env_file:

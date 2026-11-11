@@ -1,0 +1,24 @@
+# Run mcp-kanka inside the Alexandria container (stdio MCP server).
+# You only need this for the "Kanka (mcp-kanka)" connector with a local
+# server. The "Kanka (API token)" connector needs nothing extra.
+#
+# 1. Put the token in deploy/.env (never in this file):
+#      KANKA_TOKEN=...
+#      KANKA_CAMPAIGN_ID=12345
+# 2. Start:
+#      docker compose -f deploy/docker-compose.yml -f deploy/examples/kanka-stdio.override.yml \
+#        --env-file deploy/.env up -d --build
+# 3. Library admin -> World sources -> Kanka (mcp-kanka), Connection: Local
+#    server, server name: kanka.
+services:
+  alexandria:
+    build:
+      target: with-kanka
+      args:
+        # Any pip/uv spec: a PyPI version, or a git URL and ref.
+        MCP_KANKA_SPEC: git+https://github.com/Wizard815/mcp-kanka
+    environment:
+      ALX_MCP_STDIO: >-
+        {"kanka": {"command": ["mcp-kanka"],
+                   "env": {"KANKA_TOKEN": "${KANKA_TOKEN:?set KANKA_TOKEN in deploy/.env}",
+                           "KANKA_CAMPAIGN_ID": "${KANKA_CAMPAIGN_ID:?set KANKA_CAMPAIGN_ID in deploy/.env}"}}}

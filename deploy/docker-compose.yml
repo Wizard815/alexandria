@@ -4,7 +4,10 @@
 #   with the LegendKeeper MCP too:  ... --profile legendkeeper up -d --build
 services:
   alexandria:
-    build: ..
+    build:
+      context: ..
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
     restart: unless-stopped
     environment:
       ALX_DATA_DIR: /data

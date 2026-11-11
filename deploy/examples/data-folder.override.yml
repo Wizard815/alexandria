@@ -1,0 +1,8 @@
+# Keep data in a folder on the host instead of a Docker volume (easier to
+# back up with your own tools). The container runs as uid 1000, so:
+#   sudo mkdir -p /srv/alexandria/data && sudo chown 1000:1000 /srv/alexandria/data
+services:
+  alexandria:
+    volumes: !override
+      - /srv/alexandria/data:/data
+      - /srv/alexandria/vaults:/vaults:ro

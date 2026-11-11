@@ -29,3 +29,8 @@ librarian/vaults/
 # Root runtime data
 /data/
 /vaults/
+
+# Local Docker overrides (copied from the *.example.yml files)
+docker-compose.override.yml
+deploy/docker-compose.override.yml
+deploy/examples/*.local.*

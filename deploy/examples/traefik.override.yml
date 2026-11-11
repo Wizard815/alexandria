@@ -1,0 +1,18 @@
+# Traefik already runs on this host on a network called "proxy".
+# Use with existing-proxy.override.yml, minus its ports block.
+services:
+  caddy:
+    profiles: ["disabled"]
+  alexandria:
+    networks: [default, proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.alexandria.rule: Host(`${ALX_DOMAIN}`)
+      traefik.http.routers.alexandria.entrypoints: websecure
+      traefik.http.routers.alexandria.tls.certresolver: letsencrypt
+      traefik.http.services.alexandria.loadbalancer.server.port: "8090"
+      # Live updates are Server-Sent Events. Traefik streams them as is;
+      # don't add a buffering middleware to this router.
+networks:
+  proxy:
+    external: true
