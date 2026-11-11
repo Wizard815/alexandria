@@ -37,7 +37,7 @@ export function Editor({ initial, isNew, onSaved, onCancel }: { initial: any; is
         <Field label="Frontmatter" help='e.g. {"tags": ["town"], "population": 2400, "parents": ["[[Old Lord Varn]]"], "secret": {"lovers": ["[[Brother Tamsin]]"]}}'><textarea className="code" rows={6} value={fm} onChange={(e) => setFm(e.target.value)} /></Field>
       </details>
       <ErrorBox error={act.error} />
-      <div className="row end"><button type="button" className="btn" onClick={onCancel}>Cancel</button><button type="submit" className="btn primary" disabled={act.busy}>{act.busy ? 'Saving…' : 'Save page'}</button></div>
+      <div className="row end"><button type="button" className="btn" onClick={onCancel}>Cancel</button><button type="submit" className="btn primary" disabled={act.busy}>{act.busy && !act.offline ? 'Saving…' : 'Save page'}</button></div>
     </form>
   );
 }

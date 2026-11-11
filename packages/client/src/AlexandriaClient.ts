@@ -20,27 +20,95 @@ export interface LiveEvent {
 
 type Q = Record<string, string | number | undefined>;
 
+/**
+ * Optional offline support. With a cache, every successful GET is stored
+ * under `<cacheScope>|<path>`; when the server can't be reached the stored
+ * copy is returned instead. Writes are refused while `net.offline()` says so.
+ */
+export interface ClientCache {
+  get(key: string): Promise<{ value: unknown; savedAt: string } | null>;
+  put(key: string, value: unknown): Promise<void>;
+}
+export interface NetHooks {
+  offline(): boolean;
+  /** The server could not be reached. */
+  failed(): void;
+  /** The server answered. */
+  ok(): void;
+  /** A cached copy saved at this time was served instead of a live answer. */
+  served?(savedAt: string): void;
+}
+
+export const OFFLINE_WRITE = 'You are offline, so Alexandria is read-only. Changes can be made once the server is back.';
+const OFFLINE_MISS = 'You are offline and this was not saved on this device.';
+// Never served from or stored in the cache.
+const NO_CACHE = /^\/api\/(auth|join|setup\/|admin\/backup)|\/events$/;
+
+function qsOf(query?: Q) {
+  if (!query) return '';
+  const parts = Object.entries(query).filter(([, v]) => v !== undefined).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  return parts.length ? '?' + parts.join('&') : '';
+}
+function safeJson(t: string): any {
+  try { return JSON.parse(t); } catch { return null; }
+}
+
 export class AlexandriaClient {
   baseUrl: string;
   token: string | null;
   private fetchImpl: typeof fetch;
+  cache: ClientCache | null;
+  net: NetHooks | null;
+  /** Whose cache this is (the signed-in account id). No scope, no caching. */
+  cacheScope: string | null = null;
 
-  constructor(opts: { baseUrl: string; token?: string | null; fetch?: typeof fetch }) {
+  constructor(opts: { baseUrl: string; token?: string | null; fetch?: typeof fetch; cache?: ClientCache; net?: NetHooks }) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.token = opts.token ?? null;
     this.fetchImpl = opts.fetch ?? fetch.bind(globalThis);
+    this.cache = opts.cache ?? null;
+    this.net = opts.net ?? null;
+  }
+
+  /** The cache key for a GET, or null when it isn't cached. */
+  cacheKey(path: string, query?: Q): string | null {
+    if (!this.cache || !this.cacheScope || NO_CACHE.test(path)) return null;
+    return `${this.cacheScope}|${path}${qsOf(query)}`;
   }
 
   async request<T = any>(method: string, path: string, body?: unknown, query?: Q): Promise<T> {
-    const qs = query ? '?' + Object.entries(query).filter(([, v]) => v !== undefined).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&') : '';
-    const r = await this.fetchImpl(this.baseUrl + path + qs, {
-      method,
-      headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const get = method === 'GET';
+    if (!get && this.net?.offline()) throw new AlexandriaError(0, OFFLINE_WRITE);
+    const key = get ? this.cacheKey(path, query) : null;
+    const scope = this.cacheScope;
+    const fallback = async (): Promise<T> => {
+      this.net?.failed();
+      const hit = key && this.cache ? await this.cache.get(key) : null;
+      if (hit) { this.net?.served?.(hit.savedAt); return hit.value as T; }
+      throw new AlexandriaError(0, get ? OFFLINE_MISS : OFFLINE_WRITE);
+    };
+    let r: Response;
+    try {
+      r = await this.fetchImpl(this.baseUrl + path + qsOf(query), {
+        method,
+        headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      return fallback();
+    }
+    // A proxy in front of a stopped server answers 502-504.
+    if (r.status === 502 || r.status === 503 || r.status === 504) {
+      const t = await r.text().catch(() => '');
+      if (!/^\s*\{/.test(t)) return fallback();
+      throw new AlexandriaError(r.status, safeJson(t)?.error ?? `Request failed (${r.status})`);
+    }
+    this.net?.ok();
     const text = await r.text();
     const json = text ? JSON.parse(text) : null;
     if (!r.ok) throw new AlexandriaError(r.status, json?.error ?? `Request failed (${r.status})`);
+    // Only store it if the same account is still signed in.
+    if (key && this.cache && scope === this.cacheScope) void this.cache.put(key, json).catch(() => {});
     return json as T;
   }
 
@@ -50,7 +118,7 @@ export class AlexandriaClient {
   async login(username: string, password: string) { return this.keep(await this.request('POST', '/api/auth/login', { username, password })); }
   async join(code: string, username: string, password: string, characterName?: string) { return this.keep(await this.request('POST', '/api/join', { code, username, password, characterName })); }
   async resetPassword(username: string, code: string, password: string) { return this.keep(await this.request('POST', '/api/auth/reset', { username, code, password })); }
-  async logout() { await this.request('POST', '/api/auth/logout'); this.token = null; }
+  async logout() { await this.request('POST', '/api/auth/logout'); this.token = null; this.cacheScope = null; }
   me() { return this.request('GET', '/api/me'); }
   setTheme(theme: { race?: string; mode?: 'dark' | 'light'; effects?: boolean }) { return this.request('PUT', '/api/me/theme', theme); }
   keys() { return this.request<any[]>('GET', '/api/keys'); }
@@ -59,7 +127,8 @@ export class AlexandriaClient {
   worlds() { return this.request<{ id: string; slug: string; name: string; role: Role }[]>('GET', '/api/worlds'); }
 
   private keep(r: any) {
-    if (r?.token) this.token = r.token;
+    // A new token may be another account: stop caching until the app says whose.
+    if (r?.token) { if (r.token !== this.token) this.cacheScope = null; this.token = r.token; }
     return r;
   }
 
@@ -77,8 +146,12 @@ export class WorldClient {
     this.id = id;
   }
   private r<T = any>(method: string, path: string, body?: unknown, query?: Q) {
-    return this.c.request<T>(method, `/api/worlds/${encodeURIComponent(this.id)}${path}`, body, query);
+    return this.c.request<T>(method, this.path(path), body, query);
   }
+  /** The full API path for a path inside this world. */
+  path(p: string) { return `/api/worlds/${encodeURIComponent(this.id)}${p}`; }
+  /** The client this world belongs to. */
+  get client() { return this.c; }
 
   /** Any world API call, e.g. call('POST', '/live/combat/next'). Path is relative to /api/worlds/:world. */
   call<T = any>(method: string, path: string, body?: unknown, query?: Q) { return this.r<T>(method, path, body, query); }

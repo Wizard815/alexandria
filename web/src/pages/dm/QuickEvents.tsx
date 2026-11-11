@@ -123,7 +123,7 @@ function Compose() {
       </div>
       <Field label="Timer (seconds)" help="Empty for no timer"><input inputMode="numeric" value={timer} onChange={(e) => setTimer(e.target.value.replace(/[^\d]/g, ''))} /></Field>
       <ErrorBox error={act.error} />
-      <button type="submit" className="btn primary" disabled={act.busy}>{act.busy ? 'Sending…' : 'Send now'}</button>
+      <button type="submit" className="btn primary" disabled={act.busy}>{act.busy && !act.offline ? 'Sending…' : 'Send now'}</button>
     </form>
   );
 }

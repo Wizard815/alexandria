@@ -2,6 +2,7 @@
 import { cloneElement, isValidElement, useEffect, useId, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { useNet, sinceText } from '../lib/net.ts';
 
 export function PageHead({ title, lead, children }: { title: ReactNode; lead?: ReactNode; children?: ReactNode }) {
   return (
@@ -115,9 +116,15 @@ export function useToast() {
 }
 
 /** Run an async action with busy state and error capture. */
+/**
+ * A button's action. While the server can't be reached the app is
+ * read-only: `busy` stays true so action buttons are disabled, and the
+ * client refuses any write that still gets through.
+ */
 export function useAction() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const offline = !useNet().online;
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
     setError(null);
@@ -130,5 +137,27 @@ export function useAction() {
       setBusy(false);
     }
   }
-  return { busy, error, setError, run };
+  return { busy: busy || offline, offline, error, setError, run };
+}
+
+/** "Offline — read-only" bar, and quiet progress while saving for offline. */
+export function OfflineBanner() {
+  const net = useNet();
+  if (!net.online) {
+    const at = net.servedSince ?? net.lastOnline;
+    return (
+      <div role="status" className="offline-banner" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', alignItems: 'center', padding: '8px 16px', background: 'var(--danger-bg)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)', fontSize: 14 }}>
+        <b>Offline — read-only.</b>
+        <span>{at ? `Showing what was saved ${sinceText(at)}.` : 'Showing what was saved on this device.'} Changes can be made once the server is back.</span>
+      </div>
+    );
+  }
+  if (net.prefetch && net.prefetch.total > 0) {
+    return (
+      <div role="status" aria-live="polite" className="tiny faint" style={{ position: 'fixed', right: 12, bottom: 'calc(72px + env(safe-area-inset-bottom))', zIndex: 30, padding: '4px 10px', borderRadius: 999, background: 'var(--panel)', border: '1px solid var(--line)', pointerEvents: 'none' }}>
+        Saved for offline: {net.prefetch.done}/{net.prefetch.total} {net.prefetch.label}
+      </div>
+    );
+  }
+  return null;
 }
