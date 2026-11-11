@@ -1,0 +1,69 @@
+# Production: Alexandria + Caddy (HTTPS). Optional LegendKeeper MCP server.
+#   cp deploy/.env.example deploy/.env   # fill it in
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#   with the LegendKeeper MCP too:  ... --profile legendkeeper up -d --build
+services:
+  alexandria:
+    build: ..
+    restart: unless-stopped
+    environment:
+      ALX_DATA_DIR: /data
+      ALX_VAULTS_DIR: /vaults
+      ALX_PUBLIC_URL: https://${ALX_DOMAIN}
+      ALX_TRUST_PROXY: "1"
+      ALX_RATE_LIMIT: ${ALX_RATE_LIMIT:-900}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:-}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      LOCAL_LLM_URL: ${LOCAL_LLM_URL:-}
+      ALX_MCP_STDIO: ${ALX_MCP_STDIO:-}
+    volumes:
+      - alexandria-data:/data
+      - ${VAULTS_DIR:-./vaults}:/vaults:ro
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ALX_DOMAIN: ${ALX_DOMAIN:?Set ALX_DOMAIN in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - alexandria
+
+  # The LegendKeeper MCP server, reachable from Alexandria at
+  # http://legendkeeper-mcp:8000/mcp (add it as a "LegendKeeper (MCP server)" source).
+  legendkeeper-mcp:
+    profiles: ["legendkeeper"]
+    image: ghcr.io/chase-roohms/legendkeeper-mcp:latest
+    restart: unless-stopped
+    environment:
+      MCP_TRANSPORT: http
+      MCP_AUTH_TOKEN: ${LK_MCP_TOKEN:-}  # required by the server: set it in deploy/.env
+      LEGENDKEEPER_API_KEY: ${LEGENDKEEPER_API_KEY:-}
+    expose:
+      - "8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  alexandria-data:
+  caddy-data:
+  caddy-config:
