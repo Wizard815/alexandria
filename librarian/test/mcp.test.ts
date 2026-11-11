@@ -166,7 +166,7 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
       if (!m) return ok({});
       const r = R.find((x) => x.id === m[1])!;
       if (m[2]) return ok({ id: m[2], blocks: DOCS[m[2]] });
-      return ok({ ...r, documents: r.documents.map((d) => ({ ...d, isHidden: d.id === 'd4' })), properties: r.id === 'town1' ? [{ kind: 'keyValue', title: 'Facts', rows: [{ key: 'Ruler', content: [{ mention: { resourceId: 'plot1' } }] }, { key: 'DM notes', content: [{ text: 'bribed' }] }] }] : [], ancestors: [] });
+      return ok({ ...r, permissions: {}, documents: r.documents.map((d) => ({ ...d, isHidden: d.id === 'd4' })), properties: r.id === 'town1' ? [{ kind: 'keyValue', title: 'Facts', isHidden: false, rows: [{ key: 'Ruler', content: [{ mention: { resourceId: 'plot1' } }] }, { key: 'DM notes', content: [{ text: 'bribed' }] }] }] : [], ancestors: [] });
     },
     async listTools() { return []; },
     close() {},

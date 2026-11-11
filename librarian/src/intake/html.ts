@@ -4,8 +4,9 @@
 export function htmlToMarkdown(html: string): string {
   let s = String(html ?? '').replace(/\r/g, '');
   s = s.replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|iframe)[\s\S]*?<\/\1>/gi, '');
-  // Kanka mention anchors in entry_parsed
-  s = s.replace(/<a\b[^>]*?(?:data-entity-id="(\d+)"|href="[^"]*\/entities\/(\d+)[^"]*")[^>]*>([\s\S]*?)<\/a>/gi, (_m, a, b, label) => `[[@kanka:${a ?? b}|${strip(label)}]]`);
+  // Kanka mention anchors in entry_parsed: <a class="entity-mention" data-id="<entity id>"
+  // href="…/w/<campaign>/entities/<entity id>">, or data-entity-id on older pages.
+  s = s.replace(/<a\b[^>]*?(?:data-entity-id="(\d+)"|href="[^"]*\/entities\/(\d+)[^"]*"|class="[^"]*\bentity-mention\b[^"]*"[^>]*?\bdata-id="(\d+)")[^>]*>([\s\S]*?)<\/a>/gi, (_m, a, b, c, label) => `[[@kanka:${a ?? b ?? c}|${strip(label)}]]`);
   s = s.replace(/<a\b[^>]*href="(https?:[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href, t) => `[${strip(t)}](${href})`);
   s = s.replace(/<br\s*\/?>/gi, '\n');
   s = s.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, n, t) => `\n\n${'#'.repeat(Number(n))} ${strip(t)}\n\n`);

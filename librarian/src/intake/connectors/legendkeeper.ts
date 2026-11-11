@@ -21,22 +21,52 @@ function mcpTransport(ctx: ConnectorContext, project?: string): Transport {
   };
 }
 
+/** Waits, but stops early when the sync is stopped. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new Error('Sync stopped'));
+    const t = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, ms);
+    const stop = () => { clearTimeout(t); reject(new Error('Sync stopped')); };
+    signal.addEventListener('abort', stop, { once: true });
+  });
+}
+
+/** Seconds from a Retry-After header (seconds or an HTTP date), or null. */
+export function retryAfterMs(h: string | null | undefined): number | null {
+  if (!h) return null;
+  if (/^\d+(\.\d+)?$/.test(h.trim())) return Math.round(Number(h) * 1000);
+  const at = Date.parse(h);
+  return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
+}
+
+// REST v3: https://www.legendkeeper.com/api/v3/projects/<projectId>, Bearer key.
+// 429 RATE_LIMITED carries Retry-After; waits up to a minute, three times.
 function restTransport(ctx: ConnectorContext, base: string, key: string): Transport {
   const root = base.replace(/\/$/, '');
   return {
     async get(path, query) {
       const qs = query ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(query).map(([k, v]) => [k, String(v)]))).toString() : '';
-      const r = await ctx.fetch(root + path + qs, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: ctx.signal });
-      if (r.status === 429) throw new Error('LegendKeeper rate limit hit; try again in a minute');
-      if (!r.ok) throw new Error(`LegendKeeper ${path} answered ${r.status}`);
-      return r.json();
+      for (let attempt = 0; ; attempt++) {
+        const r = await ctx.fetch(root + path + qs, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: ctx.signal });
+        if (r.status === 429 || r.status === 503) {
+          const wait = retryAfterMs(r.headers.get('retry-after')) ?? 2000 * 2 ** attempt;
+          if (attempt >= 3 || wait > 60_000) throw new Error('LegendKeeper rate limit hit; try again later');
+          await pause(wait, ctx.signal);
+          continue;
+        }
+        if (r.status === 402) throw new Error('LegendKeeper API keys need the project owner on a paid plan');
+        if (!r.ok) throw new Error(`LegendKeeper ${path} answered ${r.status}`);
+        return r.json();
+      }
     },
   };
 }
 
 function inline(c: any[] = []): Inline[] {
-  return c.map((x) => {
+  return (Array.isArray(c) ? c : []).map((x): Inline => {
     if (x?.mention) return { mention: { ref: String(x.mention.resourceId ?? ''), ...(x.mention.name ? { name: String(x.mention.name) } : {}), ...(x.mention.text ? { text: String(x.mention.text) } : {}) } };
+    if (x?.break === true) return { text: '\n' };
+    // Icon runs ({ icon }) carry no text.
     const o: Inline = { text: String(x?.text ?? '') };
     if (x?.bold) o.bold = true;
     if (x?.italic) o.italic = true;
@@ -49,52 +79,120 @@ function inline(c: any[] = []): Inline[] {
   }).filter((x) => x.mention || x.text);
 }
 
-export function lkGroups(rows: any[] = []): PropertyGroup[] {
-  return rows.filter((g) => g?.kind === 'keyValue' || Array.isArray(g?.rows)).map((g) => ({
-    title: String(g.title ?? 'Facts'),
-    rows: (g.rows ?? []).map((r: any) => ({ key: String(r.key ?? ''), value: inline(r.content ?? (r.text ? [{ text: r.text }] : [])) })),
-  }));
+const mentionList = (items: any[] = []): Inline[] => (Array.isArray(items) ? items : []).filter((i) => i?.resourceId)
+  .flatMap((i, n) => [...(n ? [{ text: ', ' }] : []), { mention: { ref: String(i.resourceId) } }]);
+
+/** Text of player-safe blocks only: secret and unknown subtrees are skipped. */
+function safeInline(bs: any[] = []): Inline[] {
+  const out: Inline[] = [];
+  const walk = (list: any[]) => {
+    for (const b of Array.isArray(list) ? list : []) {
+      if (['paragraph', 'heading', 'taskItem'].includes(b?.kind)) {
+        const c = inline(b.content);
+        if (c.length) { if (out.length) out.push({ text: ' ' }); out.push(...c); }
+      } else if (['bulletList', 'orderedList', 'taskList', 'listItem', 'quote', 'callout', 'layout', 'layoutColumn', 'textField'].includes(b?.kind)) walk(b.children);
+    }
+  };
+  walk(bs);
+  return out;
 }
 
-/** LegendKeeper document blocks to Alexandria blocks. Unknown kinds stay unknown (DM-only). */
+/** Rows of one LegendKeeper property (sidebar or infobox), by kind. */
+function propertyRows(g: any) {
+  const kind = g?.kind ?? (Array.isArray(g?.rows) ? 'keyValue' : undefined);
+  switch (kind) {
+    case 'keyValue': return (Array.isArray(g.rows) ? g.rows : []).map((r: any) => ({ key: String(r?.key ?? ''), value: inline(Array.isArray(r?.content) && r.content.length ? r.content : r?.text ? [{ text: r.text }] : []) }));
+    case 'textField': { const v = safeInline(g.children); return v.length ? [{ key: '', value: v }] : []; }
+    case 'resourceLink': { const v = mentionList(g.items); return v.length ? [{ key: '', value: v }] : []; }
+    case 'meter': return (Array.isArray(g.items) ? g.items : []).map((i: any) => ({ key: String(i?.name ?? ''), value: [{ text: `${Number(i?.current ?? 0)} / ${Number(i?.max ?? 0)}` }] }));
+    default: return []; // image, embed, map, resourceCollection, unsupported
+  }
+}
+
+/**
+ * LegendKeeper PropertyBlocks (sidebar `properties`, infobox `rows`) to groups.
+ * `isHidden` marks a GM-only property; anything but an explicit false is DM-only.
+ */
+export function lkGroups(props: any[] = []): PropertyGroup[] {
+  const out: PropertyGroup[] = [];
+  for (const g of Array.isArray(props) ? props : []) {
+    const rows = propertyRows(g);
+    if (!rows.length) continue;
+    const group: PropertyGroup = { title: String(g.title ?? (g.kind === 'textField' ? 'Text' : 'Facts')), rows };
+    if (g.isHidden !== false) group.dm = true;
+    out.push(group);
+  }
+  return out;
+}
+
+const titleOf = (b: any) => (typeof b?.title === 'string' && b.title && b.isTitleHidden === false ? b.title : undefined);
+
+/**
+ * LegendKeeper document blocks (OpenAPI `Block`, schema 1) to Alexandria blocks.
+ * Layout rows and text fields are flattened; unknown kinds become `unsupported`,
+ * which the leak guard drops.
+ */
 export function lkBlocks(bs: any[] = []): Block[] {
-  return bs.map((b): Block | null => {
+  return (Array.isArray(bs) ? bs : []).flatMap((b): Block[] => {
     const kids = () => lkBlocks(b.children ?? []);
     switch (b?.kind) {
-      case 'heading': return { kind: 'heading', level: Number(b.level) || 2, content: inline(b.content) };
-      case 'paragraph': return { kind: 'paragraph', content: inline(b.content) };
-      case 'bulletList': return { kind: 'bulletList', children: kids() };
-      case 'orderedList': return { kind: 'orderedList', children: kids(), ...(b.start ? { start: Number(b.start) } : {}) };
-      case 'taskList': return { kind: 'bulletList', children: kids() };
-      case 'listItem':
-      case 'taskItem': return { kind: 'listItem', children: kids(), ...(typeof b.checked === 'boolean' ? { checked: b.checked } : {}) };
-      case 'table': return { kind: 'table', children: kids() };
-      case 'tableRow': return { kind: 'tableRow', children: kids() };
+      case 'heading': return [{ kind: 'heading', level: Math.min(Math.max(Number(b.level) || 2, 1), 6), content: inline(b.content) }];
+      case 'paragraph': return [{ kind: 'paragraph', content: inline(b.content) }];
+      case 'bulletList': return [{ kind: 'bulletList', children: kids() }];
+      case 'orderedList': return [{ kind: 'orderedList', children: kids(), ...(b.start ? { start: Number(b.start) } : {}) }];
+      case 'taskList': return [{ kind: 'bulletList', children: kids() }];
+      case 'listItem': return [{ kind: 'listItem', children: kids(), ...(typeof b.checked === 'boolean' ? { checked: b.checked } : {}) }];
+      // A task item holds runs, not children.
+      case 'taskItem': return [{ kind: 'listItem', children: Array.isArray(b.content) ? [{ kind: 'paragraph', content: inline(b.content) }] : kids(), checked: b.checked === true }];
+      case 'table': return [{ kind: 'table', children: kids() }];
+      case 'tableRow': return [{ kind: 'tableRow', children: kids() }];
       case 'tableCell':
-      case 'tableHeader': return { kind: 'tableCell', header: b.kind === 'tableHeader' || !!b.header, children: kids() };
-      case 'secret': return { kind: 'secret', children: kids() };
+      case 'tableHeader': return [{ kind: 'tableCell', header: b.kind === 'tableHeader' || !!b.header, children: kids() }];
+      case 'secret': return [{ kind: 'secret', children: kids() }];
       case 'callout': {
-        const variant = String(b.variant ?? b.calloutType ?? b.type ?? b.style ?? 'note').toLowerCase();
-        return { kind: 'callout', variant, ...(b.title ? { title: Array.isArray(b.title) ? inline(b.title) : [{ text: String(b.title) }] } : {}), children: kids() };
+        const variant = String(b.tone ?? b.variant ?? b.calloutType ?? b.type ?? b.style ?? 'note').toLowerCase();
+        return [{ kind: 'callout', variant, ...(b.title ? { title: Array.isArray(b.title) ? inline(b.title) : [{ text: String(b.title) }] } : {}), children: kids() }];
       }
       case 'toggle':
       case 'details':
-      case 'expand': return { kind: 'toggle', title: Array.isArray(b.title) ? inline(b.title) : [{ text: String(b.title ?? b.summary ?? 'More') }], children: kids() };
+      case 'expand': return [{ kind: 'toggle', title: Array.isArray(b.title) ? inline(b.title) : [{ text: String(b.title ?? b.summary ?? 'More') }], children: kids() }];
       case 'blockquote':
-      case 'quote': return { kind: 'blockquote', children: kids() };
+      case 'quote': return [{ kind: 'blockquote', children: kids() }];
       case 'codeBlock':
-      case 'code': return { kind: 'codeBlock', language: b.language ?? undefined, text: String(b.text ?? (b.content ?? []).map((x: any) => x.text ?? '').join('')) };
+      case 'code': return [{ kind: 'codeBlock', language: b.language ?? undefined, text: String(b.text ?? (b.content ?? []).map((x: any) => x.text ?? '').join('')) }];
       case 'horizontalRule':
-      case 'divider': return { kind: 'divider' };
+      case 'rule':
+      case 'divider': return [{ kind: 'divider' }];
+      // Columns: the page model has none, so their blocks follow one another.
+      case 'layout':
+      case 'layoutColumn': return kids();
+      case 'textField': {
+        const t = titleOf(b);
+        return [...(t ? [{ kind: 'heading', level: 3, content: [{ text: t }] } as Block] : []), ...kids()];
+      }
       case 'image': {
         const url = b.url ?? b.src ?? b.asset?.url;
-        return typeof url === 'string' && /^https?:/i.test(url) ? { kind: 'image', url, ...(b.alt ? { alt: String(b.alt) } : {}), ...(b.width ? { width: Number(b.width) } : {}), ...(b.caption ? { caption: inline(b.caption) } : {}) } : { kind: 'unsupported', sourceKind: 'image (no url)' };
+        return [typeof url === 'string' && /^https?:/i.test(url) ? { kind: 'image', url, ...(b.alt ? { alt: String(b.alt) } : {}), ...(b.width ? { width: Number(b.width) } : {}), ...(b.caption ? { caption: inline(b.caption) } : titleOf(b) ? { caption: [{ text: titleOf(b)! }] } : {}) } : { kind: 'unsupported', sourceKind: 'image (no url)' }];
       }
-      case 'infobox': return { kind: 'infobox', layout: b.layout ?? 'wrapRight', width: Number(b.width) || 40, groups: lkGroups(b.rows) };
-      case 'resourceCollection': return { kind: 'collection', title: b.isTitleHidden ? undefined : b.title, filter: b.filter };
-      default: return { kind: 'unsupported', sourceKind: String(b?.kind ?? 'unknown') };
+      case 'embed': return typeof b.url === 'string' && /^https?:/i.test(b.url) ? [{ kind: 'paragraph', content: [{ text: titleOf(b) ?? `${b.provider ?? 'Embed'}`, link: b.url }] }] : [];
+      case 'infobox': return [{ kind: 'infobox', layout: b.layout ?? 'wrapRight', width: Number(b.width) || 40, groups: lkGroups(b.rows) }];
+      case 'keyValue': return [{ kind: 'infobox', layout: b.layout ?? 'default', width: Number(b.width) || 100, groups: [{ title: String(b.title ?? 'Stats'), rows: propertyRows({ kind: 'keyValue', rows: b.rows }) }] }];
+      case 'meter': {
+        const rows = propertyRows(b);
+        return rows.length ? [{ kind: 'infobox', layout: b.layout ?? 'default', width: Number(b.width) || 100, groups: [{ title: String(b.title ?? 'Meter'), rows }] }] : [];
+      }
+      case 'resourceLink': {
+        const items = (Array.isArray(b.items) ? b.items : []).filter((i: any) => i?.resourceId);
+        return items.length ? [
+          ...(titleOf(b) ? [{ kind: 'heading', level: 3, content: [{ text: titleOf(b)! }] } as Block] : []),
+          { kind: 'bulletList', children: items.map((i: any): Block => ({ kind: 'listItem', children: [{ kind: 'paragraph', content: [{ mention: { ref: String(i.resourceId) } }] }] })) },
+        ] : [];
+      }
+      case 'resourceCollection': return [{ kind: 'collection', title: b.isTitleHidden ? undefined : b.title, filter: b.filter }];
+      // map (a map document, not imported) and unsupported (opaque) stay unknown.
+      default: return [{ kind: 'unsupported', sourceKind: String(b?.kind ?? 'unknown') }];
     }
-  }).filter((b): b is Block => !!b && !(b.kind === 'paragraph' && !b.content.length));
+  }).filter((b) => !(b.kind === 'paragraph' && !b.content.length));
 }
 
 async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry> {
@@ -121,18 +219,41 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry
     return h;
   };
 
+  // Resource detail (documents with isHidden, properties, permissions), once each.
+  const details = new Map<string, Promise<any | null>>();
+  const detailOf = (rid: string) => {
+    if (!details.has(rid)) details.set(rid, t.get(`/resources/${rid}`).catch((err: any) => { ctx.log(`Could not read ${byId.get(rid)?.name ?? rid}: ${err.message}`); return null; }));
+    return details.get(rid)!;
+  };
+  // Resource permissions: { MEMBER | ADMIN | OWNER | <user id>: 0..5 }, 0 = No Access.
+  // A No Access entry for players (the MEMBER role or any one user) on the
+  // resource or any ancestor keeps it from the party. An unreadable detail or
+  // an unknown level counts as no access.
+  const denied = new Map<string, Promise<boolean>>();
+  const deniesPlayers = (rid: string, depth = 0): Promise<boolean> => {
+    if (!denied.has(rid)) denied.set(rid, (async () => {
+      if (depth > 64) return true;
+      const d = await detailOf(rid);
+      const perms = d?.permissions;
+      if (!perms || typeof perms !== 'object' || Array.isArray(perms)) return true;
+      for (const [who, level] of Object.entries(perms)) {
+        if (who === 'ADMIN' || who === 'OWNER') continue;
+        if (![1, 2, 3, 4, 5].includes(level as number)) return true;
+      }
+      const parent = byId.get(rid)?.parentId;
+      return parent ? deniesPlayers(String(parent), depth + 1) : false;
+    })());
+    return denied.get(rid)!;
+  };
+
   for (const r of all) {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     if (r.isTemplate === true) continue;
     const pages = (r.documents ?? []).filter((d: any) => d.type === 'page');
     if (!pages.length) continue;
-    let detail: any;
-    try {
-      detail = await t.get(`/resources/${r.id}`);
-    } catch (err: any) {
-      ctx.log(`Skipped ${r.name}: ${err.message}`);
-      continue;
-    }
+    const detail = await detailOf(String(r.id));
+    if (!detail) { ctx.log(`Skipped ${r.name}`); continue; }
+    const restricted = hidden(String(r.id)) || await deniesPlayers(String(r.id));
     const folder = (detail.ancestors ?? []).map((a: any) => String(a.name));
     const props = lkGroups(detail.properties);
     for (const d of pages) {
@@ -146,7 +267,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry
       }
       const raw = Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : [];
       const multi = pages.length > 1;
-      const isHidden = hidden(String(r.id)) || dd.isHidden !== false;
+      const isHidden = restricted || dd.isHidden !== false;
       yield {
         externalId: multi && d !== pages[0] ? `${r.id}#${d.id}` : String(r.id),
         parentExternalId: multi && d !== pages[0] ? String(r.id) : r.parentId ? String(r.parentId) : null,
@@ -156,7 +277,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry
         tags: (r.tags ?? []).map(String),
         type: (r.tags ?? []).find((x: string) => ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'].includes(x)) ?? 'page',
         icon: r.iconGlyph ? { glyph: String(r.iconGlyph), color: r.iconColor ? String(r.iconColor) : undefined } : null,
-        banner: typeof detail.banner?.url === 'string' ? detail.banner.url : typeof detail.bannerUrl === 'string' ? detail.bannerUrl : null,
+        banner: typeof detail.banner?.url === 'string' && detail.banner.enabled !== false ? detail.banner.url : typeof detail.bannerUrl === 'string' ? detail.bannerUrl : null,
         properties: d === pages[0] ? props : [],
         blocks: lkBlocks(raw),
         visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm',
@@ -200,8 +321,8 @@ export const legendkeeperApi: Connector = {
   label: 'LegendKeeper (API key)',
   description: 'Reads a LegendKeeper project directly with a LegendKeeper API key. Same result as the MCP connector, no MCP server needed.',
   fields: [
-    { key: 'apiUrl', label: 'Project API URL', type: 'url', required: true, placeholder: 'https://…/v3/projects/<project id>', help: 'The REST v3 base for your project, from LegendKeeper’s developer settings.' },
-    { key: 'apiKey', label: 'API key', type: 'password', secret: true, required: true, help: 'A read-only key if you can make one.' },
+    { key: 'apiUrl', label: 'Project API URL', type: 'url', required: true, placeholder: 'https://www.legendkeeper.com/api/v3/projects/<project id>', help: 'https://www.legendkeeper.com/api/v3/projects/ followed by your project id. Keys need the project owner on a paid plan.' },
+    { key: 'apiKey', label: 'API key', type: 'password', secret: true, required: true, help: 'Project Settings → Developers → API Keys. Use an Admin key so hidden pages, secrets and hidden facts arrive marked (a Member key never sees them).' },
   ],
   validate(cfg) {
     if (!/^https:\/\/\S+$/.test(String(cfg.apiUrl ?? ''))) throw new ConfigError('API URL must start with https://');
