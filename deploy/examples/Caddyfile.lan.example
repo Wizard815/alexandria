@@ -1,0 +1,15 @@
+# HTTPS on a home network without a public domain: Caddy makes its own
+# certificate authority. Each device must trust it once (Caddy prints where
+# the root certificate is: /data/caddy/pki/authorities/local/root.crt in
+# the caddy-data volume). Mount this file over deploy/Caddyfile:
+#   volumes: [ "./examples/Caddyfile.lan.example:/etc/caddy/Caddyfile:ro" ]
+# and set ALX_DOMAIN to the server's LAN name, e.g. alexandria.lan.
+{$ALX_DOMAIN} {
+	tls internal
+	encode zstd gzip
+	@events path /api/worlds/*/events
+	reverse_proxy @events alexandria:8090 {
+		flush_interval -1
+	}
+	reverse_proxy alexandria:8090
+}
