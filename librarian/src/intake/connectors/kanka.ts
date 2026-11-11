@@ -1,26 +1,47 @@
 // Kanka, through its API (token + campaign) or the mcp-kanka server.
 // Private entities are DM-only. Posts are added as sections: shared posts
-// (visibility all or members) stay visible, every other post becomes a secret
-// block. Private attributes go in a DM-only property group.
+// (visibility all or members, no deny permission) stay visible, every other
+// post becomes a secret block. Private attributes, and all attributes of an
+// entity with is_attributes_private, go in a DM-only property group.
 import type { Connector, ConnectorContext } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
-import { type Block, type Entry, type Inline, markdownToBlocks } from '../model.ts';
+import { type Block, type Entry, type Inline, type PropertyGroup, markdownToBlocks } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
 import { htmlToMarkdown } from '../html.ts';
 
+// [API module, Alexandria type, legacy parent field]. Since Kanka 3.10 every
+// nestable module has `parent_id`, the parent's entity id; older responses
+// carried a module id in the legacy field instead.
 const TYPES: [string, string, string | null][] = [
-  // [API module, Alexandria type, parent field]
   ['characters', 'character', null], ['locations', 'location', 'location_id'], ['organisations', 'organisation', 'organisation_id'],
   ['families', 'family', 'family_id'], ['items', 'item', 'item_id'], ['notes', 'note', 'note_id'], ['journals', 'journal', 'journal_id'],
   ['quests', 'quest', 'quest_id'], ['races', 'race', 'race_id'], ['creatures', 'creature', 'creature_id'], ['events', 'event', 'event_id'],
-  ['abilities', 'ability', 'ability_id'], ['timelines', 'timeline', null], ['maps', 'map', 'map_id'],
+  ['abilities', 'ability', 'ability_id'], ['timelines', 'timeline', 'timeline_id'], ['maps', 'map', 'map_id'], ['calendars', 'calendar', 'calendar_id'],
+  ['tags', 'tag', 'tag_id'],
 ];
-const PLAYER_VISIBLE = new Set([1, 5]); // visibility_id: 1 all, 5 members
+// visibility_id (https://app.kanka.io/api-docs/1.0/misc/visibilities): 1 all,
+// 2 admin, 3 admin-self, 4 self, 5 members. The posts page numbers 2-4
+// differently (2 self, 3 admin, 4 self-admin); either way only 1 and 5 reach
+// players, and any other or missing value stays DM-only.
+const PLAYER_VISIBLE = new Set([1, 5]);
+// Post permission entries: 0 read, 1 update, 2 deny. A deny (or anything
+// unknown) means not every player can read the post.
+const postShared = (p: any) => PLAYER_VISIBLE.has(Number(p?.visibility_id))
+  && (p.permissions == null || (Array.isArray(p.permissions) && p.permissions.every((x: any) => x?.permission === 0 || x?.permission === 1)));
 
-/** Kanka text (HTML or Markdown, with [entity:ID|label] mentions) to blocks with mention refs. */
+// Mentions: [entity:ID], [character:ID], [location:ID|label]... The ID is
+// always the entity id. Options after | that look like key:value (field:,
+// anchor:, alias:) are not labels.
+const MENTION_TYPES = 'entity|character|location|family|organisation|organization|item|note|journal|quest|race|creature|event|ability|timeline|map|calendar|tag|conversation|dice_roll|attribute_template|post';
+const MENTION = new RegExp(`\\[(?:${MENTION_TYPES}):(\\d+)(?:\\|([^\\]]*))?\\]`, 'g');
+
+/** Kanka text (HTML or Markdown, with [type:ID|label] mentions) to blocks with mention refs. */
 export function kankaBlocks(raw: unknown): Block[] {
   let s = String(raw ?? '');
-  s = s.replace(/\[entity:(\d+)(?:\|([^\]]+))?\]/g, (_m, id, label) => `[[@kanka:${id}${label ? '|' + label : ''}]]`);
+  s = s.replace(MENTION, (_m, id, opt) => {
+    const label = opt && !/^\w+:/.test(opt) ? opt : '';
+    return `[[@kanka:${id}${label ? '|' + label : ''}]]`;
+  });
   if (/<\/?(p|br|div|span|strong|em|ul|ol|li|h\d|a|table|blockquote)\b/i.test(s)) s = htmlToMarkdown(s);
   else s = s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
   return fixRefs(markdownToBlocks(s));
@@ -42,58 +63,155 @@ const esc = (s: unknown) => String(s ?? '').replace(/&amp;/g, '&').replace(/&quo
 function postBlocks(posts: any[], trust: (p: any) => boolean): Block[] {
   const out: Block[] = [];
   for (const p of posts) {
-    const section: Block[] = [{ kind: 'heading', level: 2, content: [{ text: esc(p.name) || 'Post' }] }, ...kankaBlocks(p.entry)];
+    const section: Block[] = [{ kind: 'heading', level: 2, content: [{ text: esc(p.name) || 'Post' }] }, ...kankaBlocks(p.entry ?? p.entry_parsed)];
     if (trust(p)) out.push(...section);
     else out.push({ kind: 'secret', children: section });
   }
   return out;
 }
 
+const ref = (entityId: unknown): Inline => ({ mention: { ref: `kanka:${entityId}` } });
+const join = (xs: Inline[]): Inline[] => xs.flatMap((x, i) => (i ? [{ text: ', ' }, x] : [x]));
+/** One line of inline text from a Kanka value: plain text stays as is, HTML and mentions are parsed. */
+function textOf(v: unknown): Inline[] {
+  const s = String(v ?? '');
+  if (!/[<[]/.test(s)) return s.trim() ? [{ text: esc(s.trim()) }] : [];
+  const out: Inline[] = [];
+  const walk = (bs: Block[]) => bs.forEach((b) => {
+    if (b.kind === 'secret' || b.kind === 'unsupported') return;
+    if ('content' in b && b.content.length) { if (out.length) out.push({ text: ' ' }); out.push(...b.content); }
+    if ('children' in b) walk(b.children);
+  });
+  walk(kankaBlocks(s));
+  return out;
+}
+
+/**
+ * Property groups of one Kanka entity. Private attributes, every attribute when
+ * `is_attributes_private` is not false, private races and families, and
+ * personality traits players can't see all go in DM-only groups.
+ */
+export function kankaProperties(e: any, type: string, lookup: (module: string, id: unknown) => string | undefined): PropertyGroup[] {
+  const facts: { key: string; value: Inline[] }[] = [];
+  const dmFacts: { key: string; value: Inline[] }[] = [];
+  if (e.type) facts.push({ key: 'Type', value: [{ text: esc(e.type) }] });
+  if (type === 'character') {
+    if (e.title) facts.push({ key: 'Title', value: [{ text: esc(e.title) }] });
+    for (const [field, label] of [['age', 'Age'], ['sex', 'Gender'], ['pronouns', 'Pronouns']] as const) if (e[field]) facts.push({ key: label, value: [{ text: esc(e[field]) }] });
+    if (e.is_dead === true) facts.push({ key: 'Status', value: [{ text: 'Dead' }] });
+  }
+  if (type === 'location' && e.title) facts.push({ key: 'Title', value: [{ text: esc(e.title) }] });
+  const links = (module: string, ids: unknown): Inline[] => join((Array.isArray(ids) ? ids : ids != null ? [ids] : [])
+    .map((id) => lookup(module, typeof id === 'object' && id ? (id as any).id : id)).filter((x): x is string => !!x).map(ref));
+  for (const [module, field, privateField, label] of [['races', 'races', 'private_races', 'Race'], ['families', 'families', 'private_families', 'Family'], ['locations', 'locations', null, 'Location']] as const) {
+    const v = links(module, e[field]);
+    if (v.length) facts.push({ key: label, value: v });
+    const pv = privateField ? links(module, e[privateField]) : [];
+    if (pv.length) dmFacts.push({ key: label, value: pv });
+  }
+  if (e.location_id && !Array.isArray(e.locations)) { const v = links('locations', e.location_id); if (v.length) facts.push({ key: 'Location', value: v }); }
+
+  const attrs = (Array.isArray(e.attributes) ? e.attributes : []).filter((a: any) => a?.name && a.type_id !== 4);
+  const allPrivate = e.is_attributes_private !== false;
+  const row = (a: any) => ({ key: esc(a.name), value: a.type_id === 3 ? [{ text: a.value && a.value !== '0' ? 'Yes' : 'No' }] : textOf(a.parsed ?? a.value) });
+  const shared = attrs.filter((a: any) => !allPrivate && a.is_private === false && a.is_hidden !== true);
+  const hiddenAttrs = attrs.filter((a: any) => !shared.includes(a));
+
+  const traits = Array.isArray(e.traits) ? e.traits : [];
+  const traitShared = (t: any) => t?.is_private !== true && (t?.section === 'appearance' || (t?.section === 'personality' && e.is_personality_visible === true));
+  const traitRows = (ts: any[]) => ts.filter((t) => t?.name).map((t) => ({ key: esc(t.name), value: textOf(t.entry ?? t.entry_parsed) }));
+  const appearance = traitRows(traits.filter((t: any) => t?.section === 'appearance' && traitShared(t)));
+  const personality = traitRows(traits.filter((t: any) => t?.section === 'personality' && traitShared(t)));
+  const dmTraits = traitRows(traits.filter((t: any) => !traitShared(t)));
+
+  return [
+    ...(facts.length ? [{ title: 'Facts', rows: facts }] : []),
+    ...(appearance.length ? [{ title: 'Appearance', rows: appearance }] : []),
+    ...(personality.length ? [{ title: 'Personality', rows: personality }] : []),
+    ...(shared.length ? [{ title: 'Attributes', rows: shared.map(row) }] : []),
+    ...(dmFacts.length ? [{ title: 'Private links', dm: true, rows: dmFacts }] : []),
+    ...(dmTraits.length ? [{ title: 'Private traits', dm: true, rows: dmTraits }] : []),
+    ...(hiddenAttrs.length ? [{ title: 'Private attributes', dm: true, rows: hiddenAttrs.map(row) }] : []),
+  ];
+}
+
 // ---------- API ----------
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new Error('Sync stopped'));
+    const t = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, ms);
+    const stop = () => { clearTimeout(t); reject(new Error('Sync stopped')); };
+    signal.addEventListener('abort', stop, { once: true });
+  });
+}
 
 async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Entry> {
   const base = String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
+  // 30 requests a minute (90 for subscribers) per user; 429 when spent. Wait
+  // for Retry-After when sent, else back off 15 s, 30 s, 45 s.
   const get = async (url: string) => {
     for (let attempt = 0; attempt < 4; attempt++) {
       const r = await ctx.fetch(url, { headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'application/json' }, signal: ctx.signal });
-      if (r.status === 429) { await new Promise((res) => setTimeout(res, 15_000 * (attempt + 1))); continue; } // Kanka rate limit
+      if (r.status === 429) {
+        const ra = Number(r.headers.get('retry-after'));
+        await pause(Number.isFinite(ra) && ra >= 0 && r.headers.get('retry-after') !== null ? Math.min(ra, 120) * 1000 : 15_000 * (attempt + 1), ctx.signal);
+        continue;
+      }
       if (r.status === 404) return null;
       if (!r.ok) throw new Error(`Kanka answered ${r.status} for ${url.replace(base, '')}`);
       return r.json() as Promise<any>;
     }
     throw new Error('Kanka kept rate-limiting; try again later');
   };
-  const rows: { type: string; parentField: string | null; e: any }[] = [];
-  for (const [mod, type, parentField] of TYPES) {
-    let url: string | null = `${base}/campaigns/${cfg.campaignId}/${mod}?related=1&page=1`;
-    for (let n = 0; url && n < 500; n++) {
-      const j: any = await get(url);
-      if (!j) break;
-      for (const e of j.data ?? []) rows.push({ type, parentField, e });
-      url = j.links?.next ?? null;
+  // Every page of a collection. links.next can drop ?related=1, so the next
+  // URL is built here rather than followed (and never leaves the API host).
+  const pages = async function* (path: string) {
+    for (let page = 1; page <= 500; page++) {
+      const j: any = await get(`${base}${path}${path.includes('?') ? '&' : '?'}page=${page}`);
+      if (!j) return;
+      yield (Array.isArray(j.data) ? j.data : []) as any[];
+      const last = Number(j.meta?.last_page);
+      if (!j.links?.next || (Number.isFinite(last) && last > 0 && page >= last)) return;
     }
+  };
+  const camp = `/campaigns/${cfg.campaignId}`;
+  const rows: { mod: string; type: string; parentField: string | null; e: any }[] = [];
+  for (const [mod, type, parentField] of TYPES) {
+    for await (const data of pages(`${camp}/${mod}?related=1`)) for (const e of data) rows.push({ mod, type, parentField, e });
   }
   ctx.log(`Listed ${rows.length} entities`);
-  const childToEntity = new Map<string, string>(rows.map(({ type, e }) => [`${type}:${e.id}`, String(e.entity_id ?? e.id)]));
-  for (const { type, parentField, e } of rows) {
+  // Module id -> entity id, and which entity ids exist per type.
+  const byModule = new Map<string, string>(rows.map(({ mod, e }) => [`${mod}:${e.id}`, String(e.entity_id ?? e.id)]));
+  const entityIds = new Set(rows.map(({ type, e }) => `${type}:${e.entity_id}`));
+  const lookup = (mod: string, id: unknown) => (id == null ? undefined : byModule.get(`${mod}:${id}`));
+  // Tag names, only for tags players can see (not private, not hidden).
+  const tagName = new Map<string, string>(rows.filter(({ mod, e }) => mod === 'tags' && e.is_private === false && e.is_hidden !== true).map(({ e }) => [String(e.id), esc(e.name)]));
+  // is_attributes_private is documented on /entities; fill it in from there when the module list leaves it out.
+  if (rows.some(({ e }) => typeof e.is_attributes_private !== 'boolean' && Array.isArray(e.attributes) && e.attributes.length)) {
+    const flags = new Map<string, boolean>();
+    try {
+      for await (const data of pages(`${camp}/entities`)) for (const x of data) if (typeof x.is_attributes_private === 'boolean') flags.set(String(x.id), x.is_attributes_private);
+    } catch (err: any) { ctx.log(`Could not read attribute privacy: ${err.message}. Attributes stay DM-only.`); }
+    for (const { e } of rows) if (typeof e.is_attributes_private !== 'boolean' && flags.has(String(e.entity_id))) e.is_attributes_private = flags.get(String(e.entity_id));
+  }
+  for (const { mod, type, parentField, e } of rows) {
+    if (e.is_template === true) continue;
     const entityId = String(e.entity_id ?? e.id);
-    const pid = parentField && e[parentField] ? childToEntity.get(`${type}:${e[parentField]}`) : undefined;
-    const attrs = (e.attributes ?? []).filter((a: any) => a?.name && a.type_id !== 4);
+    const pid = e.parent_id != null && entityIds.has(`${type}:${e.parent_id}`) ? String(e.parent_id)
+      : parentField && e[parentField] != null ? lookup(mod, e[parentField]) : undefined;
+    const tags = (Array.isArray(e.tags) ? e.tags : []).map((t: any) => tagName.get(String(typeof t === 'object' && t ? t.id ?? t.tag_id : t))).filter((t: any): t is string => !!t);
     yield {
       externalId: `kanka:${entityId}`,
       parentExternalId: pid ? `kanka:${pid}` : null,
       folder: [type[0].toUpperCase() + type.slice(1) + 's'],
       title: esc(e.name),
-      tags: [],
+      tags,
       type,
       icon: null,
-      banner: typeof e.image_full === 'string' && /^https?:/.test(e.image_full) && !/default/.test(e.image_full) ? e.image_full : null,
-      properties: [
-        ...(e.type ? [{ title: 'Facts', rows: [{ key: 'Type', value: [{ text: esc(e.type) }] }] }] : []),
-        ...(attrs.some((a: any) => !a.is_private) ? [{ title: 'Attributes', rows: attrs.filter((a: any) => !a.is_private).map((a: any) => ({ key: esc(a.name), value: [{ text: esc(a.value) }] })) }] : []),
-        ...(attrs.some((a: any) => a.is_private) ? [{ title: 'Private attributes', dm: true, rows: attrs.filter((a: any) => a.is_private).map((a: any) => ({ key: esc(a.name), value: [{ text: esc(a.value) }] })) }] : []),
-      ],
-      blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], (p) => PLAYER_VISIBLE.has(Number(p.visibility_id)))],
+      banner: typeof e.image_full === 'string' && /^https?:/.test(e.image_full) && e.has_custom_image !== false && !/default/.test(e.image_full) ? e.image_full : null,
+      properties: kankaProperties(e, type, lookup),
+      blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared)],
       // Kanka's own private flag always wins; a missing flag counts as private.
       visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm',
       url: e.urls?.view ?? null,
@@ -128,7 +246,7 @@ export const kankaApi: Connector = {
 
 // ---------- MCP (mcp-kanka) ----------
 
-const MCP_TYPES = ['character', 'creature', 'family', 'location', 'organization', 'race', 'note', 'journal', 'quest', 'event', 'ability'];
+const MCP_TYPES = ['character', 'creature', 'family', 'location', 'organization', 'item', 'race', 'note', 'journal', 'quest', 'event', 'ability', 'tag'];
 
 async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Entry> {
   const mcp = ctx.mcp();

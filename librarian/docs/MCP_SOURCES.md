@@ -36,41 +36,69 @@ write-enabled, so use a read-only key where you can.
 
 ## How each server marks DM-only content
 
+Checked against the official docs in November 2026: LegendKeeper's
+[developer guide](https://www.legendkeeper.com/developers/guide/) and
+[v3 OpenAPI spec](https://www.legendkeeper.com/api/v3/openapi.json), and
+[Kanka's API docs](https://app.kanka.io/api-docs/1.0/overview).
+
 | Level | Kanka | LegendKeeper |
 |---|---|---|
-| Whole entry | `is_hidden` (Kanka's `is_private`) | resource `isHidden`, inherited from hidden ancestors |
-| Part of an entry | posts: `is_hidden` (from `visibility_id`) | document `isHidden` (only from `GET /resources/<id>/docs/<doc>`) |
-| Inline | none | `> [!secret]` callouts in Markdown |
-| Sub-records | `visibility_id` on relations, timeline elements, reminders, inventory, markers | none on pins, timeline events or facts |
-| Links | `[entity:ID]`, `[entity:ID\|label]` | `[Name](lk://resources/<id>)`; unresolved links print as `\[\[Name\]\]` |
+| Whole entry | `is_private` (mcp-kanka: `is_hidden`); templates (`is_template`) are skipped | resource `isHidden`, inherited from hidden ancestors; resource `permissions` with level 0 (No Access) for `MEMBER` or any user, on the resource or an ancestor |
+| Part of an entry | posts: `visibility_id` and post `permissions` (2 = deny); character traits: `is_personality_visible`, trait `is_private` | document `isHidden` (from `GET /resources/<id>`) |
+| Inline | none | `secret` blocks |
+| Facts | attribute `is_private`; entity `is_attributes_private` hides all of them; `private_races`, `private_families`; tag `is_private` | property `isHidden` on sidebar properties and infobox rows |
+| Sub-records | `visibility_id` on relations, timeline elements, reminders, inventory, markers | `isHidden` on map features, timeline events and assets |
+| Links | `[entity:ID]`, `[character:ID]`, `[location:ID\|label]`... (ID is the entity id); `entry_parsed` has `<a class="entity-mention" data-id=…>` | runs `{ mention: { resourceId, documentId?, text? } }` |
 
-Kanka `visibility_id`: 1 = all, 2 = self, 3 = admin, 4 = self-admin,
-5 = members. Only 1 and 5 are visible to players.
+Kanka `visibility_id`: 1 = all, 5 = members, which players see. 2, 3 and
+4 are admin, admin-self and self (the
+[visibilities page](https://app.kanka.io/api-docs/1.0/misc/visibilities);
+the posts page numbers them 2 self, 3 admin, 4 self-admin). Either way
+only 1 and 5 are shared; any other or missing value is DM-only.
 
 ## What the importer does
 
 1. **Fails closed.** A missing or unknown hidden flag, an entity it
-   couldn't load, an unknown parent, or a document whose metadata it
-   couldn't read: each makes the page DM-only.
-2. **Kanka**
+   couldn't load, an unknown parent, a property without `isHidden: false`,
+   or a resource whose permissions it couldn't read: each makes the page,
+   or that part of it, DM-only.
+2. **Kanka API**
+   - Lists each module with `?related=1&page=N` (45 to 100 per page, set
+     by the account) until `links.next` is null. It builds each page URL
+     itself: `links.next` can drop `related=1`.
+   - Parents come from `parent_id` (the parent's entity id, Kanka 3.10+),
+     else the older `location_id`-style field.
+   - Tags are names from the `tags` module; private and hidden tags are
+     left out.
+   - 30 requests a minute (90 for subscribers). On 429 it waits for
+     `Retry-After`, else 15, 30 and 45 seconds.
+   - `is_attributes_private` is read from `/entities` when a module
+     listing leaves it out.
+3. **Kanka MCP**
    - Lists each type with `find_entities` using an old `last_synced`.
      Without it, an unfiltered listing times out. It pages to
      `sync_info.last_page`.
    - Loads full entities and posts with `get_entities`, 8 at a time.
-   - Wraps hidden posts in `<!-- dm -->` blocks. All posts get this unless
-     the source trusts post visibility.
-3. **LegendKeeper**
-   - Lists every resource with `api_request GET /resources` and its cursor.
-   - Applies `isHidden` from the resource, its ancestors, and each
-     document.
-   - Reads page documents with `read_document` as Markdown. The leak guard
-     removes `> [!secret]` blocks. Never use `format=text` or the JSON
-     `text` field: they print secret text with no marker.
-4. **Rebuilds player copies after every sync.** Links to DM-only pages
+   - Puts hidden posts in `secret` blocks. All posts get this unless the
+     source trusts post visibility.
+4. **LegendKeeper**
+   - Lists every resource with `GET /resources?limit=100` and its cursor
+     (`hasMore`, `nextCursor`).
+   - Reads each resource (`GET /resources/<id>`) for documents, sidebar
+     properties and permissions, and each page document's block tree
+     (`GET /resources/<id>/docs/<doc>/blocks`, JSON).
+   - Maps every block kind of schema 1. Layout columns and text fields are
+     flattened; `map` and `unsupported` blocks are dropped for players.
+   - Use an Admin key. A Member key never receives hidden resources,
+     documents, properties or secret blocks, so nothing leaks, but the DM
+     doesn't see them either.
+   - REST: 429 `RATE_LIMITED` is retried after `Retry-After` (up to a
+     minute). 402 means the project owner's plan doesn't allow API keys.
+5. **Rebuilds player copies after every sync.** Links to DM-only pages
    become `(hidden)`, or keep the link's own label, so players don't learn
    those pages' names.
-5. **Keys page paths on source ids**, because names repeat.
-6. **Lint:** `GET /api/worlds/:world/library/lint` lists shared pages that
+6. **Keys page paths on source ids**, because names repeat.
+7. **Lint:** `GET /api/worlds/:world/library/lint` lists shared pages that
    still read like DM notes ("The secret:", "DM note:", "GM only"). Those
    are secrets written as plain text, which no format marks.
 
@@ -88,21 +116,25 @@ Kanka `visibility_id`: 1 = all, 2 = self, 3 = admin, 4 = self-admin,
     `is_private` field.
   - `entry` is usually Markdown but is sometimes still HTML, and names can
     be HTML-escaped. The importer normalises both.
+  - It reports `is_hidden: false` when Kanka sends no `is_private`, and a
+    post with no `visibility_id` as not hidden. The importer can't tell
+    these from real values, so keep "trust post visibility" off unless
+    you need it.
+  - It returns no attributes, traits or post permissions, so those are
+    only imported by the Kanka API connector.
 - **LegendKeeper MCP**
-  - Most tools return text, not JSON. The importer uses `api_request`
-    (JSON) for structure and `read_document` (Markdown) for content.
-  - `read_document` puts a header (resource, document, path, then `---`)
-    above the Markdown. The importer strips it.
-  - Fenced `:::secret` blocks are not LegendKeeper secrets. Only
-    `> [!secret]` is.
+  - Most tools return text, not JSON. The importer only uses
+    `api_request` (JSON), which passes REST v3 paths through.
+  - `read_document` Markdown, `format=text` and the blocks `text` field
+    print secret text with no marker. The importer never uses them.
   - `list_members` returns email addresses. The importer never calls it.
 
 ## Not imported yet
 
-- Kanka: relations, organisation members, timelines, calendars and
-  reminders. These have their own `visibility_id`, which an importer must
-  apply.
-- LegendKeeper: maps (pins, regions, paths), timelines, boards and
-  sidebar facts. None of these has a visibility of its own, so it must
-  take its document's visibility, and be dropped when it links to a
-  DM-only page.
+- Kanka: relations, organisation members, timelines elements, calendar
+  reminders, inventory, map markers and custom modules. These have their
+  own `visibility_id`, which an importer must apply.
+- LegendKeeper: maps (features), timelines (events), boards and `map`
+  blocks. Features and events have their own `isHidden`, and must also
+  take their document's visibility and be dropped when they link to a
+  DM-only page. Image and embed properties are not shown as facts.
