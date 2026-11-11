@@ -16,9 +16,9 @@ is the same for every source:
 
 | Connector | Reads | How DM-only content is found |
 |---|---|---|
-| `legendkeeper-mcp` | LegendKeeper through its MCP server (`api_request` GET only) | Hidden resources, hidden ancestors, hidden documents, `secret` blocks |
-| `legendkeeper-api` | LegendKeeper REST v3 with an API key | Same |
-| `kanka-api` | Kanka API with a token (`?related=1`, follows `links.next`, waits out 429s) | `is_private` entities, posts not "all"/"members", private attributes |
+| `legendkeeper-mcp` | LegendKeeper through its MCP server (`api_request` GET only) | Hidden resources, hidden ancestors, hidden documents, "No Access" permissions on a resource or ancestor, `secret` blocks, hidden sidebar and infobox properties |
+| `legendkeeper-api` | LegendKeeper REST v3 (`https://www.legendkeeper.com/api/v3/projects/<id>`) with an Admin API key; waits out 429s | Same |
+| `kanka-api` | Kanka API with a token (`?related=1` on every page, waits out 429s) | `is_private` entities, posts not "all"/"members" or with a deny permission, private attributes, `is_attributes_private`, hidden personality traits, private races and families, private tags |
 | `kanka-mcp` | The mcp-kanka server (`find_entities`, `get_entities`) | `is_hidden`. Posts are DM-only unless "trust post visibility" is on. |
 | `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- dm -->`, DM headings |
 | `git` | A repo of Markdown reference files, cloned read-only | Same as Markdown |
