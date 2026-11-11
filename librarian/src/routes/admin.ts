@@ -1,6 +1,9 @@
 // Library admin: accounts, worlds, who plays in which world, and sources.
 // Admin is the plumbing. Being an admin does not open any world's content.
 import { Router } from 'express';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
@@ -21,7 +24,32 @@ export default function adminRoutes(d: Deps) {
       worlds: one<any>(db, 'SELECT COUNT(*) AS n FROM worlds')!.n,
       sources: all(db, 'SELECT s.id, s.kind, s.name, w.name AS world, s.last_sync_at, s.last_status FROM sources s JOIN worlds w ON w.id = s.world_id'),
       liveConnections: all<any>(db, 'SELECT id FROM worlds').reduce((n, w) => n + d.hub.count(w.id), 0),
+      runs: all<any>(db, `SELECT r.id, r.status, r.started_at, r.finished_at, r.stats, r.error, s.name AS source, w.name AS world FROM sync_runs r
+        JOIN sources s ON s.id = r.source_id JOIN worlds w ON w.id = r.world_id ORDER BY r.started_at DESC LIMIT 15`).map((r) => ({ ...r, stats: JSON.parse(r.stats || '{}') })),
+      pages: one<any>(db, 'SELECT COUNT(*) AS n FROM pages')!.n,
+      system: {
+        dataDir: d.dataDir, vaultsDir: d.vaultsDir, publicUrl: d.env.ALX_PUBLIC_URL ?? null,
+        modelEndpoint: !!(d.env.MODEL_BASE_URL || d.env.OPENAI_BASE_URL || d.env.LOCAL_LLM_URL),
+        stdioMcpServers: (() => { try { return Object.keys(JSON.parse(d.env.ALX_MCP_STDIO || '{}')); } catch { return []; } })(),
+        node: process.version,
+      },
     });
+  });
+
+  // A consistent copy of the whole database (every world), for backups.
+  r.get('/backup', (_req, res) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-backup-'));
+    const file = path.join(dir, 'librarian.db');
+    try {
+      db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+      audit(db, null, me(res), 'backup.download');
+      res.setHeader('Content-Type', 'application/vnd.sqlite3');
+      res.setHeader('Content-Disposition', `attachment; filename="alexandria-${new Date().toISOString().slice(0, 10)}.db"`);
+      res.sendFile(file, () => fs.rmSync(dir, { recursive: true, force: true }));
+    } catch (err) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      throw err;
+    }
   });
 
   // Accounts
