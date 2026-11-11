@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Tabs, Switch, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld, useLoad, type WorldSettings } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
+import { type ApprovalSettings, extra } from '../broker/shared.tsx';
 
-type K = keyof WorldSettings;
+type K = keyof WorldSettings | keyof ApprovalSettings;
 type Row =
   | { k: K; label: string; help: string; type: 'toggle' }
   | { k: K; label: string; help: string; type: 'choice'; choices: [any, string][] };
@@ -18,6 +19,12 @@ const GROUPS: [string, string, Row[]][] = [
     C('coins', 'Coin types', 'Which coins the purse shows.', [['gsc', 'Gold · silver · copper'], ['all', 'All five (pp gp ep sp cp)'], ['gold', 'Gold only']]),
     T('partyPurse', 'Shared party purse', 'A group purse beside each player’s own coin.'),
     T('dmEditsInventory', 'DM can edit player inventories', 'Every change is logged and the player sees it.'),
+  ]],
+  ['approvals', 'Approvals & broker', [
+    T('playerChangesNeedApproval', 'Player coin and item changes need your approval', 'On: what players add, spend, move or remove waits in Approvals and shows as “Waiting for the DM”. Broker payments are never held.'),
+    T('dmChangeReason', 'Ask me why when I change a player’s things', 'Your reason shows to the owner, who can confirm or dispute it.'),
+    T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on the broker page.'),
+    C('brokerPayer', 'Who pays the broker', 'The party purse needs “Shared party purse” on.', [['self', 'The player who asks'], ['party', 'The party purse']]),
   ]],
   ['combat', 'Combat & quick events', [
     C('monsterHealth', 'Monster health shown to players', 'The party’s own health is never shown.', [['none', 'Hidden'], ['words', 'Words (Bloodied…)'], ['bar', 'Bar'], ['exact', 'Exact numbers']]),
@@ -59,7 +66,7 @@ function SettingsForm() {
   const [group, setGroup] = useState('coin');
   const act = useAction();
   const { toast, toastNode } = useToast();
-  const s = info.settings;
+  const s: Record<string, unknown> = { ...info.settings, ...extra(info.settings) };
   const set = (k: K, v: unknown) => act.run(async () => {
     await w.updateSettings({ [k]: v });
     await reloadInfo();

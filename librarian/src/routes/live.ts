@@ -39,7 +39,8 @@ export default function liveRoutes(d: Deps) {
     d.hub.emitPer(c.world.id, 'combat', (v) => combatView(c.world.id, v, s));
   };
 
-  const balance = (worldId: string, owner: string) => one<any>(db, 'SELECT COALESCE(SUM(amount_cp), 0) AS cp FROM ledger WHERE world_id = ? AND owner = ?', worldId, owner)!.cp as number;
+  // Balances count approved entries only; player changes wait for the DM.
+  const balance = (worldId: string, owner: string) => one<any>(db, `SELECT COALESCE(SUM(amount_cp), 0) AS cp FROM ledger WHERE world_id = ? AND owner = ? AND status = 'approved'`, worldId, owner)!.cp as number;
 
   r.get('/', (req, res) => {
     const c = ctx(res);
@@ -53,7 +54,7 @@ export default function liveRoutes(d: Deps) {
       members: memberIds(db, c.world.id).length,
       purse: s.partyPurse ? {
         cp: balance(c.world.id, 'party'),
-        recent: all(db, `SELECT id, amount_cp, note, session_label, at FROM ledger WHERE world_id = ? AND owner = 'party' ${label ? 'AND session_label = ?' : ''} ORDER BY at DESC LIMIT 20`, ...(label ? [c.world.id, label] : [c.world.id])),
+        recent: all(db, `SELECT id, amount_cp, note, session_label, at, status FROM ledger WHERE world_id = ? AND owner = 'party' AND status IN ('approved', 'pending') ${label ? 'AND session_label = ?' : ''} ORDER BY at DESC LIMIT 20`, ...(label ? [c.world.id, label] : [c.world.id])),
       } : null,
       myCoin: balance(c.world.id, me(res)),
       combat: combatView(c.world.id, c.viewer, s),
@@ -84,17 +85,22 @@ export default function liveRoutes(d: Deps) {
   r.get('/ledger', (req, res) => {
     const c = ctx(res);
     const owner = resolveOwner(res, String(req.query.owner ?? 'me'), false);
-    res.json({ cp: balance(c.world.id, owner), entries: all(db, 'SELECT * FROM ledger WHERE world_id = ? AND owner = ? ORDER BY at DESC LIMIT 200', c.world.id, owner) });
+    // Players see approved entries plus their own pending ones.
+    const entries = all<any>(db, `SELECT * FROM ledger WHERE world_id = ? AND owner = ? AND (status = 'approved' OR (status = 'pending' AND (? OR by_id = ?))) ORDER BY at DESC LIMIT 200`, c.world.id, owner, isDM(res) ? 1 : 0, me(res));
+    res.json({ cp: balance(c.world.id, owner), pending: entries.filter((x) => x.status === 'pending').reduce((n, x) => n + x.amount_cp, 0), entries });
   });
   r.post('/ledger', requirePlayerOrDM, (req, res) => {
     const c = ctx(res);
     const owner = resolveOwner(res, String(req.body?.owner ?? 'me'), true);
-    const e = { id: id('led_'), world_id: c.world.id, owner, amount_cp: int(req.body?.amountCp, 'amountCp', { min: -100_000_000, max: 100_000_000 })!, note: str(req.body?.note, 'note', { max: 200, optional: true }), session_label: str(req.body?.session, 'session', { max: 40, optional: true }) || null, by_id: me(res), at: now() };
+    // A player's change is only a request until the DM approves it.
+    const pending = !isDM(res) && settings(res).playerChangesNeedApproval;
+    const e = { id: id('led_'), world_id: c.world.id, owner, amount_cp: int(req.body?.amountCp, 'amountCp', { min: -100_000_000, max: 100_000_000 })!, note: str(req.body?.note, 'note', { max: 200, optional: true }), session_label: str(req.body?.session, 'session', { max: 40, optional: true }) || null, by_id: me(res), at: now(), status: pending ? 'pending' : 'approved' };
     if (e.amount_cp === 0) throw new HttpError(400, 'amountCp cannot be zero');
-    run(db, 'INSERT INTO ledger (id, world_id, owner, amount_cp, note, session_label, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', e.id, e.world_id, e.owner, e.amount_cp, e.note, e.session_label, e.by_id, e.at);
-    audit(db, c.world.id, me(res), 'coin', `${owner} ${e.amount_cp} ${e.note}`);
-    d.hub.emit(c.world.id, 'coin', { ...e, balance: balance(c.world.id, owner) }, owner === 'party' ? () => true : dmAnd(owner));
-    res.status(201).json({ ...e, balance: balance(c.world.id, owner) });
+    run(db, 'INSERT INTO ledger (id, world_id, owner, amount_cp, note, session_label, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', e.id, e.world_id, e.owner, e.amount_cp, e.note, e.session_label, e.by_id, e.at, e.status);
+    audit(db, c.world.id, me(res), pending ? 'coin.request' : 'coin', `${owner} ${e.amount_cp} ${e.note}`);
+    if (pending) d.hub.emit(c.world.id, 'approval', { kind: 'coin', id: e.id }, dmAnd(me(res)));
+    else d.hub.emit(c.world.id, 'coin', { ...e, balance: balance(c.world.id, owner) }, owner === 'party' ? () => true : dmAnd(owner));
+    res.status(pending ? 202 : 201).json({ ...e, pending, balance: balance(c.world.id, owner) });
   });
 
   function resolveOwner(res: Response, raw: string, writing: boolean): string {
