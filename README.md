@@ -33,7 +33,8 @@ account. Then:
    password. That's all they set up.
 
 Docker: `docker compose up -d --build` builds the app and runs everything
-in one container (data in `./data`).
+in one container (data in `./data`). For a server with a domain and HTTPS,
+see [docs/HOSTING.md](docs/HOSTING.md).
 
 Development: `npm run dev:librarian` and `npm run dev:web`. Vite serves
 the app on :5173 and passes API calls to the librarian.
@@ -65,11 +66,23 @@ write, and a write key stops writing if its owner stops being the DM.
 
 ## World sources
 
-A world's library can come from LegendKeeper or Kanka (through their MCP
-servers or the Kanka API), from an Obsidian-style Markdown vault, or from
-a git repo of reference files. Imports are read-only, and anything a
-source hides stays DM-only. See
-[librarian/docs/MCP_SOURCES.md](librarian/docs/MCP_SOURCES.md).
+Alexandria imports any world that has an API or files. It has connectors
+for:
+- LegendKeeper (MCP or API key)
+- Kanka (API token or mcp-kanka)
+- Markdown vaults (Obsidian, Lokus, Otterly)
+- git repos
+- any MCP file server
+- any JSON API (REST or an MCP tool)
+
+Imports are read-only, pages keep their layout, and anything a source
+hides stays DM-only.
+
+See [docs/CONNECTORS.md](docs/CONNECTORS.md) for writing a new connector.
+See [librarian/docs/MCP_SOURCES.md](librarian/docs/MCP_SOURCES.md) for
+what was learned from the live LegendKeeper and Kanka servers.
+
+The full API is in [docs/API.md](docs/API.md).
 
 ## Models
 

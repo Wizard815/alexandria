@@ -1,0 +1,22 @@
+# Alexandria behind Caddy: automatic HTTPS for your domain.
+# Set ALX_DOMAIN in deploy/.env (e.g. alexandria.example.com).
+{$ALX_DOMAIN} {
+	encode zstd gzip
+
+	# Live updates (Server-Sent Events) must not be buffered.
+	@events path /api/worlds/*/events
+	reverse_proxy @events alexandria:8090 {
+		flush_interval -1
+	}
+
+	reverse_proxy alexandria:8090
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	log {
+		output stdout
+		format console
+	}
+}
