@@ -74,12 +74,27 @@ CREATE TABLE IF NOT EXISTS invites (
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('vault', 'git', 'kanka', 'mcp')),
+  kind TEXT NOT NULL,
   name TEXT NOT NULL,
   config TEXT NOT NULL DEFAULT '{}',
   default_visibility TEXT NOT NULL DEFAULT 'dm',
   last_sync_at TEXT,
-  last_status TEXT
+  last_status TEXT,
+  schedule_minutes INTEGER,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+
+-- One row per sync of a source: the admin panel's job list.
+CREATE TABLE IF NOT EXISTS sync_runs (
+  id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  world_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'ok', 'error', 'stopped')),
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  stats TEXT NOT NULL DEFAULT '{}',
+  log TEXT NOT NULL DEFAULT '',
+  error TEXT
 );
 
 -- body is the DM copy. player_body is computed at write time by the leak
@@ -359,6 +374,41 @@ function migrate(db: DB) {
   const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as any[]).map((c) => c.name);
   // Keys made before read/write access existed stay read-only.
   if (!cols('api_keys').includes('access')) db.exec(`ALTER TABLE api_keys ADD COLUMN access TEXT NOT NULL DEFAULT 'read'`);
+
+  // Sources used to allow only four kinds; any connector id is fine now.
+  const srcSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'sources'`).get() as any)?.sql ?? '';
+  if (srcSql.includes("CHECK (kind IN")) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`BEGIN;
+      CREATE TABLE sources_new (id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, kind TEXT NOT NULL, name TEXT NOT NULL,
+        config TEXT NOT NULL DEFAULT '{}', default_visibility TEXT NOT NULL DEFAULT 'dm', last_sync_at TEXT, last_status TEXT, schedule_minutes INTEGER, enabled INTEGER NOT NULL DEFAULT 1);
+      INSERT INTO sources_new (id, world_id, kind, name, config, default_visibility, last_sync_at, last_status) SELECT id, world_id, kind, name, config, default_visibility, last_sync_at, last_status FROM sources;
+      DROP TABLE sources;
+      ALTER TABLE sources_new RENAME TO sources;
+      COMMIT;`);
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+
+  // Structured pages: blocks, sidebar facts, tree and source ids.
+  const pc = cols('pages');
+  const add = (c: string, def: string) => { if (!pc.includes(c)) db.exec(`ALTER TABLE pages ADD COLUMN ${c} ${def}`); };
+  add('origin', "TEXT NOT NULL DEFAULT 'markdown'");
+  add('external_id', 'TEXT');
+  add('parent_external', 'TEXT');
+  add('folder', "TEXT NOT NULL DEFAULT '[]'");
+  add('aliases', "TEXT NOT NULL DEFAULT '[]'");
+  add('tags', "TEXT NOT NULL DEFAULT '[]'");
+  add('kind', "TEXT NOT NULL DEFAULT 'page'");
+  add('icon', 'TEXT');
+  add('banner', 'TEXT');
+  add('url', 'TEXT');
+  add('knowledge', 'TEXT');
+  add('blocks', "TEXT NOT NULL DEFAULT '[]'");
+  add('player_blocks', 'TEXT');
+  add('properties', "TEXT NOT NULL DEFAULT '[]'");
+  add('player_properties', 'TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pages_source_ext ON pages (world_id, source_id, external_id) WHERE external_id IS NOT NULL');
+  db.exec('CREATE INDEX IF NOT EXISTS pages_world_vis ON pages (world_id, visibility)');
 }
 
 type Row = Record<string, any>;
