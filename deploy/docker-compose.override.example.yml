@@ -1,0 +1,29 @@
+# Copy next to deploy/docker-compose.yml as docker-compose.override.yml.
+# Compose merges it in when you name both files, or when it sits next to the
+# main file and you run compose from deploy/:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml \
+#     --env-file deploy/.env up -d --build
+# Keep only the parts you need. More in deploy/examples/.
+services:
+  alexandria:
+    # Use an image you built and pushed instead of building on the server.
+    # image: registry.example.com/alexandria:2026-11
+    # build: !reset null
+    environment:
+      ALX_RATE_LIMIT: "600"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "2"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+  caddy:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

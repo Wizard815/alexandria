@@ -1,0 +1,24 @@
+# Copy to docker-compose.override.yml and edit. Docker Compose reads it
+# automatically on top of docker-compose.yml:
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   docker compose up -d --build
+# Keep only the parts you need. More in deploy/examples/.
+services:
+  alexandria:
+    build:
+      args:
+        # Use a registry mirror if Docker Hub rate-limits you.
+        NODE_IMAGE: node:24-alpine
+    # Only this machine can open it (use a tunnel or Caddy for others).
+    ports: !override
+      - "127.0.0.1:8090:8090"
+    environment:
+      # The address players use; goes into their AI connection settings.
+      ALX_PUBLIC_URL: http://192.168.1.20:8090
+      # A model on this machine (Ollama, LM Studio).
+      LOCAL_LLM_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # A second vault folder, read-only.
+      - /home/me/Obsidian/Campaign:/vaults/campaign:ro
