@@ -1,0 +1,25 @@
+# A local model for AI features, next to Alexandria (no data leaves the server).
+#   docker compose -f deploy/docker-compose.yml -f deploy/examples/ollama.override.yml \
+#     --env-file deploy/.env up -d
+#   docker compose -f deploy/docker-compose.yml exec ollama ollama pull llama3.1:8b
+services:
+  alexandria:
+    environment:
+      LOCAL_LLM_URL: http://ollama:11434
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    expose:
+      - "11434"
+    volumes:
+      - ollama:/root/.ollama
+    # With an NVIDIA GPU and the NVIDIA container toolkit:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+volumes:
+  ollama:

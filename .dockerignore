@@ -1,0 +1,22 @@
+# Keep the build context small and free of secrets and runtime data.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+data
+vaults
+librarian/data
+librarian/vaults
+deploy
+library
+scribes
+docs
+**/*.log
+**/.DS_Store
+web/e2e
+librarian/test
+docker-compose*.yml
+Dockerfile*

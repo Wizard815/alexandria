@@ -1,0 +1,9 @@
+# You already run nginx, Traefik or another proxy: turn off the bundled Caddy
+# and publish Alexandria on localhost only. See nginx.conf.example and
+# traefik.override.yml.
+services:
+  caddy:
+    profiles: ["disabled"]
+  alexandria:
+    ports:
+      - "127.0.0.1:8090:8090"

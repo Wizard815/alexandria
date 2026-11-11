@@ -41,6 +41,13 @@ To run the LegendKeeper MCP server next to Alexandria:
 Or skip the MCP server: use **LegendKeeper (API key)** with LegendKeeper's
 API key directly.
 
+## Changing the setup
+
+Don't edit the compose files. Put changes in an override file. Examples for
+a local model, mcp-kanka inside the image, a host data folder, nginx,
+Traefik and LAN HTTPS are in
+[deploy/examples/](../deploy/examples/README.md).
+
 ## At home or on a LAN
 
 `docker compose up -d --build` from the repo root serves plain HTTP on
