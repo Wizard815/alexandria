@@ -256,7 +256,7 @@ function SourceForm({ worldId, connectors, source, onClose, onDone }: { worldId:
         {result && <div className={result.ok ? 'ok-box small' : 'error-box'} role="status">{result.ok ? '✓ ' : ''}{result.message}</div>}
         <ErrorBox error={a.error || t.error} />
         <div className="row end wrap">
-          <button type="button" className="btn" disabled={t.busy || !c} onClick={() => void test()}>{t.busy ? 'Testing…' : 'Test connection'}</button>
+          <button type="button" className="btn" disabled={t.busy || !c} onClick={() => void test()}>{t.busy && !t.offline ? 'Testing…' : 'Test connection'}</button>
           <button className="btn primary" disabled={a.busy || !c}>{source ? 'Save' : 'Add source'}</button>
         </div>
       </form>

@@ -26,7 +26,7 @@ export default function AdminOverview() {
   return (
     <div className="page">
       <PageHead title="Overview" lead="The library behind every world: accounts, worlds and where their pages come from. Being an admin does not open a world's secrets; you need to be its DM.">
-        <button type="button" className="btn" onClick={download} disabled={backup.busy}>{backup.busy ? 'Preparing…' : 'Download backup'}</button>
+        <button type="button" className="btn" onClick={download} disabled={backup.busy}>{backup.busy && !backup.offline ? 'Preparing…' : 'Download backup'}</button>
       </PageHead>
       <ErrorBox error={o.error || backup.error} />
       {o.loading && !d ? <Loading /> : d && (

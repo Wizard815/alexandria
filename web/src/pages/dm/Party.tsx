@@ -1,13 +1,16 @@
 // Party & inventory: each player's pack and coin, the party's shared
 // pack and purse, and who is at the table. DM notes on items stay DM-only.
 // Players' proposed changes show inline to approve; the DM's own changes to
-// someone else's things need a reason and alert the owner.
+// someone else's things need a reason and alert the owner. Players' free
+// gives (coin and items between them and the party) show in a log here.
+// Items can carry a picture.
 import { useState, type FormEvent } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Field, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { usePlayers } from './shared.tsx';
 import { extra } from '../broker/shared.tsx';
+import { type Item, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, TransfersList } from '../inventory/giving.tsx';
 
 /** "Why" for a DM change, when World settings ask for one. */
 function useReason() {
@@ -28,7 +31,7 @@ export default function DMParty() {
   const players = usePlayers();
   const [owner, setOwner] = useState<string>('party');
   const live = useLoad<any>(() => w.live(), [w], ['presence', 'coin']);
-  const queue = useLoad<any>(() => w.call('GET', '/approvals'), [w], ['approval', 'item', 'coin']);
+  const queue = useLoad<any>(() => w.call('GET', '/approvals'), [w], ['approval', 'item', 'coin', 'transfer']);
   const waiting = (o: string) => [...(queue.data?.items ?? []), ...(queue.data?.coin ?? [])].filter((x: any) => x.owner === o).length;
   const here = new Map<string, any>((live.data?.here ?? []).map((h: any) => [h.account_id, h]));
   const ownerName = owner === 'party' ? 'The party' : nameOf(owner);
@@ -59,6 +62,7 @@ export default function DMParty() {
             <div className="col-2"><Items owner={owner} onDecided={queue.reload} /></div>
             <div className="col-1">{owner === 'party' && !info.settings.partyPurse ? <div className="card"><Empty>The party purse is off in World settings.</Empty></div> : <Coin key={owner} owner={owner} />}</div>
           </div>
+          <TransfersList limit={30} title="Players' gives and moves" />
         </section>
       </div>
     </div>
@@ -68,7 +72,10 @@ export default function DMParty() {
 function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<void> }) {
   const { w, info, nameOf } = useWorld();
   const players = usePlayers();
-  const inv = useLoad<any>(() => w.inventory(owner), [w, owner], ['item', 'item-moved', 'item-removed', 'approval']);
+  const inv = useLoad<any>(() => w.inventory(owner), [w, owner], ['item', 'item-moved', 'item-removed', 'approval', 'transfer']);
+  const [moving, setMoving] = useState<Item | null>(null);
+  const [viewing, setViewing] = useState<Item | null>(null);
+  const [image, setImage] = useState<string | null>(null);
   const reason = useReason();
   const [why, setWhy] = useState('');
   const act = useAction();
@@ -79,12 +86,12 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
   const [dmNote, setDmNote] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const weightOn = info.settings.trackWeight;
-  const readOnly = owner !== 'party' && !info.settings.dmEditsInventory;
+  const readOnly = act.offline || (owner !== 'party' && !info.settings.dmEditsInventory);
 
   const add = (e: FormEvent) => act.run(async () => {
     e.preventDefault();
-    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, ...(weightOn && weight ? { weight: Number(weight) } : {}), note, dmNote, reason: why.trim() });
-    setName(''); setQty('1'); setWeight(''); setNote(''); setDmNote(''); setWhy('');
+    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, ...(weightOn && weight ? { weight: Number(weight) } : {}), note, dmNote, reason: why.trim(), image });
+    setName(''); setQty('1'); setWeight(''); setNote(''); setDmNote(''); setWhy(''); setImage(null);
     void inv.reload();
   });
 
@@ -105,7 +112,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
                 ? <EditRow key={it.id} it={it} weightOn={weightOn} players={players} ask={reason.ask} onDone={() => { setEditing(null); void inv.reload(); }} />
                 : (
                   <tr key={it.id} style={it.status === 'pending' ? { opacity: 0.8 } : undefined}>
-                    <td><strong className="read" style={{ fontSize: 16 }}>{it.name}</strong>{it.link && <><br /><a className="tiny" href={it.link} target="_blank" rel="noreferrer">link</a></>}
+                    <td><span className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}><ItemImage image={it.image} name={it.name} size={36} onClick={it.image ? () => setViewing(it) : undefined} /><span><strong className="read" style={{ fontSize: 16 }}>{it.name}</strong>{it.link && <><br /><a className="tiny" href={it.link} target="_blank" rel="noreferrer">link</a></>}</span></span>
                       {it.pendingChange && (
                         <div className="stack tight" style={{ marginTop: 4 }}>
                           <span className="chip teal">⏳ {nameOf(it.pendingChange.by)} {it.pendingChange.kind === 'add' ? 'wants to add this' : it.pendingChange.kind === 'remove' ? 'wants to remove this' : 'wants to change this'}</span>
@@ -120,13 +127,15 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
                     <td>{it.qty}</td>
                     {weightOn && <td>{it.weight ?? '—'}</td>}
                     <td className="small"><span>{it.note}</span>{it.dm_note && <><br /><span style={{ color: 'var(--danger-text)' }}>DM: {it.dm_note}</span></>}<br /><span className="tiny faint">{nameOf(it.updated_by)} · {when(it.updated_at)}</span></td>
-                    <td>{!readOnly && <button type="button" className="btn small" onClick={() => setEditing(it.id)}>Edit</button>}</td>
+                    <td><span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>{!readOnly && <button type="button" className="btn small" onClick={() => setEditing(it.id)}>Edit</button>}{!readOnly && it.status !== 'pending' && !it.pendingChange && <button type="button" className="btn small ghost" onClick={() => setMoving(it)}>Move…</button>}</span></td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
       ) : <Empty>Nothing carried.</Empty>}
+      {moving && <MoveItemModal item={moving} onClose={() => setMoving(null)} onDone={() => { setMoving(null); void inv.reload(); }} />}
+      {viewing && <ImageViewer item={viewing} onClose={() => setViewing(null)} />}
       {!readOnly && (
         <form className="stack" onSubmit={(e) => void add(e)} style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
           <div className="row top">
@@ -138,6 +147,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
             <Field label="Note" help={owner === 'party' ? 'The party sees this' : 'The player sees this'}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
             <Field label="DM note" help="Only you see this (e.g. it's cursed)"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
           </div>
+          <ImageField value={image} name={name} onChange={setImage} />
           {reason.need && <Field label="Why" help={owner === 'party' ? 'The party sees this with the change' : 'The player sees this and can confirm or dispute'}><input required value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Loot from the crypt" /></Field>}
           <ErrorBox error={act.error} />
           <div className="row end"><button type="submit" className="btn primary small" disabled={act.busy || !name.trim() || (reason.need && !why.trim())}>Add item</button></div>
@@ -157,8 +167,9 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
   const [dmNote, setDmNote] = useState(it.dm_note ?? '');
   const [owner, setOwner] = useState(it.owner);
   const [why, setWhy] = useState('');
+  const [image, setImage] = useState<string | null>(it.image ?? null);
   const save = () => act.run(async () => {
-    await w.updateItem(it.id, { name, qty: parseInt(qty, 10) || 0, note, dmNote, owner, reason: why.trim(), ...(weightOn ? { weight: weight === '' ? null : Number(weight) } : {}) });
+    await w.updateItem(it.id, { name, qty: parseInt(qty, 10) || 0, note, dmNote, owner, image, reason: why.trim(), ...(weightOn ? { weight: weight === '' ? null : Number(weight) } : {}) });
     onDone();
   });
   return (
@@ -180,6 +191,7 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
             <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
             <Field label="DM note"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
           </div>
+          <ImageField value={image} name={name} onChange={setImage} />
           <Field label="Why" help="The owner sees this and can confirm or dispute"><input value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Used it on the door" /></Field>
           <ErrorBox error={act.error} />
           <div className="row end">
@@ -202,6 +214,7 @@ function Coin({ owner }: { owner: string }) {
   const [session, setSession] = useState('');
   const mode = info.settings.coins;
   const parsed = parseCoins(amount);
+  const [moving, setMoving] = useState(false);
 
   const add = (sign: 1 | -1) => act.run(async () => {
     if (!parsed) throw new Error('Enter an amount like “12 gp 5 sp” or “40”');
@@ -223,8 +236,10 @@ function Coin({ owner }: { owner: string }) {
         <div className="row">
           <button type="submit" className="btn primary small" disabled={act.busy}>＋ Add</button>
           <button type="button" className="btn small danger" disabled={act.busy} onClick={() => void add(-1)}>− Spend</button>
+          <button type="button" className="btn small ghost" disabled={act.offline} onClick={() => setMoving(true)}>Move to…</button>
         </div>
       </form>
+      {moving && <GiveCoinModal from={owner} onClose={() => setMoving(false)} onDone={() => { setMoving(false); void ledger.reload(); }} />}
       <div className="stack tight small" style={{ maxHeight: 260, overflowY: 'auto' }}>
         {(ledger.data?.entries ?? []).map((e: any) => (
           <div key={e.id} className="row between" style={e.status === 'pending' ? { opacity: 0.75 } : undefined}>

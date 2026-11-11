@@ -150,7 +150,7 @@ export function createApp(opts: AppOptions = {}) {
 
   if (opts.webDir && fs.existsSync(path.join(opts.webDir, 'index.html'))) {
     const webDir = opts.webDir;
-    const csp = "default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    const csp = "default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     app.use(express.static(webDir, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (f.endsWith('index.html')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Content-Security-Policy', csp); } } }));
     // Any other GET that is not an API path is a page of the app.
     app.get(/^\/(?!api\/|mcp|v1\/|dav\/|health).*/, (_req, res) => {

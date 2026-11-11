@@ -1,5 +1,6 @@
 import { NavLink, Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
+import { OfflineBanner } from '../ui/index.tsx';
 
 const LINKS: [string, string][] = [['', 'Overview'], ['accounts', 'Accounts'], ['worlds', 'Worlds'], ['sources', 'World sources'], ['keys', 'Keys & AI'], ['audit', 'Audit log']];
 
@@ -20,7 +21,7 @@ export function AdminLayout() {
           <button type="button" className="btn small" onClick={() => void signOut()}>Sign out</button>
         </div>
       </nav>
-      <main className="main"><Outlet /></main>
+      <main className="main"><OfflineBanner /><Outlet /></main>
     </div>
   );
 }

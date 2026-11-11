@@ -45,10 +45,13 @@ export default function approvalsRoutes(d: Deps) {
       disputes: ch.filter((x) => x.status === 'disputed'),
       alerts: ch.filter((x) => x.status === 'alert'),
       recent: all<any>(db, `SELECT * FROM item_changes WHERE world_id = ? AND status IN ('approved', 'rejected', 'reverted', 'ok') ORDER BY COALESCE(decided_at, at) DESC LIMIT 30`, w).map((x) => parse(x, true)),
+      // Free gives between players: nothing to approve, shown so the DM knows.
+      transfers: all<any>(db, 'SELECT * FROM transfers WHERE world_id = ? ORDER BY at DESC LIMIT 30', w).map((t) => ({ ...t, seen: !!t.seen })),
       counts: {
         coin: one<any>(db, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending'`, w)!.n,
         items: ch.filter((x) => x.status === 'pending').length,
         disputes: ch.filter((x) => x.status === 'disputed').length,
+        transfers: one<any>(db, 'SELECT COUNT(*) AS n FROM transfers WHERE world_id = ? AND seen = 0', w)!.n,
       },
     });
   });

@@ -21,8 +21,9 @@ const GROUPS: [string, string, Row[]][] = [
     T('dmEditsInventory', 'DM can edit player inventories', 'Every change is logged and the player sees it.'),
   ]],
   ['approvals', 'Approvals & broker', [
-    T('playerChangesNeedApproval', 'Player coin and item changes need your approval', 'On: what players add, spend, move or remove waits in Approvals and shows as “Waiting for the DM”. Broker payments are never held.'),
+    T('playerChangesNeedApproval', 'Player coin and item changes need your approval', 'On: what players add, spend, edit or remove waits in Approvals and shows as “Waiting for the DM”. Broker payments are never held.'),
     T('dmChangeReason', 'Ask me why when I change a player’s things', 'Your reason shows to the owner, who can confirm or dispute it.'),
+    T('playerTransfers', 'Players can give coin and items freely', 'On: players hand each other coin and items, and move things in and out of the party stash, without asking. You see every give in Party & inventory.'),
     T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on the broker page.'),
     C('brokerPayer', 'Who pays the broker', 'The party purse needs “Shared party purse” on.', [['self', 'The player who asks'], ['party', 'The party purse']]),
   ]],

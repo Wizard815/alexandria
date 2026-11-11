@@ -5,6 +5,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useParams } from 'react-router-dom';
 import type { WorldClient, LiveEvent } from '@alx/client';
 import { useAuth } from './auth.tsx';
+import { check, onReconnect } from './net.ts';
+import { prefetchWorld } from './prefetch.ts';
 
 export type Role = 'dm' | 'player' | 'guest';
 
@@ -15,6 +17,7 @@ export interface WorldSettings {
   messageDays: number | null; captions: boolean; rules: string; requestDefault: 'dm' | 'party';
   quickEventTimer: number | null; themeEffects: boolean; calendar: 'builtin' | 'off';
   playerChangesNeedApproval?: boolean; dmChangeReason?: boolean; brokerEnabled?: boolean; brokerPayer?: 'self' | 'party';
+  playerTransfers?: boolean;
 }
 
 export interface WorldInfo { id: string; slug: string; name: string; role: Role; settings: WorldSettings }
@@ -50,12 +53,25 @@ export function WorldProvider({ children }: { children: ReactNode }) {
       const [i, m] = await Promise.all([w.info(), w.members()]);
       setInfo(i as WorldInfo);
       setMembers(m as Member[]);
+      setError(null);
     } catch (e: any) {
       setError(e.message);
     }
   }, [w]);
 
   useEffect(() => { void reloadInfo(); }, [reloadInfo]);
+
+  // Keep a copy of this world on the device, and refresh it on reconnect.
+  const role = info?.role;
+  const worldId = info?.id;
+  useEffect(() => {
+    if (!role || !me || !worldId) return;
+    const ctl = new AbortController();
+    const run = () => { void prefetchWorld(w, role, ctl.signal, worldId); };
+    const t = setTimeout(run, 1500);
+    const off = onReconnect(() => { void reloadInfo(); setTimeout(run, 1500); });
+    return () => { clearTimeout(t); off(); ctl.abort(); };
+  }, [w, role, worldId, me, reloadInfo]);
 
   useEffect(() => {
     let stop = () => {};
@@ -70,6 +86,8 @@ export function WorldProvider({ children }: { children: ReactNode }) {
         },
         () => {
           setConnected(false);
+          // Lost the live stream: is the server gone, or just the stream?
+          void check();
           if (alive) retry = setTimeout(start, 3000);
         },
       );
@@ -130,6 +148,9 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], events: string
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setLoading(true); void reload(); }, deps);
+
+  // Back online: everything on screen reloads.
+  useEffect(() => onReconnect(() => void reload()), [reload]);
 
   useEffect(() => {
     if (!ctx || !events.length) return;
