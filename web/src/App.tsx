@@ -11,7 +11,6 @@ import AdminWorlds from './pages/admin/Worlds.tsx';
 import AdminSources from './pages/admin/Sources.tsx';
 import AdminAudit from './pages/admin/Audit.tsx';
 import DMTable from './pages/dm/Table.tsx';
-import DMLibrary from './pages/dm/Library.tsx';
 import DMRequests from './pages/dm/Requests.tsx';
 import DMCombat from './pages/dm/Combat.tsx';
 import DMQuickEvents from './pages/dm/QuickEvents.tsx';
@@ -21,7 +20,10 @@ import DMRelations from './pages/dm/Relations.tsx';
 import DMSettings from './pages/dm/Settings.tsx';
 import PlayerHome from './pages/player/Home.tsx';
 import PlayerLive from './pages/player/Live.tsx';
-import PlayerLore from './pages/player/Lore.tsx';
+import LibraryPage from './pages/library/LibraryPage.tsx';
+import PlayerBroker from './pages/broker/PlayerBroker.tsx';
+import DMBroker from './pages/broker/DMBroker.tsx';
+import DMApprovals from './pages/broker/DMApprovals.tsx';
 import PlayerPeople from './pages/player/People.tsx';
 import PlayerMe from './pages/player/Me.tsx';
 import PlayerInventory from './pages/player/Inventory.tsx';
@@ -53,7 +55,9 @@ export function App() {
       <Route path="/w/:world" element={<WorldProvider><WorldOutlet /></WorldProvider>}>
         <Route path="dm" element={<DMLayout />}>
           <Route index element={<DMTable />} />
-          <Route path="library" element={<DMLibrary />} />
+          <Route path="library" element={<LibraryPage />} />
+          <Route path="broker" element={<DMBroker />} />
+          <Route path="approvals" element={<DMApprovals />} />
           <Route path="requests" element={<DMRequests />} />
           <Route path="combat" element={<DMCombat />} />
           <Route path="quick" element={<DMQuickEvents />} />
@@ -70,7 +74,9 @@ export function App() {
         <Route element={<PlayerLayout />}>
           <Route index element={<PlayerHome />} />
           <Route path="live" element={<PlayerLive />} />
-          <Route path="lore" element={<PlayerLore />} />
+          <Route path="library" element={<LibraryPage />} />
+          <Route path="lore" element={<Navigate to="../library" replace />} />
+          <Route path="broker" element={<PlayerBroker />} />
           <Route path="people" element={<PlayerPeople />} />
           <Route path="me" element={<PlayerMe />} />
           <Route path="inventory" element={<PlayerInventory />} />

@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 
 const GROUPS: [string, [string, string][]][] = [
-  ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory']]],
+  ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory'], ['approvals', '✓ Approvals'], ['broker', '⚖ Information broker']]],
   ['The world', [['library', '❧ Library'], ['people', '☺ People'], ['relations', '⚭ Relations'], ['map', '✧ Map'], ['requests', '✎ Requests'], ['messages', '✉ Messages'], ['calendar', '▦ Session calendar'], ['whiteboard', '▤ Whiteboard']]],
   ['Setup', [['settings', '⚙ World settings'], ['connect', '⌁ Connect an AI']]],
 ];

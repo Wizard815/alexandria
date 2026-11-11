@@ -22,6 +22,8 @@ import inventoryRoutes from './routes/inventory.ts';
 import mapRoutes from './routes/map.ts';
 import peopleRoutes from './routes/people.ts';
 import whiteboardRoutes from './routes/whiteboard.ts';
+import brokerRoutes from './routes/broker.ts';
+import approvalsRoutes from './routes/approvals.ts';
 import modelRoutes from './routes/models.ts';
 import mcpServerRoutes from './routes/mcpServer.ts';
 
@@ -115,6 +117,8 @@ export function createApp(opts: AppOptions = {}) {
   w.use('/map', mapRoutes(deps));
   w.use('/', peopleRoutes(deps));
   w.use('/whiteboard', whiteboardRoutes(deps));
+  w.use('/broker', brokerRoutes(deps));
+  w.use('/approvals', approvalsRoutes(deps));
   app.use('/api/worlds/:world', w);
   app.get('/api/worlds', authenticate(db), listMyWorlds(deps));
 
