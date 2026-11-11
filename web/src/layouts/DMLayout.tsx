@@ -1,6 +1,7 @@
 import { NavLink, Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
+import { OfflineBanner } from '../ui/index.tsx';
 
 const GROUPS: [string, [string, string][]][] = [
   ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory'], ['approvals', '✓ Approvals'], ['broker', '⚖ Information broker']]],
@@ -38,7 +39,7 @@ export function DMLayout() {
           <button type="button" className="btn small" onClick={() => void signOut()}>Sign out</button>
         </div>
       </nav>
-      <main className="main"><Outlet /></main>
+      <main className="main"><OfflineBanner /><Outlet /></main>
     </div>
   );
 }

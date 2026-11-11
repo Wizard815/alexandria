@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS broker_requests (
   cost_cp INTEGER NOT NULL DEFAULT 0,
   payer TEXT,
   ledger_id TEXT,
-  status TEXT NOT NULL CHECK (status IN ('pricing', 'offered', 'waiting', 'answered', 'refused', 'refunded', 'declined')),
+  status TEXT NOT NULL CHECK (status IN ('pricing', 'offered', 'waiting', 'answered', 'refused', 'refunded', 'declined', 'noted')),
   wait_clock TEXT,
   ready_at TEXT,
   ready_at_game INTEGER,
@@ -396,6 +396,91 @@ CREATE TABLE IF NOT EXISTS broker_requests (
   dm_note TEXT,
   created_at TEXT NOT NULL,
   delivered_at TEXT
+);
+
+-- Broker v2: what each question was judged to be (DM only), DM-written
+-- notes the broker may sell, per-page price rules, and DM-sent offers.
+CREATE TABLE IF NOT EXISTS broker_notes (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  page_id TEXT,
+  topic TEXT NOT NULL,
+  text TEXT NOT NULL,
+  knowledge TEXT NOT NULL DEFAULT 'local',
+  active INTEGER NOT NULL DEFAULT 1,
+  from_request TEXT,
+  by_id TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS broker_page_rules (
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  page_id TEXT NOT NULL,
+  knowledge TEXT,
+  multiplier REAL NOT NULL DEFAULT 1,
+  never_sell INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (world_id, page_id)
+);
+CREATE TABLE IF NOT EXISTS broker_offers (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  teaser TEXT NOT NULL DEFAULT '',
+  info TEXT NOT NULL,
+  page_id TEXT,
+  price_cp INTEGER NOT NULL,
+  targets TEXT NOT NULL,
+  expires_sessions INTEGER,
+  fallback_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open', 'paid', 'declined', 'expired', 'withdrawn')),
+  declined_by TEXT NOT NULL DEFAULT '[]',
+  paid_by TEXT,
+  paid_from TEXT,
+  ledger_id TEXT,
+  paid_at TEXT,
+  by_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- Coin players ask each other for (e.g. to afford an offer).
+CREATE TABLE IF NOT EXISTS coin_requests (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  amount_cp INTEGER NOT NULL,
+  given_cp INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  offer_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('open', 'done', 'declined', 'cancelled')),
+  declined_by TEXT NOT NULL DEFAULT '[]',
+  at TEXT NOT NULL
+);
+
+-- Free moves between players and the party: logged for the DM, never pending.
+CREATE TABLE IF NOT EXISTS transfers (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('coin', 'item')),
+  from_owner TEXT NOT NULL,
+  to_owner TEXT NOT NULL,
+  amount_cp INTEGER,
+  item_name TEXT,
+  qty INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  by_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 0
+);
+
+-- Uploaded images (item pictures). Stored in the database so backups keep them.
+CREATE TABLE IF NOT EXISTS uploads (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  by_id TEXT NOT NULL,
+  at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit (
@@ -463,6 +548,26 @@ function migrate(db: DB) {
     db.exec('ALTER TABLE ledger ADD COLUMN decided_at TEXT');
   }
   if (!cols('items').includes('status')) db.exec(`ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'`);
+
+  // Broker v2 and item pictures.
+  if (!cols('items').includes('image')) db.exec('ALTER TABLE items ADD COLUMN image TEXT');
+  if (!cols('broker_requests').includes('classification')) db.exec('ALTER TABLE broker_requests ADD COLUMN classification TEXT');
+  if (!cols('ledger').includes('transfer_id')) db.exec('ALTER TABLE ledger ADD COLUMN transfer_id TEXT');
+  // 'noted': a question the broker turned away; only the DM sees it.
+  const brSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'broker_requests'`).get() as any)?.sql ?? '';
+  if (!brSql.includes("'noted'")) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`BEGIN;
+      ALTER TABLE broker_requests RENAME TO broker_requests_old;
+      CREATE TABLE broker_requests (id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        question TEXT NOT NULL, length TEXT NOT NULL, tier TEXT NOT NULL, cost_cp INTEGER NOT NULL DEFAULT 0, payer TEXT, ledger_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pricing', 'offered', 'waiting', 'answered', 'refused', 'refunded', 'declined', 'noted')),
+        wait_clock TEXT, ready_at TEXT, ready_at_game INTEGER, answer TEXT, sources TEXT NOT NULL DEFAULT '[]', dm_note TEXT, created_at TEXT NOT NULL, delivered_at TEXT, classification TEXT);
+      INSERT INTO broker_requests SELECT id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, dm_note, created_at, delivered_at, classification FROM broker_requests_old;
+      DROP TABLE broker_requests_old;
+      COMMIT;`);
+    db.exec('PRAGMA foreign_keys = ON');
+  }
 }
 
 type Row = Record<string, any>;

@@ -11,6 +11,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { PageHead, ErrorBox, Empty, Loading, VisChip, Tabs, useToast, useAction } from '../../ui/index.tsx';
 import * as off from '../../lib/offline.ts';
+import { useNet } from '../../lib/net.ts';
 import { Blocks, Facts, Icon, LIB_CSS, type RenderCtx } from './Blocks.tsx';
 import { Tree, TREE_CSS, type PageRow } from './Tree.tsx';
 import { Editor, SecretHint } from './Editor.tsx';
@@ -43,6 +44,8 @@ export default function LibraryPage() {
 
   // With the server out of reach, browse what was saved.
   const offline = !!pages.error && !pages.data;
+  // Text search runs on the server; offline, the box filters saved titles only.
+  const netOnline = useNet().online;
   const rows: PageRow[] = useMemo(() => {
     if (pages.data) return pages.data;
     if (!offline) return [];
@@ -59,10 +62,10 @@ export default function LibraryPage() {
   }, [titleParam, pages.data, setParams, isDM]);
 
   useEffect(() => {
-    if (!q.trim() || offline) { setHits(null); return; }
+    if (!q.trim() || offline || !netOnline) { setHits(null); return; }
     const t = setTimeout(() => { w.search(q).then(setHits).catch(() => setHits([])); }, 250);
     return () => clearTimeout(t);
-  }, [q, w, offline]);
+  }, [q, w, offline, netOnline]);
 
   const tags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags ?? []))].sort((a, b) => a.localeCompare(b)), [rows]);
   const kinds = useMemo(() => [...new Set(rows.map((r) => r.kind).filter(Boolean))].sort(), [rows]);
@@ -136,7 +139,7 @@ export default function LibraryPage() {
           <Tabs label="Library side panel" value={side} onChange={setSide} items={sideItems} />
           {side === 'pages' && (
             <>
-              <label className="field"><span className="sr-only">Search the library</span><input type="search" placeholder={offline ? 'Filter saved titles…' : 'Search titles and text…'} value={q} onChange={(e) => setQ(e.target.value)} /></label>
+              <label className="field"><span className="sr-only">Search the library</span><input type="search" placeholder={offline || !netOnline ? 'Filter saved titles…' : 'Search titles and text…'} value={q} onChange={(e) => setQ(e.target.value)} /></label>
               <div className="lib-filters">
                 <select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}><option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                 {kinds.length > 1 && <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select>}
