@@ -162,6 +162,13 @@ export interface WorldSettings {
   quickEventTimer: number | null;
   themeEffects: boolean;
   calendar: 'builtin' | 'off';
+  /** Players' coin and item changes wait for the DM. */
+  playerChangesNeedApproval: boolean;
+  /** The DM must give a reason when changing someone else's items. */
+  dmChangeReason: boolean;
+  brokerEnabled: boolean;
+  /** Who pays the information broker: the asker, or the party purse. */
+  brokerPayer: 'self' | 'party';
 }
 
 export const DEFAULT_SETTINGS: WorldSettings = {
@@ -182,6 +189,10 @@ export const DEFAULT_SETTINGS: WorldSettings = {
   quickEventTimer: 20,
   themeEffects: true,
   calendar: 'builtin',
+  playerChangesNeedApproval: true,
+  dmChangeReason: true,
+  brokerEnabled: true,
+  brokerPayer: 'self',
 };
 
 /** Merge a settings patch, keeping only known keys with the right type. */
@@ -193,6 +204,7 @@ export function mergeSettings(cur: WorldSettings, patch: Record<string, unknown>
     whiteboardWipe: ['dm', 'all'],
     requestDefault: ['dm', 'party'],
     calendar: ['builtin', 'off'],
+    brokerPayer: ['self', 'party'],
   };
   for (const [k, v] of Object.entries(patch)) {
     if (!(k in DEFAULT_SETTINGS)) throw new Error(`Unknown setting: ${k}`);

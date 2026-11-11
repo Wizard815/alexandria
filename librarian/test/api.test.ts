@@ -259,7 +259,11 @@ test('TestLive_PresenceAndPurse', async () => {
   await ok('PUT', `/api/worlds/${W}/live/presence`, T.jess, { location: 'At the table' });
   await ok('PUT', `/api/worlds/${W}/live/presence`, T.tom, { location: 'Discord' });
   await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: 'party', amountCp: 4000, note: 'Odda’s favour', session: 'S14' });
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.tom, { owner: 'party', amountCp: -60, note: 'Room at the Gull', session: 'S14' });
+  // A player's coin change waits for the DM and does not count until approved.
+  const req = await ok('POST', `/api/worlds/${W}/live/ledger`, T.tom, { owner: 'party', amountCp: -60, note: 'Room at the Gull', session: 'S14' });
+  assert.equal(req.pending, true);
+  assert.equal((await ok('GET', `/api/worlds/${W}/live?session=S14`, T.jess)).purse.cp, 4000);
+  await ok('POST', `/api/worlds/${W}/approvals/${req.id}`, T.dm, { action: 'approve' });
   await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 2700, note: 'Share' });
   const live = await ok('GET', `/api/worlds/${W}/live?session=S14`, T.jess);
   assert.equal(live.here.length, 2);
@@ -269,13 +273,17 @@ test('TestLive_PresenceAndPurse', async () => {
 });
 
 test('TestInventory_WeightOffAndDmNotesPrivate', async () => {
-  const it = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring', weight: 0.1, dmNote: 'It is cursed.' });
+  assert.equal((await call('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring' })).status, 400, 'the DM gives a reason when changing a player’s items');
+  const it = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring', weight: 0.1, dmNote: 'It is cursed.', reason: 'Found in the vault' });
   const mine = await ok('GET', `/api/worlds/${W}/inventory?owner=me`, T.jess);
   const s = JSON.stringify(mine);
   assert.equal(mine.trackWeight, false);
   assert.ok(s.includes('Mother’s ring') && !s.includes('cursed') && !s.includes('weight"'));
   assert.equal((await call('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.tom, { qty: 0 })).status, 403);
-  await ok('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.jess, { owner: 'party' });
+  const move = await ok('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.jess, { owner: 'party' });
+  assert.equal(move.pending, true);
+  assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 0, 'moving waits for the DM');
+  await ok('POST', `/api/worlds/${W}/approvals/${move.pendingChange.id}`, T.dm, { action: 'approve' });
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 1);
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { trackWeight: true });
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items[0].weight, 0.1);

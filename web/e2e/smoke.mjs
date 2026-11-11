@@ -85,9 +85,10 @@ try {
   const plToken = await pl.evaluate(() => localStorage.getItem('alx.token'));
 
   // 4. Lore shows the shared page without the secret.
-  await pl.goto(base + '/w/bloodearth/lore');
+  await pl.goto(base + '/w/bloodearth/library');
   await pl.waitForTimeout(800);
   const lore = await pl.locator('main').innerText();
+  if (!lore.includes('Old Kesh')) problems.push('player library misses a shared page');
   if (lore.includes('Plot')) problems.push('player lore lists a DM-only page');
   if (lore.includes('Smugglers')) problems.push('player lore shows secret text');
 
@@ -102,8 +103,8 @@ try {
   } catch { problems.push('quick event prompt did not appear for the player'); }
 
   // 6. Every screen, both roles, no errors; phones have no sideways scroll.
-  const dmRoutes = ['', 'combat', 'quick', 'party', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'settings', 'connect'];
-  const plRoutes = ['', 'live', 'lore', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect'];
+  const dmRoutes = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'settings', 'connect'];
+  const plRoutes = ['', 'live', 'library', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect'];
   for (const r of dmRoutes) { await dm.goto(`${base}/w/bloodearth/dm/${r}`); await dm.waitForTimeout(400); }
   await pl.keyboard.press('Escape');
   for (const r of plRoutes) {

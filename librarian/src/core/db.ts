@@ -352,6 +352,52 @@ CREATE TABLE IF NOT EXISTS whiteboard_history (
   PRIMARY KEY (world_id, version)
 );
 
+-- Item changes: player proposals waiting for the DM, and DM changes the
+-- owner is told about (and can dispute).
+CREATE TABLE IF NOT EXISTS item_changes (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('add', 'edit', 'remove')),
+  before_json TEXT,
+  after_json TEXT,
+  reason TEXT NOT NULL DEFAULT '',
+  by_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'alert', 'ok', 'disputed', 'reverted')),
+  dispute_note TEXT,
+  decided_by TEXT,
+  decided_at TEXT
+);
+
+-- The information broker: one row per world for the persona, tiers and game clock.
+CREATE TABLE IF NOT EXISTS broker_config (
+  world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+  config TEXT NOT NULL,
+  game_minutes INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS broker_requests (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  length TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  cost_cp INTEGER NOT NULL DEFAULT 0,
+  payer TEXT,
+  ledger_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('pricing', 'offered', 'waiting', 'answered', 'refused', 'refunded', 'declined')),
+  wait_clock TEXT,
+  ready_at TEXT,
+  ready_at_game INTEGER,
+  answer TEXT,
+  sources TEXT NOT NULL DEFAULT '[]',
+  dm_note TEXT,
+  created_at TEXT NOT NULL,
+  delivered_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   world_id TEXT,
@@ -409,6 +455,14 @@ function migrate(db: DB) {
   add('player_properties', 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pages_source_ext ON pages (world_id, source_id, external_id) WHERE external_id IS NOT NULL');
   db.exec('CREATE INDEX IF NOT EXISTS pages_world_vis ON pages (world_id, visibility)');
+
+  // DM approvals: player coin changes and player-added items wait for the DM.
+  if (!cols('ledger').includes('status')) {
+    db.exec(`ALTER TABLE ledger ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'`);
+    db.exec('ALTER TABLE ledger ADD COLUMN decided_by TEXT');
+    db.exec('ALTER TABLE ledger ADD COLUMN decided_at TEXT');
+  }
+  if (!cols('items').includes('status')) db.exec(`ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'`);
 }
 
 type Row = Record<string, any>;

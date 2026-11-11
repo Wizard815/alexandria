@@ -12,8 +12,11 @@ export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
   const { me, signOut } = useAuth();
   const requests = useLoad(() => w.requests(), [w], ['request']);
+  const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isDM) return <Navigate to={`/w/${info.slug}`} replace />;
   const open = (requests.data ?? []).filter((r: any) => r.status === 'open').length;
+  const c = approvals.data?.counts;
+  const pending = c ? c.coin + c.items + c.disputes : 0;
   return (
     <div className="t-fantasy shell">
       <nav className="side" aria-label="DM">
@@ -23,7 +26,7 @@ export function DMLayout() {
             <span className="nav-label">{label}</span>
             {links.map(([to, text]) => (
               <NavLink key={to} to={`/w/${info.slug}/dm/${to}`} end={to === ''} className="nav-link">
-                {text}{to === 'requests' && open > 0 && <span className="count">{open}</span>}
+                {text}{to === 'requests' && open > 0 && <span className="count">{open}</span>}{to === 'approvals' && pending > 0 && <span className="count">{pending}</span>}
               </NavLink>
             ))}
           </div>

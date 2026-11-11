@@ -5,6 +5,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { CombatPanel, type LiveView } from './Live.tsx';
+import { AlertsCard, BrokerTeaser, useMine } from '../broker/shared.tsx';
 
 interface CalSession { id: string; title: string; starts_at: string; ends_at: string; location: string; status: string; rsvps: { account_id: string; answer: string }[]; chatCount: number }
 const RSVP: [string, string][] = [['yes', 'Going'], ['maybe', 'Maybe'], ['no', "Can't"]];
@@ -18,6 +19,7 @@ export default function PlayerHome() {
   const reqs = useLoad(() => w.requests(), [w], ['request']);
   const threads = useLoad(() => w.threads(), [w], ['message', 'thread']);
   const act = useAction();
+  const mine = useMine();
 
   const next = (cal.data ?? []).find((s) => s.status === 'scheduled' && Date.parse(s.ends_at) > Date.now());
   const myAnswer = next?.rsvps.find((r) => r.account_id === me)?.answer;
@@ -58,6 +60,7 @@ export default function PlayerHome() {
           )}
 
           {d && d.combat.active && <CombatPanel c={d.combat} compact />}
+          <AlertsCard mine={mine.data} reload={mine.reload} />
 
           <section className="card" aria-labelledby="upd-h">
             <h2 id="upd-h">Updates</h2>
@@ -98,6 +101,7 @@ export default function PlayerHome() {
               </>
             ) : <span className="muted small">Loading…</span>}
           </section>
+          <BrokerTeaser />
           <nav className="card" aria-label="Quick links">
             <div className="grid small">
               {[['lore', 'Read the lore'], ['people', 'People we met'], ['me', 'My character'], ['map', 'The map'], ['ask', 'Ask the DM'], ['whiteboard', 'Whiteboard']].map(([to, label]) => (
