@@ -22,18 +22,17 @@ function Frame({ title, lead, children }: { title: string; lead?: ReactNode; chi
 }
 
 export function Setup() {
-  const { client, needsSetup, signIn } = useAuth();
-  const nav = useNavigate();
+  const { client, needsSetup, signIn, me } = useAuth();
   const [u, setU] = useState('');
   const [p, setP] = useState('');
   const a = useAction();
-  if (!needsSetup) return <Navigate to="/" replace />;
+  // Once setup is done (by this form or earlier), the admin goes to Worlds.
+  if (!needsSetup) return <Navigate to={me?.account.is_admin ? '/admin/worlds' : '/'} replace />;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void a.run(async () => {
       const r = await client.setup(u, p);
       await signIn(r.token);
-      nav('/admin/worlds');
     });
   };
   return (

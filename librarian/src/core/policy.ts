@@ -169,6 +169,8 @@ export interface WorldSettings {
   brokerEnabled: boolean;
   /** Who pays the information broker: the asker, or the party purse. */
   brokerPayer: 'self' | 'party';
+  /** Players may give each other coin and items (and move party things) without asking the DM. */
+  playerTransfers: boolean;
 }
 
 export const DEFAULT_SETTINGS: WorldSettings = {
@@ -193,6 +195,7 @@ export const DEFAULT_SETTINGS: WorldSettings = {
   dmChangeReason: true,
   brokerEnabled: true,
   brokerPayer: 'self',
+  playerTransfers: true,
 };
 
 /** Merge a settings patch, keeping only known keys with the right type. */

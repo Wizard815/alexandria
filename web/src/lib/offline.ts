@@ -18,6 +18,9 @@ export interface SavedPage {
 
 const DB_NAME = 'alexandria-offline';
 const STORE = 'pages';
+/** Every GET answer the app received, for reading while offline. */
+const RESP = 'responses';
+export interface CachedResponse { key: string; account: string; savedAt: string; value: unknown }
 let dbp: Promise<IDBDatabase | null> | null = null;
 
 function open(): Promise<IDBDatabase | null> {
@@ -25,12 +28,16 @@ function open(): Promise<IDBDatabase | null> {
   dbp = new Promise((resolve) => {
     try {
       if (typeof indexedDB === 'undefined') return resolve(null);
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) {
           const s = db.createObjectStore(STORE, { keyPath: 'key' });
           s.createIndex('byWorld', ['world', 'account']);
+        }
+        if (!db.objectStoreNames.contains(RESP)) {
+          const r = db.createObjectStore(RESP, { keyPath: 'key' });
+          r.createIndex('byAccount', 'account');
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -43,12 +50,12 @@ function open(): Promise<IDBDatabase | null> {
   return dbp;
 }
 
-function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void): Promise<T | null> {
+function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void, store = STORE): Promise<T | null> {
   return open().then((db) => new Promise<T | null>((resolve) => {
     if (!db) return resolve(null);
     try {
-      const t = db.transaction(STORE, mode);
-      const s = t.objectStore(STORE);
+      const t = db.transaction(store, mode);
+      const s = t.objectStore(store);
       const req = fn(s);
       t.oncomplete = () => resolve(req ? (req.result as T) : null);
       t.onerror = () => resolve(null);
@@ -85,6 +92,42 @@ export async function listSaved(world: string, account: string): Promise<SavedPa
 
 export async function removeSaved(world: string, account: string, pageId: string): Promise<void> {
   await tx('readwrite', (s) => s.delete(keyOf(world, pageId, account)));
+}
+
+// ---- Response cache (every GET, per account) ----
+
+/** The account a cache key belongs to: keys are `<account>|<path>`. */
+const accountOf = (key: string) => key.slice(0, key.indexOf('|'));
+
+export const responseCache = {
+  async get(key: string): Promise<{ value: unknown; savedAt: string } | null> {
+    const r = await tx<CachedResponse>('readonly', (s) => s.get(key), RESP);
+    return r ? { value: r.value, savedAt: r.savedAt } : null;
+  },
+  async put(key: string, value: unknown): Promise<void> {
+    await tx('readwrite', (s) => s.put({ key, account: accountOf(key), savedAt: new Date().toISOString(), value } satisfies CachedResponse), RESP);
+  },
+  /** Many at once (prefetch), in one transaction. */
+  async putMany(rows: [string, unknown][]): Promise<void> {
+    if (!rows.length) return;
+    const at = new Date().toISOString();
+    await tx('readwrite', (s) => { for (const [key, value] of rows) s.put({ key, account: accountOf(key), savedAt: at, value } satisfies CachedResponse); }, RESP);
+  },
+  async savedAt(key: string): Promise<string | null> {
+    return (await tx<CachedResponse>('readonly', (s) => s.get(key), RESP))?.savedAt ?? null;
+  },
+};
+
+/** Forget everything stored for an account: cached answers and saved pages. */
+export async function clearAccount(account: string): Promise<void> {
+  await tx('readwrite', (s) => {
+    const req = s.index('byAccount').openCursor(IDBKeyRange.only(account));
+    req.onsuccess = () => { const c = req.result; if (c) { c.delete(); c.continue(); } };
+  }, RESP);
+  await tx('readwrite', (s) => {
+    const req = s.openCursor();
+    req.onsuccess = () => { const c = req.result; if (c) { if ((c.value as SavedPage).account === account) c.delete(); c.continue(); } };
+  });
 }
 
 export function formatSize(n: number) {
