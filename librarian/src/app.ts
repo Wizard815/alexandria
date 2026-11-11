@@ -4,10 +4,13 @@ import path from 'node:path';
 import { type DB, openDb, run } from './core/db.ts';
 import { EventHub } from './core/events.ts';
 import { Library } from './core/library.ts';
-import { authenticate, loadWorld, Throttle } from './core/auth.ts';
+import { authenticate, loadWorld, requireAdmin, Throttle } from './core/auth.ts';
 import { HttpError, now } from './core/util.ts';
 import authRoutes from './routes/auth.ts';
 import adminRoutes from './routes/admin.ts';
+import sourceRoutes from './routes/sources.ts';
+import { startScheduler } from './intake/sync.ts';
+import type { McpClient } from './core/mcp.ts';
 import worldRoutes, { listMyWorlds } from './routes/world.ts';
 import libraryRoutes from './routes/library.ts';
 import requestRoutes from './routes/requests.ts';
@@ -31,9 +34,14 @@ export interface Deps {
   vaultsDir: string | null;
   fetch: typeof fetch;
   env: Record<string, string | undefined>;
+  /** Tests only: an MCP client used instead of connecting to real servers. */
+  testMcp?: McpClient;
 }
 
 export interface AppOptions {
+  testMcp?: McpClient;
+  /** Tests turn off scheduled syncs. */
+  noScheduler?: boolean;
   /** Built web app (web/dist). Served at / with a fallback to index.html. */
   webDir?: string | null;
   dbFile?: string;
@@ -58,6 +66,7 @@ export function createApp(opts: AppOptions = {}) {
     vaultsDir: opts.vaultsDir ?? null,
     fetch: opts.fetch ?? fetch,
     env: opts.env ?? process.env,
+    testMcp: opts.testMcp,
   };
 
   const app = express();
@@ -91,6 +100,7 @@ export function createApp(opts: AppOptions = {}) {
 
   app.use('/api', authRoutes(deps));
   app.use('/api/admin', authenticate(db), adminRoutes(deps));
+  app.use('/api/admin', authenticate(db), requireAdmin, sourceRoutes(deps));
 
   const w = express.Router({ mergeParams: true });
   w.use(authenticate(db), loadWorld(db));
@@ -130,6 +140,7 @@ export function createApp(opts: AppOptions = {}) {
     res.status(500).json({ error: 'Something went wrong on the librarian' });
   });
 
+  if (!opts.noScheduler) startScheduler({ db, library: deps.library, dataDir: deps.dataDir, vaultsDir: deps.vaultsDir, fetch: deps.fetch, env: deps.env });
   const timer = setInterval(() => purgeExpiredThreads(db), 60 * 60 * 1000);
   timer.unref();
 

@@ -11,7 +11,8 @@
     "build": "tsc -p . --noEmit false"
   },
   "dependencies": {
-    "express": "^5.0.0"
+    "express": "^5.0.0",
+    "marked": "^18.2.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

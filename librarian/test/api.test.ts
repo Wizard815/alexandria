@@ -56,7 +56,7 @@ title: Brother Tamsin
 ---
 DM-only page by default.
 `);
-  const { app } = createApp({ dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: {} });
+  const { app } = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: {} });
   server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -110,7 +110,7 @@ test('TestReset_AdminCodeResetsPassword', async () => {
 test('TestLibrary_VaultImportAndPlayerCopy', async () => {
   const src = await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'vault', name: 'Lokus vault', config: { folder: 'bloodearth' } });
   assert.equal((await call('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'vault', name: 'escape', config: { folder: '../../etc' } })).status, 400);
-  assert.equal((await ok('POST', `/api/admin/sources/${src.id}/sync`, T.admin)).pages, 2);
+  assert.equal((await ok('POST', `/api/admin/sources/${src.id}/sync?wait=1`, T.admin)).pages, 2);
 
   const dmPages = await ok('GET', `/api/worlds/${W}/library/pages`, T.dm);
   assert.equal(dmPages.length, 2);
