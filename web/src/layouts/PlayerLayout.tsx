@@ -4,11 +4,11 @@ import { useWorld } from '../lib/world.tsx';
 import QuickPrompt from '../pages/player/QuickPrompt.tsx';
 
 const LINKS: [string, string, string][] = [
-  ['', 'Home', '⌂'], ['live', '● Live', '●'], ['lore', 'Lore', '❧'], ['people', 'People', '☺'], ['me', 'Me', '✦'],
+  ['', 'Home', '⌂'], ['live', '● Live', '●'], ['library', 'Library', '❧'], ['broker', 'Broker', '⚖'], ['people', 'People', '☺'], ['me', 'Me', '✦'],
   ['inventory', 'Inventory', '♟'], ['map', 'Map', '✧'], ['messages', 'Messages', '✉'], ['calendar', 'Calendar', '▦'],
   ['ask', 'Ask the DM', '?'], ['whiteboard', 'Whiteboard', '▤'],
 ];
-const MOBILE = ['', 'live', 'lore', 'messages', 'me'];
+const MOBILE = ['', 'live', 'library', 'broker', 'me'];
 
 export function PlayerLayout() {
   const { info, isDM, connected } = useWorld();
