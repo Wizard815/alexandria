@@ -58,7 +58,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Area | Endpoints |
 |---|---|
 | World | `GET /` (name, role, settings), `GET /members`, `GET/PATCH /settings` (DM), `POST /invites` (DM), `GET /audit` (DM), `GET /events` |
-| Library | `GET /library/pages` (tree list), `GET /library/pages/:id` (blocks, properties, links, children; players get the player copy), `PUT /library/pages` (DM, Markdown), `DELETE /library/pages/:id` (DM), `GET /library/search?q=`, `GET /library/relations`, `GET /library/lint` (DM) |
+| Library | `GET /library/pages` (tree list), `GET /library/pages/:id` (blocks, properties, links, children; players get the player copy), `GET /library/pages/:id/markdown` (download), `POST /library/pages/bulk` `{ids}` (offline saves), `PUT /library/pages` (DM, Markdown), `DELETE /library/pages/:id` (DM), `GET /library/search?q=`, `GET /library/relations`, `GET /library/lint` (DM) |
 | Requests | `GET/POST /requests`, `POST /requests/:id/decide` (DM, can apply to the page) |
 | Messages | `GET/POST /messages`, `GET/POST /messages/:tid`, `POST /messages/:tid/members`, `POST /messages/:tid/keep` |
 | Quick events | `GET/POST /quick-events`, `POST /quick-events/:id/respond`, `/resolve`, `/cancel` |
@@ -71,6 +71,43 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Whiteboard | `GET/PUT /whiteboard` (send `baseVersion`), `POST /whiteboard/wipe`, `GET /whiteboard/history[/:v]` |
 | Broker | `/broker/*`: see below |
 | Approvals | `/approvals/*`: see below |
+
+### Information broker (`/api/worlds/:world/broker`)
+
+Players ask what a piece of information costs, then pay with the money the
+DM set. Answers come only from player copies of library pages.
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/config` | all | Tiers (name, knowledge level, cost in copper, wait in real or game time) and the game clock |
+| PUT | `/config` | DM | Replace the tiers |
+| POST | `/clock` | DM | Move the game clock; game-time waits finish when it passes them |
+| GET/POST | `/quote` | player, DM | `{question}` → tier, price and wait. Never charges. Read keys may quote. |
+| POST | `/ask` | player, DM | Pays at once (402 if the purse is short). A question with no match goes to the DM to price. |
+| GET | `/` | all | Requests: players see only their own |
+| POST | `/:id/price` | DM | Offer a price for a question sent to the DM |
+| POST | `/:id/accept`, `/:id/decline` | player | Answer the offer |
+| POST | `/:id/refuse`, `/:id/refund`, `/:id/deliver` | DM | |
+| PATCH | `/:id` | DM | Edit the answer |
+
+Settings: `brokerEnabled` (off fails closed) and `brokerPayer` (`self` or `party`).
+
+### Approvals (`/api/worlds/:world/approvals`)
+
+Players can't change money or items directly. A player's change is saved as
+*pending* and counts only once the DM approves it. Changes the DM makes
+alert the player, who can mark them right or dispute them.
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/` | DM | Pending coin and items, disputes, alerts, recent decisions, `counts` |
+| GET | `/mine` | player | My pending changes and alerts |
+| POST | `/:id` | DM | `{action: approve\|edit\|reject\|revert, reason?, …}` |
+| POST | `/:id/ack` | player | "Looks right" |
+| POST | `/:id/dispute` | player | `{reason}` |
+
+Settings: `playerChangesNeedApproval` and `dmChangeReason` (the DM must
+give a reason when changing a player's things).
 
 ## Library admin (`/api/admin`, admins only)
 
@@ -89,10 +126,10 @@ Streamable HTTP, stateless, JSON replies. Use a scribe key as the bearer
 token.
 - **A read key** lists the read tools: `world_info`, `list_pages`,
   `read_page`, `search_library`, `list_people`, `get_live`,
-  `list_calendar`, and more.
+  `list_calendar`, `ask_broker_quote`, `list_broker_requests`, and more.
 - **A DM's write key** also lists: `save_page`, `add_person`, `add_quote`,
   `schedule_session`, `send_quick_event`, `add_item`, `add_coin`,
-  `decide_request`.
+  `decide_request`, `broker_answer`. `add_item` takes a `reason`.
 
 Each tool calls the API above with the caller's key, so the same
 visibility rules apply. Settings to paste into Claude, Cursor or Claude

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins } from '../../lib/format.ts';
+import { AlertsCard, useMine } from '../broker/shared.tsx';
 import { PageHead, Loading, ErrorBox, Empty, useAction } from '../../ui/index.tsx';
 
 const PLACES = ['At the table', 'Discord', 'On the phone', 'Running late'];
@@ -10,7 +11,7 @@ const PLACES = ['At the table', 'Discord', 'On the phone', 'Running late'];
 export interface LiveView {
   here: { account_id: string; location: string; at: string; display_name: string; character_name: string | null; role: string }[];
   members: number;
-  purse: { cp: number; recent: { id: string; amount_cp: number; note: string; session_label: string | null; at: string }[] } | null;
+  purse: { cp: number; recent: { id: string; amount_cp: number; note: string; session_label: string | null; at: string; status?: 'approved' | 'pending' }[] } | null;
   myCoin: number;
   combat: CombatView;
   captions: boolean;
@@ -22,7 +23,8 @@ export interface CombatView {
 
 export default function PlayerLive() {
   const { w, me, info } = useWorld();
-  const live = useLoad(() => w.live() as Promise<LiveView>, [w], ['presence', 'coin', 'combat', 'settings']);
+  const live = useLoad(() => w.live() as Promise<LiveView>, [w], ['presence', 'coin', 'combat', 'settings', 'approval']);
+  const mine = useMine();
   const act = useAction();
   const [place, setPlace] = useState(PLACES[0]);
   const mode = info.settings.coins;
@@ -78,8 +80,8 @@ export default function PlayerLive() {
                 {d.purse.recent.length ? (
                   <ul className="stack tight small" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                     {d.purse.recent.slice(0, 8).map((e) => (
-                      <li key={e.id} className="row between" style={{ gap: 6 }}>
-                        <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')}{e.session_label && <span className="faint"> · {e.session_label}</span>}</span>
+                      <li key={e.id} className="row between" style={{ gap: 6, opacity: e.status === 'pending' ? 0.7 : 1 }}>
+                        <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')}{e.session_label && <span className="faint"> · {e.session_label}</span>}{e.status === 'pending' && <span className="chip teal" style={{ marginLeft: 6 }}>Waiting for the DM</span>}</span>
                         <span style={{ color: e.amount_cp >= 0 ? 'var(--ok-text)' : 'var(--danger-text)', fontVariantNumeric: 'tabular-nums' }}>{e.amount_cp >= 0 ? '+' : ''}{coins(e.amount_cp, mode)}</span>
                       </li>
                     ))}
@@ -90,6 +92,7 @@ export default function PlayerLive() {
               </section>
             )}
             {!d.purse && <section className="card"><div className="row between small"><span className="muted">Your coin</span><strong>{coins(d.myCoin, mode)}</strong></div></section>}
+            <AlertsCard mine={mine.data} reload={mine.reload} compact />
           </aside>
         </div>
       )}

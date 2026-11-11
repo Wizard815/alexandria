@@ -5,7 +5,8 @@ import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { requireDM } from '../core/auth.ts';
 import { splitFrontmatter } from '../core/frontmatter.ts';
-import { str } from '../core/util.ts';
+import { HttpError, str } from '../core/util.ts';
+import { joinFrontmatter } from '../core/frontmatter.ts';
 import { ctx, me } from './_shared.ts';
 
 export default function libraryRoutes(d: Deps) {
@@ -14,6 +15,32 @@ export default function libraryRoutes(d: Deps) {
 
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   r.get('/pages/:id', (req, res) => res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer)));
+  // The viewer's own copy as a Markdown file (players: the player copy only).
+  r.get('/pages/:id/markdown', (req, res) => {
+    const pg: any = L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer);
+    const fm: Record<string, any> = { title: pg.title };
+    if (pg.tags?.length) fm.tags = pg.tags;
+    if (pg.aliases?.length) fm.aliases = pg.aliases;
+    if (pg.source) fm.source = pg.source;
+    if (ctx(res).viewer.role === 'dm') fm.visibility = pg.visibility;
+    fm.downloaded = new Date().toISOString().slice(0, 10);
+    const name = String(pg.title).replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').trim().slice(0, 80) || 'page';
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(name)}.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);
+    res.send(joinFrontmatter(fm, pg.body ?? ''));
+  });
+
+  // Several pages at once, for saving a folder offline. Pages the viewer
+  // may not open are left out, not reported.
+  r.post('/pages/bulk', (req, res) => {
+    const ids: unknown = req.body?.ids;
+    if (!Array.isArray(ids) || ids.length > 500 || ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'ids must be a list of up to 500 page ids');
+    const out: any[] = [];
+    for (const pid of ids as string[]) {
+      try { out.push(L.get(ctx(res).world.id, pid, ctx(res).viewer)); } catch { /* not visible or gone */ }
+    }
+    res.json(out);
+  });
   r.get('/search', (req, res) => res.json(L.search(ctx(res).world.id, str(req.query.q, 'q', { max: 200 }), ctx(res).viewer)));
   // DM: shared pages that look like they contain DM notes written as prose.
   r.get('/lint', requireDM, (_req, res) => res.json(L.lint(ctx(res).world.id)));
