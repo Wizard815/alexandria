@@ -7,7 +7,6 @@ import { audit } from '../app.ts';
 import { one, all, run, tx } from '../core/db.ts';
 import { type Auth, createAccount, requireAdmin, validatePassword, validateUsername } from '../core/auth.ts';
 import { DEFAULT_SETTINGS } from '../core/policy.ts';
-import { publicConfig, syncSource, validateConfig, type SourceRow } from '../core/sources.ts';
 import { HttpError, id, now, oneOf, sha256, str } from '../core/util.ts';
 
 export default function adminRoutes(d: Deps) {
@@ -123,40 +122,6 @@ export default function adminRoutes(d: Deps) {
     if (!run(db, 'DELETE FROM members WHERE world_id = ? AND account_id = ?', String(req.params.id), String(req.params.account))) throw new HttpError(404, 'Member not found');
     run(db, 'UPDATE api_keys SET revoked = 1 WHERE world_id = ? AND account_id = ?', String(req.params.id), String(req.params.account));
     audit(db, String(req.params.id), me(res), 'member.remove', String(req.params.account));
-    res.json({ ok: true });
-  });
-
-  // Sources (one world each)
-  r.get('/worlds/:id/sources', (req, res) => {
-    res.json(all<any>(db, 'SELECT * FROM sources WHERE world_id = ?', String(req.params.id)).map((s) => ({ ...s, config: publicConfig(JSON.parse(s.config)) })));
-  });
-  r.post('/worlds/:id/sources', (req, res) => {
-    if (!one(db, 'SELECT 1 FROM worlds WHERE id = ?', String(req.params.id))) throw new HttpError(404, 'World not found');
-    const kind = oneOf(req.body?.kind, 'kind', ['vault', 'git', 'kanka', 'mcp'] as const);
-    const cfg = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
-    validateConfig(kind, cfg, d.vaultsDir);
-    const sid = id('src_');
-    const vis = oneOf(req.body?.defaultVisibility, 'defaultVisibility', ['dm', 'party'] as const, 'dm');
-    run(db, 'INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, ?)', sid, String(req.params.id), kind, str(req.body?.name, 'name', { max: 80 }), JSON.stringify(cfg), vis);
-    audit(db, String(req.params.id), me(res), 'source.create', `${kind} ${sid}`);
-    res.status(201).json({ id: sid });
-  });
-  r.post('/sources/:sid/sync', async (req, res) => {
-    const src = one<SourceRow>(db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));
-    if (!src) throw new HttpError(404, 'Source not found');
-    try {
-      const n = await syncSource(src, { library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env }, me(res));
-      run(db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${n} pages`, src.id);
-      audit(db, src.world_id, me(res), 'source.sync', `${src.id} ${n}`);
-      res.json({ pages: n });
-    } catch (err: any) {
-      run(db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `error: ${String(err.message).slice(0, 200)}`, src.id);
-      throw err instanceof HttpError ? err : new HttpError(502, `Sync failed: ${String(err.message).slice(0, 200)}`);
-    }
-  });
-  r.delete('/sources/:sid', (req, res) => {
-    if (!run(db, 'DELETE FROM sources WHERE id = ?', String(req.params.sid))) throw new HttpError(404, 'Source not found');
-    audit(db, null, me(res), 'source.delete', String(req.params.sid));
     res.json({ ok: true });
   });
 
