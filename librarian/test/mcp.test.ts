@@ -6,9 +6,13 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { HttpMcp, jsonOf } from '../src/core/mcp.ts';
-import { kankaMentions, lkLinks, READ_TOOLS, stripLkHeader, syncSource } from '../src/core/sources.ts';
 import { Library } from '../src/core/library.ts';
 import { openDb, run } from '../src/core/db.ts';
+import { runSync } from '../src/intake/sync.ts';
+import { kankaBlocks } from '../src/intake/connectors/kanka.ts';
+import { lkBlocks } from '../src/intake/connectors/legendkeeper.ts';
+import { readOnlyMcp } from '../src/intake/registry.ts';
+import { blocksToMarkdown } from '../src/intake/model.ts';
 
 const ENTITIES = [
   { id: 1, entity_id: 101, name: 'Harbour Town', entity_type: 'location', type: 'City', entry: 'A port. Ask [entity:102|the harbourmaster].', tags: ['coast'], is_hidden: false },
@@ -71,7 +75,7 @@ test('TestMcp_KankaImportFailsClosed', async () => {
   server.listen(0);
   await new Promise((r) => server.once('listening', r));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
-  const { app } = createApp({ env: {} });
+  const { app } = createApp({ env: {}, noScheduler: true });
   const api = app.listen(0);
   await new Promise((r) => api.once('listening', r));
   const base = `http://127.0.0.1:${(api.address() as AddressInfo).port}`;
@@ -86,15 +90,15 @@ test('TestMcp_KankaImportFailsClosed', async () => {
     const p = await call('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123' });
     const src = await call('POST', `/api/admin/worlds/${w.id}/sources`, a.token, { kind: 'mcp', name: 'Kanka MCP', defaultVisibility: 'party', config: { profile: 'kanka', url, token: 't0ken' } });
     assert.equal((await call('GET', `/api/admin/worlds/${w.id}/sources`, a.token))[0].config.token, '••••', 'token never comes back');
-    assert.equal((await call('POST', `/api/admin/sources/${src.id}/sync`, a.token)).pages, 4);
-    assert.ok(calls.every((t) => READ_TOOLS.has(t)), 'only read tools were called');
+    assert.equal((await call('POST', `/api/admin/sources/${src.id}/sync?wait=1`, a.token)).pages, 4);
+    assert.ok(calls.every((t) => ['find_entities', 'get_entities'].includes(t)), 'only read tools were called');
 
     const titles = (await call('GET', `/api/worlds/${w.id}/library/pages`, p.token)).map((x: any) => x.title).sort();
     assert.deepEqual(titles, ['Harbour Town', 'Harbourmaster'], 'hidden and unflagged entities are DM-only');
     const town = (await call('GET', `/api/worlds/${w.id}/library/pages`, p.token)).find((x: any) => x.title === 'Harbour Town');
     const pg = await call('GET', `/api/worlds/${w.id}/library/pages/${town.id}`, p.token);
     assert.ok(pg.body.includes('[[Harbourmaster|the harbourmaster]]'));
-    assert.deepEqual(pg.frontmatter.tags, ['coast']);
+    assert.deepEqual(pg.tags, ['coast']);
     for (const leak of ['cursed', 'Fish is cheap']) assert.ok(!pg.body.includes(leak), `posts are DM-only by default: ${leak}`);
     const npc = (await call('GET', `/api/worlds/${w.id}/library/search?q=spy`, p.token));
     assert.equal(npc.length, 0);
@@ -106,37 +110,63 @@ test('TestMcp_KankaImportFailsClosed', async () => {
   }
 });
 
-test('TestMcp_KankaMentions', () => {
-  const names = new Map([[5, 'Odda']]);
-  assert.equal(kankaMentions('[entity:5] and [entity:5|her] and [entity:9|someone] and [entity:9]', names), '[[Odda]] and [[Odda|her]] and [[someone]] and (hidden)');
+test('TestMcp_KankaBlocksAndMentions', () => {
+  const md = blocksToMarkdown(kankaBlocks('<p>Ask [entity:5|her] or <strong>[entity:9]</strong>.</p>'), (m) => (m.ref === 'kanka:5' ? 'Odda' : null));
+  assert.equal(md, 'Ask [[Odda|her]] or (hidden).');
+});
+
+test('TestMcp_ReadOnlyGuardRefusesWrites', async () => {
+  const fake = { call: async () => ({ text: '{}', structured: null, isError: false }), listTools: async () => [], close() {} };
+  const g = readOnlyMcp(fake as any, ['api_request', 'find_entities', 'delete_entities']);
+  await assert.doesNotReject(g.call('find_entities', {}));
+  assert.throws(() => g.call('delete_entities', {}), /not a read tool/, 'write-sounding names are refused even if listed');
+  assert.throws(() => g.call('create_entities', {}), /not a read tool/);
+  assert.throws(() => g.call('api_request', { method: 'POST', path: '/x' }), /non-GET/);
+});
+
+test('TestMcp_LegendKeeperBlocksKeepLayout', () => {
+  const b = lkBlocks([
+    { kind: 'infobox', layout: 'wrapRight', width: 40, rows: [{ kind: 'keyValue', title: 'Facts', rows: [{ key: 'Status', content: [{ text: 'alive' }] }] }] },
+    { kind: 'paragraph', content: [{ text: 'Hi ', bold: true }, { mention: { resourceId: 'abc', name: 'Fuji' } }] },
+    { kind: 'secret', children: [{ kind: 'paragraph', content: [{ text: 'hush' }] }] },
+    { kind: 'someFutureBlock', foo: 1 },
+  ]);
+  assert.deepEqual(b.map((x) => x.kind), ['infobox', 'paragraph', 'secret', 'unsupported']);
+  assert.equal((b[0] as any).width, 40);
+  assert.deepEqual((b[1] as any).content[1], { mention: { ref: 'abc', name: 'Fuji' } });
 });
 
 test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
-  // Synthetic LegendKeeper data in the shapes the live MCP returns.
+  // Synthetic LegendKeeper data in the shapes the live API returns.
   const R = [
     { id: 'root1', name: 'World', parentId: null, isHidden: false, tags: [], documents: [{ id: 'd0', name: 'Main', type: 'page' }] },
-    { id: 'town1', name: 'Port Town', parentId: 'root1', isHidden: false, tags: ['town'], documents: [{ id: 'd1', name: 'Main', type: 'page' }] },
+    { id: 'town1', name: 'Port Town', parentId: 'root1', isHidden: false, tags: ['town'], iconGlyph: 'anchor', documents: [{ id: 'd1', name: 'Main', type: 'page' }] },
     { id: 'dmfold', name: 'DM Folder', parentId: 'root1', isHidden: true, tags: ['dm'], documents: [] },
     { id: 'plot1', name: 'Secret Plot', parentId: 'dmfold', isHidden: false, tags: [], documents: [{ id: 'd2', name: 'Main', type: 'page' }] },
     { id: 'npc1', name: 'Visible NPC', parentId: 'root1', isHidden: false, tags: [], documents: [{ id: 'd3', name: 'Main', type: 'page' }, { id: 'd4', name: 'GM notes', type: 'page' }] },
     { id: 'map1', name: 'Map', parentId: 'root1', isHidden: false, tags: [], documents: [{ id: 'd5', name: 'Map', type: 'map' }] },
   ];
-  const DOCS: Record<string, string> = {
-    d0: 'Welcome.',
-    d1: 'A port. See [Secret Plot](lk://resources/plot1) and [the NPC](lk://resources/npc1).\n\n> [!secret]\n> Smugglers run the docks.\n\nFish market.',
-    d2: 'The plot twist.',
-    d3: 'Friendly. \\[\\[Port Town\\]\\]',
-    d4: 'Is a spy.',
+  const P = (t: string) => ({ kind: 'paragraph', content: [{ text: t }] });
+  const DOCS: Record<string, any[]> = {
+    d0: [P('Welcome.')],
+    d1: [{ kind: 'paragraph', content: [{ text: 'A port. See ' }, { mention: { resourceId: 'plot1', name: 'Secret Plot' } }, { text: ' and ' }, { mention: { resourceId: 'npc1', text: 'the NPC' } }, { text: '.' }] },
+      { kind: 'secret', children: [P('Smugglers run the docks.')] }, P('Fish market.'), { kind: 'futureWidget' }],
+    d2: [P('The plot twist.')],
+    d3: [P('Friendly.')],
+    d4: [P('Is a spy.')],
   };
   const calls: any[] = [];
+  const ok = (x: any) => ({ text: JSON.stringify(x), structured: null, isError: false });
   const fake = {
     async call(tool: string, args: any) {
       calls.push([tool, args]);
-      const ok = (x: any) => ({ text: typeof x === 'string' ? x : JSON.stringify(x), structured: null, isError: false });
-      if (tool === 'api_request' && args.path === '/resources') return args.query.cursor ? ok({ data: R.slice(3), hasMore: false }) : ok({ data: R.slice(0, 3), hasMore: true, nextCursor: 'c2' });
-      if (tool === 'api_request') { const doc = args.path.split('/').pop(); return ok({ id: doc, isHidden: doc === 'd4' }); }
-      if (tool === 'read_document') return ok(`Resource "x" (id ${args.resource}) › document "Main" (id ${args.document}, type page) · version 1\nPath: World\n---\n${DOCS[args.document]}`);
-      return { text: 'no', structured: null, isError: true };
+      if (tool !== 'api_request') return { text: 'no', structured: null, isError: true };
+      if (args.path === '/resources') return args.query.cursor ? ok({ data: R.slice(3), hasMore: false }) : ok({ data: R.slice(0, 3), hasMore: true, nextCursor: 'c2' });
+      const m = /^\/resources\/([^/]+)(?:\/docs\/([^/]+)\/blocks)?$/.exec(args.path);
+      if (!m) return ok({});
+      const r = R.find((x) => x.id === m[1])!;
+      if (m[2]) return ok({ id: m[2], blocks: DOCS[m[2]] });
+      return ok({ ...r, documents: r.documents.map((d) => ({ ...d, isHidden: d.id === 'd4' })), properties: r.id === 'town1' ? [{ kind: 'keyValue', title: 'Facts', rows: [{ key: 'Ruler', content: [{ mention: { resourceId: 'plot1' } }] }, { key: 'DM notes', content: [{ text: 'bribed' }] }] }] : [], ancestors: [] });
     },
     async listTools() { return []; },
     close() {},
@@ -144,23 +174,28 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
   const db = openDb(':memory:');
   run(db, `INSERT INTO worlds (id, slug, name, created_at) VALUES ('w', 'w', 'W', 'now')`);
   run(db, `INSERT INTO accounts (id, username, display_name, created_at) VALUES ('a', 'a', 'a', 'now')`);
-  run(db, `INSERT INTO sources (id, world_id, kind, name) VALUES ('s', 'w', 'mcp', 'LK')`);
+  run(db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s', 'w', 'legendkeeper-mcp', 'LK', '{"url":"http://x/mcp"}', 'party')`);
   const lib = new Library(db, null);
-  const src = { id: 's', world_id: 'w', kind: 'mcp' as const, name: 'LK', config: JSON.stringify({ profile: 'legendkeeper' }), default_visibility: 'party' };
-  const n = await syncSource(src, { library: lib, dataDir: null, vaultsDir: null, fetch, mcp: fake as any }, 'a');
-  assert.equal(n, 5, 'pages only, maps skipped');
-  assert.ok(calls.every(([t, a]) => READ_TOOLS.has(t) && (t !== 'api_request' || a.method === 'GET')));
+  const out = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: {}, mcp: fake as any }, 's', 'a');
+  assert.equal(out.status, 'ok', out.error);
+  assert.equal(out.stats.pages, 5, 'pages only, maps skipped');
+  assert.ok(calls.every(([t, a]) => t === 'api_request' && a.method === 'GET'));
   const player = { accountId: 'p', role: 'player' as const };
-  const titles = lib.list('w', player).map((p: any) => p.title).sort();
-  assert.deepEqual(titles, ['Port Town', 'Visible NPC', 'World'], 'hidden parent and hidden doc are DM-only');
+  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Port Town', 'Visible NPC', 'World'], 'hidden parent and hidden doc are DM-only');
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
-  const body = (lib.get('w', town.id, player) as any).body;
-  assert.ok(body.includes('Fish market') && body.includes('[[Visible NPC|the NPC]]'));
-  for (const leak of ['Smugglers', 'Secret Plot']) assert.ok(!body.includes(leak), leak);
-  assert.ok(body.includes('(hidden)'), 'link to a DM-only page is replaced');
-  const npc = lib.list('w', player).find((p: any) => p.title === 'Visible NPC') as any;
-  assert.ok((lib.get('w', npc.id, player) as any).body.includes('[[Port Town]]'), 'escaped wikilinks are restored');
+  const pg = lib.get('w', town.id, player) as any;
+  const all = JSON.stringify(pg);
+  for (const leak of ['Smugglers', 'Secret Plot', 'bribed', 'futureWidget', 'plot1']) assert.ok(!all.includes(leak), leak);
+  assert.ok(pg.body.includes('Fish market') && pg.body.includes('[[Visible NPC|the NPC]]') && pg.body.includes('(hidden)'));
+  assert.deepEqual(pg.icon, { glyph: 'anchor' });
+  assert.deepEqual(pg.properties, [{ title: 'Facts', rows: [{ key: 'Ruler', value: [{ text: '(hidden)' }] }] }], 'DM rows and hidden links removed from facts');
+  assert.equal(Object.values(pg.links).length, 1, 'only the visible NPC is linkable');
   assert.equal(lib.search('w', 'plot', player).length, 0);
-  assert.equal(stripLkHeader('no header'), 'no header');
-  assert.equal(lkLinks('[x](lk://resources/zz)', new Map()), '[[x]]');
+  // The DM sees the whole page, secret block included.
+  const dmPage = lib.get('w', town.id, { accountId: 'a', role: 'dm' }) as any;
+  assert.ok(dmPage.blocks.some((b: any) => b.kind === 'secret') && JSON.stringify(dmPage).includes('Smugglers'));
+  // A second sync with a page gone removes it.
+  R.splice(R.findIndex((x) => x.id === 'npc1'), 1);
+  const again = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: {}, mcp: fake as any }, 's', 'a');
+  assert.equal(again.stats.removed, 2);
 });
