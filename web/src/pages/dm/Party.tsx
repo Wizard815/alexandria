@@ -60,7 +60,7 @@ export default function DMParty() {
           <h2>{ownerName}</h2>
           <div className="cols">
             <div className="col-2"><Items owner={owner} onDecided={queue.reload} /></div>
-            <div className="col-1">{owner === 'party' && !info.settings.partyPurse ? <div className="card"><Empty>The party purse is off in World settings.</Empty></div> : <Coin key={owner} owner={owner} />}</div>
+            <div className="col-1">{owner === 'party' && !info.settings.partyPurse ? <div className="card"><Empty>The party pouch is off in World settings.</Empty></div> : <Coin key={owner} owner={owner} />}</div>
           </div>
           <TransfersList limit={30} title="Players' gives and moves" />
         </section>
@@ -225,7 +225,7 @@ function Coin({ owner }: { owner: string }) {
 
   return (
     <div className="card gold">
-      <h3>{owner === 'party' ? 'Party purse' : 'Coin'}</h3>
+      <h3>{owner === 'party' ? 'Party pouch' : 'Coin'}</h3>
       <ErrorBox error={ledger.error} />
       {ledger.data && <b style={{ fontSize: 24, color: 'var(--accent-strong)' }}>{coins(ledger.data.cp, mode)}</b>}
       <form className="stack" onSubmit={(e) => { e.preventDefault(); void add(1); }}>
