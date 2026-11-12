@@ -32,6 +32,7 @@ Each section says what to build, how, and what "done" means.
 | 7 | Session log: summary, DM review, publish (§8) | Uses §3 and §6 |
 | 8 | Soundboard, music board, Spotify (§5) | Independent; can run in parallel with 5–7 |
 | 9 | Text to speech with presets (§7) | Small once §3's audio output exists |
+| 5–9 | Desktop and phone apps (§12) | Starts with §3: multi-mic and hold keys need the desktop app |
 
 ---
 
@@ -164,28 +165,68 @@ text and every spoiler question goes to the DM.
 
 ## 3. Audio capture and live transcript
 
-### 3.1 Who records what
-- **DM:**
-  - one or more microphones, e.g. a table mic and a headset, each with a name
-  - one or more outputs: table speakers for music, the DM's headphones for
-    previews
-- **Players:** one microphone each, from their browser or phone.
-- **Every mic is its own track.** That tells the transcript who is speaking
-  without guessing. The DM can label a shared table mic "Table".
-- **How it connects:**
-  - Browsers record with `MediaRecorder` and send Opus chunks (5–10 s) to the
-    gateway over HTTPS.
-  - The DM's extra mics are chosen in **Audio setup**, which lists each input
-    device.
-  - Later, a desktop scribe app can capture more devices at once.
+### 3.1 Microphones and speakers
 
-### 3.2 Consent and privacy (required)
+**The DM's computer can use any number of mics and speakers at once.**
+
+**Mics:**
+- **Audio setup** lists every input device on the DM's computer. The DM
+  turns on as many as they want and names each one, e.g. "Table", "DM
+  headset", "Player laptop corner".
+- Each mic has its own mode:
+
+  | Mode | What it does |
+  |---|---|
+  | Always on | Records the whole session (e.g. the table mic) |
+  | Hold to talk | Records only while its key or button is held (e.g. a headset used for DM-only lines or NPC voices) |
+  | Hold to mute | Records all the time except while held (a cough button) |
+  | Off | Not used this session |
+
+- **Each hold key is set per mic.** Two mics can share a key, and a key can
+  be a keyboard key, a mouse button, a foot pedal (which shows up as a key)
+  or a button on screen.
+- **Each mic can be marked "DM aside"** (§3.2), e.g. a headset whose hold
+  key is the aside key. Everything from it is DM-only.
+- **Every mic is its own track.** That tells the transcript who is speaking
+  without guessing.
+- **Players:** one mic each, from the app or a browser, with the same three
+  modes. A player's mic always records as that player.
+
+**Speakers:**
+- **Audio setup** lists every output device. The DM groups them into
+  **speaker groups**, e.g.:
+  - "Table": the living-room speaker and the soundbar, both playing the same
+    sound
+  - "DM ears": the DM's headphones only
+- **Each sound source picks a group:** music (§5), soundboard pads (§5.1),
+  read-aloud (§7) and previews.
+- A group plays the same audio on all its devices at once. Each device keeps
+  its own volume and a small delay setting to line up speakers that lag
+  (Bluetooth).
+- **Remote players** can be a target too: the sound is streamed to their
+  app.
+
+**Settings are saved per computer**, so the DM's setup comes back next
+session. A missing device (unplugged) is shown greyed out, not forgotten.
+
+**How it connects:**
+- **The desktop app (§12)** captures every mic natively and plays to every
+  speaker at once. Hold keys work even when Alexandria isn't the focused
+  window.
+- **In a browser,** several mics and speakers also work in Chrome and Edge,
+  but hold keys only work while the Alexandria tab is focused. Safari and
+  Firefox can't pick output devices.
+- **Upload:** audio is sent to the gateway as Opus chunks (5–10 s) over
+  HTTPS.
+
+### 3.2 Consent and privacy (agreed)
 - **Each player agrees to recording once per world,** and can stop at any
   time. Without consent, their mic is never captured.
 - **A clear "Recording" indicator** shows on every screen while a session
   records.
-- **DM aside:** a hold-to-talk switch that keeps a stretch of DM speech out of
-  the players' transcript, for spoken secrets.
+- **DM aside:** a hold-to-talk key that keeps a stretch of DM speech out of
+  the players' transcript, for spoken secrets. It works on any DM mic. A mic
+  can also be marked "always aside" (§3.1).
   - Aside segments are DM-only, like a secret block.
   - The session summary (§8) treats them as DM-only.
 - **Retention:** the DM sets how long raw audio is kept (e.g. 30 days).
@@ -487,6 +528,8 @@ no model:
   - Game module
   - Recording: consent text, raw-audio retention, who can see the live
     transcript
+  - Audio setup (per computer): mics and their modes and hold keys, speaker
+    groups
   - Voice presets
   - Music folders and Spotify account
 - **Per person, on their device:** transcript island position, size,
@@ -501,6 +544,62 @@ no model:
   Kokoro and Ollama next to the gateway.
 
 ---
+
+## 12. Apps and platforms
+
+Not going to app stores: everything is installed directly (sideloaded).
+
+| Platform | App | Notes |
+|---|---|---|
+| Linux, Windows, macOS | **Desktop app** (Tauri) | DM and players. Needed for many mics and speakers, global hold keys and offline use |
+| Android | **Phone app**, installed from an APK | Players, and the DM away from the table |
+| iOS | **Phone app**, sideloaded | See below |
+| Any browser | The web app | Works everywhere with no install. Fewer audio features. |
+
+**One app, everywhere:**
+- All of them run the same React app from `web/`, so a screen is built once.
+- **Desktop:** Tauri wraps it and adds a native audio module for multi-mic
+  capture, multi-speaker playback and global hold keys.
+- **Phones:** use Tauri 2's iOS and Android builds of the same app, rather
+  than a separate React Native app. The old Expo skeleton in
+  `scribes/mobile` is dropped.
+  - If Tauri mobile falls short on audio, fall back to Capacitor, which also
+    wraps the same web app.
+- The old skeletons in `scribes/` are replaced by this.
+
+**Phones:**
+- **One mic, with hold to talk** as a big on-screen button.
+- **Recording keeps going with the screen locked:** iOS needs the app's
+  background-audio permission for that, and Android a foreground-service
+  notification.
+- **Offline copies** use the same saved data as the web app (already built).
+- **The transcript island (§4)** becomes a bottom drawer.
+
+**Sideloading:**
+- **Android:** download the APK from the gateway's own page and allow
+  installing it. Updates are offered in the app.
+- **iOS:** there are three ways, and the plan supports all of them:
+  - **AltStore or SideStore with a free Apple ID.** The app has to be
+    refreshed every 7 days; those tools do it automatically on the same
+    Wi-Fi.
+  - **A paid Apple Developer account ($99 a year).** Builds last a year, but
+    only on devices added to the account.
+  - **In the EU, an alternative app marketplace.**
+- **Without installing anything,** the web app still works on both phones
+  from the browser, including offline. Recording then only runs while the
+  page is open and the phone is unlocked.
+
+**Builds:**
+- A CI job builds the desktop installers (`.AppImage`/`.deb`, `.msi`,
+  `.dmg`) and the Android APK.
+- The iOS build needs a Mac, or a CI Mac runner.
+- The gateway hosts the files under **Get the app**.
+
+**Done:**
+- The desktop app records two mics with different hold keys and plays music
+  on a two-speaker group.
+- The Android APK records with the screen locked.
+- An iOS build installs with AltStore.
 
 ## Open questions for the DM
 
