@@ -6,7 +6,7 @@ import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
 import { DMLink, lsGet, lsSet, QUICK_KINDS } from './shared.tsx';
 
 const BLOCKS: [string, string][] = [
-  ['here', 'Who is here'], ['purse', 'Party purse'], ['combat', 'Combat'], ['quick', 'Quick events'],
+  ['here', 'Who is here'], ['purse', 'Party pouch'], ['combat', 'Combat'], ['quick', 'Quick events'],
   ['requests', 'Requests'], ['calendar', 'Next session'], ['messages', 'Messages'],
 ];
 
@@ -76,7 +76,7 @@ export default function DMTable() {
 
         {shown.includes('purse') && (
           <section className="card gold" aria-labelledby="b-purse">
-            <div className="card-head"><h2 id="b-purse">Party purse</h2><DMLink to="party" className="small">Party →</DMLink></div>
+            <div className="card-head"><h2 id="b-purse">Party pouch</h2><DMLink to="party" className="small">Party →</DMLink></div>
             {L?.purse ? (
               <>
                 <b style={{ fontSize: 24, color: 'var(--accent-strong)' }}>{coins(L.purse.cp, info.settings.coins)}</b>
@@ -87,7 +87,7 @@ export default function DMTable() {
                   {!L.purse.recent.length && <span className="faint">No coin moved yet.</span>}
                 </div>
               </>
-            ) : <Empty>The party purse is off in World settings.</Empty>}
+            ) : <Empty>The party pouch is off in World settings.</Empty>}
           </section>
         )}
 

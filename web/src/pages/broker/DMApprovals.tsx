@@ -59,7 +59,7 @@ export default function DMApprovals() {
             {!d.coin.length ? <Empty>No coin waiting.</Empty> : d.coin.map((c) => (
               <div key={c.id} className="list-item row between" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <div className="stack tight grow">
-                  <span><strong style={{ color: c.amount_cp >= 0 ? 'var(--ok-text)' : 'var(--danger-text)' }}>{c.amount_cp > 0 ? '+' : ''}{coins(c.amount_cp, info.settings.coins)}</strong> {c.owner === 'party' ? 'to the party purse' : `for ${owner(c.owner)}`}</span>
+                  <span><strong style={{ color: c.amount_cp >= 0 ? 'var(--ok-text)' : 'var(--danger-text)' }}>{c.amount_cp > 0 ? '+' : ''}{coins(c.amount_cp, info.settings.coins)}</strong> {c.owner === 'party' ? 'to the party pouch' : `for ${owner(c.owner)}`}</span>
                   <span className="small muted">{c.note || 'No note'} · {nameOf(c.by)} · {when(c.at)}</span>
                 </div>
                 <span className="row" style={{ gap: 4 }}>

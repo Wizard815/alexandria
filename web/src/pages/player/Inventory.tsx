@@ -120,7 +120,7 @@ function CoinCard({ owner, data, giving, reload, error }: { owner: 'me' | 'party
   });
   return (
     <section className="card gold" aria-labelledby="coin-h">
-      <h2 id="coin-h">{owner === 'party' ? 'Party purse' : 'My coin'}</h2>
+      <h2 id="coin-h">{owner === 'party' ? 'Party pouch' : 'My coin'}</h2>
       <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-strong)' }}>{data ? coins(data.cp, info.settings.coins) : '…'}</span>
       {!!data?.pending && <span className="small" style={{ color: 'var(--teal)' }}>⏳ {data.pending > 0 ? '+' : ''}{coins(data.pending, info.settings.coins)} waiting for the DM</span>}
       {notice && <span className="small muted" role="status">{notice}</span>}

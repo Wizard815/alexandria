@@ -96,7 +96,7 @@ export default function PlayerHome() {
             {d ? (
               <>
                 <span className="small">{d.here.length ? `${d.here.length} here: ${d.here.map((h) => h.character_name || h.display_name).join(', ')}` : 'Nobody has checked in.'}</span>
-                {d.purse && <span className="small"><span className="muted">Party purse:</span> {coins(d.purse.cp, info.settings.coins)}</span>}
+                {d.purse && <span className="small"><span className="muted">Party pouch:</span> {coins(d.purse.cp, info.settings.coins)}</span>}
                 <span className="small"><span className="muted">Your coin:</span> {coins(d.myCoin, info.settings.coins)}</span>
               </>
             ) : <span className="muted small">Loading…</span>}

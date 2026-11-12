@@ -219,7 +219,7 @@ export default function inventoryRoutes(d: Deps) {
     d.hub.emit(c.world.id, 'transfer', { id: tid, kind: t.kind, from: t.from, to: t.to, amount_cp: t.amount ?? null, item: t.item ?? null, qty: t.qty ?? null, by: me(res) }, aud);
     return tid;
   };
-  const partyCoinOn = (res: Response, ...xs: string[]) => { if (xs.includes('party') && !settings(res).partyPurse) throw new HttpError(404, 'The party purse is off for this world'); };
+  const partyCoinOn = (res: Response, ...xs: string[]) => { if (xs.includes('party') && !settings(res).partyPurse) throw new HttpError(404, 'The party pouch is off for this world'); };
 
   function giveCoin(res: Response, from: string, to: string, amount: number, note: string) {
     const c = ctx(res);
@@ -227,10 +227,10 @@ export default function inventoryRoutes(d: Deps) {
     partyCoinOn(res, from, to);
     return tx(db, () => {
       const have = balance(db, c.world.id, from);
-      if (have < amount) throw new HttpError(402, `Not enough coin: ${from === 'party' ? 'the party purse has' : from === me(res) ? 'you have' : 'they have'} ${money(Math.max(0, have))}`);
+      if (have < amount) throw new HttpError(402, `Not enough coin: ${from === 'party' ? 'the party pouch has' : from === me(res) ? 'you have' : 'they have'} ${money(Math.max(0, have))}`);
       const tid = logTransfer(res, { kind: 'coin', from, to, amount, note });
       const nm = names(db, c.world.id);
-      const label = (x: string) => (x === 'party' ? 'the party purse' : nm[x] ?? 'someone');
+      const label = (x: string) => (x === 'party' ? 'the party pouch' : nm[x] ?? 'someone');
       run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status, transfer_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?)`, id('led_'), c.world.id, from, -amount, `To ${label(to)}${note ? `: ${note}` : ''}`.slice(0, 200), me(res), now(), tid);
       run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status, transfer_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?)`, id('led_'), c.world.id, to, amount, `From ${label(from)}${note ? `: ${note}` : ''}`.slice(0, 200), me(res), now(), tid);
       return tid;

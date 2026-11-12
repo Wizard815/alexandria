@@ -1,4 +1,4 @@
-// The live session for a player: who is here, the party purse, my coin,
+// The live session for a player: who is here, the party pouch, my coin,
 // and combat as the DM lets me see it. No health numbers, ever.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -35,7 +35,7 @@ export default function PlayerLive() {
 
   return (
     <div className="page">
-      <PageHead title="Live session" lead="Who's here, the party purse, and the fight as you can see it." />
+      <PageHead title="Live session" lead="Who's here, the party pouch, and the fight as you can see it." />
       <ErrorBox error={live.error ?? act.error} />
       {d && (
         <div className="cols">
@@ -75,7 +75,7 @@ export default function PlayerLive() {
 
             {d.purse && (
               <section className="card gold" aria-labelledby="purse-h">
-                <h2 id="purse-h">Party purse</h2>
+                <h2 id="purse-h">Party pouch</h2>
                 <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-strong)' }}>{coins(d.purse.cp, mode)}</span>
                 {d.purse.recent.length ? (
                   <ul className="stack tight small" style={{ listStyle: 'none', padding: 0, margin: 0 }}>

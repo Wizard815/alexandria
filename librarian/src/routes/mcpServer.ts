@@ -31,7 +31,7 @@ const TOOLS: Tool[] = [
   { name: 'search_library', description: 'Full-text search of the library pages you can see.', props: { query: S('Words to search for') }, required: ['query'], call: (a) => ({ method: 'GET', path: `/library/search?q=${enc(a.query)}` }) },
   { name: 'list_relations', description: 'Relations and family links you can see.', props: {}, call: () => ({ method: 'GET', path: '/library/relations' }) },
   { name: 'list_people', description: 'NPCs the party has met: what they said, recalls, your notes.', props: {}, call: () => ({ method: 'GET', path: '/people' }) },
-  { name: 'get_live', description: 'The live session: who is here, party purse, your coin, combat as you may see it.', props: {}, call: () => ({ method: 'GET', path: '/live' }) },
+  { name: 'get_live', description: 'The live session: who is here, party pouch, your coin, combat as you may see it.', props: {}, call: () => ({ method: 'GET', path: '/live' }) },
   { name: 'list_calendar', description: 'Upcoming real-life session days with RSVPs.', props: {}, call: () => ({ method: 'GET', path: '/calendar' }) },
   { name: 'list_requests', description: 'Change requests and questions you can see.', props: {}, call: () => ({ method: 'GET', path: '/requests' }) },
   { name: 'get_inventory', description: "An inventory: 'me', 'party', or (DM) a player's account id.", props: { owner: S("'me', 'party' or an account id") }, call: (a) => ({ method: 'GET', path: `/inventory?owner=${enc(a.owner ?? 'me')}` }) },

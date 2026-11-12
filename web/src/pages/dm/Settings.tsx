@@ -16,8 +16,8 @@ const C = (k: K, label: string, help: string, choices: [any, string][]): Row => 
 const GROUPS: [string, string, Row[]][] = [
   ['coin', 'Inventory & coin', [
     T('trackWeight', 'Track item weight', 'Off: no weight column or carried total on inventories.'),
-    C('coins', 'Coin types', 'Which coins the purse shows.', [['gsc', 'Gold · silver · copper'], ['all', 'All five (pp gp ep sp cp)'], ['gold', 'Gold only']]),
-    T('partyPurse', 'Shared party purse', 'A group purse beside each player’s own coin.'),
+    C('coins', 'Coin types', 'Which coins the pouch shows.', [['gsc', 'Gold · silver · copper'], ['all', 'All five (pp gp ep sp cp)'], ['gold', 'Gold only']]),
+    T('partyPurse', 'Shared party pouch', 'A group pouch beside each player’s own coin.'),
     T('dmEditsInventory', 'DM can edit player inventories', 'Every change is logged and the player sees it.'),
   ]],
   ['approvals', 'Approvals & broker', [
@@ -25,7 +25,7 @@ const GROUPS: [string, string, Row[]][] = [
     T('dmChangeReason', 'Ask me why when I change a player’s things', 'Your reason shows to the owner, who can confirm or dispute it.'),
     T('playerTransfers', 'Players can give coin and items freely', 'On: players hand each other coin and items, and move things in and out of the party stash, without asking. You see every give in Party & inventory.'),
     T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on the broker page.'),
-    C('brokerPayer', 'Who pays the broker', 'The party purse needs “Shared party purse” on.', [['self', 'The player who asks'], ['party', 'The party purse']]),
+    C('brokerPayer', 'Who pays the broker', 'The party pouch needs “Shared party pouch” on.', [['self', 'The player who asks'], ['party', 'The party pouch']]),
   ]],
   ['combat', 'Combat & quick events', [
     C('monsterHealth', 'Monster health shown to players', 'The party’s own health is never shown.', [['none', 'Hidden'], ['words', 'Words (Bloodied…)'], ['bar', 'Bar'], ['exact', 'Exact numbers']]),

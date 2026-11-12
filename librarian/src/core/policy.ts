@@ -167,7 +167,7 @@ export interface WorldSettings {
   /** The DM must give a reason when changing someone else's items. */
   dmChangeReason: boolean;
   brokerEnabled: boolean;
-  /** Who pays the information broker: the asker, or the party purse. */
+  /** Who pays the information broker: the asker, or the party pouch. */
   brokerPayer: 'self' | 'party';
   /** Players may give each other coin and items (and move party things) without asking the DM. */
   playerTransfers: boolean;

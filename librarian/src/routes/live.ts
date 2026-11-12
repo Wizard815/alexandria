@@ -1,4 +1,4 @@
-// The live session: who is here, the party purse and coin ledger, and the
+// The live session: who is here, the party pouch and coin ledger, and the
 // combat tracker. Players get a computed view: no hidden combatants, no
 // health numbers for the party, monster health only as the DM's setting allows.
 import { Router, type Response } from 'express';
@@ -106,11 +106,11 @@ export default function liveRoutes(d: Deps) {
   function resolveOwner(res: Response, raw: string, writing: boolean): string {
     const s = settings(res);
     if (raw === 'party') {
-      if (!s.partyPurse) throw new HttpError(404, 'The party purse is off for this world');
+      if (!s.partyPurse) throw new HttpError(404, 'The party pouch is off for this world');
       return 'party';
     }
     if (raw === 'me') return me(res);
-    if (!isDM(res)) throw new HttpError(403, 'You can only see your own coin and the party purse');
+    if (!isDM(res)) throw new HttpError(403, 'You can only see your own coin and the party pouch');
     if (writing && !s.dmEditsInventory) throw new HttpError(403, 'DM edits to player coin are off in World settings');
     if (!memberIds(db, ctx(res).world.id).includes(raw)) throw new HttpError(404, 'Player not found');
     return raw;

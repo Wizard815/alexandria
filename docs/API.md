@@ -99,7 +99,7 @@ lines that matched.
 | PUT | `/config` | DM | Replace the tiers |
 | POST | `/clock` | DM | Move the game clock; game-time waits finish when it passes them |
 | GET/POST | `/quote` | player, DM | `{question}` → tier, price and wait. Never charges. Read keys may quote. |
-| POST | `/ask` | player, DM | Pays at once (402 if the purse is short). A question with no match goes to the DM to price. |
+| POST | `/ask` | player, DM | Pays at once (402 if the pouch is short). A question with no match goes to the DM to price. |
 | GET | `/` | all | Requests: players see only their own |
 | POST | `/:id/price` | DM | Offer a price for a question sent to the DM |
 | POST | `/:id/accept`, `/:id/decline` | player | Answer the offer |
@@ -156,7 +156,7 @@ logged for the DM.
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| POST | `/coin/transfer` | player, DM | `{from?: "me" \| "party", to: accountId \| "party", amountCp, note?}`. Players give only their own coin or take from the party purse. |
+| POST | `/coin/transfer` | player, DM | `{from?: "me" \| "party", to: accountId \| "party", amountCp, note?}`. Players give only their own coin or take from the party pouch. |
 | POST | `/:id/move` | player, DM | `{to: accountId \| "party" \| "me", qty?}`. Moving part of a stack splits it; matching items stack. |
 | GET | `/transfers` | all | Recent gives (players: theirs and the party's) |
 | POST | `/transfers/seen` | DM | Mark them seen |

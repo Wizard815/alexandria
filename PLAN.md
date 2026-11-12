@@ -46,7 +46,6 @@ Add a delivery mode per tier in **World settings → Broker**:
 | Common knowledge | Auto / DM reviews | Auto |
 | Local lore | Auto / DM reviews | Auto |
 | Deep lore | Auto / DM reviews | DM reviews |
-| Other (rules, items) | Auto / DM reviews | Auto |
 | Guarded secrets | **Always DM**; cannot be changed | DM |
 
 - **Auto:** the answer is delivered when its wait is over, with no DM step.
@@ -75,6 +74,9 @@ A category for questions that are about the game rather than the world:
 These are free and delivered at once. If there is no rules source for a rules
 question, it says so; it does not guess.
 
+"Other" is not a price tier. It doesn't appear in the players' price list or
+in the DM's tier settings.
+
 ### 1.4 Link to the world's site
 - **World settings → Broker:** an optional "World site" link and label, e.g.
   the campaign's LegendKeeper or Kanka page.
@@ -96,8 +98,8 @@ strongest:
    - It flags questions whose best match is DM-only text, a DM-only page, or a
      "never sell" page.
    - Flagged questions go to the DM.
-3. **New: a small routing model** (a local 3–8B model through Ollama, or a
-   small hosted model) labels each question with:
+3. **New: the audit model** (the small model in §10) labels each question
+   with:
    - `scope`: world / real-world-allowed / rules / item / off-topic
    - `intent`: fact / spoiler-seeking / meta-gaming (e.g. "who is the
      villain", "what's the twist", "what's behind the door", "how many HP
@@ -347,10 +349,19 @@ the DM can see and do.
 - Any action that changes something shows what it will do, and the DM
   confirms it. A DM setting can auto-approve read-only actions.
 - Every tool call is in the world's audit log.
-- **Models:**
-  - one configured for the DM agent (a strong model, hosted or local)
-  - a separate small one for routing (§1.5)
-  - both through the existing `/v1` model gateway
+- **One chat model for everyone** (§10). The DM and the players talk to the
+  same model in different harnesses:
+
+  | | DM harness | Player harness |
+  |---|---|---|
+  | Context | Everything: DM copies, transcript with asides, combat | Player copies, broker notes, the player's own items and notes |
+  | Tools | All MCP tools, including writes (confirmed) | Read tools only, scoped to that player's key |
+  | Output | As is | Leak check before it is shown |
+  | Broker | Prices and answers anything | Goes through the audit model and the price tiers first |
+
+  The harness decides what the model is given and what it may do. The
+  player harness never puts DM text into the model's input, so the same
+  model can't leak it.
 
 **Done:**
 - the agent makes a statblock from a page and adds it to combat
@@ -438,7 +449,37 @@ with the same connector system and run log.
 
 ---
 
-## 10. Settings this adds
+## 10. Models (64 GB of VRAM, all local)
+
+Five model jobs. Each is served locally and reached through the gateway's
+`/v1` endpoints, so any of them can be swapped later.
+
+| Job | Used for | Size class | Example (pick current versions when building) | Approx. VRAM |
+|---|---|---|---|---|
+| **Chat** | DM agent, player Ask, broker answers, session summaries | 27–32B, 4–6 bit | Qwen3 32B, Gemma 3 27B, or a 30B mixture-of-experts model for speed | 20–26 GB + context |
+| **Audit** | Broker routing and spoiler checks (§1.5), "is this in scope", second opinion on summaries | 3–4B | Qwen3 4B, Gemma 3 4B | 3–5 GB |
+| **Audio** | Speech to text (§3.3) | Whisper large-v3 class | faster-whisper or whisper.cpp with large-v3-turbo | 3–6 GB |
+| **Voice** | Text to speech (§7) | Small | Kokoro-82M | under 1 GB |
+| **Extra** | Library embeddings for better search and broker matching | Small | bge-m3 or similar | 1–2 GB |
+
+That is about 30–40 GB loaded together. The rest is for the chat model's
+context (long transcripts need it) and for a larger model or quant later.
+
+**How they run:**
+- **Chat and audit:** in **Argos**, which runs llama-server models on shared
+  GPUs and serves `/v1`.
+- **Speech to text:** a whisper server container.
+- **Text to speech:** a Kokoro container with `/v1/audio/speech`.
+- **Docker examples:** `deploy/examples/` gets ready-made override files for
+  each.
+
+**Admin → Models** maps each job to an endpoint and model name. If a job has
+no model:
+- with no audit model, questions use the rule-based check only and anything
+  unsure goes to the DM
+- with no audio model, there is no transcript
+
+## 11. Settings this adds
 
 - **World settings:**
   - Broker: per-tier delivery mode, allowed real-world topics, spoiler topics,
@@ -453,7 +494,7 @@ with the same connector system and run log.
 - **Server (admin):**
   - transcription endpoint
   - TTS endpoint
-  - routing model and DM agent model
+  - the five model jobs (§10)
   - storage limits for audio
 - New settings that change behaviour get a short guide in `docs/` with a
   working example. Docker examples go in `deploy/examples/`: whisper,
@@ -468,4 +509,4 @@ with the same connector system and run log.
 2. **Remote players and music:** should local-file music stream to remote
    players by default, or only when the DM turns it on?
 3. **Rules module:** start with D&D 5e SRD 5.1 or 5.2?
-4. **Routing model:** run it locally with Ollama, or use a hosted model?
+4. ~~Routing model~~: decided. Everything runs locally (§10).

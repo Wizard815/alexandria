@@ -48,9 +48,9 @@ export default function PlayerBroker() {
         <aside className="col-1 stack loose">
           {givingOn(info.settings) && <CoinRequestsCard onChanged={() => void coin.reload()} />}
           <section className="card" aria-labelledby="coin-h">
-            <h2 id="coin-h">{payer === 'party' ? 'Party purse' : 'Your coin'}</h2>
+            <h2 id="coin-h">{payer === 'party' ? 'Party pouch' : 'Your coin'}</h2>
             <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-strong)' }}>{coin.data ? coins(coin.data.cp, info.settings.coins) : '…'}</span>
-            <span className="tiny faint">{payer === 'party' ? 'The broker is paid from the party purse.' : 'You pay the broker from your own coin.'}</span>
+            <span className="tiny faint">{payer === 'party' ? 'The broker is paid from the party pouch.' : 'You pay the broker from your own coin.'}</span>
           </section>
           <section className="card" aria-labelledby="prices-h">
             <div className="card-head"><h2 id="prices-h">Prices</h2><span className="chip">Set by your DM</span></div>
@@ -106,7 +106,7 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
             {!quote.refused && <span className="chip">{quote.cost_cp === null ? 'Price: the DM decides' : quote.cost_cp === 0 ? 'Free' : coins(quote.cost_cp, info.settings.coins)}</span>}
             {!quote.refused && <span className="chip">{quote.secret ? 'Wait: the DM decides' : `Wait: ${quote.wait_text}`}</span>}
           </div>
-          {short && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{payer === 'party' ? 'The party purse' : 'You'} can't cover that.</p>}
+          {short && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{payer === 'party' ? 'The party pouch' : 'You'} can't cover that.</p>}
           <div className="row end">
             <button type="button" className="btn small ghost" onClick={() => setQuote(null)}>Never mind</button>
             <button type="button" className="btn small primary" disabled={act.busy || !!short} onClick={() => void pay()}>
@@ -189,9 +189,9 @@ function Offers({ list, error, reload }: { list: Offer[] | null; error: string |
             {o.teaser && <blockquote className="read" style={{ margin: '6px 0', fontStyle: 'italic' }}>“{o.teaser}”</blockquote>}
             <span className="tiny faint">{o.for_party ? 'Offered to the party · ' : 'Offered to you · '}{offerExpiry(o)}</span>
             {info.settings.partyPurse && (
-              <Tabs label="Pay from" value={from} onChange={setFrom} items={[['me', `My coin${mine.data ? ` (${money(mine.data.cp)})` : ''}`], ['party', `Party purse${purse.data ? ` (${money(purse.data.cp)})` : ''}`]]} />
+              <Tabs label="Pay from" value={from} onChange={setFrom} items={[['me', `My coin${mine.data ? ` (${money(mine.data.cp)})` : ''}`], ['party', `Party pouch${purse.data ? ` (${money(purse.data.cp)})` : ''}`]]} />
             )}
-            {short > 0 && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{from === 'party' ? 'The purse' : 'You'} {from === 'party' ? 'is' : 'are'} {money(short)} short.</p>}
+            {short > 0 && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{from === 'party' ? 'The party pouch' : 'You'} {from === 'party' ? 'is' : 'are'} {money(short)} short.</p>}
             <ErrorBox error={act.error} />
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
               <button type="button" className="btn small primary" disabled={act.busy || short > 0} onClick={() => void act.run(async () => { await w.call('POST', `/broker/offers/${o.id}/pay`, { from }); toast('Paid. The broker tells you what they know.'); await reload(); await mine.reload(); await purse.reload(); })}>Pay {money(o.price_cp)}</button>
