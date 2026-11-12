@@ -246,6 +246,37 @@ session. A missing device (unplugged) is shown greyed out, not forgotten.
 - **Word lists:** names from the library (titles and aliases) and from the
   game module are sent as hints, so "Velmira" and "Saltmarsh" come out right.
 
+### 3.3a One transcript from many mics
+At a table, several mics hear the same words: the table mic, the DM's
+headset and a player's phone. The transcript shows each spoken line once, in
+its best version.
+
+**How it works:**
+1. **Transcribe each mic separately.** Each line keeps its start and end
+   time, the words with their confidence, and the mic's signal level.
+2. **Find lines from different mics that are the same speech:** they overlap
+   in time and their words are mostly the same.
+3. **Choose the best version of each line,** going word by word. Each word
+   comes from the mic that heard it most clearly: highest confidence and
+   strongest signal. Where the mics disagree, the clearest mic wins.
+4. **Credit the speaker from the closest mic.** The mic with the strongest
+   close signal says who spoke. A player's own mic beats the table mic for
+   that player's voice.
+5. **Show it with about 5 seconds of delay.** That gives every mic's version
+   time to arrive. A line can be corrected a moment later if a clearer
+   version comes in.
+
+**Asides cover every mic.** While the DM aside key is held, everything every
+mic hears in that time is DM-only. The table mic and players' phones also
+hear what the DM says into the headset, so this works on time, not on which
+mic was used. It fails closed: a line that overlaps an aside even partly is
+DM-only.
+
+**Done:**
+- A test with three mics recording the same speech shows each line once.
+- The word-level merge beats the best single mic on a test recording.
+- A line spoken during an aside is DM-only on every mic.
+
 ### 3.4 Storage
 - **Audio** is stored as files under `ALX_DATA_DIR/audio/<world>/<session>/`.
   Large files don't belong in SQLite.
@@ -275,27 +306,43 @@ session. A missing device (unplugged) is shown greyed out, not forgotten.
   - opacity from 20% to 100%, where 100% is fully solid
   - bubble colour and text size
   - minimise it to a pill showing the last line
-- **Players see only the player transcript.** The DM sees everything, with
-  asides marked.
+- **Players see the live transcript too** (decided). It's the same merged
+  transcript (§3.3a) without asides, about 5 seconds behind. The DM sees
+  everything, with asides marked.
 
 ### 4.2 Highlighted key words
 Words from the game module and the world are highlighted in the bubbles:
 - spells, conditions, monsters and rules terms
 - library page titles
 
-Hovering over a highlighted word shows the same card as §2, for library pages
-or the module's entry. That uses the same rules: players see only player
-copies.
+Hovering over a highlighted word, for the DM **and players**, shows the
+same card as §2 for library pages, or the module's entry for a rules term.
+It follows the same rules: players see only player copies, so a word that
+matches only a DM-only page isn't highlighted for them at all.
 
-### 4.3 Game modules
-- **The DM picks one per world in World settings,** e.g. **D&D 5e SRD (5.1 or
-  5.2)**. Those are available under CC-BY-4.0.
+### 4.3 Game modules (rules)
+- **Two come with Alexandria, and the DM picks one per world:**
+  - **D&D 2024**, from SRD 5.2. This is the default for new worlds.
+  - **D&D 5e (2014)**, from SRD 5.1.
+
+  Both are published under CC-BY-4.0, and the credit line is shown in the
+  app.
 - **A module is a package:**
   - a glossary: term, kind and short text
   - optional rules sections for the broker's "Other" answers (§1.3)
-  - an optional statblock format for the DM agent (§6)
-- **Modules are imported like sources:** a folder, a git repo or a JSON API.
-  Other systems can be added the same way.
+  - optional monsters and a statblock format for the DM agent (§6)
+- **Importing more is simple:** World settings → Game module → **Import**, then
+  any of:
+  - a `.zip` or a folder of Markdown files, one term per file, with frontmatter
+    `kind: spell | condition | monster | rule | item`
+  - a JSON file in the module format, documented in `docs/MODULES.md`
+  - a git repo or a JSON API, through the same connectors as world sources
+    (e.g. an Open5e-style API)
+
+  Imports show a preview (counts per kind and a few samples) before
+  they're saved.
+- **More than one module can be on at once,** e.g. D&D 2024 plus a homebrew
+  pack. Where terms clash, the DM's order decides which wins.
 
 ---
 
@@ -305,10 +352,8 @@ copies.
 - A grid of effect pads: door creak, thunder, sword clash. Each pad has its
   own volume, loop option and optional key shortcut.
 - Sounds are uploaded to the gateway and grouped into banks.
-- Each pad can play on:
-  - the DM's chosen output (the table)
-  - each player's device, for remote players
-  - both
+- Each pad plays on a speaker group (§3.1), on players' devices (§5.3), or
+  both.
 
 ### 5.2 Music board: local files
 The music library is a **folder tree on the gateway**:
@@ -334,10 +379,22 @@ music/
 - **Area chips** (village, dungeon, demon…) narrow which tracks it picks.
 - **A simple picker** (folders, then tracks, then play) sits next to the
   map, for when you just want a song.
-- **Where the music plays:** on the DM's table output, and optionally
-  streamed to remote players through the gateway.
+- **Where the music plays:** on a speaker group (§3.1), and on players'
+  devices when they allow it (§5.3).
 
-### 5.3 Spotify (simple)
+### 5.3 On players' devices (players choose)
+- The DM can send music and sound effects to players' devices, streamed
+  through the gateway.
+- **Each player decides, per device, with two separate switches:**
+  - **Play the DM's music**
+  - **Play the DM's sound effects**
+- Both start **off**. Each has its own volume. A player can turn either off
+  at any time, even mid-session.
+- The DM sees who has each one on, so they know who hears what.
+- At the table, players usually leave both off and hear the room speakers.
+- Spotify music is never sent to players (§5.4).
+
+### 5.4 Spotify (simple)
 - The DM connects a Spotify account in settings, using Spotify's own sign-in.
 - The DM maps **events to playlists**, e.g. Combat → "Boss Fights" and
   Tavern → "Folk".
@@ -601,11 +658,14 @@ Not going to app stores: everything is installed directly (sideloaded).
 - The Android APK records with the screen locked.
 - An iOS build installs with AltStore.
 
-## Open questions for the DM
+## Decisions
 
-1. **Live transcript for players:** should players see the live transcript
-   during play, or only the approved session summary afterwards?
-2. **Remote players and music:** should local-file music stream to remote
-   players by default, or only when the DM turns it on?
-3. **Rules module:** start with D&D 5e SRD 5.1 or 5.2?
-4. ~~Routing model~~: decided. Everything runs locally (§10).
+1. **Live transcript for players:** yes, with key-word cards. It's built from
+   all mics, merged into the best version of each line, about 5 seconds
+   behind (§3.3a, §4).
+2. **DM music and sound on players' devices:** yes, if each player allows
+   it, with separate switches for music and sound effects (§5.3).
+3. **Rules:** D&D 2024 (SRD 5.2) by default and D&D 5e 2014 (SRD 5.1) also
+   built in; more can be imported from a zip, a folder, JSON, git or an API
+   (§4.3).
+4. **Models:** all local (§10).
