@@ -23,7 +23,10 @@ Each section says what to build, how, and what "done" means.
 
 | Phase | What | Why first |
 |---|---|---|
+| 1 | Phone redesign (§15) | The phone screens need it most; every later screen is then built phone-first |
 | 1 | Broker rules: auto-delivery, world-only scope, "Other", source link (§1) | Small, finishes the broker |
+| 2 | World date and calendar on every home page (§14) | Small; the broker clock moves onto it |
+| 2 | Separate gateway admin sign-in (§13) | Small |
 | 2 | Item cards linked to library pages (§2) | Small, high value at the table |
 | 3 | Intake capabilities: relations, timelines, maps, calendars, push API (§9) | Later features read from it |
 | 4 | DM agent with MCP tools, statblocks, combat (§6) | Needed by §7 and §8 |
@@ -185,8 +188,13 @@ text and every spoiler question goes to the DM.
 - **Each hold key is set per mic.** Two mics can share a key, and a key can
   be a keyboard key, a mouse button, a foot pedal (which shows up as a key)
   or a button on screen.
-- **Each mic can be marked "DM aside"** (§3.2), e.g. a headset whose hold
-  key is the aside key. Everything from it is DM-only.
+- **Each mic has a "Players' transcript" switch.** On, its speech appears in
+  the transcript everyone sees. Off, it appears only in the DM's
+  transcript. Every mic always goes to the DM's transcript.
+  - Example: the table mic is on, and a headset for DM-only lines is off.
+- **Each mic can be marked "DM aside"** (§3.2), which works like switching
+  its "Players' transcript" off and also covers every other mic while it is
+  in use (§3.3a).
 - **Every mic is its own track.** That tells the transcript who is speaking
   without guessing.
 - **Players:** one mic each, from the app or a browser, with the same three
@@ -266,7 +274,18 @@ its best version.
    time to arrive. A line can be corrected a moment later if a clearer
    version comes in.
 
-**Asides cover every mic.** While the DM aside key is held, everything every
+**One transcript, two views.** There is one transcript store. Each line is
+marked "players" or "DM only" from the mic's switch (§3.1) and the aside
+rules below.
+- The DM's view shows every line, with DM-only ones marked.
+- The players' view shows only lines marked "players".
+
+This keeps one timeline, one merge and one session summary source. It also
+means the DM can later mark a line as DM-only, and it disappears from
+players' view right away.
+
+**Asides cover every mic.** While the DM aside key is held, or while a
+DM-only mic is live in hold-to-talk mode, everything every
 mic hears in that time is DM-only. The table mic and players' phones also
 hear what the DM says into the headset, so this works on time, not on which
 mic was used. It fails closed: a line that overlaps an aside even partly is
@@ -382,13 +401,29 @@ music/
 - **Where the music plays:** on a speaker group (§3.1), and on players'
   devices when they allow it (§5.3).
 
+### 5.2a Ambience layers
+Background sound that loops under the music:
+- **Kinds:**
+  - weather: rain, storm, wind
+  - places: cave drips, tavern chatter, marketplace crowd, forest, sea
+  - fire: campfire, hearth, burning building
+- **A mixer:** each layer has its own volume and fades in and out. Several
+  play together, e.g. rain plus tavern chatter.
+- **Scenes** save a mix. "Stormy night at the tavern" means rain at 40%,
+  tavern chatter at 70% and the hearth at 30%. One click starts a scene.
+  Scenes can be tied to areas on the music board, so choosing "village"
+  can bring its ambience too.
+- **Files:** they come from an `ambience/` folder on the gateway, laid out
+  like `music/`. Loops are trimmed to join without a gap.
+
 ### 5.3 On players' devices (players choose)
 - The DM can send music and sound effects to players' devices, streamed
   through the gateway.
-- **Each player decides, per device, with two separate switches:**
+- **Each player decides, per device, with three separate switches:**
   - **Play the DM's music**
+  - **Play the DM's ambience** (§5.2a)
   - **Play the DM's sound effects**
-- Both start **off**. Each has its own volume. A player can turn either off
+- All three start **off**. Each has its own volume. A player can turn either off
   at any time, even mid-session.
 - The DM sees who has each one on, so they know who hears what.
 - At the table, players usually leave both off and hear the room speakers.
@@ -658,6 +693,113 @@ Not going to app stores: everything is installed directly (sideloaded).
 - The Android APK records with the screen locked.
 - An iOS build installs with AltStore.
 
+## 13. Signing in to the gateway
+
+The gateway serves the web app, so anyone can use Alexandria in a browser
+with no install.
+
+- **Table sign-in** (`/login`) is for DMs and players.
+  - After sign-in you land in your world, as DM or player depending on your
+    role there.
+  - The desktop and phone apps show the same sign-in, with a field for the
+    gateway's address.
+- **Gateway admin sign-in** (`/admin/login`) is separate.
+  - Admin accounts manage accounts, worlds, sources, backups and models.
+  - An admin session can't open a world's secrets, which is how it works
+    today.
+  - Admin sign-in can require a second factor (an authenticator app), and
+    can be limited to the home network (a list of allowed IP ranges).
+- **Today** the admin is a flag on a normal account. That stays possible
+  for small setups, where one person is both the DM and the admin.
+- **Done:** an admin signed in at `/admin/login` can't open a world as DM,
+  and a DM signed in at `/login` can't open the admin pages.
+
+## 14. World date and calendar
+
+**One world clock per world:**
+- The current date and time in the world's own calendar.
+- The calendar comes from the world's source when it has one (Kanka and
+  LegendKeeper calendars), or from the DM: month names, days, weeks and
+  moons.
+- The broker's game clock moves onto it.
+
+**Shown everywhere:**
+- The **world date** is in the top bar of every DM and player screen, e.g.
+  "3rd of Frostmoot, 1492 · evening".
+- **Each home page** shows:
+  - today's date and today's events
+  - upcoming events
+- **Each person sets how far ahead "upcoming" looks:** 3, 7 or 30 world
+  days.
+- **Players see only events the DM shared.**
+
+**Moving the date:**
+- **DM buttons:**
+  - **Long rest:** +8 hours, or to the next morning (a setting)
+  - **Short rest:** +1 hour
+  - **Next day:** to the next morning
+  - **Set date**, for anything else
+- **From the session summary (§8):**
+  - When the DM approves a summary, the agent proposes the date change it
+    found, e.g. "Traveled 3 days to Saltmarsh, then a long rest: move to the
+    7th, morning".
+  - The DM accepts or edits that change in the same review. Nothing moves on
+    its own.
+  - Travel goes into the session log as a short entry: from, to, days and
+    route.
+- Every date change is logged with who made it and why, and can be undone.
+
+**Calendar page:**
+- The world calendar shows past sessions with their summaries, events,
+  travel and rests on the days they happened in-world.
+- The real-life session schedule (dates you play) stays a separate tab.
+
+## 15. Phone design (fresh, phone-first)
+
+The current phone screens are the desktop screens squeezed down. Replace
+them with a design made for phones: smaller, simpler panels, one job per
+screen, big touch targets, and a lot less on each screen.
+
+**Player phone:**
+- **Home:** the world date, the next event, any alerts (an offer, an item
+  change, a coin request) and one line from the live transcript.
+- **Tabs:** Home, Live, Library, Broker, Bag. More holds the rest.
+- **Panels are cards with one thing each.** Details open as bottom sheets,
+  not new pages.
+
+**DM phone: an assistant to the DM's desktop, not a second desktop.**
+- **Quick views:** initiative and whose turn it is, HP and conditions with
+  tap to adjust, the transcript, and the agent chat.
+- **A remote for the desktop:** soundboard pads, music mood and ambience
+  scenes, Long rest and Next day, and a "speak this" button.
+- **Queues:** approvals, broker questions and offers to send.
+- **Planning stays on the desktop:** big edits, page writing and source
+  setup.
+
+**Screen shapes:**
+
+| Shape | Example | Layout |
+|---|---|---|
+| Narrow and tall | Fold cover screen, small phones | One column, compact cards, bottom tabs |
+| Normal phone | Most phones | One column, bottom tabs |
+| Near-square, about 4:3 | Galaxy Z Fold inner screen, small tablets | Two panes: a list on the left and the open item on the right, tabs moved to a side rail |
+| Tablet and desktop | | Today's layouts |
+
+**How it adapts:**
+- Layouts follow the screen's shape, not a fixed width. Panes use container
+  queries, so a card looks right in either pane.
+- Opening or closing the Fold keeps the screen you were on, and what you
+  were reading or typing.
+- Nothing is placed across the Fold's hinge; when half-folded, the hinge
+  splits the two panes.
+- **Testing:** a Playwright run at each shape, using the cover and inner
+  screen sizes measured on the DM's own Z Fold, plus a normal phone and a
+  4:3 tablet. It checks that nothing scrolls sideways and nothing is cut
+  off.
+
+**Done:** every player screen and the DM assistant pass at all four shapes,
+and the redesign is reviewed on the real Z Fold before it ships.
+
 ## Decisions
 
 1. **Live transcript for players:** yes, with key-word cards. It's built from
@@ -668,4 +810,8 @@ Not going to app stores: everything is installed directly (sideloaded).
 3. **Rules:** D&D 2024 (SRD 5.2) by default and D&D 5e 2014 (SRD 5.1) also
    built in; more can be imported from a zip, a folder, JSON, git or an API
    (§4.3).
-4. **Models:** all local (§10).
+4. **Models:** all local by default (§10). Any model job can point at a
+   cloud endpoint instead, because they all go through `/v1`.
+5. **Transcript:** one transcript with two views (DM and players). Each mic
+   has a "Players' transcript" switch (§3.1, §3.3a).
+6. **The DM phone app** is an assistant to the desktop (§15).
