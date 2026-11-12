@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './lib/auth.tsx';
 import { App } from './App.tsx';
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import './theme.css';
 
 createRoot(document.getElementById('root')!).render(

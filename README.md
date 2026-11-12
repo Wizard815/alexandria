@@ -91,6 +91,10 @@ any OpenAI-compatible endpoint: OpenAI, Argos, Ollama or LM Studio. Only
 signed-in callers can use them. Set `MODEL_BASE_URL` and `MODEL_API_KEY`
 (or `LOCAL_LLM_URL`) in `librarian/.env`.
 
+## What's next
+
+The working plan is in [PLAN.md](PLAN.md).
+
 ## License
 
 MIT
