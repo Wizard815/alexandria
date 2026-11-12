@@ -93,7 +93,8 @@ signed-in callers can use them. Set `MODEL_BASE_URL` and `MODEL_API_KEY`
 
 ## What's next
 
-The working plan is in [PLAN.md](PLAN.md).
+The working plan is in [PLAN.md](PLAN.md), and the build schedule is in
+[TODO.md](TODO.md).
 
 ## License
 
