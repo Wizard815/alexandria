@@ -63,6 +63,18 @@ p { margin: 0; }
 .topnav .nav-link { padding: 6px 10px; min-height: 36px; }
 .topnav .nav-link.active { box-shadow: inset 0 -2px 0 var(--accent); }
 .bottomnav { display: none; }
+.phone-only, .dm-phonebar { display: none; }
+.topbar-end { margin-left: auto; }
+.nav-badge { display: inline-block; margin-left: 4px; padding: 0 5px; min-width: 16px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
+.sheet-backdrop, .drawer-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.5); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--side); border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; padding: 14px 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+.sheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.sheet-link { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 8px; color: var(--text); text-decoration: none; font-size: 13px; text-align: center; }
+.sheet-link i { font-size: 17px; color: var(--accent); }
+.sheet-link.active { background: var(--accent-bg); color: var(--accent-strong); }
+.sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 16px; cursor: pointer; }
+.icon-btn .nav-badge { position: absolute; top: -5px; right: -7px; margin: 0; background: var(--danger); color: #12161F; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok-text); display: inline-block; }
 .live-dot.off { background: var(--danger); }
 
@@ -151,8 +163,22 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .page { padding: 16px 16px 88px; }
   h1 { font-size: 23px; }
   .topnav.desktop { display: none; }
-  .bottomnav { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--side); border-top: 1px solid var(--line-strong); justify-content: space-around; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
-  .bottomnav a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); text-decoration: none; padding: 4px 6px; min-width: 52px; }
-  .bottomnav a.active { color: var(--accent-strong); }
-  .bottomnav a span.icon { font-size: 18px; }
+  /* Phone: one slim top row, one slim bottom row. */
+  .topbar { flex-wrap: nowrap; gap: 8px; padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
+  .topbar .brand { font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .desktop-only { display: none !important; }
+  .phone-only { display: inline-block; }
+  .bottomnav { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--side); border-top: 1px solid var(--line-strong); padding: 0 4px env(safe-area-inset-bottom, 0px); }
+  .bottomnav a, .bottomnav button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 2px 4px; font: 500 10.5px var(--font); color: var(--muted); text-decoration: none; background: none; border: 0; cursor: pointer; white-space: nowrap; }
+  .bottomnav a.active, .bottomnav button.active, .bottomnav button[aria-expanded="true"] { color: var(--accent-strong); }
+  .bottomnav .icon { position: relative; font-size: 16px; line-height: 20px; }
+  .bottomnav .icon .nav-badge { position: absolute; top: -4px; left: 12px; margin: 0; font-size: 10px; line-height: 14px; min-width: 14px; padding: 0 4px; }
+  .page { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  /* DM: slim top bar; the side menu slides in. */
+  .shell.has-drawer .dm-phonebar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 30; background: var(--side); border-bottom: 1px solid var(--line-strong); padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
+  .dm-phonebar .brand { font-family: var(--font-head); font-weight: 700; color: var(--accent); letter-spacing: 0.05em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shell.has-drawer .side { display: none; }
+  .shell.has-drawer .side.open { display: flex; position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); height: 100%; z-index: 50; padding: calc(16px + env(safe-area-inset-top, 0px)) 12px 16px; overflow-y: auto; }
+  .shell.has-drawer .side.open .nav-group { flex-direction: column; }
+  .shell.has-drawer .side.open .side-foot { flex-direction: column; border-top: 1px solid var(--line); padding-top: 12px; }
 }
