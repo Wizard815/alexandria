@@ -197,7 +197,7 @@ export default function brokerRoutes(d: Deps) {
     const payer = s.brokerPayer === 'party' && s.partyPurse ? 'party' : asker;
     if (!cost) return { payer, ledgerId: null };
     const bal = balance(db, w, payer);
-    if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party purse has' : 'you have'} ${money(Math.max(0, bal))}`);
+    if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}`);
     const lid = id('led_');
     run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, lid, w, payer, -cost, `Broker: ${question}`.slice(0, 200), asker, now());
     return { payer, ledgerId: lid };
@@ -417,10 +417,10 @@ export default function brokerRoutes(d: Deps) {
     if (o.status !== 'open') throw new HttpError(409, o.status === 'paid' ? 'Already paid' : 'This offer is gone');
     const s = settings(res);
     const from = req.body?.from === 'party' ? 'party' : me(res);
-    if (from === 'party' && !s.partyPurse) throw new HttpError(400, 'The party purse is off in this world');
+    if (from === 'party' && !s.partyPurse) throw new HttpError(400, 'The party pouch is off in this world');
     tx(db, () => {
       const bal = balance(db, w, from);
-      if (bal < o.price_cp) throw new HttpError(402, `Not enough coin: this costs ${money(o.price_cp)} and ${from === 'party' ? 'the party purse has' : 'you have'} ${money(Math.max(0, bal))}`);
+      if (bal < o.price_cp) throw new HttpError(402, `Not enough coin: this costs ${money(o.price_cp)} and ${from === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}`);
       let lid: string | null = null;
       if (o.price_cp) {
         lid = id('led_');
