@@ -89,7 +89,7 @@ function Queue({ list, reload }: { list: BrokerRequest[] | null; reload: () => P
           <div className="row between" style={{ alignItems: 'flex-start' }}>
             <div className="stack tight grow">
               <strong>{q.question}</strong>
-              <span className="tiny faint">{q.asker_name} · {q.tier_name} · {q.cost_cp === null ? 'unpriced' : q.cost_cp === 0 ? 'free' : coins(q.cost_cp, info.settings.coins)}{q.payer === 'party' ? ' (party purse)' : ''} · {when(q.created_at)}</span>
+              <span className="tiny faint">{q.asker_name} · {q.tier_name} · {q.cost_cp === null ? 'unpriced' : q.cost_cp === 0 ? 'free' : coins(q.cost_cp, info.settings.coins)}{q.payer === 'party' ? ' (party pouch)' : ''} · {when(q.created_at)}</span>
               {q.status === 'waiting' && <span className="small muted"><ReadyLabel q={q} /></span>}
             </div>
             <StatusChip s={q.status} />
@@ -224,7 +224,7 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
             <option value="refuse">Turned away ("never heard of it"); I still see what was asked</option>
           </select>
         </Field>
-        <p className="tiny faint">Payer: {c.payer === 'party' && info.settings.partyPurse ? 'the party purse' : "each player's own coin"} (World settings).</p>
+        <p className="tiny faint">Payer: {c.payer === 'party' && info.settings.partyPurse ? 'the party pouch' : "each player's own coin"} (World settings).</p>
         <ErrorBox error={act.error} />
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save prices and persona</button></div>
       </section>
@@ -338,7 +338,7 @@ function Offers() {
             <div className="row between" style={{ alignItems: 'flex-start' }}>
               <div className="stack tight grow">
                 <strong>{o.title} · {coins(o.price_cp, info.settings.coins)}</strong>
-                <span className="tiny faint">To {o.target_names?.join(', ')} · {o.status === 'open' ? offerExpiry(o) : when(o.paid_at ?? o.created_at)}{o.paid_by_name ? ` · paid by ${o.paid_by_name}${o.paid_from === 'party' ? ' (party purse)' : ''}` : ''}{o.declined_by?.length ? ` · ${o.declined_by.length} declined` : ''}</span>
+                <span className="tiny faint">To {o.target_names?.join(', ')} · {o.status === 'open' ? offerExpiry(o) : when(o.paid_at ?? o.created_at)}{o.paid_by_name ? ` · paid by ${o.paid_by_name}${o.paid_from === 'party' ? ' (party pouch)' : ''}` : ''}{o.declined_by?.length ? ` · ${o.declined_by.length} declined` : ''}</span>
               </div>
               <StatusChip s={o.status} />
             </div>

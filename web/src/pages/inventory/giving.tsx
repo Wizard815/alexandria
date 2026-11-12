@@ -116,18 +116,18 @@ export function GiveCoinModal({ from = 'me', to: initialTo, onClose, onDone }: {
   const nm = (x: string) => (x === 'me' ? 'You' : label(x === me ? me : x));
   const go = () => act.run(async () => {
     await w.call('POST', '/inventory/coin/transfer', { from: src, to, amountCp: cp, note: note.trim() || undefined });
-    onDone(`Gave ${coins(cp ?? 0, info.settings.coins)} to ${to === 'party' ? 'the party purse' : nm(to)}`);
+    onDone(`Gave ${coins(cp ?? 0, info.settings.coins)} to ${to === 'party' ? 'the party pouch' : nm(to)}`);
   });
   return (
     <Modal title="Give coin" onClose={onClose}>
       <p className="small muted">Coin moves at once. The DM sees it in their log; nothing waits for approval.</p>
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        <Field label="From"><select value={src} onChange={(e) => setSrc(e.target.value)}>{fromOptions.map((f) => <option key={f} value={f}>{f === 'party' ? 'Party purse' : nm(f)}</option>)}</select></Field>
-        <Field label="To"><select value={to} onChange={(e) => setTo(e.target.value)}>{toOptions.map((t) => <option key={t} value={t}>{t === 'party' ? 'Party purse' : nm(t)}</option>)}</select></Field>
+        <Field label="From"><select value={src} onChange={(e) => setSrc(e.target.value)}>{fromOptions.map((f) => <option key={f} value={f}>{f === 'party' ? 'Party pouch' : nm(f)}</option>)}</select></Field>
+        <Field label="To"><select value={to} onChange={(e) => setTo(e.target.value)}>{toOptions.map((t) => <option key={t} value={t}>{t === 'party' ? 'Party pouch' : nm(t)}</option>)}</select></Field>
       </div>
       <Field label="Amount" help={bal.data ? `Available: ${coins(bal.data.cp, info.settings.coins)}` : 'e.g. 5 gp 2 sp'}><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="5 gp" inputMode="text" /></Field>
       <Field label="What for (optional)"><input value={note} maxLength={160} onChange={(e) => setNote(e.target.value)} placeholder="My share of the room" /></Field>
-      {cp !== null && bal.data && cp > bal.data.cp && <p className="small" style={{ color: 'var(--danger-text)' }}>That's more than {src === 'party' ? 'the purse holds' : 'there is'}.</p>}
+      {cp !== null && bal.data && cp > bal.data.cp && <p className="small" style={{ color: 'var(--danger-text)' }}>That's more than {src === 'party' ? 'the pouch holds' : 'there is'}.</p>}
       <ErrorBox error={act.error} />
       <div className="row end">
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -186,7 +186,7 @@ export function AskCoinModal({ amountCp, offerId, note: initialNote, onClose, on
   });
   return (
     <Modal title="Ask for coin" onClose={onClose}>
-      <p className="small muted">The others see your request and can chip in. Whatever they give lands in your purse.</p>
+      <p className="small muted">The others see your request and can chip in. Whatever they give lands in your coin.</p>
       <Field label="Ask"><select value={to} onChange={(e) => setTo(e.target.value)}><option value="party">Everyone in the party</option>{others.map((p) => <option key={p.id} value={p.id}>{label(p.id)}</option>)}</select></Field>
       <Field label="How much"><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="2 gp" /></Field>
       <Field label="What for"><input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} /></Field>
