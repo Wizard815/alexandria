@@ -21,8 +21,21 @@ Each section says what to build, how, and what "done" means.
 
 ## 0. Order of work
 
-| Phase | What | Why first |
-|---|---|---|
+The schedule, milestones and checklists are in [TODO.md](TODO.md):
+- M0 base
+- M1 phone redesign and sign-in
+- M2 world clock and broker
+- M3 item cards, modules and intake
+- M4 DM agent
+- M5 desktop app and audio
+- M6 transcript island
+- M7 session log
+- M8 sound
+- M9 read aloud
+- M10 phone apps
+- M11 hardening
+
+---|---|---|
 | 1 | Phone redesign (§15) | The phone screens need it most; every later screen is then built phone-first |
 | 1 | Broker rules: auto-delivery, world-only scope, "Other", source link (§1) | Small, finishes the broker |
 | 2 | World date and calendar on every home page (§14) | Small; the broker clock moves onto it |
