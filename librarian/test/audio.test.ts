@@ -256,6 +256,22 @@ test('Audio_aside: an aside makes overlapping lines from every mic DM-only', asy
   assert.ok(!JSON.stringify(pl).includes(SECRET));
 });
 
+test('Audio_aside: talk running straight into an aside is cut at the aside, not spliced into it', async () => {
+  const sid = await newSession();
+  // Back-to-back table chunks: public talk, then (with no pause) a DM aside the table mic also hears.
+  await upOk('dm', sid, 'table', 0, 0, 'the ferry costs two silver a head and double after dark friends');
+  await hold('dm', sid, null, 'aside', 5000, 10_000);
+  await upOk('dm', sid, 'headset', 0, 5000, `remember the ${SECRET} owns the captains`);
+  await upOk('dm', sid, 'table', 1, 5000, `remember the ${SECRET} owns the captains`);
+  const pl = await lines('jess', sid);
+  assert.deepEqual(pl.map((l) => l.text), ['the ferry costs two silver a head and double after dark friends'], 'the public line survives whole');
+  assert.ok(!JSON.stringify(pl).includes(SECRET));
+  const dmLines = await lines('dm', sid);
+  const aside = dmLines.find((l) => l.text.includes(SECRET))!;
+  assert.equal(aside.audience, 'dm');
+  assert.ok(!aside.text.includes('ferry'), 'the aside line holds only aside words');
+});
+
 test('Audio_aside: an explicit aside key window arriving after the line removes it from players', async () => {
   const sid = await newSession();
   const feed = listen(T.jess);

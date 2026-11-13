@@ -100,6 +100,19 @@ export interface LineRow {
 }
 
 const ASIDE_PAD = 250;
+
+/** Split an utterance wherever a cut time falls between two of its words. */
+function splitAt<U extends { start: number; end: number; words: Word[] }>(u: U, cuts: number[]): U[] {
+  if (!cuts.length) return [u];
+  const side = (w: Word) => cuts.filter((c) => (w.s + w.e) / 2 >= c).length;
+  const out: U[] = [];
+  for (const w of u.words) {
+    const last = out[out.length - 1];
+    if (last && side(last.words[last.words.length - 1]) === side(w)) { last.words.push(w); last.end = Math.max(last.end, w.e); }
+    else out.push({ ...u, start: w.s, end: w.e, words: [w] });
+  }
+  return out;
+}
 const CONTEXT = 20_000;
 const overlaps = (a0: number, a1: number, b0: number, b1: number) => a0 < b1 && a1 > b0;
 
@@ -264,6 +277,11 @@ export class Engine {
       if (m.aside || (!m.players_transcript && m.mode === 'hold-to-talk')) for (const u of utterances(micId, words, 1000)) aside.push([u.start, u.end]);
     }
 
+    // Speech never joins across an aside's edges: without this a mic's talk just
+    // before an aside and the aside itself become one utterance, and the merge
+    // splices them together (the whole line then turns DM-only).
+    const cuts = [...new Set(aside.flatMap(([a, b]) => [a, b]))].sort((x, y) => x - y);
+
     // Per mic: apply its mode and hold windows, then split into utterances.
     const utts = [];
     for (const [micId, words] of raw) {
@@ -277,7 +295,7 @@ export class Engine {
         if (mute.some((h) => mid >= h.start_ms - 100 && mid <= h.end_ms + 100)) return false;
         return true;
       });
-      utts.push(...utterances(micId, kept));
+      utts.push(...utterances(micId, kept).flatMap((u) => splitAt(u, cuts)));
     }
 
     const lines = groupUtterances(utts).map(mergeGroup).filter((l) => l.words.length && l.end >= from && l.start <= to);
