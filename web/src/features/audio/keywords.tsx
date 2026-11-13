@@ -57,7 +57,7 @@ export function Highlighted({ text, matches, onHover }: { text: string; matches:
     if (m.start < at) continue;
     if (m.start > at) out.push(text.slice(at, m.start));
     out.push(
-      <mark key={m.start} className={`au-kw ${m.kind}`} tabIndex={0}
+      <mark key={m.start} className={`au-kw au-kw-${m.kind}`} tabIndex={0}
         onMouseEnter={(e) => onHover(m, e.currentTarget)} onMouseLeave={() => onHover(null)}
         onFocus={(e) => onHover(m, e.currentTarget)} onBlur={() => onHover(null)}>{text.slice(m.start, m.end)}</mark>,
     );
