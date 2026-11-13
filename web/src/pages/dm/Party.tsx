@@ -10,6 +10,8 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { usePlayers } from './shared.tsx';
 import { extra } from '../broker/shared.tsx';
+import { ItemHover } from '../../features/itemcards/index.tsx';
+import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
 import { type Item, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, TransfersList } from '../inventory/giving.tsx';
 
 /** "Why" for a DM change, when World settings ask for one. */
@@ -76,6 +78,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
   const [moving, setMoving] = useState<Item | null>(null);
   const [viewing, setViewing] = useState<Item | null>(null);
   const [image, setImage] = useState<string | null>(null);
+  const [pageId, setPageId] = useState<string | null>(null);
   const reason = useReason();
   const [why, setWhy] = useState('');
   const act = useAction();
@@ -90,8 +93,8 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
 
   const add = (e: FormEvent) => act.run(async () => {
     e.preventDefault();
-    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, ...(weightOn && weight ? { weight: Number(weight) } : {}), note, dmNote, reason: why.trim(), image });
-    setName(''); setQty('1'); setWeight(''); setNote(''); setDmNote(''); setWhy(''); setImage(null);
+    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, ...(weightOn && weight ? { weight: Number(weight) } : {}), note, dmNote, reason: why.trim(), image, ...(pageId ? { pageId } : {}) });
+    setPageId(null); setName(''); setQty('1'); setWeight(''); setNote(''); setDmNote(''); setWhy(''); setImage(null);
     void inv.reload();
   });
 
@@ -112,7 +115,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
                 ? <EditRow key={it.id} it={it} weightOn={weightOn} players={players} ask={reason.ask} onDone={() => { setEditing(null); void inv.reload(); }} />
                 : (
                   <tr key={it.id} style={it.status === 'pending' ? { opacity: 0.8 } : undefined}>
-                    <td><span className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}><ItemImage image={it.image} name={it.name} size={36} onClick={it.image ? () => setViewing(it) : undefined} /><span><strong className="read" style={{ fontSize: 16 }}>{it.name}</strong>{it.link && <><br /><a className="tiny" href={it.link} target="_blank" rel="noreferrer">link</a></>}</span></span>
+                    <td><span className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}><ItemImage image={it.image} name={it.name} size={36} onClick={it.image ? () => setViewing(it) : undefined} /><span><strong className="read" style={{ fontSize: 16 }}><ItemHover itemId={it.id}>{it.name}</ItemHover></strong>{it.link && <><br /><a className="tiny" href={it.link} target="_blank" rel="noreferrer">link</a></>}</span></span>
                       {it.pendingChange && (
                         <div className="stack tight" style={{ marginTop: 4 }}>
                           <span className="chip teal">⏳ {nameOf(it.pendingChange.by)} {it.pendingChange.kind === 'add' ? 'wants to add this' : it.pendingChange.kind === 'remove' ? 'wants to remove this' : 'wants to change this'}</span>
@@ -147,6 +150,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
             <Field label="Note" help={owner === 'party' ? 'The party sees this' : 'The player sees this'}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
             <Field label="DM note" help="Only you see this (e.g. it's cursed)"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
           </div>
+          <PagePicker value={pageId} onChange={setPageId} />
           <ImageField value={image} name={name} onChange={setImage} />
           {reason.need && <Field label="Why" help={owner === 'party' ? 'The party sees this with the change' : 'The player sees this and can confirm or dispute'}><input required value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Loot from the crypt" /></Field>}
           <ErrorBox error={act.error} />
@@ -168,8 +172,9 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
   const [owner, setOwner] = useState(it.owner);
   const [why, setWhy] = useState('');
   const [image, setImage] = useState<string | null>(it.image ?? null);
+  const [pageId, setPageId] = useState<string | null>(it.pageId ?? null);
   const save = () => act.run(async () => {
-    await w.updateItem(it.id, { name, qty: parseInt(qty, 10) || 0, note, dmNote, owner, image, reason: why.trim(), ...(weightOn ? { weight: weight === '' ? null : Number(weight) } : {}) });
+    await w.updateItem(it.id, { name, qty: parseInt(qty, 10) || 0, note, dmNote, owner, image, pageId, reason: why.trim(), ...(weightOn ? { weight: weight === '' ? null : Number(weight) } : {}) });
     onDone();
   });
   return (
@@ -191,6 +196,7 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
             <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
             <Field label="DM note"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
           </div>
+          <PagePicker value={pageId} onChange={setPageId} />
           <ImageField value={image} name={name} onChange={setImage} />
           <Field label="Why" help="The owner sees this and can confirm or dispute"><input value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Used it on the door" /></Field>
           <ErrorBox error={act.error} />

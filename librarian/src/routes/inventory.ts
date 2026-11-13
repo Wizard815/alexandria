@@ -27,6 +27,7 @@ import { dmAnd } from '../core/events.ts';
 import { HttpError, id, int, now, str } from '../core/util.ts';
 import { ctx, isDM, me, memberIds, names, settings } from './_shared.ts';
 import { balance, money } from '../core/coin.ts';
+import { checkPageId } from '../features/itemcards/link.ts';
 
 const ITEM_COLS = ['owner', 'name', 'qty', 'weight', 'note', 'dm_note', 'link', 'image'] as const;
 export const itemSnapshot = (it: any) => Object.fromEntries(ITEM_COLS.map((k) => [k, it[k] ?? null]));
@@ -87,14 +88,14 @@ export default function inventoryRoutes(d: Deps) {
   }
 
   const playerShown = (s: any, it: any) => {
-    const out: any = { owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, image: it.image ?? null };
+    const out: any = { owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, pageId: it.page_id ?? null, image: it.image ?? null };
     if (s.trackWeight) out.weight = it.weight;
     return out;
   };
 
   function shape(res: Response, it: any) {
     const s = settings(res);
-    const out: any = { id: it.id, owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, image: it.image ?? null, updated_at: it.updated_at, updated_by: it.updated_by, status: it.status ?? 'approved' };
+    const out: any = { id: it.id, owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, pageId: it.page_id ?? null, image: it.image ?? null, updated_at: it.updated_at, updated_by: it.updated_by, status: it.status ?? 'approved' };
     if (s.trackWeight) out.weight = it.weight;
     if (isDM(res)) out.dm_note = it.dm_note;
     // A proposed edit, move or removal waiting for the DM.
@@ -111,7 +112,7 @@ export default function inventoryRoutes(d: Deps) {
     const s = settings(res);
     d.hub.emitPer(c.world.id, type, (v) => {
       if (it.owner !== 'party' && v.role !== 'dm' && v.accountId !== it.owner) return null;
-      const out: any = { id: it.id, owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, image: it.image ?? null, status: it.status ?? 'approved' };
+      const out: any = { id: it.id, owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, pageId: it.page_id ?? null, image: it.image ?? null, status: it.status ?? 'approved' };
       if (s.trackWeight) out.weight = it.weight;
       if (v.role === 'dm') out.dm_note = it.dm_note;
       return out;
@@ -267,8 +268,8 @@ export default function inventoryRoutes(d: Deps) {
     if (qty > it.qty) throw new HttpError(400, `There are only ${it.qty}`);
     const reason = isDM(res) && it.owner !== 'party' ? dmReason(res, b, it.owner) : '';
     // Same thing already there? Stack it.
-    const same = one<any>(db, `SELECT * FROM items WHERE world_id = ? AND owner = ? AND status = 'approved' AND lower(name) = lower(?) AND IFNULL(link, '') = IFNULL(?, '') AND IFNULL(image, '') = IFNULL(?, '') AND dm_note = ? AND IFNULL(weight, -1) = IFNULL(?, -1) AND id <> ?`,
-      c.world.id, to, it.name, it.link, it.image, it.dm_note, it.weight, it.id);
+    const same = one<any>(db, `SELECT * FROM items WHERE world_id = ? AND owner = ? AND status = 'approved' AND lower(name) = lower(?) AND IFNULL(link, '') = IFNULL(?, '') AND IFNULL(image, '') = IFNULL(?, '') AND IFNULL(page_id, '') = IFNULL(?, '') AND dm_note = ? AND IFNULL(weight, -1) = IFNULL(?, -1) AND id <> ?`,
+      c.world.id, to, it.name, it.link, it.image, it.page_id, it.dm_note, it.weight, it.id);
     let movedId = it.id;
     tx(db, () => {
       if (qty === it.qty && !same) run(db, 'UPDATE items SET owner = ?, updated_at = ?, updated_by = ? WHERE id = ?', to, now(), me(res), it.id);
@@ -280,6 +281,7 @@ export default function inventoryRoutes(d: Deps) {
           movedId = id('itm_');
           run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
             movedId, c.world.id, to, it.name, qty, it.weight, it.note, it.dm_note, it.link, it.image, now(), me(res));
+          if (it.page_id) run(db, 'UPDATE items SET page_id = ? WHERE id = ?', it.page_id, movedId);
         }
       }
       logTransfer(res, { kind: 'item', from: it.owner, to, item: it.name, qty, note: reason || str(b.note, 'note', { max: 160, optional: true }) });
@@ -393,15 +395,17 @@ export default function inventoryRoutes(d: Deps) {
     const o = owner(res, String(b.owner ?? 'me'), true);
     const pending = needsApproval(res);
     const reason = dmReason(res, b, o);
+    const pageId = checkPageId(d, res, b.pageId) ?? null;
     const it = {
       id: id('itm_'), owner: o, name: str(b.name, 'name', { max: 120 }), qty: int(b.qty, 'qty', { min: 0, max: 1_000_000, optional: true }) ?? 1,
       weight: b.weight !== undefined && b.weight !== null ? Number(b.weight) || 0 : null,
       note: str(b.note, 'note', { max: 500, optional: true }), dm_note: isDM(res) ? str(b.dmNote, 'dmNote', { max: 500, optional: true }) : '',
-      link: str(b.link, 'link', { max: 300, optional: true }) || null, image: image(res, b.image), updated_at: now(), updated_by: me(res), status: pending ? 'pending' : 'approved',
+      link: str(b.link, 'link', { max: 300, optional: true }) || null, image: image(res, b.image), updated_at: now(), updated_by: me(res), status: pending ? 'pending' : 'approved', page_id: pageId,
     };
     tx(db, () => {
       run(db, 'INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         it.id, c.world.id, it.owner, it.name, it.qty, it.weight, it.note, it.dm_note, it.link, it.image, it.updated_at, it.updated_by, it.status);
+      if (pageId) run(db, 'UPDATE items SET page_id = ? WHERE id = ?', pageId, it.id);
       if (pending) {
         const chId = id('chg_');
         run(db, `INSERT INTO item_changes (id, world_id, item_id, owner, kind, after_json, reason, by_id, at, status) VALUES (?, ?, ?, ?, 'add', ?, ?, ?, ?, 'pending')`,
@@ -420,6 +424,13 @@ export default function inventoryRoutes(d: Deps) {
     if (!it) throw new HttpError(404, 'Item not found');
     owner(res, it.owner, true);
     const b = req.body ?? {};
+    // The page link is not an approval matter: it only points at a page the person can already open.
+    const pageId = checkPageId(d, res, b.pageId);
+    if (pageId !== undefined) {
+      run(db, 'UPDATE items SET page_id = ? WHERE id = ?', pageId, it.id);
+      it.page_id = pageId;
+      if (Object.keys(b).every((k) => k === 'pageId')) { notify(res, it, 'item'); return res.json(shape(res, it)); }
+    }
     const next = {
       ...it,
       name: b.name !== undefined ? str(b.name, 'name', { max: 120 }) : it.name,
