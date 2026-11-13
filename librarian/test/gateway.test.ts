@@ -24,7 +24,7 @@ test('TestGateway_HealthHeadersAndBackup', async () => {
     assert.equal((await h.json() as any).status, 'ok');
     const setup = await (await fetch(`${base}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'wizard', password: 'correct horse battery' }) })).json() as any;
     assert.equal((await fetch(`${base}/api/admin/backup`)).status, 401);
-    const b = await fetch(`${base}/api/admin/backup`, { headers: { Authorization: `Bearer ${setup.token}` } });
+    const b = await fetch(`${base}/api/admin/backup?db=1`, { headers: { Authorization: `Bearer ${setup.token}` } });
     assert.equal(b.status, 200);
     const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'alx-b-')), 'b.db');
     fs.writeFileSync(tmp, Buffer.from(await b.arrayBuffer()));
