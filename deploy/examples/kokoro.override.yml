@@ -1,0 +1,25 @@
+# Text to speech (the "voice" job): Kokoro behind an OpenAI-compatible
+# /v1/audio/speech endpoint, next to Alexandria.
+#   docker compose -f deploy/docker-compose.yml -f deploy/examples/kokoro.override.yml \
+#     --env-file deploy/.env up -d
+# Then check it in Admin → Models → Voice → Test. Pick a current image; see
+# docs/MODELS.md. The default voice goes in Admin → Models as extra options,
+# e.g. {"voice":"af_heart"}.
+services:
+  alexandria:
+    environment:
+      ALX_MODEL_VOICE_URL: http://kokoro:8880/v1
+      ALX_MODEL_VOICE_MODEL: kokoro
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+    expose:
+      - "8880"
+    # With an NVIDIA GPU use ghcr.io/remsky/kokoro-fastapi-gpu:latest and:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
