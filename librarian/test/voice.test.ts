@@ -42,7 +42,7 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-voice-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_MODEL_VOICE_URL: 'http://tts.test/v1', ALX_MODEL_VOICE_MODEL: 'kokoro' }, fetch: fakeFetch });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_MODEL_VOICE_URL: 'http://tts.test/v1', ALX_MODEL_VOICE_MODEL: 'kokoro', ALX_ADMIN_TABLE_LOGIN: '1' }, fetch: fakeFetch });
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = baseOf(server);
@@ -139,7 +139,7 @@ test('TestVoice_NoModelIsAClear503', async () => {
   assert.match(down.body.error, /not available/);
   ttsDown = false;
   // A world whose app has no voice model at all.
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data2'), vaultsDir: path.join(tmp, 'vaults2'), env: {}, fetch: fakeFetch });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data2'), vaultsDir: path.join(tmp, 'vaults2'), env: { ALX_ADMIN_TABLE_LOGIN: '1' }, fetch: fakeFetch });
   const s2: any = made.app.listen(0);
   await new Promise((r) => s2.once('listening', r));
   const b2 = baseOf(s2);

@@ -111,7 +111,7 @@ before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-audio-'));
   const made = createApp({
     noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: fakeFetch,
-    env: { ALX_MODEL_AUDIO_URL: 'http://fake/v1', ALX_AUDIO_MERGE_MS: '0' },
+    env: { ALX_MODEL_AUDIO_URL: 'http://fake/v1', ALX_AUDIO_MERGE_MS: '0', ALX_ADMIN_TABLE_LOGIN: '1' },
   });
   deps = made.deps;
   server = made.app.listen(0);
