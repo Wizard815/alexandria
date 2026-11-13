@@ -1,0 +1,22 @@
+# Point the chat, audit and embeddings jobs at an Argos server (or any
+# llama-server / OpenAI-compatible endpoint) running on another machine.
+# Set ARGOS_URL in deploy/.env, e.g. ARGOS_URL=http://192.168.1.50:8080/v1
+#   docker compose -f deploy/docker-compose.yml -f deploy/examples/argos.override.yml \
+#     --env-file deploy/.env up -d
+# Settings saved in Admin → Models win over these. Keep API keys in
+# deploy/.env (ARGOS_API_KEY), never in this file.
+services:
+  alexandria:
+    environment:
+      ALX_MODEL_CHAT_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
+      ALX_MODEL_CHAT_MODEL: ${ARGOS_CHAT_MODEL:-chat}
+      ALX_MODEL_CHAT_KEY: ${ARGOS_API_KEY:-}
+      ALX_MODEL_AUDIT_URL: ${ARGOS_AUDIT_URL:-${ARGOS_URL:-http://host.docker.internal:8081/v1}}
+      ALX_MODEL_AUDIT_MODEL: ${ARGOS_AUDIT_MODEL:-audit}
+      ALX_MODEL_AUDIT_KEY: ${ARGOS_API_KEY:-}
+      ALX_MODEL_EXTRA_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
+      ALX_MODEL_EXTRA_MODEL: ${ARGOS_EMBED_MODEL:-embed}
+      ALX_MODEL_EXTRA_KEY: ${ARGOS_API_KEY:-}
+    # Lets "host.docker.internal" reach the machine running Docker on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
