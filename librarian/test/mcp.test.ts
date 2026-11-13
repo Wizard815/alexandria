@@ -75,7 +75,7 @@ test('TestMcp_KankaImportFailsClosed', async () => {
   server.listen(0);
   await new Promise((r) => server.once('listening', r));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
-  const { app } = createApp({ env: {}, noScheduler: true });
+  const { app } = createApp({ env: { ALX_ADMIN_TABLE_LOGIN: '1' }, noScheduler: true });
   const api = app.listen(0);
   await new Promise((r) => api.once('listening', r));
   const base = `http://127.0.0.1:${(api.address() as AddressInfo).port}`;
