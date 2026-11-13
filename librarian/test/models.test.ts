@@ -39,7 +39,7 @@ const job = (list: any, name: string) => list.jobs.find((j: any) => j.job === na
 before(async () => {
   fake = await startFakeModels(0);
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-models-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: {} });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
   deps = made.deps;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
