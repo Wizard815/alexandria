@@ -33,6 +33,7 @@ import Calendar from './pages/shared/Calendar.tsx';
 import Whiteboard from './pages/shared/Whiteboard.tsx';
 import ConnectAI from './pages/shared/ConnectAI.tsx';
 import MapBoard from './pages/shared/MapBoard.tsx';
+import * as F from './features/registry.ts';
 
 export function App() {
   const { ready } = useAuth();
@@ -51,6 +52,7 @@ export function App() {
         <Route path="sources" element={<AdminSources />} />
         <Route path="keys" element={<div className="page"><ConnectAI /></div>} />
         <Route path="audit" element={<AdminAudit />} />
+        {F.adminRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}
       </Route>
       <Route path="/w/:world" element={<WorldProvider><WorldOutlet /></WorldProvider>}>
         <Route path="dm" element={<DMLayout />}>
@@ -70,6 +72,7 @@ export function App() {
           <Route path="whiteboard" element={<Whiteboard />} />
           <Route path="settings" element={<DMSettings />} />
           <Route path="connect" element={<ConnectAI />} />
+          {F.dmRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}
         </Route>
         <Route element={<PlayerLayout />}>
           <Route index element={<PlayerHome />} />
@@ -86,6 +89,7 @@ export function App() {
           <Route path="ask" element={<PlayerAskDM />} />
           <Route path="whiteboard" element={<Whiteboard />} />
           <Route path="connect" element={<ConnectAI />} />
+          {F.playerRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

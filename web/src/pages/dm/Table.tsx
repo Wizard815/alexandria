@@ -1,4 +1,5 @@
 // The DM's table: live blocks for the session at a glance.
+import * as F from '../../features/registry.ts';
 import { useState } from 'react';
 import { PageHead, ErrorBox, Empty, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -53,6 +54,7 @@ export default function DMTable() {
         </div>
       )}
       <ErrorBox error={live.error || act.error} />
+      {F.dmHome.length > 0 && <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>{F.dmHome.map((C, i) => <C key={i} />)}</div>}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {shown.includes('here') && (
           <section className="card" aria-labelledby="b-here">

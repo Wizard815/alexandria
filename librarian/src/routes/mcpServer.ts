@@ -11,19 +11,15 @@ import type { Deps } from '../app.ts';
 import { type Auth, resolveToken } from '../core/auth.ts';
 import { one } from '../core/db.ts';
 
-type Tool = {
-  name: string;
-  description: string;
-  write?: boolean;
-  props: Record<string, any>;
-  required?: string[];
-  call: (a: any) => { method: string; path: string; body?: unknown };
-};
+import type { McpTool } from '../features/types.ts';
+import { featureMcpTools } from '../features/registry.ts';
+
+type Tool = McpTool;
 
 const enc = encodeURIComponent;
 const S = (description: string) => ({ type: 'string', description });
 
-const TOOLS: Tool[] = [
+const CORE_TOOLS: Tool[] = [
   { name: 'world_info', description: 'This world: name, your role and its settings.', props: {}, call: () => ({ method: 'GET', path: '' }) },
   { name: 'list_members', description: 'People in this world and their characters.', props: {}, call: () => ({ method: 'GET', path: '/members' }) },
   { name: 'list_pages', description: 'Library pages you can see.', props: {}, call: () => ({ method: 'GET', path: '/library/pages' }) },
@@ -53,6 +49,11 @@ const TOOLS: Tool[] = [
   { name: 'broker_answer', write: true, description: "DM: answer a broker question. For a guarded secret ('pricing'), set a price (copper), wait and the answer; for a waiting one, edit the answer.", props: { id: S('Broker request id'), answer: S('The answer, in the broker\'s words'), costCp: { type: 'integer' }, waitAmount: { type: 'integer' }, waitUnit: { type: 'string', enum: ['minutes', 'hours', 'days'] }, clock: { type: 'string', enum: ['real', 'game'] } }, required: ['id', 'answer'], call: (a) => (a.costCp !== undefined ? { method: 'POST', path: `/broker/${enc(a.id)}/price`, body: a } : { method: 'PATCH', path: `/broker/${enc(a.id)}`, body: { answer: a.answer } }) },
 ];
 
+/** Every MCP tool: the core ones plus those features add. */
+export const allTools = (): Tool[] => [...CORE_TOOLS, ...featureMcpTools()];
+/** The tools a caller may use: write tools only for a DM's write access. */
+export const toolsFor = (canWrite: boolean): Tool[] => allTools().filter((t) => !t.write || canWrite);
+
 export default function mcpServerRoutes(d: Deps) {
   const r = Router();
 
@@ -68,7 +69,7 @@ export default function mcpServerRoutes(d: Deps) {
     const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', auth.keyWorldId, auth.account.id);
     if (!m) return rpcError(req.body?.id, -32001, 'This key no longer has a world', 401);
     const canWrite = auth.access === 'write' && m.role === 'dm';
-    const tools = TOOLS.filter((t) => !t.write || canWrite);
+    const tools = toolsFor(canWrite);
 
     const msg = req.body;
     if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return rpcError(msg?.id, -32600, 'Invalid request', 400);
