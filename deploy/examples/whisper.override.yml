@@ -1,0 +1,31 @@
+# Speech to text (the "audio" job): a faster-whisper server with an
+# OpenAI-compatible /v1/audio/transcriptions endpoint, next to Alexandria.
+#   docker compose -f deploy/docker-compose.yml -f deploy/examples/whisper.override.yml \
+#     --env-file deploy/.env up -d
+# Then check it in Admin → Models → Audio → Test. Pick a current image and
+# model size (large-v3-turbo is a good start); see docs/MODELS.md.
+services:
+  alexandria:
+    environment:
+      ALX_MODEL_AUDIO_URL: http://whisper:8000/v1
+      ALX_MODEL_AUDIO_MODEL: Systran/faster-whisper-large-v3
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cuda
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      WHISPER__MODEL: Systran/faster-whisper-large-v3
+    volumes:
+      - whisper-cache:/root/.cache/huggingface
+    # Needs an NVIDIA GPU and the NVIDIA container toolkit. For CPU only, use
+    # the ":latest-cpu" image tag instead and delete this block.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+volumes:
+  whisper-cache:

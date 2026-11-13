@@ -5,17 +5,16 @@ import { Router, type Request, type Response } from 'express';
 import { Readable } from 'node:stream';
 import type { Deps } from '../app.ts';
 import { HttpError } from '../core/util.ts';
+import { jobConfig, type Job } from '../core/ai.ts';
 
 export default function modelRoutes(d: Deps) {
   const r = Router();
-  const base = () => (d.env.MODEL_BASE_URL || d.env.OPENAI_BASE_URL || d.env.LOCAL_LLM_URL && `${d.env.LOCAL_LLM_URL.replace(/\/$/, '')}/v1` || '').replace(/\/$/, '');
-  const key = () => d.env.MODEL_API_KEY || d.env.OPENAI_API_KEY || '';
-
-  async function pass(req: Request, res: Response, path: string, method: 'GET' | 'POST') {
-    const url = base();
-    if (!url) throw new HttpError(503, 'No model endpoint set: MODEL_BASE_URL (or OPENAI_BASE_URL / LOCAL_LLM_URL)');
+  async function pass(req: Request, res: Response, path: string, method: 'GET' | 'POST', job: Job = 'chat') {
+    const c = jobConfig(d, job);
+    if (!c) throw new HttpError(503, `No model endpoint set for "${job}": Admin → Models, or MODEL_BASE_URL (or OPENAI_BASE_URL / LOCAL_LLM_URL)`);
+    const url = c.baseUrl;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (key()) headers.Authorization = `Bearer ${key()}`;
+    if (c.apiKey) headers.Authorization = `Bearer ${c.apiKey}`;
     let up: globalThis.Response;
     try {
       up = await d.fetch(url + path, { method, headers, body: method === 'POST' ? JSON.stringify(req.body ?? {}) : undefined });
@@ -30,6 +29,6 @@ export default function modelRoutes(d: Deps) {
 
   r.get('/models', (req, res) => pass(req, res, '/models', 'GET'));
   r.post('/chat/completions', (req, res) => pass(req, res, '/chat/completions', 'POST'));
-  r.post('/embeddings', (req, res) => pass(req, res, '/embeddings', 'POST'));
+  r.post('/embeddings', (req, res) => pass(req, res, '/embeddings', 'POST', 'extra'));
   return r;
 }
