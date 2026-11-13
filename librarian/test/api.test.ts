@@ -56,7 +56,7 @@ title: Brother Tamsin
 ---
 DM-only page by default.
 `);
-  const { app } = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: {} });
+  const { app } = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
   server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
