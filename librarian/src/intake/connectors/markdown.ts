@@ -95,6 +95,7 @@ export const markdownFolder: Connector = {
   label: 'Markdown folder (Obsidian, Lokus, Otterly)',
   description: 'Reads a folder of Markdown notes on the server, read-only. Frontmatter, wiki links, callouts and tags are kept.',
   aliases: ['vault'],
+  capabilities: ['pages', 'properties', 'tags', 'relations'],
   fields: [{ key: 'folder', label: 'Folder', type: 'text', required: true, help: 'Inside ALX_VAULTS_DIR on the server.' }, shareField],
   validate(cfg, ctx) {
     vaultDir(ctx.vaultsDir, String(cfg.folder ?? ''));
@@ -116,6 +117,7 @@ export const gitRepo: Connector = {
   id: 'git',
   label: 'Git repository',
   description: 'Clones a repository of Markdown reference files (read-only) and imports it. Pulls again on every sync.',
+  capabilities: ['pages', 'properties', 'tags', 'relations'],
   fields: [
     { key: 'url', label: 'Repository URL', type: 'url', required: true, placeholder: 'https://github.com/you/dnd-ref' },
     { key: 'subdir', label: 'Subfolder', type: 'text', help: 'Only import this folder.' },
@@ -160,6 +162,7 @@ export const mcpFiles: Connector = {
   id: 'mcp-files',
   label: 'Notes app through MCP (Obsidian, filesystem…)',
   description: 'Reads Markdown files through any MCP server that can list and read files. Presets for the Obsidian MCP and the filesystem MCP, or name the tools yourself.',
+  capabilities: ['pages', 'properties', 'tags', 'relations'],
   fields: [
     { key: 'transport', label: 'Connection', type: 'select', options: [['stdio', 'Local server (ALX_MCP_STDIO)'], ['http', 'HTTP URL']], default: 'stdio' },
     { key: 'server', label: 'Local server name', type: 'text', showIf: { transport: 'stdio' }, placeholder: 'obsidian' },

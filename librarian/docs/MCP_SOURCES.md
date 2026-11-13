@@ -129,12 +129,37 @@ only 1 and 5 are shared; any other or missing value is DM-only.
     print secret text with no marker. The importer never uses them.
   - `list_members` returns email addresses. The importer never calls it.
 
+## Imported as records (not pages)
+
+Besides pages, a sync can yield records (`docs/CONNECTORS.md`, "Records"),
+kept in the `intake_*` tables and shown only to players when shared.
+
+- **Kanka API** (not the mcp-kanka server, which has no read tool for these):
+  - Relations (`GET relations`), with attitude. Shared only for
+    `visibility_id` 1 or 5, not `is_private`, **and** when both pages are
+    shared.
+  - Timelines (eras and elements). Private timeline: all DM-only. An
+    element is shared only for `visibility_id` 1 or 5 in a shared timeline.
+  - Calendars, with the current date, in the world clock's shape.
+  - Map markers (`maps/<id>/map_markers`). Shared only on a shared map, not
+    private, `visibility_id` 1 or 5, and not linked to a private entity.
+- **LegendKeeper** (MCP `api_request` or API key):
+  - Calendars (`GET calendars`). No hidden flag exists, so they are DM-only.
+  - Timelines (`time` documents): lanes become groups. An event is shared
+    only when its own `isHidden` is false inside a shared timeline.
+  - Maps (`map` documents) become pages with a `map` block (image and
+    pins). A pin is DM-only when hidden, under a hidden folder pin, or for
+    a hidden page; the player guard also drops pins for pages players
+    can't open.
+
+A listing that can't be read (a 403, a timeout) never removes what was
+stored: those records are kept until the next complete sync.
+
 ## Not imported yet
 
-- Kanka: relations, organisation members, timelines elements, calendar
-  reminders, inventory, map markers and custom modules. These have their
-  own `visibility_id`, which an importer must apply.
-- LegendKeeper: maps (features), timelines (events), boards and `map`
-  blocks. Features and events have their own `isHidden`, and must also
-  take their document's visibility and be dropped when they link to a
-  DM-only page. Image and embed properties are not shown as facts.
+- Kanka: organisation members, calendar reminders, inventory and custom
+  modules. These have their own `visibility_id`, which an importer must
+  apply.
+- LegendKeeper: boards and `map` blocks inside pages (links to a map
+  document). Map features other than pins (regions, paths, labels). Image
+  and embed properties are not shown as facts.

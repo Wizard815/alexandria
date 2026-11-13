@@ -26,6 +26,7 @@ export interface Inline {
   mention?: Mention;
 }
 
+export interface MapPin { name: string; lat: number; lng: number; type?: string; /** Source id of the page this pin is for. */ ref?: string; dm?: boolean }
 export interface PropertyRow { key: string; value: Inline[] }
 export interface PropertyGroup { title: string; rows: PropertyRow[]; dm?: boolean }
 
@@ -46,6 +47,8 @@ export type Block =
   | { kind: 'image'; url: string; alt?: string; width?: number; caption?: Inline[] }
   | { kind: 'infobox'; layout?: string; width?: number; groups: PropertyGroup[] }
   | { kind: 'collection'; title?: string; filter?: unknown }
+  /** A map with pins (LegendKeeper map documents). `dm` pins and pins that link to DM-only pages never reach players. */
+  | { kind: 'map'; title?: string; image?: string; width?: number; height?: number; pins: MapPin[] }
   | { kind: 'unsupported'; sourceKind: string };
 
 export interface Entry {
@@ -138,6 +141,11 @@ export function blocksToMarkdown(blocks: Block[], titleOf?: (m: Mention) => stri
       case 'divider': out.push('---'); break;
       case 'image': out.push(`![${b.alt ?? ''}](${b.url})`); break;
       case 'infobox': out.push(b.groups.map((g) => `**${g.title}**\n` + g.rows.map((r) => `- **${r.key}:** ${il(r.value)}`).join('\n')).join('\n\n')); break;
+      case 'map': {
+        const pins = (b.pins ?? []).map((p) => `- ${p.ref ? il([{ mention: { ref: p.ref, name: p.name } }]) : mdEscape(p.name)}${p.type ? ` (${mdEscape(p.type)})` : ''}`);
+        out.push([`**Map${b.title ? `: ${mdEscape(b.title)}` : ''}**`, ...pins].join('\n'));
+        break;
+      }
       case 'collection': break;
       case 'unsupported': break;
     }
@@ -267,6 +275,7 @@ export function mentionsIn(blocks: Block[], props: PropertyGroup[] = []): Mentio
     if ('content' in b) il(b.content);
     if (b.kind === 'callout' || b.kind === 'toggle') il(b.title);
     if (b.kind === 'image') il(b.caption);
+    if (b.kind === 'map') (b.pins ?? []).forEach((p) => p.ref && out.push({ ref: p.ref, name: p.name }));
     if (b.kind === 'infobox') b.groups.forEach((g) => g.rows.forEach((r) => il(r.value)));
     if ('children' in b) walk(b.children);
   });

@@ -2,7 +2,7 @@
 // Pages keep their LegendKeeper layout: the document blocks map one to one
 // onto Alexandria blocks, sidebar properties become the property bar, and
 // mentions stay links. Hidden is inherited from hidden folders and documents.
-import type { Connector, ConnectorContext } from '../connector.ts';
+import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, TimelineGroup } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import type { Block, Entry, Inline, PropertyGroup } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
@@ -189,13 +189,13 @@ export function lkBlocks(bs: any[] = []): Block[] {
         ] : [];
       }
       case 'resourceCollection': return [{ kind: 'collection', title: b.isTitleHidden ? undefined : b.title, filter: b.filter }];
-      // map (a map document, not imported) and unsupported (opaque) stay unknown.
+      // map blocks inside a page (a link to a map document) and unsupported (opaque) stay unknown.
       default: return [{ kind: 'unsupported', sourceKind: String(b?.kind ?? 'unknown') }];
     }
   }).filter((b) => !(b.kind === 'paragraph' && !b.content.length));
 }
 
-async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry> {
+async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncItem> {
   // 1. Every resource, by cursor.
   const all: any[] = [];
   let cursor: string | undefined;
@@ -249,8 +249,10 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry
   for (const r of all) {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     if (r.isTemplate === true) continue;
-    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page');
-    if (!pages.length) continue;
+    // Pages and maps become pages of their own; timelines become records.
+    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
+    const timelines = (r.documents ?? []).filter((d: any) => d.type === 'time');
+    if (!pages.length && !timelines.length) continue;
     const detail = await detailOf(String(r.id));
     if (!detail) { ctx.log(`Skipped ${r.name}`); continue; }
     const restricted = hidden(String(r.id)) || await deniesPlayers(String(r.id));
@@ -258,16 +260,26 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry
     const props = lkGroups(detail.properties);
     for (const d of pages) {
       const dd = (detail.documents ?? []).find((x: any) => x.id === d.id) ?? d;
-      let doc: any;
-      try {
-        doc = await t.get(`/resources/${r.id}/docs/${d.id}/blocks`);
-      } catch (err: any) {
-        ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
-        continue;
-      }
-      const raw = Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : [];
       const multi = pages.length > 1;
       const isHidden = restricted || dd.isHidden !== false;
+      let blocks: Block[];
+      if (d.type === 'map') {
+        try {
+          blocks = [await lkMapBlock(t, ctx, r, dd, hidden)];
+        } catch (err: any) {
+          ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
+          continue;
+        }
+      } else {
+        let doc: any;
+        try {
+          doc = await t.get(`/resources/${r.id}/docs/${d.id}/blocks`);
+        } catch (err: any) {
+          ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
+          continue;
+        }
+        blocks = lkBlocks(Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : []);
+      }
       yield {
         externalId: multi && d !== pages[0] ? `${r.id}#${d.id}` : String(r.id),
         parentExternalId: multi && d !== pages[0] ? String(r.id) : r.parentId ? String(r.parentId) : null,
@@ -275,16 +287,108 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<Entry
         title: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name),
         aliases: (r.aliases ?? []).map(String),
         tags: (r.tags ?? []).map(String),
-        type: (r.tags ?? []).find((x: string) => ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'].includes(x)) ?? 'page',
+        type: d.type === 'map' ? 'map' : (r.tags ?? []).find((x: string) => ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'].includes(x)) ?? 'page',
         icon: r.iconGlyph ? { glyph: String(r.iconGlyph), color: r.iconColor ? String(r.iconColor) : undefined } : null,
         banner: typeof detail.banner?.url === 'string' && detail.banner.enabled !== false ? detail.banner.url : typeof detail.bannerUrl === 'string' ? detail.bannerUrl : null,
         properties: d === pages[0] ? props : [],
-        blocks: lkBlocks(raw),
+        blocks,
         visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm',
         updatedAt: dd.updatedAt ?? r.updatedAt ?? null,
       };
     }
+    for (const d of timelines) {
+      const dd = (detail.documents ?? []).find((x: any) => x.id === d.id) ?? d;
+      const shared = !(restricted || dd.isHidden !== false) && ctx.shareVisible;
+      try {
+        yield await lkTimeline(t, r, d, dd, pages.length + timelines.length > 1, shared);
+      } catch (err: any) {
+        if (ctx.signal.aborted) throw err;
+        ctx.log(`Skipped timeline ${r.name} / ${d.name}: ${err.message}`);
+        ctx.incomplete?.add('timeline');
+      }
+    }
   }
+
+  // Calendars belong to the project. LegendKeeper has no hidden flag for them, so they stay DM-only.
+  try {
+    const j = await t.get('/calendars');
+    for (const c of Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []) {
+      if (!c?.id || !c?.name) continue;
+      yield { kind: 'calendar', externalId: String(c.id), name: String(c.name), visibility: 'dm', definition: lkCalendar(c), current: null } satisfies SyncRecord;
+    }
+  } catch (err: any) {
+    if (ctx.signal.aborted) throw err;
+    ctx.log(`Could not read calendars: ${err.message}`);
+    ctx.incomplete?.add('calendar');
+  }
+}
+
+/** LegendKeeper calendar to the world clock's definition. Leap rules and month intervals are not carried over. */
+export function lkCalendar(c: any): CalendarDefinition {
+  const perDay = Math.max(1, (Number(c.hoursInDay) || 24) * (Number(c.minutesInHour) || 60));
+  const era = Array.isArray(c.positiveEras) ? c.positiveEras.find((e: any) => e?.abbr && e.hideAbbr !== true) : null;
+  return {
+    name: String(c.name),
+    epochYear: c.hasZeroYear === true ? 0 : 1,
+    ...(era ? { yearSuffix: String(era.abbr) } : {}),
+    months: (Array.isArray(c.months) ? c.months : []).map((m: any) => ({ name: String(m?.name ?? ''), days: Math.max(1, Number(m?.length) || 30), ...(m?.isIntercalary ? { intercalary: true } : {}) })),
+    weekdays: (Array.isArray(c.weekdays) ? c.weekdays : []).map((w: any) => String(w?.name ?? '')),
+    moons: (Array.isArray(c.moons) ? c.moons : []).filter((m: any) => m?.name).map((m: any) => ({ name: String(m.name), cycleDays: (Number(m.phase) || perDay * 28) / perDay, offsetDays: (Number(m.shift) || 0) / perDay })),
+  };
+}
+
+/** The resource id in a lk://resources/<id>[/docs/<id>] link, or null. */
+const lkRef = (uri: unknown) => /^lk:\/\/resources\/([^/?#]+)/.exec(String(uri ?? ''))?.[1] ?? null;
+
+/** Every page of a cursor-paged list. */
+async function lkList(t: Transport, path: string): Promise<any[]> {
+  const out: any[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 200; i++) {
+    const j = await t.get(path, { limit: 100, ...(cursor ? { cursor } : {}) });
+    out.push(...(Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []));
+    if (!j?.hasMore || !j?.nextCursor) break;
+    cursor = String(j.nextCursor);
+  }
+  return out;
+}
+
+/** A map document as one block: its image and its pins. Hidden pins, and pins under hidden folders or on hidden pages, are marked DM-only. */
+async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any, hiddenResource: (rid: string) => boolean): Promise<Block> {
+  const features = (await t.get(`/resources/${r.id}/docs/${doc.id}/features`).then((j) => (Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []))) as any[];
+  const byId = new Map<string, any>(features.map((f) => [String(f.id), f]));
+  const hiddenFeature = (f: any, depth = 0): boolean => f.isHidden !== false || (depth > 32 ? true : f.parentId ? (byId.has(String(f.parentId)) ? hiddenFeature(byId.get(String(f.parentId)), depth + 1) : true) : false);
+  const pins = features.filter((f) => f.type === 'pin' && Array.isArray(f.pos) && f.pos.length === 2 && Number.isFinite(Number(f.pos[0])) && Number.isFinite(Number(f.pos[1]))).map((f) => {
+    const ref = lkRef(f.uri);
+    return {
+      name: String(f.name ?? ref ?? 'Pin'), lat: Number(f.pos[0]), lng: Number(f.pos[1]),
+      ...(f.iconGlyph ? { type: String(f.iconGlyph) } : {}), ...(ref ? { ref } : {}),
+      // Hidden pin, or a pin for a page that is hidden: DM-only. Unknown stays DM-only.
+      ...(hiddenFeature(f) || (ref && hiddenResource(ref)) ? { dm: true } : {}),
+    };
+  });
+  const img = doc.mapImage;
+  ctx.log(`Map ${r.name}: ${pins.length} pins`);
+  return {
+    kind: 'map', ...(img?.url && /^https?:/i.test(img.url) ? { image: String(img.url) } : {}), ...(img?.width ? { width: Number(img.width) } : {}), ...(img?.height ? { height: Number(img.height) } : {}),
+    pins,
+  };
+}
+
+/** A timeline document: one group per lane, events in time order. `shared` is false for a hidden timeline; events carry their own flag. */
+async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean, shared: boolean): Promise<SyncRecord> {
+  const lanes = await lkList(t, `/resources/${r.id}/docs/${d.id}/lanes`);
+  const events = await lkList(t, `/resources/${r.id}/docs/${d.id}/events`);
+  const groups: TimelineGroup[] = lanes.slice().sort((a, b) => String(a.rank ?? '').localeCompare(String(b.rank ?? ''))).map((lane) => ({
+    name: String(lane.name ?? 'Lane'),
+    events: events.filter((e) => e.laneId === lane.id && e.type !== 'placeholder' && e.type !== 'invisible-placeholder').sort((a, b) => Number(a.start) - Number(b.start)).map((e) => ({
+      id: String(e.id), name: String(e.name ?? 'Event'),
+      date: e.formattedStart ? `${e.formattedStart}${e.formattedEnd ? ` – ${e.formattedEnd}` : ''}` : null,
+      color: typeof e.color === 'string' ? e.color : null, ref: lkRef(e.uri),
+      visibility: shared && e.isHidden === false ? 'party' as const : 'dm' as const,
+    })),
+  }));
+  return { kind: 'timeline', externalId: `${r.id}#${d.id}`, name: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name), visibility: shared ? 'party' : 'dm', groups };
 }
 
 const lkFields = [
@@ -296,6 +400,7 @@ export const legendkeeperMcp: Connector = {
   label: 'LegendKeeper (MCP server)',
   description: 'Reads a LegendKeeper world through the LegendKeeper MCP server. Keeps page layout, sidebar facts, links, secrets and hidden folders.',
   aliases: ['mcp:legendkeeper'],
+  capabilities: ['pages', 'properties', 'tags', 'images', 'timelines', 'maps', 'calendars'],
   fields: [
     { key: 'transport', label: 'Connection', type: 'select', options: [['http', 'HTTP URL'], ['stdio', 'Local server (ALX_MCP_STDIO)']], default: 'http' },
     { key: 'url', label: 'MCP URL', type: 'url', placeholder: 'http://legendkeeper-mcp:8000/mcp', showIf: { transport: 'http' }, required: true },
@@ -320,6 +425,7 @@ export const legendkeeperApi: Connector = {
   id: 'legendkeeper-api',
   label: 'LegendKeeper (API key)',
   description: 'Reads a LegendKeeper project directly with a LegendKeeper API key. Same result as the MCP connector, no MCP server needed.',
+  capabilities: ['pages', 'properties', 'tags', 'images', 'timelines', 'maps', 'calendars'],
   fields: [
     { key: 'apiUrl', label: 'Project API URL', type: 'url', required: true, placeholder: 'https://www.legendkeeper.com/api/v3/projects/<project id>', help: 'https://www.legendkeeper.com/api/v3/projects/ followed by your project id. Keys need the project owner on a paid plan.' },
     { key: 'apiKey', label: 'API key', type: 'password', secret: true, required: true, help: 'Project Settings → Developers → API Keys. Use an Admin key so hidden pages, secrets and hidden facts arrive marked (a Member key never sees them).' },
