@@ -178,10 +178,10 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
   const lib = new Library(db, null);
   const out = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: {}, mcp: fake as any }, 's', 'a');
   assert.equal(out.status, 'ok', out.error);
-  assert.equal(out.stats.pages, 5, 'pages only, maps skipped');
+  assert.equal(out.stats.pages, 6, 'pages, and the map document as a page of its own');
   assert.ok(calls.every(([t, a]) => t === 'api_request' && a.method === 'GET'));
   const player = { accountId: 'p', role: 'player' as const };
-  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Port Town', 'Visible NPC', 'World'], 'hidden parent and hidden doc are DM-only');
+  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Map', 'Port Town', 'Visible NPC', 'World'], 'hidden parent and hidden doc are DM-only');
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pg = lib.get('w', town.id, player) as any;
   const all = JSON.stringify(pg);

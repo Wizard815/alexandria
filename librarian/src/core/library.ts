@@ -6,6 +6,7 @@ import path from 'node:path';
 import { type DB, one, all, run, tx } from './db.ts';
 import { type FM, type FMValue, joinFrontmatter, splitFrontmatter } from './frontmatter.ts';
 import { normVisibility, playerCopy, redactMarkdown, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
+import { importedRelations } from '../intake/records.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
 import { playerBlocks, playerProperties } from '../intake/player.ts';
 import { createHash } from 'node:crypto';
@@ -340,13 +341,15 @@ export class Library {
   }
 
   relations(worldId: string, viewer: Viewer) {
-    if (viewer.role === 'dm') return all(this.db, 'SELECT id, from_title, to_title, kind, visibility FROM relations WHERE world_id = ? ORDER BY from_title', worldId);
+    // Relations a source gave (Kanka), shown with the ones from page frontmatter.
+    const imported = () => { try { return importedRelations(this.db, worldId, viewer); } catch { return []; } };
+    if (viewer.role === 'dm') return [...all(this.db, 'SELECT id, from_title, to_title, kind, visibility FROM relations WHERE world_id = ? ORDER BY from_title', worldId), ...imported()];
     // A shared relation that points at a DM-only page would leak that
     // page's name, so drop it.
-    return all(this.db, `SELECT r.id, r.from_title, r.to_title, r.kind FROM relations r
+    return [...all(this.db, `SELECT r.id, r.from_title, r.to_title, r.kind FROM relations r
       WHERE r.world_id = ? AND r.visibility = 'party'
         AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.world_id = r.world_id AND p.title = r.to_title COLLATE NOCASE AND p.visibility <> 'party')
-      ORDER BY r.from_title`, worldId);
+      ORDER BY r.from_title`, worldId), ...imported().map(({ id, from_title, to_title, kind }) => ({ id, from_title, to_title, kind }))];
   }
 
   /** Import a folder of Markdown files (kept for older callers; sources use the sync engine). */
