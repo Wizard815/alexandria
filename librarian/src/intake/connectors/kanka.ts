@@ -3,7 +3,7 @@
 // (visibility all or members, no deny permission) stay visible, every other
 // post becomes a secret block. Private attributes, and all attributes of an
 // entity with is_attributes_private, go in a DM-only property group.
-import type { Connector, ConnectorContext } from '../connector.ts';
+import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, TimelineGroup } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyGroup, markdownToBlocks } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
@@ -146,7 +146,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Entry> {
+async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<SyncItem> {
   const base = String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
   // 30 requests a minute (90 for subscribers) per user; 429 when spent. Wait
   // for Retry-After when sent, else back off 15 s, 30 s, 45 s.
@@ -218,13 +218,115 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Ent
       updatedAt: e.updated_at ?? null,
     };
   }
+
+  // ---- Relations, timelines, calendars and map markers ----
+  // A listing that can't be read is marked incomplete, so what was stored before is kept.
+  const share = (shared: boolean) => (shared && ctx.shareVisible ? 'party' : 'dm') as 'dm' | 'party';
+  // A name for an unnamed element or marker, only from an entity players may see.
+  const publicName = new Map<string, string>(rows.filter(({ e }) => e.is_private === false).map(({ e }) => [String(e.entity_id), esc(e.name)]));
+
+  // Relations: GET relations lists the campaign's. Shared only for visibility "all" or "members" on a non-private relation.
+  const listStrict = async (path: string): Promise<any[] | null> => {
+    const out: any[] = [];
+    try {
+      for (let page = 1; page <= 500; page++) {
+        const j: any = await get(`${base}${path}${path.includes('?') ? '&' : '?'}page=${page}`);
+        if (!j) return null;
+        out.push(...(Array.isArray(j.data) ? j.data : []));
+        const last = Number(j.meta?.last_page);
+        if (!j.links?.next || (Number.isFinite(last) && last > 0 && page >= last)) return out;
+      }
+      return out;
+    } catch (err: any) {
+      if (ctx.signal.aborted) throw err;
+      ctx.log(`Could not read ${path}: ${err.message}`);
+      return null;
+    }
+  };
+  const rels = await listStrict(`${camp}/relations`);
+  if (rels === null) ctx.incomplete?.add('relation');
+  for (const r of rels ?? []) {
+    if (r?.owner_id == null || r?.target_id == null || !r.relation) continue;
+    yield {
+      kind: 'relation', externalId: `kanka:rel:${r.id ?? `${r.owner_id}-${r.target_id}-${r.relation}`}`, from: `kanka:${r.owner_id}`, to: `kanka:${r.target_id}`, label: esc(r.relation),
+      attitude: typeof r.attitude === 'number' ? r.attitude : null,
+      visibility: share(r.is_private !== true && PLAYER_VISIBLE.has(Number(r.visibility_id))),
+    } satisfies SyncRecord;
+  }
+
+  for (const { mod, e } of rows) {
+    if (mod !== 'calendars' || e.is_template === true) continue;
+    yield { kind: 'calendar', externalId: `kanka:${e.entity_id ?? e.id}`, name: esc(e.name), visibility: share(e.is_private === false), definition: kankaCalendar(e), current: kankaDate(e.date) } satisfies SyncRecord;
+  }
+
+  for (const { mod, e } of rows) {
+    if (mod !== 'timelines' || e.is_template === true) continue;
+    let tl = e;
+    if (!Array.isArray(tl.eras)) {
+      const j: any = await get(`${base}${camp}/timelines/${e.id}`).catch(() => null);
+      if (!j?.data || !Array.isArray(j.data.eras)) { ctx.log(`Could not read the eras of ${e.name}`); ctx.incomplete?.add('timeline'); continue; }
+      tl = j.data;
+    }
+    const timelineShared = tl.is_private === false;
+    const groups: TimelineGroup[] = (tl.eras as any[]).slice().sort((a, b) => Number(a?.position ?? 0) - Number(b?.position ?? 0)).map((era) => ({
+      name: esc(era.name ?? 'Era'), abbreviation: era.abbreviation ? esc(era.abbreviation) : null,
+      description: era.entry || era.entry_parsed ? kankaBlocks(era.entry ?? era.entry_parsed) : [],
+      events: (Array.isArray(era.elements) ? era.elements : []).slice().sort((a: any, b: any) => Number(a?.position ?? 0) - Number(b?.position ?? 0)).filter((el: any) => el?.id != null).map((el: any) => ({
+        id: String(el.id),
+        name: esc(el.name) || (el.entity_id != null ? publicName.get(String(el.entity_id)) : undefined) || 'Event',
+        date: el.date ? esc(el.date) : null,
+        description: el.entry || el.entry_parsed ? kankaBlocks(el.entry ?? el.entry_parsed) : [],
+        color: typeof el.colour === 'string' ? el.colour : null,
+        ref: el.entity_id != null ? `kanka:${el.entity_id}` : null,
+        visibility: share(timelineShared && PLAYER_VISIBLE.has(Number(el.visibility_id))),
+      })),
+    }));
+    yield { kind: 'timeline', externalId: `kanka:${tl.entity_id ?? tl.id}`, name: esc(tl.name), visibility: share(timelineShared), groups } satisfies SyncRecord;
+  }
+
+  const SHAPES: Record<number, string> = { 1: 'marker', 2: 'label', 3: 'circle', 4: 'polygon' };
+  for (const { mod, e } of rows) {
+    if (mod !== 'maps' || e.is_template === true) continue;
+    const markers = await listStrict(`${camp}/maps/${e.id}/map_markers`);
+    if (markers === null) { ctx.incomplete?.add('mapMarker'); continue; }
+    for (const m of markers) {
+      if (m?.id == null || !Number.isFinite(Number(m.latitude)) || !Number.isFinite(Number(m.longitude))) continue;
+      yield {
+        kind: 'mapMarker', externalId: `kanka:marker:${m.id}`, mapRef: `kanka:${e.entity_id ?? e.id}`,
+        name: esc(m.name) || (m.entity_id != null ? publicName.get(String(m.entity_id)) : undefined) || 'Marker',
+        latitude: Number(m.latitude), longitude: Number(m.longitude), shape: SHAPES[Number(m.shape_id)] ?? 'marker', color: typeof m.colour === 'string' && /^#?[0-9a-f]{3,8}$/i.test(m.colour) ? m.colour : null,
+        ref: m.entity_id != null ? `kanka:${m.entity_id}` : null,
+        visibility: share(e.is_private === false && m.is_private !== true && PLAYER_VISIBLE.has(Number(m.visibility_id))),
+      } satisfies SyncRecord;
+    }
+  }
+}
+
+/** Kanka's "year-month-day" current date, or null. */
+export function kankaDate(v: unknown): { year: number; month: number; day: number } | null {
+  const m = /^(-?\d+)-(\d+)-(\d+)$/.exec(String(v ?? '').trim());
+  return m ? { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) } : null;
+}
+
+/** A Kanka calendar as the world clock's definition. */
+export function kankaCalendar(e: any): CalendarDefinition {
+  return {
+    name: esc(e.name),
+    epochYear: e.skip_year_zero === true ? 1 : 0,
+    ...(e.suffix ? { yearSuffix: esc(e.suffix) } : {}),
+    months: (Array.isArray(e.months) ? e.months : []).map((m: any) => ({ name: esc(m?.name), days: Math.max(1, Number(m?.length) || 30), ...(m?.type === 'intercalary' ? { intercalary: true } : {}) })),
+    weekdays: (Array.isArray(e.weekdays) ? e.weekdays : []).map((w: any) => esc(typeof w === 'object' && w ? w.name : w)),
+    moons: (Array.isArray(e.moons) ? e.moons : []).filter((m: any) => m?.name).map((m: any) => ({ name: esc(m.name), cycleDays: Number(m.fullmoon) || 28, offsetDays: Number(m.offset) || 0 })),
+    seasons: (Array.isArray(e.seasons) ? e.seasons : []).filter((x: any) => x?.name).map((x: any) => ({ name: esc(x.name), month: Math.max(1, Number(x.month) || 1), day: Math.max(1, Number(x.day) || 1) })),
+  };
 }
 
 export const kankaApi: Connector = {
   id: 'kanka-api',
   label: 'Kanka (API token)',
-  description: 'Reads a Kanka campaign with a personal API token. Private entities, private posts and private attributes stay DM-only.',
+  description: 'Reads a Kanka campaign with a personal API token, with its relations, timelines, calendars and map markers. Private entities, posts, attributes and relations stay DM-only.',
   aliases: ['kanka'],
+  capabilities: ['pages', 'properties', 'tags', 'images', 'relations', 'timelines', 'maps', 'calendars', 'items', 'characters'],
   fields: [
     { key: 'campaignId', label: 'Campaign id', type: 'text', required: true, help: 'The number in your campaign’s address.' },
     { key: 'token', label: 'API token', type: 'password', secret: true, required: true, help: 'Kanka → Settings → API.' },
@@ -299,6 +401,7 @@ export const kankaMcp: Connector = {
   label: 'Kanka (mcp-kanka server)',
   description: 'Reads a Kanka campaign through the mcp-kanka MCP server, read tools only.',
   aliases: ['mcp:kanka'],
+  capabilities: ['pages', 'tags', 'images', 'items', 'characters'],
   fields: [
     { key: 'transport', label: 'Connection', type: 'select', options: [['stdio', 'Local server (ALX_MCP_STDIO)'], ['http', 'HTTP URL']], default: 'stdio' },
     { key: 'server', label: 'Local server name', type: 'text', showIf: { transport: 'stdio' }, placeholder: 'kanka' },

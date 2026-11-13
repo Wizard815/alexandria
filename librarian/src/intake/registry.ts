@@ -1,13 +1,21 @@
 // Every connector Alexandria knows. Add a new world-building app by writing a
 // connector and listing it here.
-import type { Connector, ConnectorContext, ConfigField } from './connector.ts';
+import { CAPABILITIES, type Capability, type Connector, type ConnectorContext, type ConfigField } from './connector.ts';
 import { legendkeeperApi, legendkeeperMcp } from './connectors/legendkeeper.ts';
 import { kankaApi, kankaMcp } from './connectors/kanka.ts';
 import { gitRepo, markdownFolder, mcpFiles } from './connectors/markdown.ts';
 import { genericApi } from './connectors/api.ts';
+import { pushSource } from './connectors/push.ts';
 import { mcpClient, type McpClient } from '../core/mcp.ts';
 
-export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, markdownFolder, gitRepo, mcpFiles, genericApi];
+export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, markdownFolder, gitRepo, mcpFiles, genericApi, pushSource];
+
+/** The union of what these sources provide. */
+export function capabilityUnion(sources: { kind: string; config?: string }[]): Capability[] {
+  const out = new Set<Capability>();
+  for (const s of sources) for (const c of connectorFor(s.kind, JSON.parse(s.config || '{}'))?.capabilities ?? []) out.add(c);
+  return CAPABILITIES.filter((c) => out.has(c));
+}
 
 /** Find a connector by id, or by an older kind name ("vault", "kanka", "mcp" + profile). */
 export function connectorFor(kind: string, cfg: Record<string, any> = {}): Connector | null {
