@@ -89,19 +89,23 @@ Notes on local MCP servers:
 
 ## Backups
 
-Everything (every world, account, key and page) is one SQLite database.
+Everything (every world, account, key and page) is one SQLite database, plus
+the data folders (recorded audio under `audio/`).
 
 ```bash
 ALX_URL=https://alexandria.example.com ALX_ADMIN_KEY=alx_adm_… ./deploy/backup.sh
 ```
 
 The script:
-- downloads a consistent copy from `GET /api/admin/backup`
+- downloads one `.tar.gz` from `GET /api/admin/backup`: a consistent copy of
+  the database (`librarian.db`) and the data folders (`audio/`)
+- with `ALX_DB_ONLY=1` it downloads just the database (`?db=1`)
 - keeps the last 14
 
 Make an admin key under Library admin → Keys & AI, and run the script from
-cron, e.g. nightly. Restore by stopping the server and putting the file
-back as `librarian.db`.
+cron, e.g. nightly. Restore by stopping the server and unpacking the archive
+into the data folder (it holds `librarian.db` and `audio/`):
+`tar -xzf alexandria-….tar.gz -C /data`. A plain `.db` backup goes back as `librarian.db`.
 
 ## Security checklist
 

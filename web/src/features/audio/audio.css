@@ -1,0 +1,54 @@
+/* Audio setup, the player's mic and the transcript island. */
+.au-rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #E5484D; box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.6); animation: au-pulse 1.6s infinite; vertical-align: middle; }
+@keyframes au-pulse { 70% { box-shadow: 0 0 0 7px rgba(229, 72, 77, 0); } 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0); } }
+@media (prefers-reduced-motion: reduce) { .au-rec-dot { animation: none; } }
+
+.au-badge { position: fixed; top: 10px; right: 12px; z-index: 900; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--danger-bg, #2A1A1A); border: 1px solid var(--danger, #C8675C); color: var(--danger-text, #F0A096); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none; }
+
+.au-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 16px; align-items: start; }
+.au-mic { opacity: 0.85; } .au-mic.on { opacity: 1; border-color: var(--line-strong); }
+.au-meter { height: 8px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.au-meter > div { height: 100%; background: var(--ok); transition: width 0.1s; }
+.au-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.au-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.ok { color: var(--ok-text); }
+
+.au-hold { width: 100%; min-height: 150px; border-radius: 16px; border: 2px solid var(--accent); background: var(--accent-bg); color: var(--accent-strong); font: inherit; font-size: 26px; font-weight: 700; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.au-hold.held { background: var(--accent); color: var(--on-accent); }
+.au-hold:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* the island */
+.au-island { position: fixed; z-index: 800; display: flex; flex-direction: column; min-width: 220px; min-height: 120px; max-width: 96vw; max-height: 90vh; resize: both; overflow: hidden; border-radius: 12px; background: color-mix(in srgb, var(--panel, #1C222D) 94%, black); border: 1px solid var(--line-strong, #5A4E33); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); color: var(--text, #EDE3CF); font-size: var(--au-size, 15px); }
+.au-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; position: relative; font-size: 13px; }
+.au-head:active { cursor: grabbing; }
+.au-sp { flex: 1; }
+.au-btn { min-width: 30px; min-height: 28px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.au-btn:hover { border-color: var(--accent); }
+.au-menu { position: absolute; top: 100%; right: 6px; z-index: 5; display: flex; flex-direction: column; gap: 10px; padding: 12px; width: 220px; background: var(--panel-2, #232A37); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); cursor: default; }
+.au-menu label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.au-swatches { display: flex; gap: 8px; }
+.au-sw { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.au-sw.on { border-color: var(--text); }
+.au-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; justify-content: flex-start; }
+.au-body::before { content: ''; margin-top: auto; }
+.au-empty { color: var(--faint); font-size: 13px; }
+.au-bubble { align-self: flex-start; max-width: 92%; padding: 6px 11px; border-radius: 14px 14px 14px 4px; background: color-mix(in srgb, var(--au-colour, #D9B26A) 16%, var(--panel, #1C222D)); border: 1px solid color-mix(in srgb, var(--au-colour, #D9B26A) 45%, transparent); display: flex; flex-direction: column; gap: 1px; line-height: 1.35; }
+.au-bubble.dm { border-style: dashed; border-color: var(--danger, #C8675C); background: color-mix(in srgb, var(--danger, #C8675C) 12%, var(--panel, #1C222D)); }
+.au-who { font-size: 0.78em; font-weight: 700; color: var(--au-colour, #D9B26A); letter-spacing: 0.02em; }
+.au-tag { margin-left: 8px; font-style: normal; font-size: 0.85em; color: var(--danger-text, #F0A096); text-transform: uppercase; letter-spacing: 0.06em; }
+.au-mini { align-self: flex-end; border: 0; background: transparent; color: var(--faint); font: inherit; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; }
+.au-kw { background: color-mix(in srgb, var(--au-colour, #D9B26A) 30%, transparent); color: inherit; border-bottom: 1px dotted var(--au-colour, #D9B26A); border-radius: 3px; padding: 0 2px; cursor: help; }
+.au-kw.spell, .au-kw.condition { border-bottom-color: var(--teal, #86CFC4); }
+.au-pop { position: fixed; z-index: 950; width: 290px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--panel-2, #232A37); border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); font-size: 14px; color: var(--text); }
+.au-card .md { font-size: 13px; }
+
+.au-pill { position: fixed; z-index: 800; display: inline-flex; align-items: center; gap: 8px; max-width: min(340px, 90vw); padding: 7px 14px; border-radius: 999px; background: var(--panel, #1C222D); border: 1px solid var(--line-strong, #5A4E33); color: var(--text, #EDE3CF); font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+.au-pill-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* phones: a bottom drawer above the bottom navigation */
+@media (max-width: 640px) {
+  .au-island.au-drawer { left: 0; right: 0; bottom: 0; width: auto; height: 46vh; max-width: none; resize: none; border-radius: 14px 14px 0 0; padding-bottom: env(safe-area-inset-bottom); z-index: 850; }
+  .au-pill { left: 10px; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); max-width: none; justify-content: flex-start; }
+  .au-badge { top: 6px; right: 8px; }
+}
+@media (min-width: 641px) { .au-pill { right: 16px; bottom: 16px; } }
