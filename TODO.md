@@ -3,6 +3,26 @@
 The order to build [PLAN.md](PLAN.md) in, as milestones with checklists. Tick
 items off as they land on `main`.
 
+## Status (13 November 2026)
+
+**The backend for M0 and M2–M9 is built and on `main`, with a basic UI on
+each.**
+- 213 librarian tests and both browser tests pass.
+- Try everything with `node --experimental-strip-types librarian/scripts/demo.ts`.
+  It runs on fake models and fills a sample world.
+
+**Still open:**
+- **M1:** the phone redesign. The separate admin sign-in is done.
+- **M5:** the desktop app (Tauri). Recording works in the browser today.
+- **M10:** the phone apps.
+- **M11:** hardening.
+- **Smaller items**, noted in the commit history:
+  - the second, more accurate transcription pass
+  - foot-pedal and mouse hold keys
+  - season editing in the calendar editor
+  - timelines and maps screens
+  - testing Spotify against the real service
+
 ## How the order was chosen
 
 1. **The base comes first.** That means CI, the model connections and the
