@@ -65,6 +65,7 @@ export default function PlayerBroker() {
             </ul>
             <p className="tiny faint" style={{ margin: 0 }}>{c.lengths.map((l) => `${l.name} ×${l.multiplier}`).join(' · ')}</p>
           </section>
+          {c.site && <a className="small" href={c.site.url} target="_blank" rel="noopener noreferrer">{c.site.label}</a>}
         </aside>
       </div>
     </div>
@@ -76,11 +77,23 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
   const [question, setQuestion] = useState('');
   const [length, setLength] = useState(cfg.lengths[0]?.id ?? 'short');
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [free, setFree] = useState<{ question: string; answer: string; sources: { id: string | null; title: string }[] } | null>(null);
   const act = useAction();
   const { toast, toastNode } = useToast();
   const short = quote && quote.cost_cp !== null && balance !== null && balance < quote.cost_cp;
 
-  const getQuote = () => act.run(async () => setQuote(await w.call<Quote>('POST', '/broker/quote', { question: question.trim(), length })));
+  const getQuote = () => act.run(async () => {
+    const asked = question.trim();
+    const qt = await w.call<Quote>('POST', '/broker/quote', { question: asked, length });
+    setFree(null);
+    if (qt.kind === 'other') {
+      // Rules and item questions are free and answered at once.
+      await w.call('POST', '/broker/ask', { quoteId: qt.quoteId });
+      setFree({ question: asked, answer: qt.answer ?? '', sources: qt.sources ?? [] });
+      setQuestion(''); setQuote(null);
+      await onAsked();
+    } else setQuote(qt);
+  });
   const pay = () => act.run(async () => {
     if (!quote) return;
     const r = await w.call<BrokerRequest>('POST', '/broker/ask', { quoteId: quote.quoteId });
@@ -92,28 +105,40 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
   return (
     <section className="card" aria-labelledby="ask-h">
       <h2 id="ask-h">Ask a question</h2>
-      <Field label="What do you want to know?"><textarea rows={3} maxLength={500} value={question} onChange={(e) => { setQuestion(e.target.value); setQuote(null); }} placeholder="Who really runs the harbour?" /></Field>
+      <p className="small muted" style={{ margin: 0 }}>
+        The broker answers about this world: its places, people, history and events{cfg.topics.length ? <>, and these real-world topics: {cfg.topics.join('; ')}</> : null}. Anything else is not their business.
+      </p>
+      <p className="small muted" style={{ margin: 0 }}>Ask about rules or an item: free.</p>
+      <Field label="What do you want to know?"><textarea rows={3} maxLength={500} value={question} onChange={(e) => { setQuestion(e.target.value); setQuote(null); setFree(null); }} placeholder="Who really runs the harbour?" /></Field>
       <div className="row between">
         <Tabs label="Answer length" value={length} onChange={(v) => { setLength(v); setQuote(null); }} items={cfg.lengths.map((l) => [l.id, `${l.name}${l.multiplier !== 1 ? ` ×${l.multiplier}` : ''}`] as [string, string])} />
         <button type="button" className="btn" disabled={!question.trim() || act.busy} onClick={() => void getQuote()}>Name your price</button>
       </div>
       <ErrorBox error={act.error} />
+      {free && (
+        <div className="stack tight" style={{ padding: 10, borderLeft: '3px solid var(--accent)', background: 'var(--panel-2)', borderRadius: 6 }} aria-live="polite">
+          <span className="tiny faint">{free.question} · free</span>
+          <div className="read" style={{ whiteSpace: 'pre-wrap' }}>{free.answer}</div>
+          {!!free.sources.length && <div className="tiny">From: {free.sources.map((s) => s.title).join(', ')}</div>}
+        </div>
+      )}
       {quote && (
         <div className="stack tight" style={{ padding: 12, borderRadius: 8, background: 'var(--panel-2)' }} aria-live="polite">
           <p className="read" style={{ margin: 0, fontStyle: 'italic' }}>{quote.line}</p>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {!quote.refused && <span className="chip gold">{quote.tier_name}</span>}
+            {!quote.refused && !quote.secret && quote.delivery === 'review' && <span className="chip">The DM looks it over first</span>}
             {!quote.refused && <span className="chip">{quote.cost_cp === null ? 'Price: the DM decides' : quote.cost_cp === 0 ? 'Free' : coins(quote.cost_cp, info.settings.coins)}</span>}
             {!quote.refused && <span className="chip">{quote.secret ? 'Wait: the DM decides' : `Wait: ${quote.wait_text}`}</span>}
           </div>
           {short && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{payer === 'party' ? 'The party pouch' : 'You'} can't cover that.</p>}
           <div className="row end">
-            <button type="button" className="btn small ghost" onClick={() => setQuote(null)}>Never mind</button>
-            <button type="button" className="btn small primary" disabled={act.busy || !!short} onClick={() => void pay()}>
+            <button type="button" className="btn small ghost" onClick={() => setQuote(null)}>{quote.kind === 'offtopic' ? 'Fair enough' : 'Never mind'}</button>
+            {quote.kind !== 'offtopic' && <button type="button" className="btn small primary" disabled={act.busy || !!short} onClick={() => void pay()}>
               {quote.refused ? 'Leave word anyway' : quote.secret ? 'Ask them to look into it' : quote.cost_cp ? `Pay ${coins(quote.cost_cp, info.settings.coins)}` : 'Ask'}
-            </button>
+            </button>}
           </div>
-          <span className="tiny faint">This price holds for two minutes.</span>
+          {quote.kind !== 'offtopic' && <span className="tiny faint">This price holds for two minutes.</span>}
         </div>
       )}
       {toastNode}

@@ -93,24 +93,59 @@ Secret and unknown questions get the same reply, so asking never reveals
 that a secret exists. Only the DM sees the classification and the DM-only
 lines that matched.
 
+**Where a question goes** (`features/broker2/routing.ts`). The audit model
+(`chatJson(d, 'audit', ...)`) labels each question with `scope` (world,
+real-world-allowed, rules, item, off-topic), `intent` (fact, spoiler-seeking,
+meta-gaming), `type` and `confidence`. Its input is only the question, the
+allowed real-world topics and the titles of pages players can read, never DM
+text. With no audit model, or if it fails, keyword rules give the same labels
+(villain, BBEG, twist, secret, true identity, behind the door: spoiler; HP, AC,
+DC, stats: meta; obvious off-topic patterns). The keyword rules also back the
+model up: they can only add caution.
+
+| Labels | What happens |
+|---|---|
+| `off-topic` (confident) | In-character refusal, free. Recorded for the DM as `noted`. |
+| spoiler-seeking, meta-gaming, low confidence (< 0.6), or names a DM spoiler tag | Guarded: status `pricing`, the DM decides. Looks the same to the player as any unknown question. |
+| `rules` | "Other": free, answered at once, from `searchRules` with citations (says so if there is no rules source) |
+| `item` | "Other": free, answered at once, from the item's player-visible note and the player copy of its linked page, only for items the asker can see |
+| `world`, `real-world-allowed` | The library classification above, priced by tier |
+
+"Other" is not a price tier: it never appears in `/config` tiers.
+
+**Delivery mode per tier** (`tiers[].delivery`): `auto` delivers when the
+wait is over; `review` holds the answer (`needs_review: true` for the DM)
+until the DM approves, edits or refuses it. Defaults: common auto, local auto,
+deep review. Guarded secrets is always `review`, whatever is saved.
+
+**Output check** (`features/broker2/guard.ts`): every machine-built answer
+(auto delivery, Other) is checked once more for DM-only lines and DM-only names
+before it is delivered. A hit holds it for the DM instead.
+
+**Game clock:** the broker has no clock of its own. Game-time waits use the
+world clock (`features/clock`). A world whose clock was untouched and whose
+broker had game minutes starts the world clock there, once.
+
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| GET | `/config` | all | Tiers (name, knowledge level, cost in copper, wait in real or game time) and the game clock |
+| GET | `/config` | all | Tiers (name, knowledge level, cost in copper, wait, `delivery`), the world clock, `site` (`{url, label}` or null) and allowed `topics` |
 | PUT | `/config` | DM | Replace the tiers |
-| POST | `/clock` | DM | Move the game clock; game-time waits finish when it passes them |
-| GET/POST | `/quote` | player, DM | `{question}` → tier, price and wait. Never charges. Read keys may quote. |
+| POST | `/delivery/auto` | DM | Every tier except Guarded delivers automatically |
+| POST | `/clock` | DM | Thin wrapper over the world clock (`{addMinutes}` or `{setMinutes}`); game-time waits finish when it passes them |
+| GET/POST | `/quote` | player, DM | `{question}` → tier, price, wait, `kind` (`priced`, `secret`, `other`, `offtopic`) and `delivery`. `other` quotes carry the free `answer` and `sources`. Never charges. Read keys may quote. |
 | POST | `/ask` | player, DM | Pays at once (402 if the pouch is short). A question with no match goes to the DM to price. |
 | GET | `/` | all | Requests: players see only their own |
 | POST | `/:id/price` | DM | Offer a price for a question sent to the DM |
 | POST | `/:id/accept`, `/:id/decline` | player | Answer the offer |
-| POST | `/:id/refuse`, `/:id/refund`, `/:id/deliver` | DM | |
+| POST | `/:id/refuse`, `/:id/refund`, `/:id/deliver`, `/:id/approve` | DM | `approve` and `deliver` both release a waiting answer now |
 | PATCH | `/:id` | DM | Edit the answer |
 | POST | `/:id/note` | DM | Save the answer as a broker note, so later questions on the topic sell it |
 | POST | `/classify` | DM | `{question}` → how it would be judged and priced. Nobody is charged. |
 | GET/POST | `/notes` | DM | Facts the broker may sell: `{topic, text, knowledge, pageId?}` |
 | PATCH/DELETE | `/notes/:nid` | DM | Edit, or `active: false` to stop selling it |
 | GET | `/rules` | DM | Per-page rules |
-| PUT/DELETE | `/rules/:pageId` | DM | `{knowledge?, multiplier, neverSell}` |
+| PUT/DELETE | `/rules/:pageId` | DM | `{knowledge?, multiplier, neverSell, spoiler}`. A `spoiler` page always sends questions that name it to the DM. |
+| GET/PUT | `/spoilers` | DM | `{topics: [text]}`: free-text spoiler topics; a question naming one always goes to the DM |
 | GET | `/offers` | all | Special offers. Players see open ones meant for them, and paid ones with the information. |
 | POST | `/offers` | DM | `{title, teaser?, info, pageId?, priceCp, targets: "party" \| [accountIds], expiresSessions?, fallbackHours?}` |
 | POST | `/offers/:oid/pay` | player | `{from: "me" \| "party"}`; 402 if short |
@@ -126,6 +161,10 @@ Notes on special offers:
 Settings:
 - `brokerEnabled`: off fails closed.
 - `brokerPayer`: `self` or `party`.
+- `brokerTopics`: list of allowed real-world topics, e.g.
+  `["Feudal Japan: history, folklore, customs"]`.
+- `brokerSiteUrl`, `brokerSiteLabel`: an optional link to the world's site,
+  shown on the player broker page only when the URL is http(s).
 - In the config, `unknown`: `dm` (the DM prices it) or `refuse` (turned
   away; the DM still sees the question, with status `noted`).
 

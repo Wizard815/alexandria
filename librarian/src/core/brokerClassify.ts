@@ -54,10 +54,10 @@ export function questionType(q: string): QuestionType {
   return 'other';
 }
 
-const clean = (raw: string) => raw.replace(/^[#>\-*\s|]+/, '').replace(/\[!\w+\]\s*/g, '').replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2').replace(/\[\[([^\]]+)\]\]/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
-const key = (t: string) => clean(t).toLowerCase();
-const lines = (body: string) => String(body ?? '').split(/\n+/).map(clean).filter((t) => t.length >= 20);
-const propLines = (groups: PropertyGroup[]) => groups.flatMap((g) => g.rows.map((r) => `${r.key}: ${inlineText(r.value)}`.trim())).filter((t) => t.length >= 8);
+export const clean = (raw: string) => raw.replace(/^[#>\-*\s|]+/, '').replace(/\[!\w+\]\s*/g, '').replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2').replace(/\[\[([^\]]+)\]\]/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+export const key = (t: string) => clean(t).toLowerCase();
+export const lines = (body: string) => String(body ?? '').split(/\n+/).map(clean).filter((t) => t.length >= 20);
+export const propLines = (groups: PropertyGroup[]) => groups.flatMap((g) => g.rows.map((r) => `${r.key}: ${inlineText(r.value)}`.trim())).filter((t) => t.length >= 8);
 
 /** Crude English stem so "rules" meets "ruled" and "charges" meets "charge". */
 export const stem = (w: string) => (w.length > 4 ? w.replace(/(ings?|ed|es|er|s)$/, '') : w);
@@ -70,11 +70,11 @@ function score(q: string[], text: string, titleWords: string[], entityBonus: num
   return hit.length ? hit.length + Math.min(text.length, 200) / 400 + entityBonus : 0;
 }
 
-export interface PageRule { page_id: string; knowledge: string | null; multiplier: number; never_sell: number }
-export const pageRules = (db: DB, worldId: string) => new Map(all<PageRule>(db, 'SELECT page_id, knowledge, multiplier, never_sell FROM broker_page_rules WHERE world_id = ?', worldId).map((r) => [r.page_id, r]));
+export interface PageRule { page_id: string; knowledge: string | null; multiplier: number; never_sell: number; spoiler: number }
+export const pageRules = (db: DB, worldId: string) => new Map(all<PageRule>(db, 'SELECT page_id, knowledge, multiplier, never_sell, spoiler FROM broker_page_rules WHERE world_id = ?', worldId).map((r) => [r.page_id, r]));
 
 /** Pages (and people) the question names, by title or alias. DM side: includes DM-only pages. */
-function namedEntities(db: DB, worldId: string, question: string) {
+export function namedEntities(db: DB, worldId: string, question: string) {
   const s = ` ${question.toLowerCase().replace(/[’']/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ')} `;
   const out = new Map<string, { id: string; title: string; shared: boolean; len: number }>();
   const consider = (id: string, name: string, title: string, shared: boolean) => {
@@ -94,6 +94,32 @@ function namedEntities(db: DB, worldId: string, question: string) {
   return list.filter((e, i) => !list.slice(0, i).some((x) => x.title.toLowerCase().includes(e.title.toLowerCase()) && x.id !== e.id && x.len > e.len)).slice(0, 6).map(({ id, title, shared }) => ({ id, title, shared }));
 }
 
+/** Free-text spoiler topics the DM listed (DM only). */
+export function spoilerTopics(db: DB, worldId: string): string[] {
+  const row = one<{ spoiler_topics: string | null }>(db, 'SELECT spoiler_topics FROM broker_config WHERE world_id = ?', worldId);
+  try { const v = JSON.parse(row?.spoiler_topics || '[]'); return Array.isArray(v) ? v.map(String).filter(Boolean) : []; } catch { return []; }
+}
+
+/** Every word of a topic appears (loosely) in the question. */
+export function topicMatches(question: string, topic: string): boolean {
+  const ws = words(topic).map(stem);
+  const qs = words(question).map(stem);
+  return ws.length > 0 && ws.every((w) => qs.some((x) => near(x, w)));
+}
+
+/**
+ * Does the question name something the DM tagged as a spoiler: a tagged page
+ * (by title or alias) or a free-text topic? Such questions always go to the DM.
+ * The returned text is for the DM's eyes only.
+ */
+export function spoilerTagHit(db: DB, worldId: string, question: string, entities?: { id: string; title: string }[]): string | null {
+  const ents = entities ?? namedEntities(db, worldId, question);
+  const rules = pageRules(db, worldId);
+  for (const e of ents) if (!e.id.startsWith('person:') && rules.get(e.id)?.spoiler) return `the page “${e.title}” is tagged as a spoiler`;
+  for (const t of spoilerTopics(db, worldId)) if (topicMatches(question, t)) return `it matches the spoiler topic “${t}”`;
+  return null;
+}
+
 export function classify(db: DB, library: Library, worldId: string, question: string, length: string, asPlayer: Viewer): Classification {
   const type = questionType(question);
   const q = [...new Set(words(question))];
@@ -102,6 +128,8 @@ export function classify(db: DB, library: Library, worldId: string, question: st
   const cue = SECRET_CUE.test(question);
   const base = { type, entities, dmEvidence: [] as Classification['dmEvidence'] };
   if (!q.length) return { ...base, verdict: 'unknown', reason: 'No words to look up.', knowledge: 'local', multiplier: 1, player: null };
+  const tagged = spoilerTagHit(db, worldId, question, entities);
+  if (tagged) return { ...base, verdict: 'secret', reason: `Always goes to you: ${tagged}.`, knowledge: 'deep', multiplier: 1, player: null };
   const entityIds = new Set(entities.map((e) => e.id));
   const bonus = (pageId: string | null) => (pageId && entityIds.has(pageId) ? 1 : 0);
   // Most of what was asked has to be there, not just a place name.
