@@ -1,0 +1,283 @@
+[
+ {
+  "term": "Attack",
+  "kind": "action",
+  "aliases": [
+   "Attack action"
+  ],
+  "text": "With the **Attack** action you can make one attack roll with a weapon or an Unarmed Strike. Some features (such as Extra Attack) let you make more than one attack as part of this action."
+ },
+ {
+  "term": "Dash",
+  "kind": "action",
+  "aliases": [
+   "Dash action"
+  ],
+  "text": "When you take the **Dash** action, you gain extra movement for the current turn. The increase equals your Speed after applying any modifiers. With a Speed of 30 feet, you can move up to 60 feet if you Dash. If your Speed of 30 feet is reduced to 15 feet, you can move up to 30 feet this turn if you Dash."
+ },
+ {
+  "term": "Disengage",
+  "kind": "action",
+  "aliases": [
+   "Disengage action"
+  ],
+  "text": "If you take the **Disengage** action, your movement doesn't provoke Opportunity Attacks for the rest of the current turn."
+ },
+ {
+  "term": "Dodge",
+  "kind": "action",
+  "aliases": [
+   "Dodge action"
+  ],
+  "text": "If you take the **Dodge** action, until the start of your next turn any attack roll made against you has Disadvantage if you can see the attacker, and you make Dexterity saving throws with Advantage. You lose these benefits if you have the Incapacitated condition or if your Speed is 0."
+ },
+ {
+  "term": "Help",
+  "kind": "action",
+  "aliases": [
+   "Help action"
+  ],
+  "text": "The **Help** action has two forms.\n\n**Assist an Ability Check.** Choose one of your skill or tool proficiencies and one ally who is near enough for you to assist verbally or physically. That ally has Advantage on the next ability check they make with the chosen skill or tool, if they make it before the start of your next turn.\n\n**Assist an Attack Roll.** You momentarily distract a creature within 5 feet of you. The next attack roll by one of your allies against that creature has Advantage if made before the start of your next turn."
+ },
+ {
+  "term": "Hide",
+  "kind": "action",
+  "aliases": [
+   "Hide action"
+  ],
+  "text": "With the **Hide** action you make a DC 15 Dexterity (Stealth) check while you are Heavily Obscured or behind Three-Quarters Cover or Total Cover, and out of any enemy's line of sight. On a success you have the Invisible condition, and your check total is the DC for a creature to find you with a Wisdom (Perception) check. The condition ends if you make a sound louder than a whisper, an enemy finds you, you make an attack roll, or you cast a spell with a Verbal component."
+ },
+ {
+  "term": "Influence",
+  "kind": "action",
+  "aliases": [
+   "Influence action"
+  ],
+  "text": "With the **Influence** action you urge a monster to do something. Make a Charisma (Deception, Intimidation, Performance, or Persuasion) or Wisdom (Animal Handling) check. The DM chooses the skill and the DC, based on the monster's attitude and what you ask. Influence is not a way to control a creature."
+ },
+ {
+  "term": "Magic",
+  "kind": "action",
+  "aliases": [
+   "Magic action"
+  ],
+  "text": "Taking the **Magic** action means casting a spell that has a casting time of an action, using a feature that requires the Magic action, or activating a magic item that requires it."
+ },
+ {
+  "term": "Ready",
+  "kind": "action",
+  "aliases": [
+   "Ready action",
+   "Readied action"
+  ],
+  "text": "You take the **Ready** action to prepare to act in response to a trigger you define. Choose the trigger (a perceivable circumstance) and the action you will take in response: an action, a move up to your Speed, or a spell. When the trigger occurs, you use your Reaction to carry it out. A readied spell must be one that takes an action to cast; you cast it when you ready it and hold its energy, which requires Concentration."
+ },
+ {
+  "term": "Search",
+  "kind": "action",
+  "aliases": [
+   "Search action"
+  ],
+  "text": "When you take the **Search** action you make a Wisdom check to discern something that isn't obvious: Insight, Medicine, Perception, or Survival, as the DM decides."
+ },
+ {
+  "term": "Study",
+  "kind": "action",
+  "aliases": [
+   "Study action"
+  ],
+  "text": "When you take the **Study** action you make an Intelligence check to analyze information or recall lore: Arcana, History, Investigation, Nature, or Religion, as the DM decides."
+ },
+ {
+  "term": "Utilize",
+  "kind": "action",
+  "aliases": [
+   "Utilize action"
+  ],
+  "text": "You normally interact with an object while doing something else, such as drawing a sword as part of the Attack action. When an object requires an action to use, you take the **Utilize** action."
+ },
+ {
+  "term": "Actions in Combat",
+  "kind": "rule",
+  "aliases": [
+   "Combat actions"
+  ],
+  "text": "On your turn you can **move** up to your Speed and take one **action**. Many creatures also have a Bonus Action and a Reaction.\n\nThe actions available to everyone are Attack, Dash, Disengage, Dodge, Help, Hide, Influence, Magic, Ready, Search, Study, and Utilize. Class features, spells and magic items add more.\n\nYou can also communicate briefly, and interact with one object for free during your turn (drawing a weapon, opening a door). Interacting with more than one object requires the Utilize action."
+ },
+ {
+  "term": "Bonus Action",
+  "kind": "rule",
+  "aliases": [
+   "Bonus Actions"
+  ],
+  "text": "Various class features, spells and other abilities let you take an additional action on your turn called a **Bonus Action**. You can take a Bonus Action only when a special ability, spell, or other feature says you can. You have only one Bonus Action per turn, so you must choose which to use if more than one is available."
+ },
+ {
+  "term": "Reaction",
+  "kind": "rule",
+  "aliases": [
+   "Reactions"
+  ],
+  "text": "A **Reaction** is an instant response to a trigger of some kind. You can take one Reaction between the start of your turn and the start of your next turn; it refreshes at the start of your turn. The most common Reaction is the Opportunity Attack. When you take a Reaction on someone else's turn, you can't take another action until after that turn ends."
+ },
+ {
+  "term": "Opportunity Attack",
+  "kind": "rule",
+  "aliases": [
+   "Opportunity Attacks",
+   "attack of opportunity"
+  ],
+  "text": "You can make an **Opportunity Attack** when a creature that you can see leaves your reach (without using the Disengage action, and not by teleportation or forced movement). Use your Reaction to make one melee attack with a weapon or an Unarmed Strike against that creature. The attack occurs right before the creature leaves your reach."
+ },
+ {
+  "term": "Cover",
+  "kind": "rule",
+  "aliases": [
+   "Half Cover",
+   "Three-Quarters Cover",
+   "Total Cover"
+  ],
+  "text": "Walls, trees, creatures and other obstacles provide **cover** against attacks and some other effects.\n\n- **Half Cover:** +2 bonus to AC and Dexterity saving throws. An obstacle blocks at least half of the target's body, such as a low wall or a creature.\n- **Three-Quarters Cover:** +5 bonus to AC and Dexterity saving throws. About three-quarters of the target is covered, such as a portcullis or a thick tree trunk.\n- **Total Cover:** The target can't be targeted directly by an attack or a spell, though some spells can reach it by affecting an area.\n\nIf a target is behind several sources of cover, only the most protective degree applies."
+ },
+ {
+  "term": "Grapple",
+  "kind": "rule",
+  "aliases": [
+   "Grappling",
+   "Grappled creature"
+  ],
+  "text": "A **Grapple** is one of the special effects of the Unarmed Strike. The target must be no more than one size larger than you and within your reach. Instead of dealing damage, you try to grab it: the target must succeed on a Strength or Dexterity saving throw (its choice) against a DC of 8 plus your Strength modifier and Proficiency Bonus, or it has the Grappled condition.\n\n**Escaping.** A Grappled creature can use an action to make a Strength (Athletics) or Dexterity (Acrobatics) check against the same DC to escape.\n\n**Moving a grappled creature.** When you move, you can drag or carry the Grappled creature, but your Speed is halved unless the target is two or more sizes smaller than you. You can only grapple one creature at a time with one free hand."
+ },
+ {
+  "term": "Shove",
+  "kind": "rule",
+  "aliases": [
+   "Shoving"
+  ],
+  "text": "A **Shove** is a special effect of the Unarmed Strike. The target must be no more than one size larger than you and within your reach. It must succeed on a Strength or Dexterity saving throw (its choice) against a DC of 8 plus your Strength modifier and Proficiency Bonus. On a failure you either push it 5 feet away from you or cause it to have the Prone condition."
+ },
+ {
+  "term": "Unarmed Strike",
+  "kind": "rule",
+  "aliases": [
+   "Unarmed Strikes"
+  ],
+  "text": "An **Unarmed Strike** is a punch, kick, head-butt or similar blow with no weapon. When you make one as part of the Attack action you can deal Bludgeoning damage equal to 1 plus your Strength modifier, or you can Grapple or Shove the target instead. You are proficient with Unarmed Strikes."
+ },
+ {
+  "term": "Death Saving Throw",
+  "kind": "rule",
+  "aliases": [
+   "Death Saving Throws",
+   "death saves",
+   "death save"
+  ],
+  "text": "When you start your turn with 0 Hit Points you must make a **Death Saving Throw** to determine whether you creep closer to death or hang on. Roll a d20 with no modifiers unless a feature says otherwise.\n\n- **10 or higher:** you succeed. **9 or lower:** you fail.\n- **Natural 20:** you regain 1 Hit Point. **Natural 1:** you suffer two failures.\n- Three successes make you Stable. Three failures mean you die. The successes and failures don't have to be consecutive; the tally resets when you regain any Hit Points or become Stable.\n- Taking damage at 0 Hit Points gives you one failure (two from a Critical Hit). Damage equal to or greater than your Hit Point maximum kills you outright."
+ },
+ {
+  "term": "Dropping to 0 Hit Points",
+  "kind": "rule",
+  "aliases": [
+   "Knocking Out",
+   "Instant Death"
+  ],
+  "text": "When damage reduces you to 0 Hit Points and there is damage left over, you die instantly if the remaining damage equals or exceeds your Hit Point maximum. Otherwise you fall Unconscious and begin making Death Saving Throws. Most monsters die the moment they drop to 0 Hit Points.\n\nWhen you reduce a creature to 0 Hit Points with a melee attack, you can choose to **knock it out** instead: it falls Unconscious and has 1 Hit Point and is Stable."
+ },
+ {
+  "term": "Stable",
+  "kind": "rule",
+  "aliases": [
+   "Stabilizing",
+   "Stabilize"
+  ],
+  "text": "A **Stable** creature doesn't make Death Saving Throws even though it has 0 Hit Points, but it remains Unconscious. A creature becomes Stable with three Death Saving Throw successes, or when another creature uses the Help action to administer first aid (a successful DC 10 Wisdom (Medicine) check). It regains 1 Hit Point after 1d4 hours, and stops being Stable if it takes any damage."
+ },
+ {
+  "term": "Short Rest",
+  "kind": "rule",
+  "aliases": [
+   "Short Rests"
+  ],
+  "text": "A **Short Rest** is a period of at least 1 hour of downtime during which you do nothing more strenuous than eating, drinking, reading and tending wounds. You can spend one or more Hit Point Dice at the end of the rest: for each die, roll it and add your Constitution modifier, and regain that many Hit Points. Many class features recharge on a Short Rest. If a Short Rest is interrupted by strenuous activity, it provides no benefit."
+ },
+ {
+  "term": "Long Rest",
+  "kind": "rule",
+  "aliases": [
+   "Long Rests",
+   "Resting"
+  ],
+  "text": "A **Long Rest** lasts at least 8 hours: at least 6 hours asleep and up to 2 hours of light activity such as reading or standing watch. You must have at least 1 Hit Point to begin. At the end you regain all lost Hit Points and up to half of your total Hit Point Dice (minimum 1), and your Exhaustion level is reduced by 1. You can't benefit from more than one Long Rest in a 24-hour period. An hour or more of strenuous activity (fighting, casting spells, walking) interrupts the rest."
+ },
+ {
+  "term": "Advantage",
+  "kind": "rule",
+  "aliases": [
+   "Disadvantage",
+   "Advantage and Disadvantage"
+  ],
+  "text": "If you have **Advantage** on a D20 Test, roll two d20s and use the higher roll. If you have **Disadvantage**, roll two d20s and use the lower roll. If you have both, they cancel out and you roll one die, no matter how many sources of each there are. Multiple instances of Advantage do not stack."
+ },
+ {
+  "term": "Initiative",
+  "kind": "rule",
+  "aliases": [
+   "Initiative roll",
+   "Surprise"
+  ],
+  "text": "At the start of combat every participant makes a Dexterity check called **Initiative** to determine the order of turns. The DM rolls once for each group of identical monsters. Turns proceed from the highest total to the lowest; ties among monsters are decided by the DM and ties among players by the players. The order stays the same from round to round. A creature that is Surprised has Disadvantage on its Initiative roll."
+ },
+ {
+  "term": "Concentration",
+  "kind": "rule",
+  "aliases": [
+   "Concentrating",
+   "Concentration check"
+  ],
+  "text": "Some spells and other effects require **Concentration** to keep them active. You lose Concentration if you cast another spell that requires it, if you have the Incapacitated condition or die, or if you take damage: then you make a Constitution saving throw, DC 10 or half the damage taken (whichever is higher, maximum 30); on a failure the effect ends. You can end Concentration at any time (no action required)."
+ },
+ {
+  "term": "Critical Hit",
+  "kind": "rule",
+  "aliases": [
+   "Critical Hits"
+  ],
+  "text": "When you score a **Critical Hit** with an attack roll (a natural 20), the attack hits regardless of AC, and you roll the attack's damage dice twice and add them together, then add any modifiers as normal."
+ },
+ {
+  "term": "Temporary Hit Points",
+  "kind": "rule",
+  "aliases": [
+   "Temp HP",
+   "Temporary HP"
+  ],
+  "text": "**Temporary Hit Points** buffer you against losing real Hit Points. Damage reduces them first, and they can't be healed. If you receive Temporary Hit Points while you have some, you keep the higher number rather than adding them. They last until depleted or until you finish a Long Rest."
+ },
+ {
+  "term": "Resistance",
+  "kind": "rule",
+  "aliases": [
+   "Vulnerability",
+   "Immunity",
+   "Damage Resistance"
+  ],
+  "text": "**Resistance** to a damage type means damage of that type is halved (rounded down) against you. **Vulnerability** means it is doubled. **Immunity** means you take none. Resistance and Vulnerability are applied after other modifiers, and multiple instances of the same one don't stack."
+ },
+ {
+  "term": "Falling",
+  "kind": "rule",
+  "aliases": [
+   "Fall damage"
+  ],
+  "text": "A creature takes 1d6 Bludgeoning damage for every 10 feet it falls, to a maximum of 20d6, and lands with the Prone condition unless it avoids taking damage from the fall."
+ },
+ {
+  "term": "Difficulty Class",
+  "kind": "rule",
+  "aliases": [
+   "DC",
+   "Saving Throw DC"
+  ],
+  "text": "A **Difficulty Class (DC)** is the number a D20 Test must meet or exceed to succeed. A saving throw DC for a spell is 8 plus your spellcasting ability modifier plus your Proficiency Bonus. The DM sets DCs for ability checks: 5 very easy, 10 easy, 15 medium, 20 hard, 25 very hard, 30 nearly impossible."
+ }
+]
