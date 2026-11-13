@@ -1,0 +1,94 @@
+// Tables the agent owns: conversations, their messages, pending actions and
+// the log of replies the leak check blocked.
+import type { DB } from '../../core/db.ts';
+import { all, one, run } from '../../core/db.ts';
+import { id, now, parseJson } from '../../core/util.ts';
+
+export const SCHEMA = `
+CREATE TABLE IF NOT EXISTS agent_chats (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  harness TEXT NOT NULL CHECK (harness IN ('dm', 'player')),
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_chats_owner ON agent_chats (world_id, account_id, updated_at);
+CREATE TABLE IF NOT EXISTS agent_messages (
+  id TEXT PRIMARY KEY,
+  chat_id TEXT NOT NULL REFERENCES agent_chats(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'done' CHECK (status IN ('done', 'working', 'error')),
+  citations TEXT NOT NULL DEFAULT '[]',
+  context TEXT,
+  blocked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_messages_chat ON agent_messages (chat_id, created_at);
+CREATE TABLE IF NOT EXISTS agent_actions (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  chat_id TEXT NOT NULL REFERENCES agent_chats(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  args TEXT NOT NULL DEFAULT '{}',
+  summary TEXT NOT NULL,
+  call TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed', 'rejected')),
+  result TEXT,
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  decided_by TEXT,
+  auto INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS agent_actions_world ON agent_actions (world_id, status, created_at);
+CREATE TABLE IF NOT EXISTS agent_leaks (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  chat_id TEXT,
+  matched TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+`;
+
+export interface Citation { kind: 'page' | 'transcript' | 'term'; id: string; title: string; path?: string; snippet?: string; sessionId?: string }
+
+export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '') => {
+  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), created_at: now(), updated_at: now() };
+  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.created_at, c.updated_at);
+  return c;
+};
+
+export const ownChat = (db: DB, worldId: string, accountId: string, chatId: string) =>
+  one<{ id: string; world_id: string; account_id: string; harness: 'dm' | 'player'; title: string; created_at: string; updated_at: string }>(db, 'SELECT * FROM agent_chats WHERE id = ? AND world_id = ? AND account_id = ?', chatId, worldId, accountId);
+
+export const addMessage = (db: DB, chatId: string, role: 'user' | 'assistant', content: string, extra: { status?: 'done' | 'working' | 'error'; citations?: Citation[]; context?: unknown; blocked?: boolean } = {}) => {
+  const m = { id: id('msg_'), chat_id: chatId, role, content, status: extra.status ?? 'done', created_at: now() };
+  run(db, 'INSERT INTO agent_messages (id, chat_id, role, content, status, citations, context, blocked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', m.id, m.chat_id, m.role, m.content, m.status, JSON.stringify(extra.citations ?? []), extra.context === undefined ? null : JSON.stringify(extra.context), extra.blocked ? 1 : 0, m.created_at);
+  run(db, 'UPDATE agent_chats SET updated_at = ? WHERE id = ?', m.created_at, chatId);
+  return m;
+};
+
+export const finishMessage = (db: DB, msgId: string, content: string, status: 'done' | 'error', citations: Citation[] = [], blocked = false) =>
+  run(db, 'UPDATE agent_messages SET content = ?, status = ?, citations = ?, blocked = ? WHERE id = ?', content, status, JSON.stringify(citations), blocked ? 1 : 0, msgId);
+
+export const messageView = (m: any) => ({ id: m.id, role: m.role, text: m.content, status: m.status, citations: parseJson<Citation[]>(m.citations, []), at: m.created_at });
+
+/** A chat with its messages and the actions waiting on the DM. */
+export function chatView(db: DB, chatId: string) {
+  const c = one<any>(db, 'SELECT * FROM agent_chats WHERE id = ?', chatId)!;
+  // A run that died with the server never finishes: show it as failed.
+  const stale = new Date(Date.now() - 10 * 60_000).toISOString();
+  run(db, `UPDATE agent_messages SET status = 'error', content = 'The agent was interrupted. Ask again.' WHERE chat_id = ? AND status = 'working' AND created_at < ?`, chatId, stale);
+  const msgs = all<any>(db, 'SELECT * FROM agent_messages WHERE chat_id = ? ORDER BY created_at, rowid', chatId).map(messageView);
+  const actions = all<any>(db, 'SELECT * FROM agent_actions WHERE chat_id = ? ORDER BY created_at, rowid', chatId).map(actionView);
+  return { id: c.id, harness: c.harness, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at, messages: msgs, actions, busy: msgs.some((m) => m.status === 'working') };
+}
+
+export const actionView = (a: any) => ({
+  id: a.id, chatId: a.chat_id, tool: a.tool, args: parseJson(a.args, {}), summary: a.summary, call: parseJson(a.call, {}),
+  status: a.status, result: a.result ? String(a.result).slice(0, 2000) : null, auto: !!a.auto, createdAt: a.created_at, decidedAt: a.decided_at,
+});
