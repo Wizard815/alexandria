@@ -34,3 +34,6 @@ librarian/vaults/
 docker-compose.override.yml
 deploy/docker-compose.override.yml
 deploy/examples/*.local.*
+
+# Build agents' working copies
+.claude/worktrees/
