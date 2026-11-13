@@ -13,7 +13,7 @@ export const extra = (s: WorldSettings): ApprovalSettings => {
 };
 
 export type Unit = 'minutes' | 'hours' | 'days';
-export interface Tier { id: string; name: string; description: string; knowledge: 'common' | 'local' | 'deep' | 'secret'; costCp: number | null; wait: { amount: number; unit: Unit; clock: 'real' | 'game' } | null }
+export interface Tier { id: string; name: string; description: string; knowledge: 'common' | 'local' | 'deep' | 'secret'; costCp: number | null; wait: { amount: number; unit: Unit; clock: 'real' | 'game' } | null; delivery: 'auto' | 'review' }
 export interface BrokerConfig {
   persona: { name: string; title: string; description: string; greeting: string; voice: string; portrait: string };
   tiers: Tier[];
@@ -22,6 +22,10 @@ export interface BrokerConfig {
   unknown?: 'dm' | 'refuse';
   payer: 'self' | 'party';
   clock: { minutes: number; label: string };
+  /** The world's site, only when the DM set one. */
+  site: { url: string; label: string } | null;
+  /** Real-world topics the broker may talk about. */
+  topics: string[];
 }
 export interface BrokerRequest {
   id: string; question: string; length: string; tier: string; tier_name: string; cost_cp: number | null; payer: string | null;
@@ -31,15 +35,19 @@ export interface BrokerRequest {
   answer?: string; sources?: { id: string | null; title: string }[]; voice?: string; asker?: string; asker_name?: string;
   /** DM only: how the question was judged. */
   classification?: Classification;
+  /** DM only: a "DM reviews" answer waiting for approval. */
+  needs_review?: boolean;
 }
 export type Verdict = 'shared' | 'secret' | 'unknown';
 export interface Classification {
   type: string; verdict: Verdict | null; reason: string; knowledge: string | null; multiplier: number;
   entities: { id: string; title: string; shared: boolean }[];
   dmEvidence: { page: string; title: string; text: string }[];
+  /** How the audit model (or the keyword rules) labelled it. */
+  routing?: { scope: string; intent: string; type: string; confidence: number; source: string; why: string } | null;
 }
 export interface BrokerNote { id: string; page_id: string | null; page_title: string | null; topic: string; text: string; knowledge: 'common' | 'local' | 'deep'; active: boolean; from_request: string | null; at: string }
-export interface PageRule { page_id: string; title: string | null; visibility: string | null; page_knowledge: string | null; knowledge: string | null; multiplier: number; never_sell: boolean }
+export interface PageRule { page_id: string; title: string | null; visibility: string | null; page_knowledge: string | null; knowledge: string | null; multiplier: number; never_sell: boolean; spoiler: boolean }
 export interface Offer {
   id: string; title: string; teaser: string; price_cp: number; status: 'open' | 'paid' | 'declined' | 'expired' | 'withdrawn';
   expires_at: string; expires_sessions: number | null; created_at: string; paid_at: string | null; paid_by: string | null; paid_by_name: string | null;
@@ -48,7 +56,7 @@ export interface Offer {
 }
 /** "until the end of next session", or a date. */
 export const offerExpiry = (o: Offer) => `${o.expires_sessions ? `Until the end of ${o.expires_sessions === 1 ? 'the next session' : `${o.expires_sessions} sessions`} · ` : ''}${new Date(o.expires_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
-export interface Quote { quoteId: string; tier: string; tier_name: string; length: string; cost_cp: number | null; wait_text: string; secret: boolean; refused?: boolean; line: string; expires_in: number }
+export interface Quote { quoteId: string; tier: string; tier_name: string; length: string; cost_cp: number | null; wait_text: string; secret: boolean; refused?: boolean; line: string; expires_in: number; kind: 'priced' | 'secret' | 'other' | 'offtopic'; delivery: 'auto' | 'review'; answer?: string; sources?: { id: string | null; title: string }[] }
 
 export interface Change {
   id: string; type: 'item'; item_id: string; owner: string; kind: 'add' | 'edit' | 'remove';
