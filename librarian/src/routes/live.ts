@@ -151,7 +151,10 @@ export default function liveRoutes(d: Deps) {
     const acc = b.accountId ? str(b.accountId, 'accountId', { max: 60 }) : null;
     if (acc && !memberIds(db, c.world.id).includes(acc)) throw new HttpError(400, 'Player not found');
     const x = { id: id('cb_'), name: str(b.name, 'name', { max: 80 }), initiative: int(b.initiative, 'initiative', { min: -20, max: 60, optional: true }) ?? 0, hp: int(b.hp, 'hp', { min: -999, max: 99999, optional: true }), max_hp: int(b.maxHp, 'maxHp', { min: 0, max: 99999, optional: true }) };
-    run(db, 'INSERT INTO combatants (id, world_id, name, account_id, is_pc, initiative, hp, max_hp, effects, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', x.id, c.world.id, x.name, acc, acc ? 1 : 0, x.initiative, x.hp, x.max_hp ?? x.hp, JSON.stringify(effects(b.effects)), b.hidden ? 1 : 0);
+    // Armor class and the statblock page are DM-only; the player view never sends them.
+    const ac = int(b.ac, 'ac', { min: 0, max: 99, optional: true });
+    const sbPage = b.statblockPage ? str(b.statblockPage, 'statblockPage', { max: 80 }) : null;
+    run(db, 'INSERT INTO combatants (id, world_id, name, account_id, is_pc, initiative, hp, max_hp, effects, hidden, ac, statblock_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', x.id, c.world.id, x.name, acc, acc ? 1 : 0, x.initiative, x.hp, x.max_hp ?? x.hp, JSON.stringify(effects(b.effects)), b.hidden ? 1 : 0, ac, sbPage);
     pushCombat(res);
     res.status(201).json({ id: x.id });
   });
@@ -164,12 +167,13 @@ export default function liveRoutes(d: Deps) {
     let hp = b.hp !== undefined ? int(b.hp, 'hp', { min: -999, max: 99999 }) : x.hp;
     if (b.damage !== undefined) hp = (hp ?? 0) - int(b.damage, 'damage', { min: 0, max: 99999 })!;
     if (b.heal !== undefined) hp = Math.min((hp ?? 0) + int(b.heal, 'heal', { min: 0, max: 99999 })!, x.max_hp ?? Infinity);
-    run(db, 'UPDATE combatants SET name = ?, initiative = ?, hp = ?, max_hp = ?, effects = ?, hidden = ? WHERE id = ?',
+    run(db, 'UPDATE combatants SET name = ?, initiative = ?, hp = ?, max_hp = ?, effects = ?, hidden = ?, ac = ? WHERE id = ?',
       b.name !== undefined ? str(b.name, 'name', { max: 80 }) : x.name,
       b.initiative !== undefined ? int(b.initiative, 'initiative', { min: -20, max: 60 }) : x.initiative,
       hp, b.maxHp !== undefined ? int(b.maxHp, 'maxHp', { min: 0, max: 99999 }) : x.max_hp,
       b.effects !== undefined ? JSON.stringify(effects(b.effects)) : x.effects,
-      b.hidden !== undefined ? (b.hidden ? 1 : 0) : x.hidden, x.id);
+      b.hidden !== undefined ? (b.hidden ? 1 : 0) : x.hidden,
+      b.ac !== undefined ? int(b.ac, 'ac', { min: 0, max: 99 }) : x.ac ?? null, x.id);
     pushCombat(res);
     res.json({ ok: true, hp });
   });
