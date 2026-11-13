@@ -119,6 +119,7 @@ const { jess, tom, ana } = players;
 // Library: shared pages with DM secrets inside, and DM-only pages.
 const page = async (p: string, visibility: 'party' | 'dm', markdown: string) => (await call('PUT', `${W}/library/pages`, dm, { path: p, visibility, markdown })).id as string;
 const ids: Record<string, string> = {};
+let audioSession = '';
 await step('library pages', async () => {
   ids.saltmarsh = await page('Places/Saltmarsh', 'party', `---
 knowledge: local
@@ -203,6 +204,7 @@ await step('recording and live transcript', async () => {
   const tomMic = await call('POST', `${W}/audio/mics`, tom.token, { deviceId: 'demo-tom-phone', label: "Tomas's phone", mode: 'always' });
   const sess = await call('POST', `${W}/audio/sessions`, dm, { name: 'Session 21' });
   const sid = sess.id ?? sess.session?.id;
+  audioSession = sid;
   const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01]);
   const chunk = (text: string) => ({ data: Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), type: 'audio/webm' });
   const up = (mic: any, token: string, seq: number, start: number, end: number, level: number, text: string) =>
@@ -230,7 +232,15 @@ await step('sound board and read-aloud', async () => {
 });
 
 // Second-round features, if they are present.
-await step('session log draft', async () => { await call('POST', `${W}/sessionlog/drafts`, dm, {}); });
+await step('session log: draft, date, publish', async () => {
+  await call('POST', `${W}/audio/sessions/${audioSession}/stop`, dm, {});
+  const d = await call('POST', `${W}/sessionlog/drafts`, dm, { audioSessionId: audioSession, title: 'Session 21: The dark lighthouse' });
+  const did = d.id ?? d.draft?.id;
+  await call('POST', `${W}/sessionlog/drafts/${did}/date`, dm, { accept: true, minutes: 2 * 1440, reason: 'Two days on the coast road' }).catch(() => null);
+  await call('POST', `${W}/sessionlog/drafts/${did}/publish`, dm, {});
+  // A second draft stays unpublished, so the DM sees a review in progress.
+  await call('POST', `${W}/sessionlog/drafts`, dm, { audioSessionId: audioSession, title: 'Session 22 (draft)' });
+});
 await step('DM agent chat', async () => {
   const c = await call('POST', `${W}/agent/chats`, dm, { title: 'Prep' });
   await call('POST', `${W}/agent/chats/${c.id ?? c.chat?.id}/messages`, dm, { text: 'Summarise Saltmarsh for me.' });
