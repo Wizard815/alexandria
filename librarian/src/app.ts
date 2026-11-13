@@ -161,7 +161,7 @@ export function createApp(opts: AppOptions = {}) {
     app.get(/^\/(?!api\/|mcp|v1\/|dav\/|health).*/, (_req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Content-Security-Policy', csp);
-      res.sendFile(path.join(webDir, 'index.html'));
+      res.sendFile('index.html', { root: webDir }); // root: so a dot folder in webDir's own path is fine
     });
   }
 
