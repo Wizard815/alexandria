@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: |
+          npm install --no-audit --no-fund
+          cd librarian && npm install --no-audit --no-fund
+          cd ../web && npm ci --no-audit --no-fund
+      - name: Librarian typecheck
+        run: cd librarian && ../node_modules/.bin/tsc --noEmit -p .
+      - name: Librarian tests
+        run: cd librarian && npm test
+      - name: Web typecheck and build
+        run: cd web && npx tsc --noEmit -p . && npm run build
+      - name: Browser tests
+        run: |
+          cd web
+          npm install --no-save --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+          node e2e/smoke.mjs
+          node e2e/offline.mjs

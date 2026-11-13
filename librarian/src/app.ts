@@ -26,6 +26,7 @@ import brokerRoutes from './routes/broker.ts';
 import approvalsRoutes from './routes/approvals.ts';
 import modelRoutes from './routes/models.ts';
 import mcpServerRoutes from './routes/mcpServer.ts';
+import { FEATURES, applyFeatureSchemas } from './features/registry.ts';
 
 export interface Deps {
   db: DB;
@@ -59,6 +60,7 @@ export function audit(db: DB, worldId: string | null, accountId: string | null, 
 
 export function createApp(opts: AppOptions = {}) {
   const db = openDb(opts.dbFile ?? ':memory:');
+  applyFeatureSchemas(db);
   const deps: Deps = {
     db,
     hub: new EventHub(),
@@ -126,6 +128,7 @@ export function createApp(opts: AppOptions = {}) {
   app.use('/api', authRoutes(deps));
   app.use('/api/admin', authenticate(db), adminRoutes(deps));
   app.use('/api/admin', authenticate(db), requireAdmin, sourceRoutes(deps));
+  for (const f of FEATURES) if (f.adminRoutes) app.use(`/api/admin/${f.adminMount ?? f.id}`, authenticate(db), requireAdmin, f.adminRoutes(deps));
 
   const w = express.Router({ mergeParams: true });
   w.use(authenticate(db), loadWorld(db));
@@ -142,11 +145,13 @@ export function createApp(opts: AppOptions = {}) {
   w.use('/whiteboard', whiteboardRoutes(deps));
   w.use('/broker', brokerRoutes(deps));
   w.use('/approvals', approvalsRoutes(deps));
+  for (const f of FEATURES) if (f.worldRoutes) w.use(`/${f.worldMount ?? f.id}`, f.worldRoutes(deps));
   app.use('/api/worlds/:world', w);
   app.get('/api/worlds', authenticate(db), listMyWorlds(deps));
 
   app.use('/v1', authenticate(db), modelRoutes(deps));
   app.use('/mcp', mcpServerRoutes(deps));
+  for (const f of FEATURES) f.appRoutes?.(app, deps);
 
   if (opts.webDir && fs.existsSync(path.join(opts.webDir, 'index.html'))) {
     const webDir = opts.webDir;
@@ -169,6 +174,7 @@ export function createApp(opts: AppOptions = {}) {
     res.status(500).json({ error: 'Something went wrong on the librarian' });
   });
 
+  if (!opts.noScheduler) for (const f of FEATURES) f.start?.(deps);
   if (!opts.noScheduler) startScheduler({ db, library: deps.library, dataDir: deps.dataDir, vaultsDir: deps.vaultsDir, fetch: deps.fetch, env: deps.env });
   const timer = setInterval(() => purgeExpiredThreads(db), 60 * 60 * 1000);
   timer.unref();
