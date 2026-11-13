@@ -29,7 +29,7 @@ function lists(w: WorldClient, role: string, worldId: string): (() => Promise<un
     () => w.whiteboard(), () => w.live(), () => w.coin('me'), () => w.coin('party'),
     () => w.inventory('me'), () => w.inventory('party'),
     get('/broker'), get('/broker/config'), get('/broker/offers'),
-    get('/inventory/transfers'), get('/inventory/coin-requests'),
+    get('/inventory/transfers'), get('/inventory/coin-requests'), get('/sessionlog'), get('/clock'),
     ...(dm ? [get('/broker/notes'), get('/broker/rules'), get('/approvals'), () => w.settings(), () => w.combat()] : [get('/approvals/mine')]),
     ...maps.map((m) => () => w.marks(m)),
   ];
