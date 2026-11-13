@@ -1,5 +1,6 @@
 // A player's front page: next game night with RSVP, who's here now, and
 // what changed (replies to my requests, new messages).
+import * as F from '../../features/registry.ts';
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
@@ -35,6 +36,7 @@ export default function PlayerHome() {
         <p className="muted">{info.name}</p>
       </header>
       <ErrorBox error={act.error ?? cal.error ?? live.error} />
+      {F.playerHome.length > 0 && <div className="stack">{F.playerHome.map((C, i) => <C key={i} />)}</div>}
 
       <div className="cols">
         <div className="col-2 stack loose">

@@ -198,6 +198,40 @@ export const DEFAULT_SETTINGS: WorldSettings = {
   playerTransfers: true,
 };
 
+// Settings added by features (src/features/*), with their validation.
+import type { SettingSpec } from '../features/types.ts';
+const FEATURE_SPECS: Record<string, SettingSpec> = {};
+
+/** Called by the feature registry at load: adds a feature's settings and their defaults. */
+export function registerSettings(featureId: string, specs: Record<string, SettingSpec>) {
+  for (const [k, spec] of Object.entries(specs)) {
+    if (k in DEFAULT_SETTINGS || k in FEATURE_SPECS) throw new Error(`Feature ${featureId}: setting ${k} already exists`);
+    FEATURE_SPECS[k] = spec;
+    (DEFAULT_SETTINGS as any)[k] = spec.default;
+  }
+}
+
+/** A feature's setting from a world's settings (they are not in the WorldSettings type). */
+export function featureSetting<T = unknown>(s: WorldSettings, key: string): T {
+  const v = (s as any)[key];
+  return (v === undefined ? FEATURE_SPECS[key]?.default : v) as T;
+}
+
+function checkFeatureSetting(k: string, spec: SettingSpec, v: unknown) {
+  switch (spec.type) {
+    case 'boolean': if (typeof v !== 'boolean') throw new Error(`${k} must be true or false`); return;
+    case 'enum': if (typeof v !== 'string' || !spec.values.includes(v)) throw new Error(`${k} must be one of ${spec.values.join(', ')}`); return;
+    case 'int':
+      if (v === null && spec.nullable) return;
+      if (!Number.isInteger(v) || (spec.min !== undefined && (v as number) < spec.min) || (spec.max !== undefined && (v as number) > spec.max)) throw new Error(`${k} must be a whole number${spec.min !== undefined ? ` from ${spec.min}` : ''}${spec.max !== undefined ? ` to ${spec.max}` : ''}`);
+      return;
+    case 'string': if (typeof v !== 'string' || v.length > (spec.max ?? 200)) throw new Error(`${k} must be text up to ${spec.max ?? 200} characters`); return;
+    case 'json':
+      if (JSON.stringify(v ?? null).length > 20_000) throw new Error(`${k} is too large`);
+      spec.validate?.(v);
+  }
+}
+
 /** Merge a settings patch, keeping only known keys with the right type. */
 export function mergeSettings(cur: WorldSettings, patch: Record<string, unknown>): WorldSettings {
   const out: any = { ...cur };
@@ -210,6 +244,7 @@ export function mergeSettings(cur: WorldSettings, patch: Record<string, unknown>
     brokerPayer: ['self', 'party'],
   };
   for (const [k, v] of Object.entries(patch)) {
+    if (FEATURE_SPECS[k]) { checkFeatureSetting(k, FEATURE_SPECS[k], v); out[k] = v; continue; }
     if (!(k in DEFAULT_SETTINGS)) throw new Error(`Unknown setting: ${k}`);
     const d = (DEFAULT_SETTINGS as any)[k];
     if (enums[k]) {

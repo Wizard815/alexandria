@@ -4,13 +4,15 @@ import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import QuickPrompt from '../pages/player/QuickPrompt.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
+import * as F from '../features/registry.ts';
 
 // [path, label, Font Awesome icon]
-const LINKS: [string, string, string][] = [
+const CORE_LINKS: [string, string, string][] = [
   ['', 'Home', 'fa-house'], ['live', 'Live', 'fa-tower-broadcast'], ['library', 'Library', 'fa-book'], ['broker', 'Broker', 'fa-scale-balanced'],
   ['inventory', 'Inventory', 'fa-sack-dollar'], ['people', 'People', 'fa-users'], ['me', 'Me', 'fa-user'], ['map', 'Map', 'fa-map'],
   ['messages', 'Messages', 'fa-envelope'], ['calendar', 'Calendar', 'fa-calendar'], ['ask', 'Ask the DM', 'fa-circle-question'], ['whiteboard', 'Whiteboard', 'fa-chalkboard'],
 ];
+const LINKS: [string, string, string][] = [...CORE_LINKS, ...F.playerNav.map((n) => [n.to, n.label, n.icon] as [string, string, string])];
 // The phone's bottom bar; everything else is under "More".
 const MOBILE = ['', 'live', 'library', 'broker', 'inventory'];
 
@@ -32,6 +34,7 @@ export function PlayerLayout() {
     <div className="t-fantasy">
       <header className="topbar">
         <Link to={base} className="brand">{info.name}</Link>
+        {F.topbars.map((C, i) => <C key={i} />)}
         <span className={`live-dot${connected ? '' : ' off'} phone-only`} title={connected ? 'Live updates on' : 'Reconnecting'} />
         <nav className="topnav desktop" aria-label="Scribe">
           {LINKS.map(([to, label]) => <NavLink key={to} to={`${base}/${to}`} end={to === ''} className="nav-link">{label}{badge(to)}</NavLink>)}
@@ -70,6 +73,7 @@ export function PlayerLayout() {
         </div>
       )}
       <QuickPrompt />
+      {F.overlays.map((C, i) => <C key={i} />)}
     </div>
   );
 }

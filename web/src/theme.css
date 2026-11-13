@@ -182,3 +182,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .shell.has-drawer .side.open .nav-group { flex-direction: column; }
   .shell.has-drawer .side.open .side-foot { flex-direction: column; border-top: 1px solid var(--line); padding-top: 12px; }
 }
+
+/* Feature slots in the top bar (e.g. the world date). */
+.feature-topbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 28px 0; }

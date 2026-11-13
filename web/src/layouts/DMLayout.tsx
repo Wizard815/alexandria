@@ -3,6 +3,7 @@ import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
+import * as F from '../features/registry.ts';
 
 const GROUPS: [string, [string, string][]][] = [
   ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory'], ['approvals', '✓ Approvals'], ['broker', '⚖ Information broker']]],
@@ -33,7 +34,7 @@ export function DMLayout() {
       {drawer && <div className="drawer-backdrop" onClick={() => setDrawer(false)} />}
       <nav className={`side${drawer ? ' open' : ''}`} aria-label="DM">
         <div className="stack tight"><span className="brand">Alexandria</span><span className="sub">Dungeon Master · {info.name}</span></div>
-        {GROUPS.map(([label, links]) => (
+        {GROUPS.map(([label, core]) => [label, [...core, ...F.dmNav.filter((n) => n.group === label).map((n) => [n.to, n.label] as [string, string])]] as const).map(([label, links]) => (
           <div className="nav-group" key={label}>
             <span className="nav-label">{label}</span>
             {links.map(([to, text]) => (
@@ -50,7 +51,8 @@ export function DMLayout() {
           <button type="button" className="btn small" onClick={() => void signOut()}>Sign out</button>
         </div>
       </nav>
-      <main className="main"><OfflineBanner /><Outlet /></main>
+      <main className="main"><OfflineBanner />{F.topbars.length > 0 && <div className="feature-topbar">{F.topbars.map((C, i) => <C key={i} />)}</div>}<Outlet /></main>
+      {F.overlays.map((C, i) => <C key={i} />)}
     </div>
   );
 }

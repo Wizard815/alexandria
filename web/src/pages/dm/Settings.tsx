@@ -4,6 +4,7 @@ import { PageHead, ErrorBox, Empty, Loading, Tabs, Switch, useAction, useToast }
 import { useWorld, useLoad, type WorldSettings } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { type ApprovalSettings, extra } from '../broker/shared.tsx';
+import * as F from '../../features/registry.ts';
 
 type K = keyof WorldSettings | keyof ApprovalSettings;
 type Row =
@@ -73,13 +74,14 @@ function SettingsForm() {
     await reloadInfo();
     toast('Saved');
   });
-  const rows = GROUPS.find((g) => g[0] === group)![2];
+  const rows = GROUPS.find((g) => g[0] === group)?.[2] ?? [];
+  const FeatureSection = F.settingsSections.find((f) => f.id === group)?.component;
 
   return (
     <div className="stack">
-      <Tabs label="Settings group" value={group} onChange={setGroup} items={GROUPS.map(([k, label]) => [k, label] as [string, string])} />
+      <Tabs label="Settings group" value={group} onChange={setGroup} items={[...GROUPS.map(([k, label]) => [k, label] as [string, string]), ...F.settingsSections.map((f) => [f.id, f.title] as [string, string])]} />
       <ErrorBox error={act.error} />
-      <section className="card flush">
+      {FeatureSection ? <FeatureSection /> : <section className="card flush">
         {rows.map((r) => (
           <div key={r.k} className="row between" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
             <div className="stack tight" style={{ flex: '1 1 300px' }}><strong style={{ fontWeight: 500 }}>{r.label}</strong><span className="small muted">{r.help}</span></div>
@@ -94,7 +96,7 @@ function SettingsForm() {
             )}
           </div>
         ))}
-      </section>
+      </section>}
       {toastNode}
     </div>
   );
