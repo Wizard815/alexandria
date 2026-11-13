@@ -1,8 +1,9 @@
 import { NavLink, Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
+import * as F from '../features/registry.ts';
 
-const LINKS: [string, string][] = [['', 'Overview'], ['accounts', 'Accounts'], ['worlds', 'Worlds'], ['sources', 'World sources'], ['keys', 'Keys & AI'], ['audit', 'Audit log']];
+const LINKS: [string, string][] = [['', 'Overview'], ['accounts', 'Accounts'], ['worlds', 'Worlds'], ['sources', 'World sources'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ...F.adminNav.map((n) => [n.to, n.label] as [string, string])];
 
 export function AdminLayout() {
   const { me, signOut } = useAuth();
