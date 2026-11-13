@@ -64,6 +64,12 @@ function playerBlock(b: Block, hidden: IsHidden): Block | null {
     case 'tableCell':
     case 'blockquote':
       return { ...b, children: playerBlocks(b.children, hidden) } as Block;
+    case 'map': {
+      // A pin shows only when the source shows it and the page it points at is shared.
+      const pins = (Array.isArray(b.pins) ? b.pins : []).filter((p) => p && p.dm !== true && typeof p.name === 'string' && !(p.ref && hidden({ ref: p.ref, name: p.name })));
+      const image = typeof b.image === 'string' && /^https?:/i.test(b.image) ? b.image : undefined;
+      return { kind: 'map', ...(b.title ? { title: b.title } : {}), ...(image ? { image } : {}), ...(b.width ? { width: b.width } : {}), ...(b.height ? { height: b.height } : {}), pins: pins.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng, ...(p.type ? { type: p.type } : {}), ...(p.ref ? { ref: p.ref } : {}) })) };
+    }
     case 'codeBlock':
     case 'divider':
     case 'collection':

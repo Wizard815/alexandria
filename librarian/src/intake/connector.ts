@@ -3,7 +3,7 @@
 // settings (the admin panel builds the form from them), test the connection,
 // and yield entries. Everything after that (storage, the leak guard, search,
 // the Library, AI tools) is shared.
-import type { Entry } from './model.ts';
+import type { Block, Entry } from './model.ts';
 import type { McpClient } from '../core/mcp.ts';
 
 export interface ConfigField {
@@ -34,7 +34,42 @@ export interface ConnectorContext {
   sourceId: string;
   /** Pages the source shows to players become party, unless the admin keeps them DM-only. */
   shareVisible: boolean;
+  /** Record kinds whose listing could not be read this time. Their stored records are kept, not removed. */
+  incomplete: Set<SyncRecord['kind']>;
 }
+
+/** What a connector can provide. Screens use only what the world's sources have. */
+export const CAPABILITIES = ['pages', 'properties', 'tags', 'images', 'relations', 'timelines', 'maps', 'calendars', 'items', 'characters'] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
+/** Anything a source gives besides a page. Source ids are the source's own ("kanka:123"). */
+export type SyncRecord =
+  /** A link between two pages (their externalIds). */
+  | { kind: 'relation'; externalId: string; from: string; to: string; label: string; attitude?: number | null; visibility: 'dm' | 'party' }
+  /** A timeline: groups (eras, lanes) of dated events, each event with its own visibility. */
+  | { kind: 'timeline'; externalId: string; name: string; visibility: 'dm' | 'party'; groups: TimelineGroup[] }
+  /** A calendar definition for the world clock (see CalendarDefinition). */
+  | { kind: 'calendar'; externalId: string; name: string; visibility: 'dm' | 'party'; definition: CalendarDefinition; current?: { year: number; month: number; day: number } | null }
+  /** A pin on a map page (mapRef is the map page's externalId). */
+  | { kind: 'mapMarker'; externalId: string; mapRef: string; name: string; latitude: number; longitude: number; shape?: string; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' };
+
+export interface TimelineEvent { id: string; name: string; date?: string | null; description?: Block[]; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
+export interface TimelineGroup { name: string; abbreviation?: string | null; description?: Block[]; events: TimelineEvent[] }
+
+/** The shape the world clock reads. `month` in seasons is 1-based. */
+export interface CalendarDefinition {
+  name: string;
+  epochYear: number;
+  yearSuffix?: string;
+  months: { name: string; days: number; intercalary?: boolean }[];
+  weekdays: string[];
+  moons?: { name: string; cycleDays: number; offsetDays: number }[];
+  seasons?: { name: string; month: number; day: number }[];
+}
+
+/** A sync yields pages, and records for the other things a source has. Records have `kind`; entries don't. */
+export type SyncItem = Entry | SyncRecord;
+export const isRecord = (x: SyncItem): x is SyncRecord => typeof (x as any)?.kind === 'string';
 
 export interface TestResult {
   ok: boolean;
@@ -50,11 +85,15 @@ export interface Connector {
   /** Older kind names that map to this connector. */
   aliases?: string[];
   fields: ConfigField[];
+  /** What this connector provides. */
+  capabilities: Capability[];
+  /** A push source: entries are sent to it (POST /api/intake/<id>/entries). It has nothing to sync. */
+  push?: boolean;
   /** Throw an Error with a clear message when the settings are not usable. */
   validate(cfg: Record<string, any>, ctx: Pick<ConnectorContext, 'vaultsDir' | 'env'>): void;
   test(cfg: Record<string, any>, ctx: ConnectorContext): Promise<TestResult>;
-  /** Every entry the source has. A full listing: entries not yielded are removed. */
-  sync(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<Entry>;
+  /** Every entry the source has, plus records (relations, timelines, calendars, markers). A full listing: anything not yielded is removed. */
+  sync(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<SyncItem>;
   /** The MCP tools this connector may call with these settings (read tools only). */
   readTools?: (cfg: Record<string, any>) => string[];
   /** MCP connection settings ({transport, url, token, server}) from this connector's settings. */

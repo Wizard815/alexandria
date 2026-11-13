@@ -8,8 +8,9 @@ import { one, all, run } from '../core/db.ts';
 import type { Library } from '../core/library.ts';
 import type { McpClient } from '../core/mcp.ts';
 import { HttpError, id, now } from '../core/util.ts';
-import type { ConnectorContext } from './connector.ts';
+import { isRecord, type ConnectorContext, type SyncRecord } from './connector.ts';
 import { connectorFor, makeMcpFactory } from './registry.ts';
+import { RECORD_CAPABILITY, saveRecords } from './records.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -34,7 +35,7 @@ export function stopSync(sourceId: string) {
   running.get(sourceId)?.abort();
 }
 
-function prefixFor(kind: string, name: string): string | null {
+export function prefixFor(kind: string, name: string): string | null {
   if (['markdown-folder', 'git', 'mcp-files', 'vault'].includes(kind)) return null; // keep the vault's own layout
   return String(name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) || kind;
 }
@@ -46,7 +47,7 @@ export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortS
   const mcp = makeMcpFactory(c, cfg, d.env, d.fetch, d.mcp);
   const ctx: ConnectorContext = {
     fetch: d.fetch, env: d.env, dataDir: d.dataDir, vaultsDir: d.vaultsDir, signal, log,
-    mcp: mcp.factory, sourceId: src.id, shareVisible: src.default_visibility === 'party',
+    mcp: mcp.factory, sourceId: src.id, shareVisible: src.default_visibility === 'party', incomplete: new Set(),
   };
   return { c, ctx, close: mcp.close };
 }
@@ -57,10 +58,12 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
   if (!src) throw new HttpError(404, 'Source not found');
   if (running.has(sourceId)) throw new HttpError(409, 'This source is already syncing');
   const cfg = JSON.parse(src.config || '{}');
+  if (connectorFor(src.kind, cfg)?.push) throw new HttpError(400, 'A push source receives entries from your tool; there is nothing to sync');
   const runId = id('run_');
   const lines: string[] = [];
   const log = (m: string) => { lines.push(`${new Date().toISOString().slice(11, 19)} ${m}`); if (lines.length > 500) lines.splice(0, lines.length - 500); };
-  const stats = { pages: 0, shared: 0, dmOnly: 0, removed: 0, skipped: 0 };
+  const stats = { pages: 0, shared: 0, dmOnly: 0, removed: 0, skipped: 0, records: 0 };
+  const records: SyncRecord[] = [];
   const ctl = new AbortController();
   running.set(sourceId, ctl);
   run(d.db, 'INSERT INTO sync_runs (id, source_id, world_id, status, started_at) VALUES (?, ?, ?, ?, ?)', runId, sourceId, src.world_id, 'running', now());
@@ -76,6 +79,11 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
     const prefix = prefixFor(made.c.id, src.name);
     for await (const e of made.c.sync(cfg, made.ctx)) {
       if (ctl.signal.aborted) throw new Error('Sync stopped');
+      if (isRecord(e)) {
+        // Records are kept only for what the connector says it provides.
+        if (made.c.capabilities.includes(RECORD_CAPABILITY[e.kind])) records.push(e); else stats.skipped++;
+        continue;
+      }
       if (!e?.externalId || seen.has(e.externalId)) { stats.skipped++; continue; }
       seen.add(e.externalId);
       try {
@@ -90,6 +98,9 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
     }
     // Only a complete listing may delete.
     stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
+    const saved = saveRecords(d.db, src.world_id, src.id, records, made.ctx.incomplete);
+    stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers;
+    if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers`);
     log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} DM-only), removed ${stats.removed}`);
     save('ok');
     run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${stats.pages} pages`, sourceId);
@@ -120,7 +131,7 @@ export function listRuns(db: DB, sourceId: string, limit = 20) {
 /** Sources with schedule_minutes sync on their own; checked once a minute. */
 export function startScheduler(d: SyncDeps) {
   const t = setInterval(() => {
-    const due = all<any>(d.db, `SELECT id, last_sync_at, schedule_minutes FROM sources WHERE enabled = 1 AND schedule_minutes IS NOT NULL AND schedule_minutes > 0`);
+    const due = all<any>(d.db, `SELECT id, last_sync_at, schedule_minutes FROM sources WHERE enabled = 1 AND kind <> 'push' AND schedule_minutes IS NOT NULL AND schedule_minutes > 0`);
     for (const s of due) {
       const last = s.last_sync_at ? Date.parse(s.last_sync_at) : 0;
       if (Date.now() - last >= s.schedule_minutes * 60_000 && !running.has(s.id)) runSync(d, s.id, null).catch(() => {});

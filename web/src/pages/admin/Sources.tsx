@@ -12,8 +12,9 @@ interface ConfigField {
   key: string; label: string; type: 'text' | 'password' | 'url' | 'number' | 'boolean' | 'select' | 'textarea';
   required?: boolean; help?: string; placeholder?: string; options?: [string, string][]; secret?: boolean; default?: unknown; showIf?: Record<string, unknown>;
 }
-interface Connector { id: string; label: string; description?: string; fields: ConfigField[] }
-interface Stats { pages?: number; shared?: number; dmOnly?: number; removed?: number; skipped?: number }
+interface Connector { id: string; label: string; description?: string; fields: ConfigField[]; capabilities?: string[]; push?: boolean }
+interface Stats { pages?: number; shared?: number; dmOnly?: number; removed?: number; skipped?: number; records?: number }
+interface PushKey { id: string; label: string; prefix: string; created_at: string; last_used_at: string | null; revoked: boolean }
 interface Run { id: string; status: 'running' | 'ok' | 'error' | 'stopped'; started_at: string; finished_at: string | null; stats: Stats; error: string | null; log?: string }
 interface Source {
   id: string; world_id: string; kind: string; connector: { id: string; label: string } | null; name: string; config: Record<string, any>;
@@ -22,6 +23,11 @@ interface Source {
 }
 
 const SECRET = '••••';
+const CAP_LABELS: Record<string, string> = { pages: 'Pages', properties: 'Facts', tags: 'Tags', images: 'Images', relations: 'Relations', timelines: 'Timelines', maps: 'Maps', calendars: 'Calendars', items: 'Items', characters: 'Characters' };
+function Capabilities({ c }: { c?: Connector }) {
+  if (!c?.capabilities?.length) return null;
+  return <span className="row wrap tiny" style={{ gap: 4 }} aria-label="What this source provides">{c.capabilities.map((k) => <span key={k} className="chip">{CAP_LABELS[k] ?? k}</span>)}</span>;
+}
 const SCHEDULES: [string, string][] = [['', 'Only when I press Sync'], ['15', 'Every 15 minutes'], ['60', 'Every hour'], ['360', 'Every 6 hours'], ['1440', 'Every day'], ['10080', 'Every week']];
 
 export default function AdminSources() {
@@ -78,6 +84,7 @@ function StatLine({ st }: { st: Stats }) {
       <span className="chip red">{st.dmOnly ?? 0} DM-only</span>
       {!!st.removed && <span className="muted">{st.removed} removed</span>}
       {!!st.skipped && <span className="muted">{st.skipped} skipped</span>}
+      {!!st.records && <span className="muted">{st.records} relations, timelines, calendars and markers</span>}
     </span>
   );
 }
@@ -112,10 +119,11 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
       <div className="card-head">
         <div className="stack tight grow" style={{ minWidth: 0 }}>
           <strong style={{ fontSize: 16 }}>{s.name}</strong>
-          <span className="tiny muted">{s.connector?.label ?? s.kind} · {s.pages} page{s.pages === 1 ? '' : 's'} · {SCHEDULES.find(([k]) => k === String(s.schedule_minutes ?? ''))?.[1] ?? `every ${s.schedule_minutes} min`}</span>
+          <span className="tiny muted">{s.connector?.label ?? s.kind} · {s.pages} page{s.pages === 1 ? '' : 's'} · {connector?.push ? 'pushed by your tool' : SCHEDULES.find(([k]) => k === String(s.schedule_minutes ?? ''))?.[1] ?? `every ${s.schedule_minutes} min`}</span>
         </div>
         <span className={`chip ${s.running ? 'gold' : statusChip(last?.status)}`}>{s.running ? 'syncing' : last?.status ?? 'never synced'}</span>
       </div>
+      <Capabilities c={connector} />
       {s.running && live ? (
         <div className="stack tight" role="status"><span className="small">Syncing… <StatLine st={live.stats} /></span></div>
       ) : last ? (
@@ -127,7 +135,7 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
         {connector?.fields.some((f) => f.key === 'trustPostVisibility') && <span>· Posts: {s.config.trustPostVisibility ? 'Kanka visibility' : 'all DM-only'}</span>}
       </div>
       <div className="row wrap">
-        {s.running
+        {connector?.push ? null : s.running
           ? <button type="button" className="btn small danger" disabled={a.busy} onClick={() => void stop()}>Stop</button>
           : <button type="button" className="btn primary small" disabled={a.busy || !s.enabled} onClick={() => void sync()}>Sync now</button>}
         <button type="button" className="btn small" disabled={a.busy} onClick={() => void test()}>Test connection</button>
@@ -138,6 +146,7 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
         <button type="button" className="btn small danger" onClick={() => setDel(true)}>Remove</button>
       </div>
       <ErrorBox error={a.error} />
+      {connector?.push && <PushKeys s={s} toast={toast} />}
       {showRuns && (
         runs === null ? <Loading /> : runs.length ? (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
@@ -164,6 +173,58 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
         </Modal>
       )}
       {del && <DeleteSource s={s} onClose={() => setDel(false)} onDone={() => { setDel(false); toast(`Removed ${s.name}`); onChanged(); }} />}
+    </div>
+  );
+}
+
+/** The endpoint a push tool calls, and the keys that may call it. A key is shown once, when it is made. */
+function PushKeys({ s, toast }: { s: Source; toast: (m: string) => void }) {
+  const { client } = useAuth();
+  const [keys, setKeys] = useState<PushKey[] | null>(null);
+  const [label, setLabel] = useState('');
+  const [fresh, setFresh] = useState<{ key: string; label: string } | null>(null);
+  const a = useAction();
+  const base = `/api/admin/intake/sources/${s.id}/keys`;
+  const load = () => client.request<PushKey[]>('GET', base).then(setKeys).catch(() => setKeys([]));
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [s.id]);
+  const endpoint = `${window.location.origin}/api/intake/${s.id}/entries`;
+  const create = () => a.run(async () => {
+    const k = await client.request<PushKey & { key: string }>('POST', base, { label: label.trim() || 'Push key' });
+    setFresh({ key: k.key, label: k.label });
+    setLabel('');
+    await load();
+  });
+  const revoke = (k: PushKey) => a.run(async () => { await client.request('DELETE', `/api/admin/intake/keys/${k.id}`); toast(`Revoked ${k.label}`); await load(); });
+  const copy = (t: string) => { void navigator.clipboard?.writeText(t).then(() => toast('Copied'), () => toast('Select the text and copy it')); };
+  const active = (keys ?? []).filter((k) => !k.revoked);
+  return (
+    <div className="stack tight">
+      <div className="small"><strong>Endpoint</strong> <code className="mono" style={{ overflowWrap: 'anywhere' }}>POST {endpoint}</code> <button type="button" className="btn small" onClick={() => copy(endpoint)}>Copy</button></div>
+      <p className="tiny muted" style={{ margin: 0 }}>Send <span className="mono">{'{ "entries": [ ... ] }'}</span> with <span className="mono">Authorization: Bearer alx_push_…</span>. A key writes to this source only and can read nothing. Entries are DM-only unless they say <span className="mono">"visibility": "party"</span> and “Share what the source shares” is on.</p>
+      {active.length ? (
+        <ul className="stack tight" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {active.map((k) => (
+            <li key={k.id} className="row between small">
+              <span><strong>{k.label}</strong> <span className="mono muted">{k.prefix}…</span> <span className="muted">· {k.last_used_at ? `last used ${when(k.last_used_at)}` : 'never used'}</span></span>
+              <button type="button" className="btn small danger" disabled={a.busy} onClick={() => void revoke(k)}>Revoke</button>
+            </li>
+          ))}
+        </ul>
+      ) : keys ? <p className="small muted" style={{ margin: 0 }}>No keys yet. Make one for your tool.</p> : null}
+      <form className="row wrap" onSubmit={(e) => { e.preventDefault(); void create(); }}>
+        <input aria-label="Key name" placeholder="Key name, e.g. my sync script" value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} style={{ maxWidth: 260 }} />
+        <button className="btn small" disabled={a.busy}>Make a key</button>
+      </form>
+      <ErrorBox error={a.error} />
+      {fresh && (
+        <Modal title={`Source key · ${fresh.label}`} onClose={() => setFresh(null)}>
+          <div className="stack">
+            <p>Copy this key now. It is not stored and can't be shown again; if you lose it, revoke it and make another.</p>
+            <input readOnly className="mono" value={fresh.key} aria-label="New source key" onFocus={(e) => e.target.select()} />
+            <div className="row end"><button type="button" className="btn" onClick={() => copy(fresh.key)}>Copy</button><button type="button" className="btn primary" onClick={() => setFresh(null)}>Done</button></div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -236,7 +297,7 @@ function SourceForm({ worldId, connectors, source, onClose, onDone }: { worldId:
       const body = { name, config: config(), defaultVisibility: share ? 'party' : 'dm', scheduleMinutes: sched ? Number(sched) : null };
       if (source) await client.request('PATCH', `/api/admin/sources/${source.id}`, body);
       else await client.request('POST', `/api/admin/worlds/${worldId}/sources`, { kind, ...body });
-      onDone(source ? `Saved ${name}` : `Added ${name}. Press Sync now to import it.`);
+      onDone(source ? `Saved ${name}` : c?.push ? `Added ${name}. Make a key so your tool can push to it.` : `Added ${name}. Press Sync now to import it.`);
     });
   };
 
@@ -249,10 +310,11 @@ function SourceForm({ worldId, connectors, source, onClose, onDone }: { worldId:
           </Field>
         ) : <p className="small muted">{c?.label ?? source.kind}</p>}
         {c?.description && <p className="small muted" style={{ margin: 0 }}>{c.description}</p>}
+        <Capabilities c={c} />
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. LegendKeeper · BloodEarth" required maxLength={80} /></Field>
         {c?.fields.filter((f) => shown(f, v, c.fields)).map((f) => <ConfigInput key={f.key} f={f} value={v[f.key]} editing={!!source} onChange={(x) => { setV((o) => ({ ...o, [f.key]: x })); setResult(null); }} />)}
         <label className="row small"><Switch checked={share} onChange={setShare} label="Share what the source shares" /> Let players see what the source itself shows its players. Off: everything stays DM-only until a page is marked shared.</label>
-        <Field label="Sync on its own"><select value={sched} onChange={(e) => setSched(e.target.value)}>{SCHEDULES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+        {!c?.push && <Field label="Sync on its own"><select value={sched} onChange={(e) => setSched(e.target.value)}>{SCHEDULES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>}
         {result && <div className={result.ok ? 'ok-box small' : 'error-box'} role="status">{result.ok ? '✓ ' : ''}{result.message}</div>}
         <ErrorBox error={a.error || t.error} />
         <div className="row end wrap">
@@ -296,6 +358,8 @@ function HowSecretsWork() {
         <li><strong>LegendKeeper</strong> (MCP or API key): hidden pages, everything under a hidden page or document, and secret blocks.</li>
         <li><strong>Kanka</strong> (token or mcp-kanka): private entities, private attributes, and posts not visible to “all” or “members”. With the stock mcp-kanka every post is DM-only.</li>
         <li><strong>Markdown folders, git and MCP file servers</strong>: files without <span className="mono">visibility: party</span>, plus <span className="mono">secret:</span> frontmatter, <span className="mono">&gt; [!secret]</span> callouts, <span className="mono">%% %%</span> comments and headings marked (DM).</li>
+        <li><strong>Relations, timelines, calendars and map markers</strong> (Kanka) and <strong>maps and timelines</strong> (LegendKeeper): private or hidden ones, hidden pins and events, and anything pointing at a DM-only page stay DM-only. LegendKeeper calendars have no hidden flag, so they stay DM-only.</li>
+        <li><strong>Push sources</strong>: entries are DM-only unless they say “party” and the source is set to share. Secret blocks and DM facts are removed from the player copy like everywhere else.</li>
         <li><strong>Any JSON API</strong>: everything is DM-only unless the field you map to visibility says the record is shared.</li>
       </ul>
       <p className="small" style={{ margin: '6px 0 0' }}>With sharing off, players see nothing from a source until the DM shares a page. Players get a separate player copy built on the server: secret parts are removed, blocks the librarian doesn't understand are dropped, and links to DM-only pages show as “(hidden)”.</p>

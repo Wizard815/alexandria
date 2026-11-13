@@ -136,6 +136,19 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
           <ul>{ctx.children.map((c) => <li key={c.id}><a href={`?page=${c.id}`} onClick={(e) => { e.preventDefault(); ctx.open(c.id); }}><Icon icon={c.icon} size={14} /> {c.title}</a></li>)}</ul>
         </nav>
       ) : null;
+    case 'map':
+      // A map document: its picture and a list of pins (the librarian already removed pins players may not see).
+      return (
+        <figure className="lib-figure">
+          {typeof b.image === 'string' && /^https?:/i.test(b.image) ? <img src={b.image} alt={b.title ? `Map: ${b.title}` : 'Map'} loading="lazy" style={{ maxWidth: Math.min(Number(b.width) || 1200, 1600) }} /> : null}
+          {Array.isArray(b.pins) && b.pins.length > 0 && (
+            <figcaption>
+              <strong>{b.title ?? 'Map'}</strong> · {b.pins.length} pin{b.pins.length === 1 ? '' : 's'}
+              <ul>{b.pins.map((p: any, i: number) => <li key={i}>{p.name}{p.dm ? ' (DM only)' : ''}</li>)}</ul>
+            </figcaption>
+          )}
+        </figure>
+      );
     case 'unsupported':
       return ctx.isDM ? <p className="lib-unsupported">Not shown to players: {b.sourceKind} block</p> : null;
     default:
