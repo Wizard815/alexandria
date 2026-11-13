@@ -5,12 +5,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { createGzip } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run, tx } from '../core/db.ts';
 import { type Auth, createAccount, requireAdmin, validatePassword, validateUsername } from '../core/auth.ts';
 import { DEFAULT_SETTINGS } from '../core/policy.ts';
 import { HttpError, id, now, oneOf, sha256, str } from '../core/util.ts';
+import { featureDataDirs } from '../features/registry.ts';
+import { tar, walk } from '../features/audio/tar.ts';
 
 export default function adminRoutes(d: Deps) {
   const r = Router();
@@ -36,19 +41,33 @@ export default function adminRoutes(d: Deps) {
     });
   });
 
-  // A consistent copy of the whole database (every world), for backups.
-  r.get('/backup', (_req, res) => {
+  // A consistent backup of everything: one .tar.gz with the database
+  // snapshot (librarian.db) and every feature's data folder (audio/ ...).
+  // ?db=1 gives the plain database file, as before.
+  r.get('/backup', async (req, res) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-backup-'));
     const file = path.join(dir, 'librarian.db');
+    const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
+    const day = new Date().toISOString().slice(0, 10);
     try {
       db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
       audit(db, null, me(res), 'backup.download');
-      res.setHeader('Content-Type', 'application/vnd.sqlite3');
-      res.setHeader('Content-Disposition', `attachment; filename="alexandria-${new Date().toISOString().slice(0, 10)}.db"`);
-      res.sendFile(file, () => fs.rmSync(dir, { recursive: true, force: true }));
+      if (req.query.db === '1') {
+        res.setHeader('Content-Type', 'application/vnd.sqlite3');
+        res.setHeader('Content-Disposition', `attachment; filename="alexandria-${day}.db"`);
+        return res.sendFile(file, cleanup);
+      }
+      const entries = function* () {
+        yield { name: 'librarian.db', file };
+        if (d.dataDir) for (const dd of featureDataDirs()) yield* walk(path.join(d.dataDir, dd), dd);
+      };
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="alexandria-${day}.tar.gz"`);
+      await pipeline(Readable.from(tar(entries())), createGzip(), res);
+      cleanup();
     } catch (err) {
-      fs.rmSync(dir, { recursive: true, force: true });
-      throw err;
+      cleanup();
+      if (res.headersSent) res.destroy(); else throw err;
     }
   });
 
