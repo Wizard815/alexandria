@@ -70,7 +70,7 @@ before(async () => {
   put('ambience/rain/rain.wav');
   put('ambience/tavern/chatter.wav');
   put('sfx/doors/creak.wav');
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: {}, fetch: fakeFetch });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1' }, fetch: fakeFetch });
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = baseOf(server);

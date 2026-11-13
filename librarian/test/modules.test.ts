@@ -87,7 +87,7 @@ const fakeFetch = (async (url: any, init?: any) => {
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-mod-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ALLOW_LOCAL_URLS: '1' }, fetch: fakeFetch });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ALLOW_LOCAL_URLS: '1', ALX_ADMIN_TABLE_LOGIN: '1' }, fetch: fakeFetch });
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -347,7 +347,7 @@ test('Modules: import from a JSON API with a field mapping and paging', async ()
 });
 
 test('Modules: API imports refuse private addresses unless the host allows them', async () => {
-  const strict = createApp({ noScheduler: true, env: {} });
+  const strict = createApp({ noScheduler: true, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
   const s = strict.app.listen(0);
   await new Promise((r) => s.once('listening', r));
   const b = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
