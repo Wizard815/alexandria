@@ -25,8 +25,22 @@ is the same for every source:
 | `mcp-files` | Any MCP server that lists and reads files (Obsidian MCP and filesystem MCP presets, or name the tools) | Same as Markdown |
 | `api` | Any JSON API over HTTP, or any MCP tool that returns records | A visibility field you name; shared only for the values you list |
 
+| `push` | Nothing: your own tool sends entries (see "Push API") | The entry's `visibility` (shared only when the source is set to share), plus the usual secret blocks and DM facts |
+
 Older source kinds (`vault`, `kanka`, `mcp` + `profile`) still work; they
 map to the connectors above.
+
+## Capabilities
+
+Each connector declares what it provides in `capabilities`: `pages`,
+`properties`, `tags`, `images`, `relations`, `timelines`, `maps`,
+`calendars`, `items`, `characters`.
+- `GET /api/admin/connectors` returns them for each connector.
+- `GET /api/worlds/:world/intake/capabilities` returns the union over the
+  world's sources (`{ capabilities, sources }`; `sources` is DM-only), so
+  screens can hide what no source has. A missing capability is never an
+  error.
+- Records of a kind the connector did not declare are ignored.
 
 ## The page model
 
@@ -51,6 +65,7 @@ map to the connectors above.
   | `codeBlock`, `divider`, `image` | Other content |
   | `infobox` | Floating fact box with a layout and width |
   | `collection` | List of child pages |
+  | `map` | A map: image and pins (LegendKeeper map documents) |
   | `unsupported` | Anything else |
 
 - **Inline text** carries bold, italic, code, strike, underline, links,
@@ -85,6 +100,83 @@ map to the connectors above.
 
 Sources can sync on a schedule (`schedule_minutes`).
 
+## Records
+
+`sync` may yield records next to entries. They have a `kind` (entries
+have none), and each is stored per source in tables of the `intake`
+feature. A complete sync replaces a source's records; a kind the
+connector could not list (it adds the kind to `ctx.incomplete`) is kept
+as it was.
+
+| `kind` | Fields | Stored in | Players see |
+|---|---|---|---|
+| `relation` | `externalId`, `from`, `to` (entry externalIds), `label`, `attitude?`, `visibility` | `intake_relations`, shown by `GET /library/relations` | shared, and both pages shared |
+| `timeline` | `externalId`, `name`, `visibility`, `groups: [{ name, abbreviation?, description?, events: [{ id, name, date?, description?, color?, ref?, visibility }] }]` | `intake_timelines`, `GET /intake/timelines` | shared timeline; events that are themselves shared; text through the block leak guard; a link only to a shared page |
+| `calendar` | `externalId`, `name`, `visibility`, `definition`, `current?` | `intake_calendars`, `GET /intake/calendars` | shared calendars |
+| `mapMarker` | `externalId`, `mapRef` (the map page's externalId), `name`, `latitude`, `longitude`, `shape?`, `color?`, `ref?`, `visibility` | `intake_markers`, `GET /intake/markers` | shared marker on a shared map, linked to a shared page or none |
+
+`visibility` is `dm` unless the source says players may see it. When
+unsure, `dm`.
+
+**Calendar definition** (`intake_calendars.definition`, read by the world
+clock):
+
+```
+{ name, epochYear: number, yearSuffix?: string,
+  months: [{ name, days, intercalary?: boolean }],
+  weekdays: string[],
+  moons?: [{ name, cycleDays, offsetDays }],
+  seasons?: [{ name, month, day }] }   // month is 1-based
+```
+
+`current` is JSON `{ year, month, day }` or null. `epochYear` is the
+number of the first year (Kanka: 1 when it skips year zero, else 0;
+LegendKeeper: 0 when `hasZeroYear`, else 1). Leap rules are not carried
+over.
+
+**Maps** from LegendKeeper are pages with a `map` block:
+`{ kind: 'map', title?, image?, width?, height?, pins: [{ name, lat, lng, type?, ref?, dm? }] }`.
+The player guard drops pins marked `dm`, pins whose `ref` page is hidden
+or unknown, and a non-http image.
+
+## Push API
+
+For tools that can't be polled. Add a source of kind `push`, then create
+a **source key** (Admin → World sources, or the DM through
+`POST /api/worlds/:world/intake/sources/:source/keys {label}`). The key
+(`alx_push_...`) is shown once; only its hash is kept. It is not an
+account token: it works on the three endpoints below, for that one
+source, and reads nothing.
+
+```
+POST   /api/intake/<source>/entries           { "entries": [ Entry, ... ] }
+DELETE /api/intake/<source>/entries/<externalId>
+POST   /api/intake/<source>/sync              (a pull source: starts a sync, like a webhook)
+Authorization: Bearer alx_push_...
+```
+
+- An `Entry` is the page model above (`externalId` and `title` are
+  required). Unknown fields are dropped and shapes are checked; one bad
+  entry is reported in `errors` and does not stop the others.
+- Entries are saved with `library.saveEntry`, then the player copies are
+  rebuilt: the same leak guard as a synced page. `visibility: "party"` is
+  honoured only when the source's "share what the source shares" switch
+  is on; anything else is DM-only.
+- Pushing to a pull source, or syncing a push source, is refused.
+- Limits: 100 entries per request, 400 kB per entry, 4 MB per request,
+  120 requests and 2000 entries per key per minute
+  (`ALX_PUSH_REQUESTS_PER_MIN`, `ALX_PUSH_ENTRIES_PER_MIN`), one webhook
+  sync per 10 seconds, 10 keys per source. Over a limit: 429 with
+  `Retry-After`.
+
+```
+curl -X POST https://alexandria.example/api/intake/src_abc/entries \
+  -H "Authorization: Bearer alx_push_..." -H "Content-Type: application/json" \
+  -d '{"entries":[{"externalId":"npc-1","title":"Captain Odda","visibility":"party",
+       "blocks":[{"kind":"paragraph","content":[{"text":"A harbour captain."}]},
+                 {"kind":"secret","children":[{"kind":"paragraph","content":[{"text":"DM only."}]}]}]}]}'
+```
+
 ## Write a connector
 
 Implement `Connector` from `librarian/src/intake/connector.ts` and add it
@@ -95,6 +187,7 @@ export const myApp: Connector = {
   id: 'my-app',
   label: 'My App',
   description: 'Reads a My App world with an API token.',
+  capabilities: ['pages', 'tags'],   // what it provides
   fields: [   // the admin panel builds the form from these
     { key: 'worldId', label: 'World id', type: 'text', required: true },
     { key: 'token', label: 'API token', type: 'password', secret: true, required: true },
