@@ -1,7 +1,8 @@
 // The DM's side of the information broker: every question with how it was
 // judged (library, DM secret or unknown) and what it sold for; special
 // offers to send; notes the broker may sell; per-page price rules and a
-// "try a question" box for tuning; the game clock, the persona and prices.
+// "try a question" box for tuning; the persona, prices, delivery mode per
+// tier, allowed topics and the world-site link. Game time is the World clock's.
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -21,47 +22,17 @@ export default function DMBroker() {
       <Empty>The broker is turned off. Turn it on in <Link to={`/w/${info.slug}/dm/settings`}>World settings</Link>.</Empty></div>
   );
   const open = (list.data?.requests ?? []).filter((q) => ['pricing', 'offered', 'waiting'].includes(q.status));
+  const review = (list.data?.requests ?? []).filter((q) => q.needs_review).length;
   return (
     <div className="page">
       <PageHead title="Information broker" lead="Players buy what their characters could learn. Prices come from your tiers; answers come only from pages the party can see, unless you write them." />
       <ErrorBox error={cfg.error ?? list.error} />
       <div className="row between">
-        <Tabs label="Broker" value={tab} onChange={setTab} items={[['queue', `Questions${open.length ? ` (${open.length})` : ''}`], ['offers', 'Special offers'], ['notes', 'Broker notes'], ['tune', 'Fine-tune'], ['setup', 'Persona and prices']]} />
-        {cfg.data && <Clock clock={cfg.data.clock} onChanged={cfg.reload} />}
+        <Tabs label="Broker" value={tab} onChange={setTab} items={[['queue', `Questions${open.length ? ` (${open.length})` : ''}${review ? ` · ${review} to review` : ''}`], ['offers', 'Special offers'], ['notes', 'Broker notes'], ['tune', 'Fine-tune'], ['setup', 'Persona and prices']]} />
+        {cfg.data && <span className="row" style={{ gap: 6 }}><span className="chip gold" title="Game time">Game time: {cfg.data.clock.label}</span><Link className="small" to={`/w/${info.slug}/dm/clock`}>World clock →</Link></span>}
       </div>
       {!cfg.data ? <Loading /> : tab === 'queue' ? <Queue list={list.data?.requests ?? null} reload={list.reload} />
         : tab === 'offers' ? <Offers /> : tab === 'notes' ? <Notes /> : tab === 'tune' ? <Tune cfg={cfg.data} /> : <Setup cfg={cfg.data} onSaved={cfg.reload} />}
-    </div>
-  );
-}
-
-function Clock({ clock, onChanged }: { clock: BrokerConfig['clock']; onChanged: () => Promise<void> }) {
-  const { w } = useWorld();
-  const act = useAction();
-  const [setting, setSetting] = useState(false);
-  const [day, setDay] = useState(1);
-  const [time, setTime] = useState('08:00');
-  const move = (body: Record<string, number>) => act.run(async () => { await w.call('POST', '/broker/clock', body); await onChanged(); });
-  return (
-    <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} aria-label="Game clock">
-      <span className="chip gold" title="Game time">Game time: {clock.label}</span>
-      <button type="button" className="btn small" disabled={act.busy} onClick={() => void move({ addMinutes: 60 })}>+1 hour</button>
-      <button type="button" className="btn small" disabled={act.busy} onClick={() => void move({ addMinutes: 1440 })}>+1 day</button>
-      <button type="button" className="btn small ghost" onClick={() => { setDay(Math.floor(clock.minutes / 1440) + 1); setTime(`${String(Math.floor((clock.minutes % 1440) / 60)).padStart(2, '0')}:${String(clock.minutes % 60).padStart(2, '0')}`); setSetting(true); }}>Set…</button>
-      <ErrorBox error={act.error} />
-      {setting && (
-        <Modal title="Set the game clock" onClose={() => setSetting(false)}>
-          <p className="small muted">Answers waiting on game time arrive when the clock passes their time.</p>
-          <div className="row">
-            <Field label="Day"><input type="number" min={1} value={day} onChange={(e) => setDay(Math.max(1, Number(e.target.value) || 1))} /></Field>
-            <Field label="Time"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></Field>
-          </div>
-          <div className="row end">
-            <button type="button" className="btn" onClick={() => setSetting(false)}>Cancel</button>
-            <button type="button" className="btn primary" disabled={act.busy} onClick={() => { const [h, m] = time.split(':').map(Number); void move({ setMinutes: (day - 1) * 1440 + (h || 0) * 60 + (m || 0) }).then(() => setSetting(false)); }}>Set</button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
@@ -71,26 +42,27 @@ function Queue({ list, reload }: { list: BrokerRequest[] | null; reload: () => P
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [editing, setEditing] = useState<BrokerRequest | null>(null);
-  const [filter, setFilter] = useState<'open' | 'secret' | 'all'>('open');
+  const [filter, setFilter] = useState<'open' | 'review' | 'secret' | 'all'>('open');
   if (!list) return <Loading />;
-  const rows = filter === 'open' ? list.filter((q) => ['pricing', 'offered', 'waiting'].includes(q.status))
+  const rows = filter === 'review' ? list.filter((q) => q.needs_review)
+    : filter === 'open' ? list.filter((q) => ['pricing', 'offered', 'waiting'].includes(q.status))
     : filter === 'secret' ? list.filter((q) => q.classification?.verdict === 'secret') : list;
   const sold = list.filter((q) => q.cost_cp && ['waiting', 'answered'].includes(q.status)).reduce((n, q) => n + (q.cost_cp ?? 0), 0);
   const post = (q: BrokerRequest, action: string, label: string, body?: unknown) => act.run(async () => { await w.call('POST', `/broker/${q.id}/${action}`, body); await reload(); toast(label); });
   return (
     <section className="card flush" aria-label="Broker queue">
       <div className="row between" style={{ padding: '10px 14px' }}>
-        <Tabs label="Show" value={filter} onChange={setFilter} items={[['open', 'Open'], ['secret', 'Touch secrets'], ['all', 'All']]} />
+        <Tabs label="Show" value={filter} onChange={setFilter} items={[['open', 'Open'], ['review', `Review (${list.filter((q) => q.needs_review).length})`], ['secret', 'Touch secrets'], ['all', 'All']]} />
         <span className="tiny faint">{list.length} asked · {coins(sold, info.settings.coins)} earned</span>
         <ErrorBox error={act.error} />
       </div>
-      {!rows.length ? <Empty>{filter === 'open' ? 'Nothing waiting on you.' : 'No one has asked the broker anything yet.'}</Empty> : rows.map((q) => (
+      {!rows.length ? <Empty>{filter === 'review' ? 'No answers are waiting for your approval.' : filter === 'open' ? 'Nothing waiting on you.' : 'No one has asked the broker anything yet.'}</Empty> : rows.map((q) => (
         <article key={q.id} className="list-item" style={{ display: 'block', padding: '12px 14px' }}>
           <div className="row between" style={{ alignItems: 'flex-start' }}>
             <div className="stack tight grow">
               <strong>{q.question}</strong>
               <span className="tiny faint">{q.asker_name} · {q.tier_name} · {q.cost_cp === null ? 'unpriced' : q.cost_cp === 0 ? 'free' : coins(q.cost_cp, info.settings.coins)}{q.payer === 'party' ? ' (party pouch)' : ''} · {when(q.created_at)}</span>
-              {q.status === 'waiting' && <span className="small muted"><ReadyLabel q={q} /></span>}
+              {q.status === 'waiting' && <span className="small muted"><ReadyLabel q={q} />{q.needs_review ? ' · waiting for your approval' : ''}</span>}
             </div>
             <StatusChip s={q.status} />
           </div>
@@ -101,7 +73,8 @@ function Queue({ list, reload }: { list: BrokerRequest[] | null; reload: () => P
           <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
             {q.status === 'pricing' && <button type="button" className="btn small primary" onClick={() => setEditing(q)}>Price and answer</button>}
             {(q.status === 'waiting' || q.status === 'answered' || q.status === 'offered') && <button type="button" className="btn small" onClick={() => setEditing(q)}>Edit answer</button>}
-            {q.status === 'waiting' && <button type="button" className="btn small" disabled={act.busy} onClick={() => void post(q, 'deliver', 'Delivered')}>Deliver now</button>}
+            {q.status === 'waiting' && q.needs_review && <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void post(q, 'approve', 'Approved and delivered')}>Approve</button>}
+            {q.status === 'waiting' && !q.needs_review && <button type="button" className="btn small" disabled={act.busy} onClick={() => void post(q, 'deliver', 'Delivered')}>Deliver now</button>}
             {['pricing', 'offered', 'waiting'].includes(q.status) && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => { const note = window.prompt('Refuse this question. A note for the player (optional):') ?? null; if (note !== null) void post(q, 'refuse', q.cost_cp && q.status === 'waiting' ? 'Refused and refunded' : 'Refused', { note }); }}>{q.status === 'waiting' && q.cost_cp ? 'Refuse and refund' : 'Refuse'}</button>}
             {q.answer && ['waiting', 'answered', 'offered'].includes(q.status) && <button type="button" className="btn small ghost" disabled={act.busy} title="Future questions on this topic can be sold from it" onClick={() => void act.run(async () => { await w.call('POST', `/broker/${q.id}/note`, {}); toast('Saved as a broker note'); })}>Save as broker note</button>}
             {q.status === 'answered' && !!q.cost_cp && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => { if (window.confirm(`Refund ${coins(q.cost_cp ?? 0, info.settings.coins)}?`)) void post(q, 'refund', 'Refunded'); }}>Refund</button>}
@@ -183,7 +156,8 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
   });
   return (
     <div className="cols">
-      <section className="col-1 card" aria-labelledby="pers-h">
+      <div className="col-1 stack loose">
+      <section className="card" aria-labelledby="pers-h">
         <h2 id="pers-h">Persona</h2>
         <Field label="Name"><input value={c.persona.name} maxLength={80} onChange={(e) => persona('name', e.target.value)} /></Field>
         <Field label="Title"><input value={c.persona.title} maxLength={120} onChange={(e) => persona('title', e.target.value)} /></Field>
@@ -192,6 +166,8 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
         <Field label="How they answer" help="Shown before each answer, after the name"><input value={c.persona.voice} maxLength={120} onChange={(e) => persona('voice', e.target.value)} placeholder="leans in and lowers their voice" /></Field>
         <Field label="Portrait URL (optional)"><input value={c.persona.portrait} maxLength={500} onChange={(e) => persona('portrait', e.target.value)} placeholder="https://…" /></Field>
       </section>
+      <Scope />
+      </div>
       <section className="col-2 card" aria-labelledby="tiers-h">
         <h2 id="tiers-h">Prices and waits</h2>
         <p className="small muted">The tier comes from the best-matching shared page's knowledge level. Players see this list as "Set by your DM".</p>
@@ -203,6 +179,11 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
               <Field label="Price" help={t.knowledge === 'secret' ? 'Empty: you price each one' : '0 for free'}><input value={priceText(t)} onChange={(e) => setPrices({ ...prices, [t.id]: e.target.value })} placeholder={t.knowledge === 'secret' ? 'You decide' : '5 sp'} /></Field>
             </div>
             <Field label="Description"><input value={t.description} maxLength={300} onChange={(e) => setTier(i, { description: e.target.value })} /></Field>
+            <Field label="Delivery" help={t.knowledge === 'secret' ? 'Always you, whatever the settings' : 'Auto: delivered when the wait is over. Review: waits for you to approve, edit or refuse.'}>
+              {t.knowledge === 'secret' ? <span className="chip">You decide, always</span> : (
+                <select value={t.delivery} onChange={(e) => setTier(i, { delivery: e.target.value as 'auto' | 'review' })}><option value="auto">Auto</option><option value="review">I review it first</option></select>
+              )}
+            </Field>
             {t.knowledge !== 'secret' && t.wait && (
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 <Field label="Wait"><input type="number" min={0} value={t.wait.amount} onChange={(e) => setTier(i, { wait: { ...t.wait!, amount: Math.max(0, Number(e.target.value) || 0) } })} /></Field>
@@ -212,6 +193,7 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
             )}
           </fieldset>
         ))}
+        <div className="row"><button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', '/broker/delivery/auto'); await onSaved(); toast('Every tier except Guarded now delivers by itself'); })}>Auto for all tiers except Guarded</button></div>
         <h3>Answer lengths</h3>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           {c.lengths.map((l, i) => (
@@ -224,12 +206,40 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
             <option value="refuse">Turned away ("never heard of it"); I still see what was asked</option>
           </select>
         </Field>
+        <p className="tiny faint">Rules and item questions are "Other": always free and answered at once. They are not a tier.</p>
         <p className="tiny faint">Payer: {c.payer === 'party' && info.settings.partyPurse ? 'the party pouch' : "each player's own coin"} (World settings).</p>
         <ErrorBox error={act.error} />
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save prices and persona</button></div>
       </section>
       {toastNode}
     </div>
+  );
+}
+
+/** What the broker will talk about, and the world-site link (world settings). */
+function Scope() {
+  const { w, info } = useWorld();
+  const act = useAction();
+  const { toast, toastNode } = useToast();
+  const s = info.settings as unknown as { brokerTopics?: string[]; brokerSiteUrl?: string; brokerSiteLabel?: string };
+  const [topics, setTopics] = useState((s.brokerTopics ?? []).join('\n'));
+  const [url, setUrl] = useState(s.brokerSiteUrl ?? '');
+  const [label, setLabel] = useState(s.brokerSiteLabel ?? '');
+  const save = () => act.run(async () => {
+    await w.call('PATCH', '/settings', { brokerTopics: topics.split('\n').map((t) => t.trim()).filter(Boolean), brokerSiteUrl: url.trim(), brokerSiteLabel: label.trim() });
+    toast('Saved');
+  });
+  return (
+    <section className="card" aria-labelledby="scope-h">
+      <h2 id="scope-h">Scope and site link</h2>
+      <p className="small muted">The broker answers only about your world. Add real-world topics it may also discuss, one per line, like “Feudal Japan: history, folklore, customs”. Anything else is refused in character, free.</p>
+      <Field label="Allowed real-world topics"><textarea rows={3} value={topics} onChange={(e) => setTopics(e.target.value)} placeholder="Feudal Japan: history, folklore, customs" /></Field>
+      <Field label="World site link (optional)" help="Shown on the players' broker page"><input value={url} maxLength={500} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></Field>
+      <Field label="Link label"><input value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} placeholder="Campaign wiki" /></Field>
+      <ErrorBox error={act.error} />
+      <div className="row end"><button type="button" className="btn primary small" disabled={act.busy} onClick={() => void save()}>Save scope</button></div>
+      {toastNode}
+    </section>
   );
 }
 
@@ -243,6 +253,9 @@ function Judged({ c }: { c: Classification }) {
       <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         {c.verdict && <span title={VERDICT[c.verdict]}><StatusChip s={c.verdict} /></span>}
         <span className="chip">{c.type}</span>
+        {c.routing && <span className="chip" title={c.routing.why}>{c.routing.scope}</span>}
+        {c.routing && <span className="chip" title={`Labelled by ${c.routing.source === 'rules' ? 'the keyword rules' : 'the audit model'}`} style={c.routing.intent !== 'fact' ? { borderColor: 'var(--danger-text)' } : undefined}>{c.routing.intent}</span>}
+        {c.routing && <span className="chip faint" title="Confidence">{Math.round(c.routing.confidence * 100)}% · {c.routing.source === 'rules' ? 'rules' : 'model'}</span>}
         {c.knowledge && c.verdict === 'shared' && <span className="chip">{c.knowledge}{c.multiplier !== 1 ? ` ×${c.multiplier}` : ''}</span>}
         {c.entities.map((e) => <Link key={e.id} className="chip" to={e.id.startsWith('person:') ? `/w/${info.slug}/dm/people` : `/w/${info.slug}/dm/library?page=${encodeURIComponent(e.id)}`} title={e.shared ? 'Players can see this' : 'DM only'}>{e.shared ? '' : '🔒 '}{e.title}</Link>)}
       </div>
@@ -409,10 +422,10 @@ function Tune({ cfg }: { cfg: BrokerConfig }) {
   const [q, setQ] = useState('');
   const [res, setRes] = useState<(Classification & { player: { answer: string; sources: { id: string | null; title: string }[] } | null; tier_name: string | null; cost_cp: number | null }) | null>(null);
   const rules = useLoad(() => w.call<PageRule[]>('GET', '/broker/rules'), [w], []);
-  const [r, setR] = useState({ pageId: '', knowledge: '', multiplier: 1, neverSell: false });
+  const [r, setR] = useState({ pageId: '', knowledge: '', multiplier: 1, neverSell: false, spoiler: false });
   const saveRule = () => act.run(async () => {
-    await w.call('PUT', `/broker/rules/${encodeURIComponent(r.pageId)}`, { knowledge: r.knowledge || null, multiplier: r.multiplier, neverSell: r.neverSell });
-    setR({ pageId: '', knowledge: '', multiplier: 1, neverSell: false });
+    await w.call('PUT', `/broker/rules/${encodeURIComponent(r.pageId)}`, { knowledge: r.knowledge || null, multiplier: r.multiplier, neverSell: r.neverSell, spoiler: r.spoiler });
+    setR({ pageId: '', knowledge: '', multiplier: 1, neverSell: false, spoiler: false });
     await rules.reload();
   });
   return (
@@ -442,16 +455,38 @@ function Tune({ cfg }: { cfg: BrokerConfig }) {
           <Field label="Price ×"><input type="number" min={0} step="0.25" value={r.multiplier} onChange={(e) => setR({ ...r, multiplier: Math.max(0, Number(e.target.value) || 0) })} /></Field>
         </div>
         <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={r.neverSell} onChange={(e) => setR({ ...r, neverSell: e.target.checked })} /> Never sell (questions about it come to you)</label>
+        <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={r.spoiler} onChange={(e) => setR({ ...r, spoiler: e.target.checked })} /> Spoiler (questions naming it always come to you)</label>
         <div className="row end"><button type="button" className="btn primary small" disabled={act.busy || !r.pageId} onClick={() => void saveRule()}>Save rule</button></div>
         <ErrorBox error={rules.error} />
         {(rules.data ?? []).map((x) => (
           <div key={x.page_id} className="list-item row between" style={{ gap: 6 }}>
-            <span className="small grow"><strong>{x.title ?? 'Deleted page'}</strong><br /><span className="tiny faint">{x.never_sell ? 'Never sold' : `${x.knowledge ?? x.page_knowledge ?? 'local'} ×${x.multiplier}`}</span></span>
-            <button type="button" className="btn small ghost" onClick={() => setR({ pageId: x.page_id, knowledge: x.knowledge ?? '', multiplier: x.multiplier, neverSell: x.never_sell })}>Edit</button>
+            <span className="small grow"><strong>{x.title ?? 'Deleted page'}</strong><br /><span className="tiny faint">{x.never_sell ? 'Never sold' : `${x.knowledge ?? x.page_knowledge ?? 'local'} ×${x.multiplier}`}{x.spoiler ? ' · spoiler' : ''}</span></span>
+            <button type="button" className="btn small ghost" onClick={() => setR({ pageId: x.page_id, knowledge: x.knowledge ?? '', multiplier: x.multiplier, neverSell: x.never_sell, spoiler: x.spoiler })}>Edit</button>
             <button type="button" className="btn small ghost" aria-label={`Remove rule for ${x.title}`} disabled={act.busy} onClick={() => void act.run(async () => { await w.call('DELETE', `/broker/rules/${encodeURIComponent(x.page_id)}`); await rules.reload(); })}>✕</button>
           </div>
         ))}
       </section>
+      <Spoilers />
     </div>
+  );
+}
+
+/** Free-text spoiler topics: a question that names one always comes to the DM. */
+function Spoilers() {
+  const { w } = useWorld();
+  const act = useAction();
+  const { toast, toastNode } = useToast();
+  const cur = useLoad(() => w.call<{ topics: string[] }>('GET', '/broker/spoilers'), [w], []);
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? (cur.data?.topics ?? []).join('\n');
+  return (
+    <section className="col-2 card" aria-labelledby="spoil-h">
+      <h2 id="spoil-h">Spoiler topics</h2>
+      <p className="small muted">One per line, like “the lost heir” or “the Midnight Pact”. A question that names one always comes to you, whatever the library says. You can also tag a whole page as a spoiler under Page rules. Players never see this list.</p>
+      <ErrorBox error={cur.error ?? act.error} />
+      <Field label="Topics"><textarea rows={3} value={shown} onChange={(e) => setText(e.target.value)} /></Field>
+      <div className="row end"><button type="button" className="btn primary small" disabled={act.busy || text === null} onClick={() => void act.run(async () => { await w.call('PUT', '/broker/spoilers', { topics: shown.split('\n').map((t) => t.trim()).filter(Boolean) }); setText(null); await cur.reload(); toast('Saved'); })}>Save topics</button></div>
+      {toastNode}
+    </section>
   );
 }
