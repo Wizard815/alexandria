@@ -241,7 +241,7 @@ const feature: Feature = {
       const number = existing?.number ?? ((one<any>(db, 'SELECT MAX(number) AS n FROM sessionlog_entries WHERE world_id = ?', c.world.id)?.n ?? 0) + 1);
       const eid = existing?.id ?? id('sle_');
       // A session event on the in-world date, so the calendar shows it.
-      const ev = { title: `Session ${number}: ${draft.title}`, description: '', start: startMin, end: endMin > startMin ? endMin : null, visibility: 'party', kind: 'session' };
+      const ev = { title: /^session\b/i.test(String(draft.title).trim()) ? draft.title : `Session ${number}: ${draft.title}`, description: '', start: startMin, end: endMin > startMin ? endMin : null, visibility: 'party', kind: 'session' };
       let eventId: string | null = existing?.event_id ?? null;
       try {
         if (eventId) updateEvent(db, d.hub, c.world.id, eventId, ev);

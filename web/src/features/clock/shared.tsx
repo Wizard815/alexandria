@@ -33,4 +33,4 @@ export function useClock() {
   return useLoad<ClockState>(() => w.call('GET', '/clock'), [w], ['clock', 'world-event']);
 }
 
-export const dayWord = (n: number | undefined) => (n === undefined ? '' : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`);
+export const dayWord = (n: number | undefined) => (n === undefined ? '' : n === 0 ? 'today' : n === 1 ? 'tomorrow' : n === -1 ? 'yesterday' : n < 0 ? `${-n} days ago` : `in ${n} days`);

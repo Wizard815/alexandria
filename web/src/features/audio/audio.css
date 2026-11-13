@@ -38,7 +38,7 @@
 .au-tag { margin-left: 8px; font-style: normal; font-size: 0.85em; color: var(--danger-text, #F0A096); text-transform: uppercase; letter-spacing: 0.06em; }
 .au-mini { align-self: flex-end; border: 0; background: transparent; color: var(--faint); font: inherit; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; }
 .au-kw { background: color-mix(in srgb, var(--au-colour, #D9B26A) 30%, transparent); color: inherit; border-bottom: 1px dotted var(--au-colour, #D9B26A); border-radius: 3px; padding: 0 2px; cursor: help; }
-.au-kw.spell, .au-kw.condition { border-bottom-color: var(--teal, #86CFC4); }
+.au-kw-spell, .au-kw-condition { border-bottom-color: var(--teal, #86CFC4); }
 .au-pop { position: fixed; z-index: 950; width: 290px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--panel-2, #232A37); border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); font-size: 14px; color: var(--text); }
 .au-card .md { font-size: 13px; }
 
