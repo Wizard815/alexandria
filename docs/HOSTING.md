@@ -108,6 +108,25 @@ back as `librarian.db`.
 - **HTTPS only** on the internet: the Caddy setup does it.
 - **Passwords** are scrypt-hashed. **Keys and sessions** are stored only
   as hashes and shown once. Revoke keys in Keys & AI.
+- **Admin sign-in is separate** from the table sign-in. Admins sign in
+  at `/admin/login` and get an admin session that opens only the admin
+  pages (never a world as DM). A table sign-in opens the admin pages only
+  while the server has a single account, or when you set
+  `ALX_ADMIN_TABLE_LOGIN=1` (for a small server where one person is DM and
+  admin). With a second account and no env var, admins use `/admin/login`
+  or an admin key (`alx_adm_...`, which always works).
+  - **Authenticator app:** Admin → Security sets up a 6-digit code
+    (TOTP) and 10 single-use recovery codes. Once on, a table sign-in no
+    longer opens the admin pages for that account. Admin keys are not
+    covered by the code, so keep them safe and revoke ones you don't use.
+  - **Allowed networks:** `ALX_ADMIN_ALLOW=127.0.0.1/32,192.168.0.0/16,::1/128`
+    limits admin login and every admin route to those IPv4/IPv6 ranges
+    (others get 403 and an audit entry). Behind a proxy set
+    `ALX_TRUST_PROXY` so the real client address is used. A typo in the
+    list stops the server from starting.
+  - **Guessing:** 3 wrong tries per account and address (and 10 per
+    address) lock admin login for 5 minutes. Logins, failures, code
+    changes and refused addresses are in the audit log.
 - **Players can only read.** Their app keys are read-only. A DM's write
   key stops writing if they stop being DM.
 - **Sources are read-only.**

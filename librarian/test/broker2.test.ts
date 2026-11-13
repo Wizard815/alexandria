@@ -52,7 +52,7 @@ const noSecrets = (where: string, x: unknown, asked = '') => {
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-brk2-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: {} });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
   deps = made.deps;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));

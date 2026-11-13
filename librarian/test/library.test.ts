@@ -7,7 +7,7 @@ import { createApp } from '../src/app.ts';
 import { run } from '../src/core/db.ts';
 
 test('TestLibrary_DownloadAndBulkGivePlayersOnlyTheirCopy', async () => {
-  const { app, deps } = createApp({ env: {}, noScheduler: true });
+  const { app, deps } = createApp({ env: { ALX_ADMIN_TABLE_LOGIN: '1' }, noScheduler: true });
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
