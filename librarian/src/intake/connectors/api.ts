@@ -92,6 +92,7 @@ export const genericApi: Connector = {
   id: 'api',
   label: 'Any JSON API (REST or MCP tool)',
   description: 'Imports records from any world-building app with a JSON API. Map the fields once; pages, tags, parents and visibility come across.',
+  capabilities: ['pages', 'tags'],
   fields: [
     { key: 'transport', label: 'How to reach it', type: 'select', options: [['http', 'HTTP (REST)'], ['mcp', 'An MCP tool']], default: 'http' },
     { key: 'url', label: 'List URL', type: 'url', showIf: { transport: 'http' }, placeholder: 'https://api.example.com/v1/worlds/42/articles' },

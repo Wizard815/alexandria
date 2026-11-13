@@ -43,7 +43,7 @@ export default function sourceRoutes(d: Deps) {
   const c0 = (_f: any, _k: string) => undefined;
 
   r.get('/connectors', (_req, res) => {
-    res.json(CONNECTORS.map((c) => ({ id: c.id, label: c.label, description: c.description, fields: c.fields })));
+    res.json(CONNECTORS.map((c) => ({ id: c.id, label: c.label, description: c.description, capabilities: c.capabilities, push: !!c.push, fields: c.fields })));
   });
 
   r.get('/sources', (_req, res) => res.json(all<any>(db, 'SELECT * FROM sources ORDER BY name').map(shape)));
@@ -111,6 +111,7 @@ export default function sourceRoutes(d: Deps) {
   r.post('/sources/:sid/sync', async (req, res) => {
     const s = one<any>(db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));
     if (!s) throw new HttpError(404, 'Source not found');
+    if (connectorFor(s.kind, JSON.parse(s.config || '{}'))?.push) throw new HttpError(400, 'A push source receives entries from your tool; there is nothing to sync');
     audit(db, s.world_id, me(res), 'source.sync', s.id);
     const p = runSync(deps(), s.id, me(res));
     if (req.query.wait) {
