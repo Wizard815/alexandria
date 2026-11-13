@@ -49,6 +49,10 @@ export default feature;
     (`player_blocks`, `player_md`, player properties) or from rows the
     player may see.
   - Add a test that tries to leak DM text and fails to.
+- **Import `app.ts` as a type only** (`import type { Deps } from '../../app.ts'`).
+  A runtime import of `app.ts` from a feature hangs startup: the registry
+  loads features with a top-level `await`. Write audit rows with `run()`
+  from `core/db.ts`.
 - **Tests:** `librarian/test/<id>.test.ts` (node:test). Use
   `createApp({ noScheduler: true })` and fake models with
   `createApp({ fetch })`.
