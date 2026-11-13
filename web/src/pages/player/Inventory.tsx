@@ -9,6 +9,8 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Tabs, Field, Modal, useAction, useToast } from '../../ui/index.tsx';
 import { AlertsCard, useMine } from '../broker/shared.tsx';
+import { ItemHover } from '../../features/itemcards/index.tsx';
+import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
 import { type Item, CoinRequestsCard, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, TransfersList, givingOn, AskCoinModal } from '../inventory/giving.tsx';
 const sent = (r: any) => !!(r && r.pending);
 interface Inv { owner: string; items: Item[]; trackWeight: boolean; coins: string; totalWeight?: number }
@@ -66,7 +68,7 @@ export default function PlayerInventory() {
                     <ItemImage image={it.image} name={it.name} size={48} onClick={it.image ? () => setViewing(it) : undefined} />
                     <div className="stack tight grow" style={{ minWidth: 0 }}>
                       <div className="row between" style={{ gap: 8, alignItems: 'baseline' }}>
-                        <span className="read" style={{ fontSize: 16, overflowWrap: 'anywhere' }}>{it.link ? <a href={it.link} target="_blank" rel="noreferrer">{it.name}</a> : it.name}</span>
+                        <span className="read" style={{ fontSize: 16, overflowWrap: 'anywhere' }}><ItemHover itemId={it.id}>{it.link ? <a href={it.link} target="_blank" rel="noreferrer">{it.name}</a> : it.name}</ItemHover></span>
                         <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>× {it.qty}{weight && it.weight != null ? <span className="tiny faint"> · {it.weight} each</span> : null}</span>
                       </div>
                       {it.note && <span className="small muted">{it.note}</span>}
@@ -160,6 +162,7 @@ function ItemModal({ item, owner, weight, onClose, onSaved }: { item: Partial<It
   const act = useAction();
   const save = () => act.run(async () => {
     const body: Record<string, unknown> = { name: (it.name ?? '').trim(), qty: Number(it.qty) || 0, note: it.note ?? '', link: it.link || '', image: it.image ?? null };
+    if (it.pageId !== undefined) body.pageId = it.pageId;
     if (weight && it.weight !== undefined) body.weight = it.weight === null ? null : Number(it.weight);
     const r = it.id ? await w.updateItem(it.id, body) : await w.addItem({ ...body, owner });
     onSaved(sent(r));
@@ -173,6 +176,7 @@ function ItemModal({ item, owner, weight, onClose, onSaved }: { item: Partial<It
       </div>
       <Field label="Note"><input value={it.note ?? ''} maxLength={500} onChange={(e) => setIt({ ...it, note: e.target.value })} /></Field>
       <Field label="Link (optional)" help="A library or Kanka page about it"><input value={it.link ?? ''} maxLength={300} onChange={(e) => setIt({ ...it, link: e.target.value })} /></Field>
+      <PagePicker value={it.pageId} onChange={(pageId) => setIt({ ...it, pageId })} />
       <ImageField value={it.image} name={it.name ?? ''} onChange={(v) => setIt({ ...it, image: v })} />
       <ErrorBox error={act.error} />
       <div className="row end">

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Field, Modal, useAction, useToast } from '../../ui/index.tsx';
+import { ItemHover } from '../../features/itemcards/index.tsx';
 import { type Change, type CoinReq, StatusChip, changeText } from './shared.tsx';
 
 interface Queue { coin: CoinReq[]; items: Change[]; disputes: Change[]; alerts: Change[]; recent: Change[]; counts: { coin: number; items: number; disputes: number } }
@@ -76,7 +77,7 @@ export default function DMApprovals() {
             {!d.items.length ? <Empty>No item changes waiting.</Empty> : d.items.map((c) => (
               <div key={c.id} className="list-item row between" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <div className="stack tight grow">
-                  <span>{changeText(c, nameOf)}</span>
+                  <span><ItemHover itemId={c.item_id}>{changeText(c, nameOf)}</ItemHover></span>
                   <span className="small muted">{nameOf(c.by)} · {owner(c.owner)} · {when(c.at)}</span>
                 </div>
                 <span className="row" style={{ gap: 4 }}>

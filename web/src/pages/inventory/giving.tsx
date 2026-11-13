@@ -8,7 +8,7 @@ import { coins, parseCoins, when } from '../../lib/format.ts';
 import { ErrorBox, Field, Modal, useAction } from '../../ui/index.tsx';
 
 export interface Item {
-  id: string; owner: string; name: string; qty: number; note: string; link: string | null; image?: string | null; weight?: number | null;
+  id: string; owner: string; name: string; qty: number; note: string; link: string | null; pageId?: string | null; image?: string | null; weight?: number | null;
   updated_at: string; updated_by: string; status?: 'approved' | 'pending'; dm_note?: string;
   pendingChange?: { id: string; kind: 'add' | 'edit' | 'remove'; by: string; to?: Partial<Item> };
 }
