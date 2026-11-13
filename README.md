@@ -39,6 +39,17 @@ see [docs/HOSTING.md](docs/HOSTING.md).
 Development: `npm run dev:librarian` and `npm run dev:web`. Vite serves
 the app on :5173 and passes API calls to the librarian.
 
+## Try the demo
+
+```bash
+cd web && npm install && npm run build && cd ..
+npm install
+node --experimental-strip-types librarian/scripts/demo.ts
+```
+
+This starts a made-up world with fake models (no GPU needed), then prints
+sign-ins for the gateway admin, the DM and three players.
+
 ## Who can see what
 
 - **Admin** is the plumbing: accounts, worlds, sources. It opens no world's
