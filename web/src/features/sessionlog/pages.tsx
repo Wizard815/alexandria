@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Field, Markdown, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 
+/** "Session 3: Title", unless the title already names the session. */
+const entryLabel = (n: number, title: string) => (/^session\b/i.test(title.trim()) ? title : `Session ${n}: ${title}`);
+
 interface Entry { id: string; number: number; title: string; summary: string; sessionAt: string; worldFrom: string; worldTo: string; published: boolean; publishedAt: string; draftId?: string }
 interface Proposal { minutes: number; reason: string; travel?: { from: string; to: string; days: number; route: string }; rests?: { kind: string; minutesIn?: number }[] }
 interface Draft {
@@ -31,7 +34,7 @@ export function SessionLogPlayer() {
       {cur ? (
         <article className="card stack">
           <button className="btn small" onClick={() => setSel(null)}>All sessions</button>
-          <h2 style={{ margin: 0 }}>Session {cur.number}: {cur.title}</h2>
+          <h2 style={{ margin: 0 }}>{entryLabel(cur.number, cur.title)}</h2>
           <div className="small muted">{day(cur.sessionAt)} · in the world: {span(cur)}</div>
           <Markdown text={cur.summary} />
         </article>
@@ -39,7 +42,7 @@ export function SessionLogPlayer() {
         <div className="card flush list">
           {list.data.map((e) => (
             <button key={e.id} type="button" className="list-item" onClick={() => setSel(e.id)}>
-              <span className="stack tight grow"><strong>Session {e.number}: {e.title}</strong><span className="tiny muted">{day(e.sessionAt)} · {span(e)}</span></span>
+              <span className="stack tight grow"><strong>{entryLabel(e.number, e.title)}</strong><span className="tiny muted">{day(e.sessionAt)} · {span(e)}</span></span>
             </button>
           ))}
         </div>
@@ -94,7 +97,7 @@ export function SessionLogDM() {
             <h3 style={{ margin: 0, padding: '12px 14px' }}>Published</h3>
             {(entries.data ?? []).length ? entries.data!.map((e) => (
               <div key={e.id} className="list-item">
-                <span className="stack tight grow"><strong>Session {e.number}: {e.title}</strong><span className="tiny muted">{span(e)}{e.published ? '' : ' · unpublished'}</span></span>
+                <span className="stack tight grow"><strong>{entryLabel(e.number, e.title)}</strong><span className="tiny muted">{span(e)}{e.published ? '' : ' · unpublished'}</span></span>
                 {e.published && <button className="btn small" disabled={act.busy} onClick={() => void unpublish(e.id)}>Unpublish</button>}
                 {!e.published && e.draftId && <button className="btn small" onClick={() => setSel(e.draftId!)}>Open draft</button>}
               </div>
