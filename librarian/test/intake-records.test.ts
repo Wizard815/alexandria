@@ -231,7 +231,7 @@ test('TestIntakeRecords_MapBlockFailsClosedInThePlayerGuard', () => {
 // ---------- Capabilities and push (HTTP) ----------
 
 async function boot(env: Record<string, string> = {}, fetchImpl?: typeof fetch) {
-  const made = createApp({ env, noScheduler: true, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
+  const made = createApp({ env: { ALX_ADMIN_TABLE_LOGIN: '1', ...env }, noScheduler: true, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
   const server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
