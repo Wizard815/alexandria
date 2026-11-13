@@ -6,7 +6,7 @@ import { createApp } from '../src/app.ts';
 import { AlexandriaClient } from '../../packages/client/src/AlexandriaClient.ts';
 
 test('TestClient_PlayerFlowEndToEnd', async () => {
-  const { app } = createApp({ env: {}, noScheduler: true });
+  const { app } = createApp({ env: { ALX_ADMIN_TABLE_LOGIN: '1' }, noScheduler: true });
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

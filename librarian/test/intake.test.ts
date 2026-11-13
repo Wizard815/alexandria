@@ -61,7 +61,7 @@ test('TestIntake_GenericApiConnectorMapsAndFailsClosed', async () => {
     return new Response(JSON.stringify({ data: items }), { headers: { 'Content-Type': 'application/json' } });
   }) as typeof fetch;
   const cfg = { transport: 'http', url: 'https://api.example.com/items', paging: 'page', itemsPath: 'data', idField: 'id', titleField: 'name', bodyField: 'html', bodyFormat: 'html', tagsField: 'tags', visibilityField: 'private', sharedValues: 'false' };
-  genericApi.validate(cfg, { vaultsDir: null, env: {} });
+  genericApi.validate(cfg, { vaultsDir: null, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
   const ctx: any = { fetch: fakeFetch, env: {}, signal: new AbortController().signal, log: () => {}, shareVisible: true, mcp: () => { throw new Error('no'); } };
   const got = [];
   for await (const e of genericApi.sync(cfg, ctx)) got.push(e);
@@ -72,7 +72,7 @@ test('TestIntake_GenericApiConnectorMapsAndFailsClosed', async () => {
 });
 
 test('TestIntake_AdminConnectorsTestAndBackgroundSync', async () => {
-  const { app } = createApp({ env: {}, noScheduler: true, fetch: (async () => new Response(JSON.stringify([{ id: 'a', title: 'Alpha', body: '# Alpha\nText', vis: 'public' }]), { headers: { 'Content-Type': 'application/json' } })) as typeof fetch });
+  const { app } = createApp({ env: { ALX_ADMIN_TABLE_LOGIN: '1' }, noScheduler: true, fetch: (async () => new Response(JSON.stringify([{ id: 'a', title: 'Alpha', body: '# Alpha\nText', vis: 'public' }]), { headers: { 'Content-Type': 'application/json' } })) as typeof fetch });
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
