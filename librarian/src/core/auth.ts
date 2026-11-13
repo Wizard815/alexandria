@@ -2,7 +2,8 @@
 // - Passwords: scrypt with a per-account salt.
 // - Sessions and keys: random tokens, stored only as SHA-256 hashes, shown once.
 // - Key prefixes: alx_ses_ (browser session), alx_adm_ (admin key),
-//   alx_scr_ (scribe key, bound to one world).
+//   alx_scr_ (scribe key, bound to one world), alx_ads_ (gateway admin
+//   session, valid only on /api/admin/** and /api/admin-auth/**).
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { type DB, one, run } from './db.ts';
@@ -18,7 +19,7 @@ export interface Account {
 
 export interface Auth {
   account: Account;
-  via: 'session' | 'admin_key' | 'scribe_key';
+  via: 'session' | 'admin_key' | 'scribe_key' | 'admin_session';
   keyWorldId: string | null;
   /** read keys can only read; write keys and sessions are limited by role. */
   access: 'read' | 'write';
@@ -87,8 +88,16 @@ export function createKey(db: DB, accountId: string, scope: 'admin' | 'scribe', 
   return { id: kid, key };
 }
 
-/** Resolve a bearer token (session or API key) to an account. */
-export function resolveToken(db: DB, token: string): Auth | null {
+/** Resolve a bearer token (session or API key) to an account. Admin sessions
+ *  (alx_ads_) resolve only when the caller asks for them, so every other
+ *  consumer (MCP, /v1, join) fails closed. */
+export function resolveToken(db: DB, token: string, opts: { adminSession?: boolean } = {}): Auth | null {
+  if (token.startsWith('alx_ads_')) {
+    if (!opts.adminSession) return null;
+    const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, s.expires_at FROM adminauth_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ?`, sha256(token));
+    if (!row || row.expires_at < now() || !row.is_admin) return null;
+    return { account: { id: row.id, username: row.username, display_name: row.display_name, is_admin: row.is_admin }, via: 'admin_session', keyWorldId: null, access: 'write' };
+  }
   if (token.startsWith('alx_ses_')) {
     const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, s.expires_at FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ?`, sha256(token));
     if (!row || row.expires_at < now()) return null;
@@ -119,11 +128,23 @@ function bearer(req: Request): string | null {
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** The admin-sign-in feature installs a gate on app.locals (see features/adminauth). */
+export interface AdminGate {
+  /** Throws 403 when the request's IP is outside ALX_ADMIN_ALLOW (and audits it). */
+  checkIp(req: Request): void;
+  /** Throws 403 when this caller may not use admin routes (e.g. a table session on a multi-account server). */
+  checkAdmin(auth: Auth): void;
+}
+const gateOf = (req: Request) => req.app.locals.adminGate as AdminGate | undefined;
+const isAdminPath = (req: Request) => /^\/api\/admin(-auth)?(\/|\?|$)/.test(req.originalUrl);
+
 export function authenticate(db: DB) {
   return (req: Request, res: Response, next: NextFunction) => {
+    const onAdmin = isAdminPath(req);
+    if (onAdmin) gateOf(req)?.checkIp(req);
     const tok = bearer(req);
-    const auth = tok ? resolveToken(db, tok) : null;
-    if (!auth) throw new HttpError(401, 'Sign in first');
+    const auth = tok ? resolveToken(db, tok, { adminSession: onAdmin }) : null;
+    if (!auth) throw new HttpError(tok?.startsWith('alx_ads_') && !onAdmin ? 403 : 401, tok?.startsWith('alx_ads_') && !onAdmin ? 'Admin sessions only work on admin pages' : 'Sign in first');
     if (auth.access === 'read' && !READ_METHODS.has(req.method)) throw new HttpError(403, 'This key is read-only');
     res.locals.auth = auth;
     next();
@@ -134,6 +155,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const auth = res.locals.auth as Auth;
   // Scribe keys never carry admin rights, even on an admin's account.
   if (!auth.account.is_admin || auth.via === 'scribe_key') throw new HttpError(403, 'Admins only');
+  gateOf(req)?.checkAdmin(auth);
   next();
 }
 

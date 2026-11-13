@@ -71,6 +71,7 @@ export function Login() {
         <ErrorBox error={a.error} />
         <button className="btn primary" disabled={a.busy}>Sign in</button>
         <div className="row between small"><Link to="/join">I have an invite code</Link><Link to="/reset">I have a reset code</Link></div>
+        <p className="tiny muted" style={{ textAlign: 'center' }}><Link to="/admin/login">Gateway admin</Link></p>
       </form>
     </Frame>
   );
