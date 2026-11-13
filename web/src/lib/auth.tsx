@@ -106,3 +106,14 @@ export function useAuth() {
   if (!v) throw new Error('useAuth outside AuthProvider');
   return v;
 }
+
+/**
+ * Re-provides the auth state with another client, for the gateway admin
+ * pages: they use an admin session (its own token, stored under its own key)
+ * and never touch the table session.
+ */
+export function AuthScope({ client, me, signOut, refresh, children }: { client: AlexandriaClient; me: Me; signOut: () => Promise<void>; refresh: () => Promise<void>; children: ReactNode }) {
+  const parent = useAuth();
+  const value = useMemo<AuthState>(() => ({ ...parent, client, me, signOut, refresh }), [parent, client, me, signOut, refresh]);
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
