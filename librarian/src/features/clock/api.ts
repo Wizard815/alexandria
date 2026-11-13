@@ -379,7 +379,7 @@ export function upcoming(db: DB, worldId: string, role: Role, days: number) {
 export interface SourceCalendar { sourceId: string; externalId: string; name: string; definition: CalendarDef | null; current: { year: number; month: number; day: number } | null }
 export function sourceCalendars(db: DB, worldId: string): SourceCalendar[] {
   try {
-    const rows = all<any>(db, 'SELECT source_id, external_id, name, definition, visibility, current FROM intake_calendars WHERE world_id = ?', worldId);
+    const rows = all<any>(db, 'SELECT source_id, external_id, name, definition, visibility, current FROM intake_calendars WHERE world_id = ? ORDER BY name COLLATE NOCASE, external_id', worldId);
     return rows.map((r) => {
       let definition: CalendarDef | null = null;
       try { definition = normalizeCalendar(JSON.parse(r.definition)); } catch { /* unusable calendar: listed but not selectable */ }

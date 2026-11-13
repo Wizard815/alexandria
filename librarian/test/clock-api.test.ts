@@ -287,7 +287,7 @@ test('TestClock_SourceCalendarsAndTheTypedModule', async () => {
   run(deps.db, 'INSERT INTO intake_calendars VALUES (?,?,?,?,?,?,?)', W, 'src1', 'cal9', 'Imported', JSON.stringify(def), 'party', JSON.stringify({ year: 512, month: 2, day: 7 }));
   run(deps.db, 'INSERT INTO intake_calendars VALUES (?,?,?,?,?,?,?)', W, 'src1', 'bad', 'Broken', '{not json', 'dm', null);
   const d = await ok('GET', C(), T.dm);
-  assert.deepEqual(d.sources.map((s: any) => [s.externalId, s.usable]), [['cal9', true], ['bad', false]]);
+  assert.deepEqual(d.sources.map((s: any) => [s.externalId, s.usable]), [['bad', false], ['cal9', true]], 'sorted by name: Broken, Imported');
   assert.equal((await ok('GET', C(), T.jess)).sources, undefined, 'players are never shown source lists');
   assert.equal((await call('PUT', C() + '/calendar', T.dm, { source: { sourceId: 'src1', externalId: 'bad' } })).status, 400);
   assert.equal((await call('PUT', C() + '/calendar', T.dm, { source: { sourceId: 'src1', externalId: 'zzz' } })).status, 404);
