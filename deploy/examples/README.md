@@ -10,6 +10,9 @@ Compose merges it on top.
 | [`../.env.example`](../.env.example) | Settings for the server setup in `deploy/` |
 | [`../docker-compose.override.example.yml`](../docker-compose.override.example.yml) | Change the server setup: prebuilt image, memory limits, log rotation |
 | [`ollama.override.yml`](ollama.override.yml) | Run a local model next to Alexandria |
+| [`argos.override.yml`](argos.override.yml) | Point chat, audit and embeddings at an Argos (llama-server) on another machine |
+| [`whisper.override.yml`](whisper.override.yml) | Run a faster-whisper server for speech to text (the audio job) |
+| [`kokoro.override.yml`](kokoro.override.yml) | Run a Kokoro server for text to speech (the voice job) |
 | [`kanka-stdio.override.yml`](kanka-stdio.override.yml) | Build the `with-kanka` image and run mcp-kanka inside it |
 | [`mcp-stdio.example.json`](mcp-stdio.example.json) | The shape of `ALX_MCP_STDIO` |
 | [`data-folder.override.yml`](data-folder.override.yml) | Keep data in a host folder instead of a Docker volume |
