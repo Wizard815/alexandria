@@ -28,7 +28,9 @@ curl -X POST localhost:8090/api/admin/sources/$SOURCE/sync -H "Authorization: Be
 
 ## Read-only
 
-A source only calls read tools: `find_entities`, `get_entities`,
+A source only calls read tools (the one exception is the WorldLore workspace, which
+may also call `create_entities`, `update_entities` and `delete_entities` on a Kanka
+note or journal tree; see docs/CONNECTORS.md): `find_entities`, `get_entities`,
 `search_entities`, `list_projects`, `browse_tree`, `get_resource`,
 `read_document`, `search`, `list_tags`, and `api_request` with `GET` only.
 Any other call is refused before it is sent. LegendKeeper keys can be

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Field, Loading, useAction, useToast } from '../../ui/index.tsx';
-import { LEVEL_LABEL, type LoreOptions, type LoreState } from './shared.ts';
+import { LEVEL_LABEL, type LoreOptions, type LoreRoot, type LoreState } from './shared.ts';
 
 export default function WorldLoreSettings() {
   const { w } = useWorld();
@@ -13,6 +13,8 @@ export default function WorldLoreSettings() {
   const [pick, setPick] = useState('');
   const [level, setLevel] = useState<'dm' | 'broker' | 'party'>('dm');
   const [url, setUrl] = useState('');
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<{ source: string; roots: LoreRoot[] } | null>(null);
 
   if (!st.data) return <Loading />;
   const cur = st.data;
@@ -22,6 +24,13 @@ export default function WorldLoreSettings() {
     if (!pick) return;
     void save(kind === 'library' ? { kind: 'library', root: 'WorldLore', defaultLevel: level } : { kind: 'source', sourceId: sid, root, defaultLevel: level, ...(url.trim() ? { url: url.trim() } : {}) }, 'WorldLore is on');
   };
+
+  const kanka = opts.data?.sources.find((s) => s.kind.startsWith('kanka'));
+  const search = () => kanka && q.trim() && act.run(async () => {
+    const r = await w.call('GET', `/worldlore/options/search?source=${encodeURIComponent(kanka.id)}&q=${encodeURIComponent(q.trim())}`) as { roots: LoreRoot[] };
+    setFound({ source: kanka.id, roots: r.roots });
+  });
+  const rootLabel = (r: LoreRoot) => `${r.title}${r.folder ? ' (folder)' : r.kind ? ` (${r.kind})` : ''}`;
 
   return (
     <section className="card stack">
@@ -43,17 +52,27 @@ export default function WorldLoreSettings() {
       <h3 style={{ margin: 0 }}>{cur.enabled ? 'Change the workspace' : 'Choose the workspace'}</h3>
       {!opts.data ? <Loading /> : (
         <>
-          <Field label="Where" help="A LegendKeeper folder or page, a Markdown folder, or the WorldLore folder of the library.">
+          <Field label="Where" help="A LegendKeeper folder or page, a Kanka note or journal, a Markdown folder, or the WorldLore folder of the library.">
             <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Workspace">
               <option value="">Pick one…</option>
               <option value={`library|-|${opts.data.library.root}`}>Library: {opts.data.library.root}/ folder</option>
               {opts.data.sources.map((s) => (
                 <optgroup key={s.id} label={`${s.name} (${s.label})${s.error ? ` – ${s.error}` : ''}`}>
-                  {s.roots.map((r) => <option key={r.id} value={`source|${s.id}|${r.id}`}>{r.title}{r.folder ? ' (folder)' : ''}</option>)}
+                  {s.roots.map((r) => <option key={r.id} value={`source|${s.id}|${r.id}`}>{rootLabel(r)}</option>)}
+                  {found?.source === s.id && found.roots.filter((r) => !s.roots.some((x) => x.id === r.id)).map((r) => <option key={r.id} value={`source|${s.id}|${r.id}`}>{rootLabel(r)}</option>)}
                 </optgroup>
               ))}
             </select>
           </Field>
+          {kanka && (
+            <Field label={`Find a ${kanka.label.split(' ')[0]} note or journal`} help="The home page is one Kanka note or journal; the AI makes its pages under it, of the same type. Search by name for one that is not at the top.">
+              <div className="row" style={{ gap: 8 }}>
+                <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void search(); }} placeholder="Name…" aria-label="Search Kanka" />
+                <button type="button" className="btn" disabled={act.busy || !q.trim()} onClick={() => void search()}>Search</button>
+              </div>
+              {found && !found.roots.length && <span className="small muted">Nothing found.</span>}
+            </Field>
+          )}
           <Field label="New pages are">
             <select value={level} onChange={(e) => setLevel(e.target.value as 'dm' | 'broker' | 'party')} aria-label="Default level">
               {(['dm', 'broker', 'party'] as const).map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
