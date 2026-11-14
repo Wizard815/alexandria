@@ -26,7 +26,7 @@ async function softFn(name: string, specs: string[]): Promise<((...a: any[]) => 
   for (const s of specs) { const m = await soft(s); if (m && typeof m[name] === 'function') return m[name]; }
   return null;
 }
-const QUICKGEN = ['../quickgen/index.ts', '../quickgen/api.ts'];
+import { genNames as qgNames, genItems as qgItems, genCoins as qgCoins } from '../quickgen/api.ts';
 
 // ---- local generators ----
 const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
@@ -36,16 +36,13 @@ const C = ['dric', 'wen', 'ra', 'mund', 'thas', 'lin', 'na', 'ric', 'vik', 'sa',
 const SURN = ['Ashby', 'Brightwater', 'Cobb', 'Dunmere', 'Fairweather', 'Greyfield', 'Hollis', 'Marsh', 'Thorne', 'Whitlock'];
 const localName = (): string => `${pick(A)}${pick(B)}${pick(C)} ${pick(SURN)}`;
 
-async function genName(): Promise<{ name: string; race?: string } | null> {
-  const f = await softFn('genNames', QUICKGEN);
-  if (f) {
-    try {
-      let r = await f({ count: 1 });
-      if (Array.isArray(r)) r = r[0];
-      if (typeof r === 'string' && r.trim()) return { name: r.trim() };
-      if (r && typeof r.name === 'string' && r.name.trim()) return { name: r.name.trim(), race: typeof r.race === 'string' ? r.race : undefined };
-    } catch { /* use the local names */ }
-  }
+/** A name from quick gen, using the race and gender fields when they are filled. */
+function genName(race: string, gender: string): { name: string; race?: string } {
+  try {
+    const r = qgNames({ race: race.trim().toLowerCase() || 'any', gender: gender.trim().toLowerCase() || 'any', count: 1 });
+    const n = r.names[0];
+    if (n?.name) return { name: n.name, race: n.race };
+  } catch { /* unknown race or gender: plain name */ }
   return { name: localName() };
 }
 
@@ -62,25 +59,30 @@ export function fmtCp(cp: number): string {
   if (cp >= 10 && cp % 10 === 0) return `${cp / 10} sp`;
   return `${Math.max(1, Math.round(cp))} cp`;
 }
-async function genStock(kind: string, price: string): Promise<string> {
+/** What each kind of shop stocks, in quick gen terms. */
+const SHOP_STOCK: Record<string, { rarity: string; type: string }[]> = {
+  smith: [{ rarity: 'mundane', type: 'weapon' }, { rarity: 'mundane', type: 'armor' }],
+  alchemist: [{ rarity: 'common', type: 'potion' }, { rarity: 'uncommon', type: 'potion' }],
+  general: [{ rarity: 'mundane', type: 'gear' }],
+  magic: [{ rarity: 'common', type: 'any' }, { rarity: 'uncommon', type: 'any' }],
+};
+function genStock(db: any, worldId: string, kind: string, price: string): string {
   const k = kind.toLowerCase();
-  const f = await softFn('genItems', QUICKGEN);
-  if (f) {
-    try {
-      const r = await f({ kind: k, count: 7 });
-      if (Array.isArray(r) && r.length) {
-        const lines = r.map((x: any) => (typeof x === 'string' ? x : x?.name ? `${x.name}${x.price ? ` — ${x.price}` : ''}` : '')).filter(Boolean);
-        if (lines.length) return lines.map((l: string) => `- ${l}`).join('\n');
-      }
-    } catch { /* use the local lists */ }
-  }
-  const table = STOCK[k] ?? STOCK.general;
   const m = MULT[price.toLowerCase()] ?? 1;
-  const chosen = [...table].sort(() => Math.random() - 0.5).slice(0, 7);
-  return chosen.map(([n, cp]) => `- ${n} — ${fmtCp(cp * m)}`).join('\n');
+  const lines: string[] = [];
+  for (const want of SHOP_STOCK[k] ?? SHOP_STOCK.general) {
+    try {
+      for (const it of qgItems(db, worldId, { ...want, count: 4 }).items) if (it.priceGp != null) lines.push(`- ${it.name} — ${fmtCp(it.priceGp * 100 * m)}`);
+    } catch { /* that rarity/type has nothing in this world's modules */ }
+  }
+  if (lines.length) return [...new Set(lines)].slice(0, 8).join('\n');
+  const table = STOCK[k] ?? STOCK.general;
+  return [...table].sort(() => Math.random() - 0.5).slice(0, 7).map(([n, cp]) => `- ${n} — ${fmtCp(cp * m)}`).join('\n');
 }
 const genItem = (kind: string): string => pick(STOCK[kind.toLowerCase()] ?? STOCK.general)[0];
-const genCoins = (): string => `${pick([5, 10, 25, 50, 75, 100, 250, 500])} gp`;
+function genCoins(level: string, coinSetting: string): string {
+  try { return qgCoins({ mode: 'individual', level: Number(level) || 3, coins: coinSetting }).text; } catch { return `${pick([5, 10, 25, 50, 100])} gp`; }
+}
 
 // ---- rendering ----
 const keysIn = (s: string): string[] => [...s.matchAll(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g)].map((m) => m[1]);
@@ -205,13 +207,13 @@ export async function sculpt(d: Deps, worldId: string, worldName: string, tpl: T
     if (f.gen === 'clock') {
       const c = await softFn('getClock', ['../clock/api.ts']);
       try { v = c ? String(c(d.db, worldId)?.label ?? '') : ''; } catch { v = ''; }
-    } else if (f.gen === 'stock') v = await genStock(values.kind || (tpl.fields.find((x) => x.key === 'kind')?.options?.[0] ?? 'general'), values.price || 'fair');
+    } else if (f.gen === 'stock') v = genStock(d.db, worldId, values.kind || (tpl.fields.find((x) => x.key === 'kind')?.options?.[0] ?? 'general'), values.price || 'fair');
     else if (f.type === 'name') {
-      const g = await genName();
+      const g = genName(values.race ?? '', values.gender ?? '');
       v = g?.name ?? '';
-      if (g?.race && tpl.fields.some((x) => x.key === 'race') && !values.race.trim() && !locked.has('race') && !only) { values.race = g.race; filled.push('race'); }
+      if (g?.race && g.race !== 'any' && tpl.fields.some((x) => x.key === 'race') && !values.race.trim() && !locked.has('race') && !only) { values.race = g.race; filled.push('race'); }
     } else if (f.type === 'item') v = genItem(values.kind || '');
-    else if (f.type === 'coins') v = genCoins();
+    else if (f.type === 'coins') v = genCoins(values.level ?? values.cr ?? '', String((d.db.prepare('SELECT settings FROM worlds WHERE id = ?').get(worldId) as any)?.settings?.match(/"coins":"(\w+)"/)?.[1] ?? 'gsc'));
     if (v) { values[f.key] = v; filled.push(f.key); }
   }
 
