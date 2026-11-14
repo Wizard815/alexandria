@@ -1,22 +1,41 @@
-# Point the chat, audit and embeddings jobs at an Argos server (or any
-# llama-server / OpenAI-compatible endpoint) running on another machine.
+# Point every model job at one Argos server (your own model gateway) on
+# another machine. Argos answers chat, embeddings, speech to text, text to
+# speech and rerank at one address and routes each request by model name.
+#
 # Set ARGOS_URL in deploy/.env, e.g. ARGOS_URL=http://192.168.1.50:8080/v1
 #   docker compose -f deploy/docker-compose.yml -f deploy/examples/argos.override.yml \
 #     --env-file deploy/.env up -d
-# Settings saved in Admin → Models win over these. Keep API keys in
-# deploy/.env (ARGOS_API_KEY), never in this file.
+#
+# Easier: skip this file, open Admin -> Models, paste the Argos address in the
+# Argos card and press Discover. It lists the models, shows which are loaded
+# and suggests a model per job (see docs/MODELS.md, "Argos (one link for
+# everything)"). Providers and jobs saved there win over these variables.
+#
+# Keep API keys in deploy/.env (ARGOS_API_KEY, only needed if Argos has
+# apiKeys set), never in this file. Rerank is off unless ARGOS_RERANK_MODEL
+# is set.
 services:
   alexandria:
     environment:
       ALX_MODEL_CHAT_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
       ALX_MODEL_CHAT_MODEL: ${ARGOS_CHAT_MODEL:-chat}
       ALX_MODEL_CHAT_KEY: ${ARGOS_API_KEY:-}
-      ALX_MODEL_AUDIT_URL: ${ARGOS_AUDIT_URL:-${ARGOS_URL:-http://host.docker.internal:8081/v1}}
+      ALX_MODEL_AUDIT_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
       ALX_MODEL_AUDIT_MODEL: ${ARGOS_AUDIT_MODEL:-audit}
       ALX_MODEL_AUDIT_KEY: ${ARGOS_API_KEY:-}
+      ALX_MODEL_AUDIO_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
+      ALX_MODEL_AUDIO_MODEL: ${ARGOS_AUDIO_MODEL:-whisper}
+      ALX_MODEL_AUDIO_KEY: ${ARGOS_API_KEY:-}
+      ALX_MODEL_VOICE_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
+      ALX_MODEL_VOICE_MODEL: ${ARGOS_VOICE_MODEL:-kokoro}
+      ALX_MODEL_VOICE_KEY: ${ARGOS_API_KEY:-}
       ALX_MODEL_EXTRA_URL: ${ARGOS_URL:-http://host.docker.internal:8080/v1}
       ALX_MODEL_EXTRA_MODEL: ${ARGOS_EMBED_MODEL:-embed}
       ALX_MODEL_EXTRA_KEY: ${ARGOS_API_KEY:-}
+      # Optional: reorders library search results. An empty URL leaves it off.
+      ALX_MODEL_RERANK_URL: ${ARGOS_RERANK_MODEL:+${ARGOS_URL:-http://host.docker.internal:8080/v1}}
+      ALX_MODEL_RERANK_MODEL: ${ARGOS_RERANK_MODEL:-}
+      ALX_MODEL_RERANK_KEY: ${ARGOS_API_KEY:-}
     # Lets "host.docker.internal" reach the machine running Docker on Linux.
     extra_hosts:
       - "host.docker.internal:host-gateway"
