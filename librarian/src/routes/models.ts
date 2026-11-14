@@ -5,13 +5,17 @@ import { Router, type Request, type Response } from 'express';
 import { Readable } from 'node:stream';
 import type { Deps } from '../app.ts';
 import { HttpError } from '../core/util.ts';
-import { jobConfig, type Job } from '../core/ai.ts';
+import { ClassifiedRefused, jobConfig, leafStrings, screenOutgoing, type Job } from '../core/ai.ts';
 
 export default function modelRoutes(d: Deps) {
   const r = Router();
   async function pass(req: Request, res: Response, path: string, method: 'GET' | 'POST', job: Job = 'chat') {
     const c = jobConfig(d, job);
     if (!c) throw new HttpError(503, `No model endpoint set for "${job}": Admin → Models, or MODEL_BASE_URL (or OPENAI_BASE_URL / LOCAL_LLM_URL)`);
+    // The gateway is a way to a model like any other: classified text never goes through it.
+    if (method === 'POST') {
+      try { screenOutgoing(d, job, leafStrings(req.body)); } catch (err) { if (err instanceof ClassifiedRefused) throw new HttpError(422, err.message); throw err; }
+    }
     const url = c.baseUrl;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (c.apiKey) headers.Authorization = `Bearer ${c.apiKey}`;
