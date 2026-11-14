@@ -31,7 +31,8 @@ curl -X POST localhost:8090/api/setup -H 'Content-Type: application/json' \
 Docker: `docker compose up -d --build` (data in `./data`, vaults mounted
 read-only from `./vaults`).
 
-Checks: `npm run check` (types) and `npm test` (end-to-end API tests,
+Checks: `npm run check` (types) and `npm test` (end-to-end API tests, the
+leak crawler described in `docs/SECURITY.md`,
 mostly about leaks).
 
 ## How nothing DM-only reaches a player
