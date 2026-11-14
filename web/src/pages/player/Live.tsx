@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins } from '../../lib/format.ts';
 import { AlertsCard, useMine } from '../broker/shared.tsx';
+import StageBoard, { useStage } from '../../features/stage/StageBoard.tsx';
 import { PageHead, Loading, ErrorBox, Empty, useAction } from '../../ui/index.tsx';
 
 const PLACES = ['At the table', 'Discord', 'On the phone', 'Running late'];
@@ -25,6 +26,8 @@ export default function PlayerLive() {
   const { w, me, info } = useWorld();
   const live = useLoad(() => w.live() as Promise<LiveView>, [w], ['presence', 'coin', 'combat', 'settings', 'approval']);
   const mine = useMine();
+  const stage = useStage();
+  const stageCombat = !!stage.data?.cards.some((c) => c.kind === 'combat');
   const act = useAction();
   const [place, setPlace] = useState(PLACES[0]);
   const mode = info.settings.coins;
@@ -40,7 +43,8 @@ export default function PlayerLive() {
       {d && (
         <div className="cols">
           <div className="col-3 stack loose">
-            <CombatPanel c={d.combat} />
+            <StageBoard embedded />
+            {!stageCombat && <CombatPanel c={d.combat} />}
             {d.captions && <div className="note">Live captions show here when the DM turns on transcription for this session.</div>}
           </div>
           <aside className="col-1 stack loose">
