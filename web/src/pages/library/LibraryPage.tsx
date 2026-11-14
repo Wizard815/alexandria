@@ -16,6 +16,8 @@ import { Blocks, Facts, Icon, LIB_CSS, type RenderCtx } from './Blocks.tsx';
 import { Tree, TREE_CSS, type PageRow } from './Tree.tsx';
 import { Editor, SecretHint } from './Editor.tsx';
 import { AskModal } from './AskModal.tsx';
+import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
+import '../../features/search/search.css';
 
 type Side = 'pages' | 'saved' | 'lint';
 type Sort = 'tree' | 'recent' | 'title';
@@ -154,7 +156,7 @@ export default function LibraryPage() {
                   <div className="tiny faint">Text matches ({hits.length})</div>
                   {hits.length ? hits.slice(0, 50).map((h) => (
                     <button key={h.id} type="button" className={`list-item${selected === h.id ? ' active' : ''}`} onClick={() => open(h.id)}>
-                      <span className="stack tight grow" style={{ minWidth: 0 }}><strong>{h.title}</strong><span className="tiny muted">{h.snippet}</span></span>
+                      <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="sx-snip" dangerouslySetInnerHTML={{ __html: h.titleHtml !== undefined ? safeMarks(h.titleHtml) : escapeHtml(h.title) }} /><span className="tiny muted sx-snip" dangerouslySetInnerHTML={{ __html: snippetOf(h) }} /></span>
                     </button>
                   )) : <span className="small muted">No text matches.</span>}
                   {list.length > 0 && <div className="tiny faint" style={{ marginTop: 6 }}>Titles</div>}

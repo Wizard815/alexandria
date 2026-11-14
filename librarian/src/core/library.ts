@@ -11,6 +11,7 @@ import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkd
 import { playerBlocks, playerProperties } from '../intake/player.ts';
 import { createHash } from 'node:crypto';
 import { HttpError, id, now } from './util.ts';
+import { type PageHit, dmOnlyAliases, factsText, indexPage, playerAliases, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
 
 export interface PageInput {
   path: string;
@@ -116,7 +117,7 @@ export class Library {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'markdown', ?, ?, ?, ?, ?, ?, ?)`,
           pid, worldId, p, title, visibility, JSON.stringify(fm), body, JSON.stringify(markdownToBlocks(body)), JSON.stringify(tags), JSON.stringify(aliases), ['common', 'local', 'deep'].includes(k) ? k : null, input.sourceId ?? null, JSON.stringify(p.split('/').slice(0, -1)), now(), by);
       }
-      this.reindexDm(worldId, pid, title, body);
+      this.reindexDm(worldId, pid, title, body, [...aliases, ...dmOnlyAliases(fm)], '');
       this.saveRelations(worldId, pid, title, fm, visibility);
     });
     if (!opts.batch) {
@@ -158,7 +159,7 @@ export class Library {
         run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, updated_at, updated_by, id, world_id, path, source_id, external_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
-      this.reindexDm(worldId, pid, title, body);
+      this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
     return { id: pid!, path: p };
@@ -169,8 +170,8 @@ export class Library {
     const gone = all<any>(this.db, 'SELECT id, path, external_id FROM pages WHERE world_id = ? AND source_id = ? AND external_id IS NOT NULL', worldId, sourceId).filter((r) => !seen.has(r.external_id));
     tx(this.db, () => {
       for (const g of gone) {
-        run(this.db, 'DELETE FROM fts_dm WHERE page_id = ?', g.id);
-        run(this.db, 'DELETE FROM fts_party WHERE page_id = ?', g.id);
+        unindexPage(this.db, 'dm', g.id);
+        unindexPage(this.db, 'party', g.id);
         run(this.db, 'DELETE FROM pages WHERE id = ?', g.id);
       }
     });
@@ -179,10 +180,10 @@ export class Library {
     return gone.length;
   }
 
-  private reindexDm(worldId: string, pid: string, title: string, body: string) {
-    run(this.db, 'DELETE FROM fts_dm WHERE page_id = ?', pid);
-    run(this.db, 'DELETE FROM fts_party WHERE page_id = ?', pid);
-    run(this.db, 'INSERT INTO fts_dm (page_id, world_id, title, body) VALUES (?, ?, ?, ?)', pid, worldId, title, body);
+  /** The DM index follows every save. The party index is dropped until rebuildPlayerCopies re-adds the page. */
+  private reindexDm(worldId: string, pid: string, title: string, body: string, aliases: string[], facts: string) {
+    unindexPage(this.db, 'party', pid);
+    indexPage(this.db, 'dm', pid, worldId, title, aliases, body, facts);
   }
 
   private saveRelations(worldId: string, pid: string, title: string, fm: FM, visibility: string) {
@@ -232,11 +233,11 @@ export class Library {
     const hidden = this.hiddenTitles(worldId);
     const R = this.resolver(worldId);
     const sel = only?.length ? `AND id IN (${only.map(() => '?').join(',')})` : '';
-    const pages = all<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, properties, source_id FROM pages WHERE world_id = ? ${sel}`, worldId, ...(only ?? []));
+    const pages = all<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, properties, source_id, aliases FROM pages WHERE world_id = ? ${sel}`, worldId, ...(only ?? []));
     tx(this.db, () => {
-      if (!only?.length) run(this.db, 'DELETE FROM fts_party WHERE world_id = ?', worldId);
+      if (!only?.length) unindexWorld(this.db, 'party', worldId);
       for (const pg of pages) {
-        if (only?.length) run(this.db, 'DELETE FROM fts_party WHERE page_id = ?', pg.id);
+        if (only?.length) unindexPage(this.db, 'party', pg.id);
         const fm = JSON.parse(pg.frontmatter || '{}');
         const isHidden = (m: Mention) => {
           const t = R.find(m, pg.source_id);
@@ -267,7 +268,7 @@ export class Library {
         }
         run(this.db, 'UPDATE pages SET player_frontmatter = ?, player_body = ?, player_blocks = ?, player_properties = ? WHERE id = ?',
           pFm ? JSON.stringify(pFm) : null, pBody, pBlocks ? JSON.stringify(pBlocks) : null, pProps ? JSON.stringify(pProps) : null, pg.id);
-        if (pBody !== null) run(this.db, 'INSERT INTO fts_party (page_id, world_id, title, body) VALUES (?, ?, ?, ?)', pg.id, worldId, pg.title, pBody);
+        if (pBody !== null) indexPage(this.db, 'party', pg.id, worldId, pg.title, playerAliases(pg.origin, pFm, JSON.parse(pg.aliases || '[]'), hidden), pBody, factsText(pProps ?? []));
         this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pBody !== null ? { fm: pFm ?? {}, body: pBody, blocks: pBlocks, properties: pProps } : null);
       }
     });
@@ -277,8 +278,8 @@ export class Library {
     const pg = one<{ path: string }>(this.db, 'SELECT path FROM pages WHERE id = ? AND world_id = ?', pageId, worldId);
     if (!pg) throw new HttpError(404, 'Page not found');
     tx(this.db, () => {
-      run(this.db, 'DELETE FROM fts_dm WHERE page_id = ?', pageId);
-      run(this.db, 'DELETE FROM fts_party WHERE page_id = ?', pageId);
+      unindexPage(this.db, 'dm', pageId);
+      unindexPage(this.db, 'party', pageId);
       run(this.db, 'DELETE FROM pages WHERE id = ?', pageId);
     });
     const dir = this.worldDir(worldId);
@@ -330,14 +331,14 @@ export class Library {
     return { ...base, frontmatter: JSON.parse(pg.player_frontmatter || '{}'), body: pg.player_body };
   }
 
-  search(worldId: string, q: string, viewer: Viewer, limit = 20) {
-    const terms = q.match(/[\p{L}\p{N}_]+/gu) ?? [];
-    if (!terms.length) return [];
-    const match = terms.slice(0, 12).map((t) => `"${t}"*`).join(' ');
-    const table = viewer.role === 'dm' ? 'fts_dm' : 'fts_party';
-    return all(this.db, `SELECT f.page_id AS id, p.path, f.title, snippet(${table}, 3, '[', ']', '…', 16) AS snippet
-      FROM ${table} f JOIN pages p ON p.id = f.page_id
-      WHERE ${table} MATCH ? AND f.world_id = ? ORDER BY rank LIMIT ?`, match, worldId, Math.min(limit, 200));
+  /**
+   * Ranked page search (see core/pagesearch.ts). DMs search the DM copy;
+   * everyone else only the player copies. Each hit has id, path, title and
+   * snippet (plain text), plus snippetHtml (escaped HTML with <mark>), titleHtml, score
+   * and matchedOn.
+   */
+  search(worldId: string, q: string, viewer: Viewer, limit = 20): PageHit[] {
+    return searchPages(this.db, worldId, q, viewer.role === 'dm' ? 'dm' : 'party', limit);
   }
 
   relations(worldId: string, viewer: Viewer) {
