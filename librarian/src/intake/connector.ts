@@ -78,6 +78,34 @@ export interface TestResult {
   sample?: unknown;
 }
 
+/** Secrecy level of a page the workspace writes. `classified` is never sent to any AI. */
+export type WriteLevel = 'party' | 'broker' | 'dm' | 'classified';
+
+/** A workspace write was refused (outside the root, name taken, ...). `status` is the HTTP status to answer with. */
+export class WriteRefused extends Error {
+  status: number;
+  constructor(message: string, status = 403) { super(message); this.status = status; }
+}
+
+/**
+ * Write-back, used only by the WorldLore workspace (features/worldlore): the
+ * one part of a source the AI may change. Every method gets the workspace
+ * `root` and must refuse (WriteRefused 403) anything not inside it, checking
+ * the source itself rather than a cache.
+ */
+export interface ConnectorWrite {
+  /** `path` is a file path under the root (Markdown); `parent` is a page id under the root (LegendKeeper). Neither: the root itself. */
+  createPage(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; path?: string; parent?: string | null; title: string; markdown: string; level: WriteLevel }): Promise<{ externalId: string }>;
+  updatePage(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string; title?: string; markdown?: string; level?: WriteLevel }): Promise<{ externalId: string }>;
+  /** `to`: a new parent id (LegendKeeper; null or the root id for the top of the workspace) or a new path under the root (Markdown). */
+  movePage(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string; to: string | null }): Promise<{ externalId: string }>;
+  deletePage(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string }): Promise<void>;
+  /** The page as an entry, to re-sync just that page. Null: not readable (sync the whole source instead). */
+  readPage?(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string }): Promise<Entry | null>;
+  /** Top-level things the DM may pick as the workspace root. */
+  roots?(cfg: Record<string, any>, ctx: ConnectorContext): Promise<{ id: string; title: string; folder?: boolean }[]>;
+}
+
 export interface Connector {
   id: string;
   label: string;
@@ -96,6 +124,8 @@ export interface Connector {
   sync(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<SyncItem>;
   /** The MCP tools this connector may call with these settings (read tools only). */
   readTools?: (cfg: Record<string, any>) => string[];
+  /** Write-back for the WorldLore workspace. Sources without it stay read-only. */
+  write?: ConnectorWrite;
   /** MCP connection settings ({transport, url, token, server}) from this connector's settings. */
   mcpConfig?: (cfg: Record<string, any>) => Record<string, any>;
 }
