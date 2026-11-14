@@ -62,7 +62,7 @@ tone(D('sfx/combat/sword-clash.wav'), 1200, 0.4);
 // ---- fake models, then the librarian --------------------------------------
 
 const models = await startFakeModels(MODELS_PORT);
-const m = `http://127.0.0.1:${MODELS_PORT}/v1`;
+const m = `http://127.0.0.1:${MODELS_PORT}/v1`; // the fake server answers like Argos: one address for every job
 Object.assign(process.env, {
   LIBRARIAN_PORT: String(PORT),
   ALX_DATA_DIR: DATA,
@@ -70,11 +70,6 @@ Object.assign(process.env, {
   ALX_PUBLIC_URL: base,
   ALX_RATE_LIMIT: '0',
   ALX_AUDIO_MERGE_MS: '1000',
-  ALX_MODEL_CHAT_URL: m, ALX_MODEL_CHAT_MODEL: 'fake-chat',
-  ALX_MODEL_AUDIT_URL: m, ALX_MODEL_AUDIT_MODEL: 'fake-audit',
-  ALX_MODEL_AUDIO_URL: m, ALX_MODEL_AUDIO_MODEL: 'fake-whisper',
-  ALX_MODEL_VOICE_URL: m, ALX_MODEL_VOICE_MODEL: 'fake-kokoro',
-  ALX_MODEL_EXTRA_URL: m, ALX_MODEL_EXTRA_MODEL: 'fake-embed',
 });
 const { createApp } = await import('../src/app.ts');
 const { app } = createApp({ dbFile: D('librarian.db'), dataDir: DATA, vaultsDir: null, webDir: fs.existsSync(WEB) ? WEB : null, env: process.env });
@@ -103,6 +98,15 @@ console.log('Seeding the demo world…');
 await call('POST', '/api/setup', undefined, { username: 'admin', password: PASS.admin });
 // The gateway admin signs in separately from the table (/admin/login).
 const admin = (await call('POST', '/api/admin-auth/login', undefined, { username: 'admin', password: PASS.admin })).token as string;
+// One Argos provider for every job: add it, press Discover, and give each job the model it suggests.
+await step('Argos provider and Discover assign the model jobs', async () => {
+  const found = await call('POST', '/api/admin/models/discover', admin, { kind: 'argos', baseUrl: m.replace(/\/v1$/, '') });
+  const made = await call('POST', '/api/admin/models/providers', admin, { name: 'Fake Argos', kind: 'argos', baseUrl: m.replace(/\/v1$/, '') });
+  const jobs: Record<string, unknown> = {};
+  for (const [job, s] of Object.entries<any>(found.suggestions)) if (s.model) jobs[job] = { providerId: made.provider.id, model: s.model, enabled: true, ...(job === 'voice' && found.voices?.[0] ? { options: { voice: found.voices[0] } } : {}) };
+  await call('PUT', '/api/admin/models', admin, { jobs });
+  console.log(`    jobs set: ${Object.keys(jobs).join(', ')}`);
+});
 const dmAcc = await call('POST', '/api/admin/accounts', admin, { username: 'dm', password: PASS.dm, displayName: 'The DM' });
 const dm = (await call('POST', '/api/auth/login', undefined, { username: 'dm', password: PASS.dm })).token as string;
 const world = await call('POST', '/api/admin/worlds', admin, { name: 'Saltreach', dmAccountId: dmAcc.account.id });
@@ -316,7 +320,7 @@ Alexandria demo is running: ${base}
   Dungeon Master  ${base}/login         dm / ${PASS.dm}
   Players         ${base}/login         jess, tom, ana / ${PASS.player}
 
-Fake models: ${m} (chat, audit, audio, voice, embeddings)
+Fake models: ${m} as one Argos provider (chat, audit, audio, voice, embeddings, rerank)
 Data folder: ${DATA}
 Press Ctrl+C to stop.`);
 process.on('SIGINT', () => { void models.close?.(); process.exit(0); });
