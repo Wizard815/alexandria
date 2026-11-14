@@ -352,7 +352,7 @@ test('Agent: combat tools through MCP place a creature in initiative and read as
   // Clear the earlier combatants so order is easy to read.
   for (const c of (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants) await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${c.id}`, e.T.dm);
   const add = async (args: any) => JSON.parse((await rpc(dmKey, 'add_combatant', args)).result.content[0].text);
-  const slow = await add({ name: 'Ogre', hp: 59, initiative: 5, ac: 11 });
+  const slow = await add({ name: 'Ogre', hp: 59, initiative: 3, ac: 11 }); // below the Archer's lowest roll (1 + 3), so always last
   const fast = await add({ name: 'Wolf', hp: 11, initiative: 18, ac: 13 });
   const fromSb = await add({ name: 'Archer', statblock: { hp: 13, ac: 15, abilities: { dex: 16 } }, hidden: true });
   const read = JSON.parse((await rpc(dmKey, 'get_combat')).result.content[0].text);
