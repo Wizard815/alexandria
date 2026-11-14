@@ -4,8 +4,9 @@ export interface LoreState {
   config: LoreConfig | null;
   links: { source: string | null; sourceName: string | null; url: string | null; guess: boolean; libraryFolder: string | null } | null;
 }
+export interface LoreRoot { id: string; title: string; folder?: boolean; kind?: string }
 export interface LoreOptions {
-  sources: { id: string; name: string; kind: string; label: string; roots: { id: string; title: string; folder?: boolean }[]; error?: string }[];
+  sources: { id: string; name: string; kind: string; label: string; roots: LoreRoot[]; error?: string }[];
   library: { root: string };
 }
 export interface LorePage { id: string; ref: string; title: string; path: string; level: string; writtenBy: 'agent' | 'dm'; updatedAt: string; parentId: string | null }
