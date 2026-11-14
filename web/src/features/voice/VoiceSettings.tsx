@@ -15,6 +15,8 @@ const blank = { name: '', voice: '', speed: 1, pitch: 1, effect: 'none', target:
 
 export default function VoiceSettings() {
   const { w } = useWorld();
+  const voiceList = useLoad(() => w.call<{ voices: string[] }>('GET', '/voice/voices').catch(() => ({ voices: [] })), [w]);
+  const voices = voiceList.data?.voices ?? [];
   const act = useAction();
   const { toast, toastNode } = useToast();
   const list = useLoad(() => w.call<Preset[]>('GET', '/voice/presets'), [w]);
@@ -55,7 +57,7 @@ export default function VoiceSettings() {
           <div className="card-head"><h3 style={{ margin: 0 }}>{edit.id ? 'Edit voice' : 'New voice'}</h3></div>
           <div className="row" style={{ alignItems: 'flex-end' }}>
             <Field label="Name"><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Old man" /></Field>
-            <Field label="Voice" help="The voice name the model knows, e.g. af_heart. Empty uses the model’s default."><input value={edit.voice} onChange={(e) => setEdit({ ...edit, voice: e.target.value })} /></Field>
+            <Field label="Voice" help={voices.length ? `Pick one of the ${voices.length} voices your voice model offers, or type a name.` : 'The voice name the model knows, e.g. af_heart. Empty uses the model’s default.'}><input list="voice-names" value={edit.voice} onChange={(e) => setEdit({ ...edit, voice: e.target.value })} /><datalist id="voice-names">{voices.map((v) => <option key={v} value={v} />)}</datalist></Field>
           </div>
           <div className="row" style={{ alignItems: 'flex-end' }}>
             <Field label={`Speed ${edit.speed}`}><input type="range" min={0.5} max={2} step={0.05} value={edit.speed} onChange={(e) => setEdit({ ...edit, speed: Number(e.target.value) })} /></Field>
