@@ -1,12 +1,13 @@
 # Models
 
-Alexandria uses five model jobs. Each one points at any OpenAI-compatible
-server: Argos (llama-server), a whisper server, Kokoro, Ollama, LM Studio, or
-a cloud provider. Set them in **Admin → Models**. Features only reach models
-through `librarian/src/core/ai.ts`, so swapping a model never touches a
-feature.
+Alexandria uses six model jobs (five, plus an optional rerank). In
+**Admin → Models** you add **providers** (places models live: Argos, OpenAI,
+Ollama, LM Studio, or any OpenAI-compatible server), then each job picks a
+provider and a model name, and may name a fallback. Features only reach
+models through `librarian/src/core/ai.ts`, so swapping a model never touches
+a feature.
 
-## The five jobs
+## The jobs
 
 | Job | Used for | Endpoint on the server |
 |---|---|---|
@@ -15,38 +16,192 @@ feature.
 | **audio** | Speech to text | `POST {base}/audio/transcriptions` |
 | **voice** | Text to speech (Speak menu, narration) | `POST {base}/audio/speech` |
 | **extra** | Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
+| **rerank** | Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
 
-Each job has:
+### Providers
 
-- **Base URL**, ending in `/v1` (or wherever the OpenAI-style paths start).
-- **Model name**, sent as `model` in every request.
-- **API key**, optional. It is stored on the server and never sent back: the
-  page shows `••••`, and saving with `••••` keeps the stored key. Clear the
-  box to remove it.
+A provider is `{ id, name, kind, baseUrl, apiKey, location }`:
+
+- **kind**: `argos`, `openai`, `ollama`, `lmstudio` or `openai-compatible`.
+  It sets the defaults (a bare address gets `/v1`) and little else.
+- **Base URL**, ending in `/v1`. Paste it with or without `/v1` for Argos,
+  Ollama, LM Studio and OpenAI.
+- **API key**, optional, sent as `Authorization: Bearer <key>`. It is stored
+  on the server and never sent back: the page shows `••••`, and saving with
+  `••••` keeps the stored key. Clear the box to remove it.
+- **location**: `local` (your own machines) or `cloud` (a third party).
+  OpenAI defaults to cloud; Argos, Ollama and LM Studio to local; an
+  "other" provider is guessed from its host (a private address or a
+  single-word name is local) and you can change it. Location only matters for
+  fallback, below.
+
+### Jobs
+
+Each job is `{ providerId, model, options, fallback? }`:
+
+- **Provider** and **model name** (sent as `model` in every request).
 - **Extra options**, a JSON object merged into every request, e.g.
   `{"voice":"af_heart"}` for the voice job.
-- **On/off.** Off, or an empty URL, means "use the server's environment".
+- **On/off.** Off, or no provider, means "use the server's environment".
+- **Fallback**, optional: another provider and model (see below).
+- **Warm up**, **keep warm** and the loaded/unloaded status (see below).
 
 A job with nothing saved falls back to the environment:
 `ALX_MODEL_<JOB>_URL`, `ALX_MODEL_<JOB>_MODEL`, `ALX_MODEL_<JOB>_KEY`
-(`<JOB>` is `CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`), then
+(`<JOB>` is `CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`, `RERANK`), then
 `MODEL_BASE_URL` / `LOCAL_LLM_URL` and `MODEL_API_KEY`. With neither, the job
-has no model, and features that need it fall back or stay off.
+has no model, and features that need it fall back or stay off. Rerank is only
+switched on by `ALX_MODEL_RERANK_URL` (not by `MODEL_BASE_URL`), because not
+every server has a rerank endpoint.
+
+**Settings from before providers** (a base URL and key on each job) are
+turned into providers once, automatically, when the librarian starts: one
+provider per distinct base URL (a second one only if two jobs used different
+keys for it). Nothing for you to do; the jobs keep working as they were.
 
 **Test** runs a tiny real call: a one-word chat, a half second of silence for
-audio, a short phrase for voice, one sentence for embeddings. It shows ok or
-the error, the time it took and a short sample. Save first; Test uses what
-is saved.
+audio, a short phrase for voice, one sentence for embeddings, two short
+documents for rerank. It shows ok or the error, the time it took and a short
+sample. Save first; Test uses what is saved, and only the main provider
+(**Test fallback** tries the fallback).
+
+### Fallback
+
+Give a job a fallback provider and model, and when the main provider cannot
+answer, the call is retried once on the fallback. It falls back on:
+
+- no connection, or a timeout;
+- a 5xx, including a 503 while the model loads;
+- a model that is unloaded or not found (404, or a server that says "no
+  models loaded").
+
+It never falls back on a 4xx about the request itself (400, 401, 403, 422,
+429): a bad request would fail the same way elsewhere, and a wrong key should
+be fixed, not hidden. A streamed chat answer only falls back if it fails
+before any text has reached the screen. A request refused because it repeats
+classified text is never retried anywhere.
+
+**Local to cloud needs an explicit switch.** If the main provider is `local`
+and the fallback is `cloud`, tick **Allow falling back to the cloud** on that
+job. Until then the fallback is saved but never used, and the page says so.
+Turning it on means world text will leave this server whenever the local
+model fails (it is written to the audit log). The classified guard in
+`core/ai.ts` screens every attempt, the fallback included, so classified
+text still never goes to any model.
+
+### Warm up, status and keep warm
+
+- **Warm up** sends the job's tiny request to the main provider, so an
+  unloaded model starts loading before the session does.
+- Each job shows whether its model is **loaded** or **unloaded**, read from
+  Argos's `GET /v1/models` (other servers show "status unknown"), or that the
+  model is not found or the provider is unreachable. **Refresh status**
+  asks again.
+- **Keep warm** (off by default) sends that tiny request every few minutes
+  (`ALX_MODELS_KEEPWARM_MS`, default 240000) while a session is live, meaning
+  a recording is running or someone was on a world page in the last ten
+  minutes.
+
+### Rerank
+
+If the rerank job is set, library search and the DM agent's library matches
+take the top 20 hits, send the query and each hit's title and snippet to
+`POST {base}/rerank` with `{ model, query, documents, top_n }`, and order by
+the returned `results[{ index, relevance_score }]`. It has a 300 ms budget:
+slower, failing or returning nonsense, the keyword order stands. The
+snippets come from the same viewer's copy of each page (a player's search
+sends only what a player may read), and the classified guard applies.
 
 ### Admin API
 
 All admin only (others get 403).
 
-- `GET /api/admin/models` lists the five jobs, never with a key.
-- `PUT /api/admin/models` with `{ "jobs": { "chat": { "baseUrl", "model", "apiKey", "options", "enabled" } } }`.
-  Only the jobs and fields you send change.
-- `POST /api/admin/models/:job/test` returns `{ ok, job, ms, sample }` or
+- `GET /api/admin/models` lists `{ jobs, providers }`, never with a key.
+- `PUT /api/admin/models` with `{ "jobs": { "chat": { "providerId", "model", "options", "enabled", "keepWarm", "fallback": { "providerId", "model", "options", "allowCloud" } } } }`
+  (`"fallback": null` removes it). Only the jobs and fields you send change.
+  The older `{ "baseUrl", "apiKey" }` shape still works: it finds or makes a
+  provider for that URL.
+- `POST /api/admin/models/providers`, and `PUT` / `DELETE
+  /api/admin/models/providers/:id`. A provider a job uses cannot be deleted.
+- `POST /api/admin/models/discover` with `{ "providerId" }` or
+  `{ "kind": "argos", "baseUrl", "apiKey" }`: the provider's models, a
+  suggested model per job with the reason (or why it is left unset) and
+  Argos's voices.
+- `GET /api/admin/models/status`: loaded or unloaded per job, from Argos.
+- `GET /api/admin/models/providers/:id/voices?model=`: preset voices.
+- `POST /api/admin/models/:job/test` (`?which=fallback`) and
+  `POST /api/admin/models/:job/warm` return `{ ok, job, ms, sample }` or
   `{ ok: false, error }`.
+
+The voice feature can ask for preset voice names with
+`listVoiceNames(deps)` from `features/models/index.ts`: Argos's
+`/v1/audio/voices` for the voice job's model, or `[]` for any other server.
+
+## Argos (one link for everything)
+
+Argos is a model gateway that serves every job from one address and routes
+each request by model name:
+
+| Job | Argos endpoint |
+|---|---|
+| chat, audit | `/v1/chat/completions` |
+| extra | `/v1/embeddings` |
+| audio (speech to text, e.g. whisper) | `/v1/audio/transcriptions` |
+| voice (text to speech, e.g. Kokoro) | `/v1/audio/speech`, voices at `/v1/audio/voices` |
+| rerank | `/v1/rerank` |
+
+In **Admin → Models**, use the **Argos** card at the top:
+
+1. Paste the address, with or without `/v1` (`http://argos:8080`), and the
+   API key if Argos has `apiKeys` set (it is sent as a Bearer token; Argos is
+   open when none are set).
+2. Press **Discover**. Alexandria reads `GET /v1/models`, which tells it each
+   model's `status` (loaded or unloaded), input and output modalities,
+   capabilities (tools, vision, reranker) and context length, and shows them
+   in a table. It suggests a model per job:
+
+   | Job | Picked when |
+   |---|---|
+   | voice | the model's output is audio |
+   | audio | audio in and text out (and it does not call tools, or is named like whisper) |
+   | rerank | the reranker capability, or "rerank" in its name |
+   | chat | text in and out **with tools**; several: the loaded one with the largest context |
+   | audit | named like an auditor or classifier, else the smallest text model (by the size in its name, then context) that is not the chat model |
+   | extra | "embed" in its name or description |
+
+   When the metadata does not make the answer clear (no model says it can
+   call tools, two text models and nothing to tell their size apart, no
+   reranker listed), the job is left unset and the page says why. You choose
+   it yourself.
+3. **Save provider**. The suggestions are assigned to the jobs that have no
+   provider yet.
+
+The provider card links to the Argos web page (the address without `/v1`),
+and **Discover models** on it asks again after you change Argos's config. The
+job page shows each model as loaded or unloaded, and **Warm up** loads it
+before the session starts.
+
+To set it from the environment instead, see
+`deploy/examples/argos.override.yml`.
+
+## Mixing local and cloud
+
+Providers are independent, so a job can use any of them. Typical mixes:
+
+- **Everything on Argos.** One provider, six jobs.
+- **Local audio, frontier chat.** Whisper and Kokoro on Argos (the table's
+  audio never leaves home), chat on OpenAI or another frontier provider
+  (`cloud`). Chat sends the DM's questions and the library text it needs to a
+  third party, so check what that provider keeps.
+- **Local with a cloud safety net.** Chat on Argos, fallback to a cloud
+  model. Tick **Allow falling back to the cloud** only if you are happy for
+  world text to go there when your local model is down. Without the switch
+  the job simply stops answering until Argos is back.
+- **Two local boxes.** Fallback from one local provider to another needs no
+  switch.
+
+Whatever the mix, classified text is never sent to any model, cloud or
+local, main or fallback: `core/ai.ts` refuses the request before it leaves.
 
 ## Recommended local models (64 GB of VRAM)
 
@@ -123,7 +278,8 @@ Example, for an OpenAI reasoning model:
 | Server | Base URL | Extra options | Notes |
 |---|---|---|---|
 | **OpenAI** | `https://api.openai.com/v1` | Nothing for a chat model such as `gpt-4o-mini` or `gpt-4.1-mini`. For a reasoning model: `{"noTemperature": true}`. | Put the key in the API key field. Anything sent to chat leaves your server. `max_completion_tokens` is used automatically. Use a small model for **audit**. |
-| **Argos / llama-server** | `http://<host>:8080/v1` | Usually nothing. Start it with `--jinja` so tool calls work. | Streams, tool calls and `json_object` work. Older builds ignore `json_schema` or answer 400, and Alexandria falls back by itself. The model name is ignored. Keep the prompt cache on (the default): the system prompt is the same for every message, so only the new part is processed. |
+| **Argos** | `http://<host>:8080` | Nothing. Use the Argos card: Discover assigns every job. | One address for chat, audit, speech, voice, embeddings and rerank. |
+| **llama-server** | `http://<host>:8080/v1` | Usually nothing. Start it with `--jinja` so tool calls work. | Streams, tool calls and `json_object` work. Older builds ignore `json_schema` or answer 400, and Alexandria falls back by itself. The model name is ignored. Keep the prompt cache on (the default): the system prompt is the same for every message, so only the new part is processed. |
 | **Ollama** | `http://<host>:11434/v1` | `{"jsonMode": "object"}` if you see structured-output errors. | Model names as in `ollama list`. Use a model that supports tools. Raise the context (`num_ctx`) for long transcripts, and set `OLLAMA_KEEP_ALIVE` so the model stays loaded between messages. |
 | **LM Studio** | `http://<host>:1234/v1` | `{"jsonMode": "object"}` | Load the model first. Its `json_schema` support depends on the model, which the fallback covers. |
 | **vLLM** | `http://<host>:8000/v1` | Start it with `--enable-auto-tool-choice` and a `--tool-call-parser` for your model. | `json_schema` works and `parallel_tool_calls` is accepted. |
@@ -165,13 +321,16 @@ no dependencies beyond `node:http`:
 node --experimental-strip-types librarian/scripts/fake-models.ts --port 8300
 ```
 
-Then set every job's Base URL to `http://127.0.0.1:8300/v1` (any key, any
-model name) in Admin → Models, or `ALX_MODEL_CHAT_URL=http://127.0.0.1:8300/v1`
-and so on. It never calls a real model.
+Then add `http://127.0.0.1:8300` as one **Argos** provider in Admin → Models
+and press Discover (that is what `librarian/scripts/demo.ts` does), or set
+`ALX_MODEL_CHAT_URL=http://127.0.0.1:8300/v1` and so on. It never calls a
+real model.
 
 | Endpoint | What it does |
 |---|---|
-| `GET /v1/models` | Lists five fake model names |
+| `GET /v1/models` | Argos-shaped records for `fake-chat` (tools, 32768 context), `fake-audit`, `fake-whisper`, `fake-kokoro`, `fake-embed` and `fake-rerank`: `status`, `architecture` modalities, `capabilities` and `context_length`. `startFakeModels(0, host, { unloaded: ['fake-rerank'], apiKey: 'sk-x' })` reports models as unloaded and requires a Bearer key |
+| `GET /v1/audio/voices` | `{ "voices": ["af_heart", "af_bella", "bm_george", "bf_emma"] }` |
+| `POST /v1/rerank` | `{ model, query, documents, top_n }` in, `results[{ index, relevance_score }]` out, scored by words shared with the query |
 | `POST /v1/chat/completions` | If `tools` are given and the last message is the user's and contains a tool's name (e.g. `list_pages`), returns a `tool_calls` entry for it with `{}` arguments. With `response_format: json_object`, returns the JSON from a `FAKE_JSON: {...}` line in the system prompt, or `{}`. Otherwise echoes `You said: "<first 80 chars of the last user message>"` and, if a `Context:` block is in the prompt, its first sentence (or, for the agent, the first library match it was given). `stream: true` sends OpenAI-shaped chunks: content a few words at a time, tool calls as an id and name then the arguments in pieces, and a usage chunk with `stream_options.include_usage`. Set `FAKE_TOKEN_DELAY_MS` to slow the chunks down for a demo. |
 | `POST /v1/audio/transcriptions` | `verbose_json` with segments and word timings. If the uploaded file's bytes start with `FAKE:`, the rest is the transcript, spaced 0.4 s per word, one segment per sentence. Any word may end in `\|p=0.4` to set its probability (the default is 0.95). Any other file gives `(inaudible)`. |
 | `POST /v1/audio/speech` | A valid 0.3 s, 440 Hz WAV |

@@ -62,9 +62,9 @@ test('Models_NonAdminsGet403', async () => {
   assert.equal((await call('GET', '/api/admin/models')).status, 401);
 });
 
-test('Models_ListsFiveJobsEmpty', async () => {
+test('Models_ListsSixJobsEmpty', async () => {
   const l = await ok('GET', '/api/admin/models', adminT);
-  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra']);
+  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank']);
   for (const j of l.jobs) { assert.equal(j.source, 'none'); assert.equal(j.enabled, true); }
   assert.equal(hasJob(deps, 'chat'), false);
   await assert.rejects(chat(deps, 'chat', { messages: [{ role: 'user', content: 'hi' }] }), ModelUnavailable);
@@ -152,6 +152,14 @@ test('Models_TestEndpointRunsEachJob', async () => {
     assert.equal(typeof t.ms, 'number');
     assert.match(t.sample, expectSample[j]);
   }
+});
+
+test('Models_TestRunsRerankJob', async () => {
+  await ok('PUT', '/api/admin/models', adminT, { jobs: { rerank: { baseUrl: fake.baseUrl, model: 'fake-rerank' } } });
+  const t = await ok('POST', '/api/admin/models/rerank/test', adminT);
+  assert.equal(t.ok, true, JSON.stringify(t));
+  assert.match(t.sample, /best is document 2/);
+  await ok('PUT', '/api/admin/models', adminT, { jobs: { rerank: { enabled: false } } });
 });
 
 test('Models_TestReportsFailure', async () => {
