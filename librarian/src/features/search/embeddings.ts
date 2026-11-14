@@ -13,7 +13,7 @@
 // keyword only.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { embed, hasJob, jobConfig } from '../../core/ai.ts';
+import { embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
 import { type PageHit, type ParsedQuery, type Scope, factsText, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
 
 export const SCHEMA = `
@@ -224,6 +224,14 @@ export function rrf(lists: string[][], k = 60): Map<string, number> {
  * on top. Without an embeddings model, or if it fails, the keyword hits.
  */
 export async function hybridPages(d: Deps, worldId: string, q: string, scope: Scope, limit = 20): Promise<PageHit[]> {
+  // The optional rerank job reorders the top 20 within 300 ms; slower or failing, the order below stands.
+  // The text it reads is the hit's own title and snippet, taken from this viewer's copy of the page.
+  if (!hasJob(d, 'rerank')) return hybridBase(d, worldId, q, scope, limit);
+  const hits = await hybridBase(d, worldId, q, scope, Math.max(limit, 20));
+  return (await rerankItems(d, q, hits, (h) => `${h.title}\n${h.snippet}`)).slice(0, limit);
+}
+
+async function hybridBase(d: Deps, worldId: string, q: string, scope: Scope, limit: number): Promise<PageHit[]> {
   const kw = d.library.search(worldId, q, scope === 'party' ? { accountId: '', role: 'player' } : { accountId: '', role: 'dm', ...(scope === 'ai' ? { audience: 'ai' as const } : {}) }, Math.max(limit, 30)) as PageHit[];
   if (!hasJob(d, 'extra') || !parseQuery(q).pos.length) return kw.slice(0, limit);
   let sem: { id: string; sim: number; text: string }[] = [];

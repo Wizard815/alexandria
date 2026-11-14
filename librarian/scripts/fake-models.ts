@@ -3,7 +3,10 @@
 //
 //   node --experimental-strip-types librarian/scripts/fake-models.ts --port 8300
 //
-// Point any job at http://127.0.0.1:8300/v1 (any key, any model name).
+// Point any job at http://127.0.0.1:8300/v1 (any key, any model name), or add
+// it once in Admin → Models as an Argos provider and press Discover: it answers
+// GET /v1/models the way Argos does (status, modalities, capabilities, context),
+// plus /v1/audio/voices and /v1/rerank.
 // In tests: const f = await startFakeModels(0); ... f.baseUrl ... await f.close();
 import http from 'node:http';
 import { createHash } from 'node:crypto';
@@ -19,7 +22,44 @@ export interface FakeModels {
   close: () => Promise<void>;
 }
 
-const MODELS = ['fake-chat', 'fake-audit', 'fake-whisper', 'fake-kokoro', 'fake-embed'];
+export const VOICES = ['af_heart', 'af_bella', 'bm_george', 'bf_emma'];
+
+interface FakeModelSpec { id: string; description: string; inMods: string[]; outMods: string[]; tools?: boolean; reranker?: boolean; ctx?: number }
+// Shaped like Argos's GET /v1/models: status, architecture, capabilities, context_length.
+const SPECS: FakeModelSpec[] = [
+  { id: 'fake-chat', description: 'Main chat model with tool calling', inMods: ['text'], outMods: ['text'], tools: true, ctx: 32768 },
+  { id: 'fake-audit', description: 'Small auditor model for routing and spoiler checks', inMods: ['text'], outMods: ['text'], ctx: 8192 },
+  { id: 'fake-whisper', description: 'Speech to text', inMods: ['audio'], outMods: ['text'] },
+  { id: 'fake-kokoro', description: 'Text to speech', inMods: ['text'], outMods: ['audio'] },
+  { id: 'fake-embed', description: 'Text embeddings', inMods: ['text'], outMods: ['text'], ctx: 8192 },
+  { id: 'fake-rerank', description: 'Reranker for search results', inMods: ['text'], outMods: ['text'], reranker: true, ctx: 8192 },
+];
+
+function modelRecord(m: FakeModelSpec, status: string) {
+  const caps: Record<string, unknown> = {};
+  if (m.tools) caps.function_calling = true;
+  if (m.reranker) caps.reranker = true;
+  if (m.inMods.includes('audio') && m.outMods.includes('text')) caps.audio_transcriptions = true;
+  if (m.inMods.includes('text') && m.outMods.includes('audio')) caps.audio_speech = true;
+  return {
+    id: m.id, object: 'model', created: 0, owned_by: 'argos', name: m.id, description: m.description,
+    status: { value: status },
+    architecture: { input_modalities: m.inMods, output_modalities: m.outMods, modality: `${m.inMods.join('+')}->${m.outMods.join('+')}` },
+    ...(Object.keys(caps).length ? { capabilities: caps } : {}),
+    ...(m.tools ? { supported_parameters: ['tools', 'tool_choice'] } : {}),
+    ...(m.ctx ? { context_length: m.ctx, context_window: m.ctx } : {}),
+  };
+}
+
+/** A relevance score from shared words: enough for tests to see a reorder. */
+export function fakeRelevance(query: string, doc: string): number {
+  const q = new Set(query.toLowerCase().match(/[a-z0-9']+/g) ?? []);
+  const w = doc.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  if (!q.size || !w.length) return 0;
+  let n = 0;
+  for (const x of w) if (q.has(x)) n++;
+  return +(n / Math.sqrt(w.length)).toFixed(4);
+}
 
 function text(c: unknown): string {
   if (typeof c === 'string') return c;
@@ -159,7 +199,7 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
-export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDelayMs?: number } = {}): Promise<FakeModels> {
+export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDelayMs?: number; /** Require this Bearer key (401 otherwise), like Argos with apiKeys set. */ apiKey?: string; /** Model ids reported as unloaded. */ unloaded?: string[] } = {}): Promise<FakeModels> {
   const requests: FakeRequest[] = [];
   const server = http.createServer(async (req, res) => {
     const path = (req.url ?? '/').split('?')[0].replace(/\/+$/, '');
@@ -177,8 +217,18 @@ export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDe
       else if (raw.length) { try { body = JSON.parse(raw.toString('utf8')); } catch { body = null; } }
       requests.push({ method: req.method ?? 'GET', path, authorization: req.headers.authorization, body: up ? { ...up.fields, fileBytes: up.file?.length ?? 0 } : body });
 
+      if (opts.apiKey && req.headers.authorization !== `Bearer ${opts.apiKey}`) return send(401, { error: { message: 'invalid or missing API key' } });
       if (req.method === 'GET' && path === '/v1/models') {
-        return send(200, { object: 'list', data: MODELS.map((id) => ({ id, object: 'model', created: 0, owned_by: 'fake' })) });
+        return send(200, { object: 'list', data: SPECS.map((m) => modelRecord(m, (opts.unloaded ?? []).includes(m.id) ? 'unloaded' : 'loaded')) });
+      }
+      if (req.method === 'GET' && path === '/v1/audio/voices') {
+        return send(200, { voices: VOICES });
+      }
+      if (req.method === 'POST' && path === '/v1/rerank') {
+        const docs: unknown[] = Array.isArray(body?.documents) ? body.documents : [];
+        const scored = docs.map((x, index) => ({ index, relevance_score: fakeRelevance(String(body?.query ?? ''), typeof x === 'string' ? x : String((x as any)?.text ?? '')) }));
+        scored.sort((a, b) => b.relevance_score - a.relevance_score || a.index - b.index);
+        return send(200, { model: body?.model ?? 'fake-rerank', results: scored.slice(0, Number(body?.top_n) > 0 ? Number(body.top_n) : scored.length), usage: { total_tokens: 1 } });
       }
       if (req.method === 'POST' && path === '/v1/chat/completions') {
         const r = chatReply(body);
@@ -243,6 +293,6 @@ export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDe
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const i = process.argv.indexOf('--port');
   const port = i >= 0 ? Number(process.argv[i + 1]) : 8300;
-  const f = await startFakeModels(port, process.env.HOST || '127.0.0.1', { tokenDelayMs: Number(process.env.FAKE_TOKEN_DELAY_MS) || 0 });
+  const f = await startFakeModels(port, process.env.HOST || '127.0.0.1', { tokenDelayMs: Number(process.env.FAKE_TOKEN_DELAY_MS) || 0, apiKey: process.env.FAKE_API_KEY || undefined });
   console.log(`fake models listening on ${f.baseUrl}`);
 }
