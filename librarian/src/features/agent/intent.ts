@@ -16,6 +16,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(combat|initiative|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?)\b/i, tools: ['get_combat', 'add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_conditions'] },
   { re: /\b(rules?|spell|spells|how (does|do|many|much)|dc \d|advantage|disadvantage|grapple|opportunity attack|saving throw|cast|concentration|cover|rest rules?|feat|class feature)\b/i, tools: ['lookup_rule', 'lookup_term', 'read_term'] },
   { re: /\b(session|last (time|session|game)|recap|transcript|happened|said|told|heard|remember|earlier|yesterday|we (met|found|fought|saw|decided))\b/i, tools: ['search_transcript', 'list_session_log'] },
+  { re: /\b(world ?lore|llm wiki|your (own )?wiki|workspace)\b/i, tools: ['lore_write', 'lore_list', 'lore_read', 'lore_move', 'lore_delete'] },
   { re: /\b(pages?|save|write|draft|create|make a note|note|lore|wiki|library|folder|rewrite|edit|update|summari[sz]e|summary|outline)\b/i, tools: ['save_page', 'list_pages', 'list_relations'] },
   { re: /\b(npc|people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote'] },
   { re: /\b(items?|loot|gold|coins?|copper|silver|platinum|inventory|pouch|purse|give|gave|buy|sell|price|treasure)\b/i, tools: ['get_inventory', 'add_item', 'add_coin', 'list_transfers'] },
