@@ -1,6 +1,4 @@
 /* Quick generators: a floating button and a popup (a bottom sheet on phones). */
-.qg-fab { position: fixed; left: 14px; bottom: 14px; z-index: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; background: var(--panel); color: var(--text); border: 1px solid var(--line-strong); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); font: inherit; font-size: 14px; cursor: pointer; }
-.qg-fab:hover { border-color: var(--accent); color: var(--accent-strong); }
 .qg-back { position: fixed; inset: 0; z-index: 950; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .qg-sheet { width: min(520px, 100%); max-height: 88vh; overflow-y: auto; background: var(--panel); color: var(--text); border: 1px solid var(--line-strong); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .qg-head { display: flex; align-items: center; justify-content: space-between; }
@@ -17,8 +15,6 @@
 .qg-foot { display: flex; }
 .qg-note { font-size: 13px; color: var(--accent-strong); }
 @media (max-width: 640px) {
-  .qg-fab { left: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); }
-  .qg-fab span { display: none; }
   .qg-back { align-items: flex-end; padding: 0; }
   .qg-sheet { width: 100%; max-height: 82vh; border-radius: 14px 14px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 }
