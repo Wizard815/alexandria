@@ -10,7 +10,7 @@ import { audienceOf, copyOfMarkdown, frontmatterFor, redactMarkdown, scrubHidden
 import { importedRelations } from '../intake/records.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
 import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts';
-import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, maxLevel, normLevel, pageLevel } from './levels.ts';
+import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
 import { createHash } from 'node:crypto';
 import { HttpError, id, now } from './util.ts';
 import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
@@ -97,12 +97,25 @@ const scopeOf = (aud: Audience): Scope => (aud === 'player' ? 'party' : aud === 
 
 interface BuiltCopy { fm: FM; body: string; blocks: Block[]; properties: PropertyGroup[] }
 
+/** 8-word runs of classified text, each with the world and page it came from. A Set, so isModelSafe takes it as is. */
+export class ClassifiedIndex extends Set<string> {
+  private where = new Map<string, string>();
+  put(gram: string, where: string) { this.add(gram); this.where.set(gram, where); }
+  /** `worldId|pageId` of a run, if known. */
+  whereIs(gram: string): string | null { return this.where.get(gram) ?? null; }
+}
+
+const libraries = new WeakMap<DB, Library>();
+/** The library that owns a database (for code that has the database and no Deps). */
+export const libraryOf = (db: DB): Library | undefined => libraries.get(db);
+
 export class Library {
   db: DB;
   dataDir: string | null;
   constructor(db: DB, dataDir: string | null) {
     this.db = db;
     this.dataDir = dataDir;
+    libraries.set(db, this);
     this.migrateLevels();
   }
 
@@ -160,6 +173,7 @@ export class Library {
       const linksChanged = !existing || existing.title !== title || existing.visibility !== visibility;
       this.rebuildPlayerCopies(worldId, linksChanged ? undefined : [pid]);
     }
+    this.touchClassified();
     return { id: pid, path: p, title, visibility };
   }
 
@@ -214,6 +228,7 @@ export class Library {
       this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
+    this.touchClassified();
     return { id: pid!, path: p };
   }
 
@@ -227,7 +242,8 @@ export class Library {
       }
     });
     const dir = this.worldDir(worldId);
-    if (dir) for (const g of gone) for (const sub of ['vault', 'party']) fs.rmSync(path.join(dir, sub, g.path), { force: true });
+    if (dir) for (const g of gone) { for (const sub of ['vault', 'party']) fs.rmSync(path.join(dir, sub, g.path), { force: true }); fs.rmSync(path.join(dir, '_api', g.path.replace(/\.md$/i, '.json')), { force: true }); }
+    this.touchClassified();
     return gone.length;
   }
 
@@ -275,6 +291,47 @@ export class Library {
       for (const c of chunks) if (dm.includes(c) && !ai.includes(c)) return true;
     }
     return false;
+  }
+
+  // ---- the last line of defence: what text is classified -------------------------------
+  //
+  // core/ai.ts checks every model request against an index of the 8-word runs
+  // of classified text in every world. Classified text is whatever the DM copy
+  // of a page has that no AI copy has. The index is built on first use and
+  // again after the pages change (touchClassified runs on every write here).
+  private cgVersion = 0;
+  private cgBuilt = -1;
+  private cg = new ClassifiedIndex();
+
+  /** Call after anything that changes pages or their copies. */
+  touchClassified() { this.cgVersion++; }
+
+  classifiedGrams(): ClassifiedIndex {
+    if (this.cgBuilt === this.cgVersion) return this.cg;
+    const built = this.cgVersion;
+    const dm = new Map<string, string>();
+    const ai = new Set<string>();
+    const leaves = (json: string | null, out: string[]) => {
+      const walk = (v: unknown) => {
+        if (typeof v === 'string') out.push(v);
+        else if (Array.isArray(v)) for (const x of v) walk(x);
+        else if (v && typeof v === 'object') for (const x of Object.values(v as Record<string, unknown>)) walk(x);
+      };
+      if (json) { try { walk(JSON.parse(json)); } catch { out.push(json); } }
+    };
+    for (const p of all<any>(this.db, 'SELECT id, world_id, body, properties, frontmatter, ai_body, ai_properties, ai_frontmatter FROM pages')) {
+      const a: string[] = [p.body ?? ''];
+      leaves(p.properties, a); leaves(p.frontmatter, a);
+      for (const g of levelWords(a.join('\n'))) if (!dm.has(g)) dm.set(g, `${p.world_id}|${p.id}`);
+      const b: string[] = [p.ai_body ?? ''];
+      leaves(p.ai_properties, b); leaves(p.ai_frontmatter, b);
+      for (const g of levelWords(b.join('\n'))) ai.add(g);
+    }
+    const idx = new ClassifiedIndex();
+    for (const [g, where] of dm) if (!ai.has(g)) idx.put(g, where);
+    this.cg = idx;
+    this.cgBuilt = built;
+    return idx;
   }
 
   /** Does the page at this path hold anything classified (the whole page, a block, a facts group or a frontmatter key)? */
@@ -371,16 +428,24 @@ export class Library {
         }
         run(this.db, `UPDATE pages SET ${sets.join(', ')} WHERE id = ?`, ...vals, pg.id);
         // The semantic index of the DM scope is cut from the AI copy: when that changes, its chunks go and are made again.
-        if (aiBody !== pg.ai_body) {
+        // A page with no AI copy (classified) or no player copy (no longer shared) keeps no chunks of either: they were cut from text those readers may no longer have.
+        if (aiBody !== pg.ai_body || aiBody === null) {
           try {
             run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'dm'`, pg.id);
             run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'dm'`, pg.id);
+          } catch { /* no search tables yet */ }
+        }
+        if (!playerBuilt) {
+          try {
+            run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'party'`, pg.id);
+            run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'party'`, pg.id);
           } catch { /* no search tables yet */ }
         }
         const pc: BuiltCopy | null = playerBuilt;
         this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc ? { fm: pc.fm, body: pc.body, blocks: pc.blocks, properties: pc.properties } : null);
       }
     });
+    this.touchClassified();
   }
 
   remove(worldId: string, pageId: string) {
@@ -392,6 +457,7 @@ export class Library {
     });
     const dir = this.worldDir(worldId);
     if (dir) for (const sub of ['vault', 'party']) fs.rmSync(path.join(dir, sub, pg.path), { force: true });
+    if (dir) fs.rmSync(path.join(dir, '_api', pg.path.replace(/\.md$/i, '.json')), { force: true });
     this.rebuildPlayerCopies(worldId);
   }
 

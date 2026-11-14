@@ -16,6 +16,8 @@
 //   ALX_MODEL_<JOB>_URL, ALX_MODEL_<JOB>_MODEL, ALX_MODEL_<JOB>_KEY
 //   falling back to MODEL_BASE_URL / LOCAL_LLM_URL and MODEL_API_KEY.
 import type { Deps } from '../app.ts';
+import { classifiedMatch } from './levels.ts';
+import { run, type DB } from './db.ts';
 
 export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra';
 export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra'];
@@ -49,6 +51,67 @@ export class ModelUnavailable extends Error {
   status?: number;
   constructor(job: Job, message: string, status?: number) { super(message); this.job = job; this.status = status; }
 }
+
+/**
+ * The last line of defence: text about to go to a model repeats classified
+ * content (a run of eight words the DM copy of a page has and no AI copy has).
+ * It is a ModelUnavailable so callers fall back the way they do without a
+ * model, but the call is never made and an audit row is written.
+ */
+export class ClassifiedRefused extends ModelUnavailable {
+  constructor(job: Job) { super(job, 'Refused: this request repeats classified content, which is never sent to any model.'); this.name = 'ClassifiedRefused'; }
+}
+
+/**
+ * Scan outgoing text for classified content before any request leaves
+ * (chat, chatStream, chatJson, embed, speak, transcribe prompts, and the
+ * /v1 gateway). The index is kept by the library and rebuilt when pages
+ * change; an empty index (no classified content) costs nothing.
+ */
+export function screenOutgoing(d: Deps, job: Job, texts: Iterable<string | null | undefined>): void {
+  const lib: any = (d as any).library;
+  if (!lib || typeof lib.classifiedGrams !== 'function') return;
+  const idx = lib.classifiedGrams();
+  if (!idx.size) return;
+  for (const t of texts) {
+    if (!t) continue;
+    const hit = classifiedMatch(t, idx);
+    if (hit === null) continue;
+    const [world, page] = String(idx.whereIs?.(hit) ?? '|').split('|');
+    try {
+      run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', world || null, null, 'ai.classified_refused', `${job} request refused: repeats classified text of page ${page || '?'}`, new Date().toISOString());
+    } catch { /* no audit table (a test stub) */ }
+    throw new ClassifiedRefused(job);
+  }
+}
+
+/** Every string in a JSON value (a response body), in order. */
+export const leafStrings = (v: unknown, out: string[] = []): string[] => {
+  if (typeof v === 'string') out.push(v);
+  else if (Array.isArray(v)) for (const x of v) leafStrings(x, out);
+  else if (v && typeof v === 'object') for (const x of Object.values(v)) leafStrings(x, out);
+  return out;
+};
+
+/**
+ * The other way out to a model: an answer the librarian gives to a caller that
+ * says it is a model (the MCP server, the agent's tools, any client that sends
+ * X-Alexandria-Caller: model). True when the answer repeats classified content:
+ * the caller gets a refusal instead, and an audit row says so.
+ */
+export function repeatsClassified(db: DB, library: { classifiedGrams?: () => Set<string> & { whereIs?: (g: string) => string | null } } | undefined, body: unknown, what: string, worldId: string | null): boolean {
+  const idx = library?.classifiedGrams?.();
+  if (!idx || !idx.size) return false;
+  const hit = classifiedMatch(leafStrings(body).join('\n'), idx);
+  if (hit === null) return false;
+  const page = String(idx.whereIs?.(hit) ?? '|').split('|')[1];
+  try {
+    run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, null, 'ai.classified_withheld', `${what.slice(0, 120)} withheld from a model: repeats classified text of page ${page || '?'}`, new Date().toISOString());
+  } catch { /* no audit table */ }
+  return true;
+}
+
+const messageTexts = (req: ChatRequest): string[] => req.messages.flatMap((m) => [m.content ?? '', ...(m.tool_calls ?? []).map((t) => t.function.arguments)]);
 
 type Resolver = (d: Deps, job: Job) => JobConfig | null;
 
@@ -351,6 +414,7 @@ function normalizeToolCalls(raw: unknown): ToolCall[] {
 
 export async function chat(d: Deps, job: 'chat' | 'audit', req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
   const c = need(d, job);
+  screenOutgoing(d, job, messageTexts(req));
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, false, signal);
   let j: any;
@@ -455,6 +519,7 @@ export class ChunkAssembler {
  */
 export async function chatStream(d: Deps, job: 'chat' | 'audit', req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   const c = need(d, job);
+  screenOutgoing(d, job, messageTexts(req));
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, true, signal);
   let firstTokenMs: number | undefined;
@@ -525,6 +590,7 @@ export interface Transcript { text: string; language?: string; segments: Transcr
 
 export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts: { prompt?: string; language?: string; filename?: string } = {}, signal?: AbortSignal): Promise<Transcript> {
   const c = need(d, 'audio');
+  screenOutgoing(d, 'audio', [opts.prompt]);
   const fd = new FormData();
   fd.append('file', new Blob([audio], { type: mime }), opts.filename ?? `chunk.${mime.includes('ogg') ? 'ogg' : mime.includes('wav') ? 'wav' : 'webm'}`);
   fd.append('model', c.model);
@@ -553,6 +619,7 @@ export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts:
 
 export async function speak(d: Deps, text: string, opts: { voice?: string; speed?: number; format?: 'mp3' | 'wav' | 'opus' } = {}, signal?: AbortSignal): Promise<{ audio: Uint8Array; mime: string }> {
   const c = need(d, 'voice');
+  screenOutgoing(d, 'voice', [text]);
   const format = opts.format ?? 'mp3';
   const r = await post(d, 'voice', c, '/audio/speech', { ...bodyOptions(c), model: c.model, input: text.slice(0, 4000), voice: opts.voice ?? (c.options?.voice as string) ?? 'af_heart', speed: opts.speed ?? 1, response_format: format }, signal);
   const buf = new Uint8Array(await r.arrayBuffer());
@@ -563,6 +630,7 @@ export async function speak(d: Deps, text: string, opts: { voice?: string; speed
 
 export async function embed(d: Deps, texts: string[], signal?: AbortSignal): Promise<number[][]> {
   const c = need(d, 'extra');
+  screenOutgoing(d, 'extra', texts);
   const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: texts }, signal);
   const j: any = await r.json().catch(() => ({}));
   return (j.data ?? []).map((x: any) => x.embedding as number[]);

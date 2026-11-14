@@ -217,6 +217,7 @@ function mark(d: Deps, worldId: string, ref: string, title: string, level: Write
 /** Set a page's level in the library (the source can't hold broker or classified) and rebuild player copies. */
 function applyLevel(d: Deps, worldId: string, pageId: string, level: WriteLevel) {
   run(d.db, 'UPDATE pages SET visibility = ?, player_frontmatter = NULL, player_body = NULL, player_blocks = NULL, player_properties = NULL, broker_frontmatter = NULL, broker_body = NULL, broker_blocks = NULL, broker_properties = NULL, ai_frontmatter = NULL, ai_body = NULL, ai_blocks = NULL, ai_properties = NULL WHERE id = ? AND world_id = ?', level, pageId, worldId);
+  d.library.touchClassified();
 }
 
 /** Re-sync one page into the library; the whole source when the connector can't read one page. */
