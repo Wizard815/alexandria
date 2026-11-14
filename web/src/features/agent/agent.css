@@ -1,7 +1,20 @@
 /* The DM assistant dock and the player Ask page. */
 .ag-tab { position: fixed; right: 0; top: 40%; z-index: 700; display: inline-flex; align-items: center; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-strong, #5A4E33); border-right: 0; border-radius: 10px 0 0 10px; background: var(--panel, #1C222D); color: var(--text, #EDE3CF); font: inherit; font-size: 14px; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
 .ag-tab:hover { border-color: var(--accent); }
-.ag-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 700; width: min(420px, 100vw); display: flex; flex-direction: column; background: var(--panel, #1C222D); border-left: 1px solid var(--line-strong, #5A4E33); box-shadow: -8px 0 28px rgba(0, 0, 0, 0.4); color: var(--text, #EDE3CF); }
+.ag-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 810; width: min(420px, 100vw); display: flex; flex-direction: column; background: var(--panel, #1C222D); border-left: 1px solid var(--line-strong, #5A4E33); box-shadow: -8px 0 28px rgba(0, 0, 0, 0.4); color: var(--text, #EDE3CF); }
 .ag-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .ag-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 10px; gap: 8px; }
 .ag-ask { display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 360px; }
+.ag-msg .md > :first-child { margin-top: 0; }
+.ag-msg .md > :last-child { margin-bottom: 0; }
+.ag-cursor { display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: ag-blink 1s steps(2, start) infinite; }
+@keyframes ag-blink { to { visibility: hidden; } }
+.ag-chips { gap: 6px; min-height: 0; }
+.ag-chips:empty { display: none; }
+.ag-quick { gap: 6px; }
+.ag-quick-btn { background: transparent; cursor: pointer; font: inherit; font-size: 12px; min-height: 26px; }
+.ag-quick-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); }
+.ag-quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ag-x { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; line-height: 1; }
+.ag-sources { margin: 0; padding-left: 16px; }
+@media (prefers-reduced-motion: reduce) { .ag-cursor { animation: none; } }
