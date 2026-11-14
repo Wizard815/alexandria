@@ -37,7 +37,10 @@ function chatReply(body: any): { content: string | null; tool_calls?: any[]; fin
   const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
   const last = messages[messages.length - 1];
   const lastUser = [...messages].reverse().find((m) => m?.role === 'user');
-  const userText = text(lastUser?.content);
+  const rawUser = text(lastUser?.content);
+  // The agent puts a <context> block in front of the question; the question is what follows it.
+  const userText = rawUser.replace(/^<context>[\s\S]*?<\/context>\s*/, '');
+  const agentContext = rawUser.match(/^<context>([\s\S]*?)<\/context>/)?.[1] ?? '';
 
   // A tool call when the last message is the user's and it names one of the tools.
   const tools: any[] = Array.isArray(body?.tools) ? body.tools : [];
@@ -56,7 +59,8 @@ function chatReply(body: any): { content: string | null; tool_calls?: any[]; fin
 
   const all = messages.map((m) => text(m?.content)).join('\n');
   const ctx = all.match(/Context:\s*([\s\S]*)/);
-  const ctxLine = ctx ? firstSentence(ctx[1]) : '';
+  const lib = agentContext.match(/^- \[([^\]]+)\] \([^)]*\): (.+)$/m);
+  const ctxLine = lib ? `[${lib[1]}] ${lib[2]}` : ctx ? firstSentence(ctx[1]) : '';
   const said = userText.replace(/\s+/g, ' ').trim().slice(0, 80);
   let reply = `You said: "${said}".`;
   if (ctxLine) reply += ` From the context: ${ctxLine}`;
@@ -142,7 +146,7 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
-export function startFakeModels(port = 8300, host = '127.0.0.1'): Promise<FakeModels> {
+export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDelayMs?: number } = {}): Promise<FakeModels> {
   const requests: FakeRequest[] = [];
   const server = http.createServer(async (req, res) => {
     const path = (req.url ?? '/').split('?')[0].replace(/\/+$/, '');
@@ -169,10 +173,27 @@ export function startFakeModels(port = 8300, host = '127.0.0.1'): Promise<FakeMo
         if (r.tool_calls) message.tool_calls = r.tool_calls;
         const usage = { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 };
         if (body?.stream) {
-          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-          const delta = r.tool_calls ? { role: 'assistant', content: null, tool_calls: r.tool_calls.map((t, index) => ({ index, ...t })) } : { role: 'assistant', content: r.content };
-          res.write(`data: ${JSON.stringify({ id: 'chatcmpl-fake', object: 'chat.completion.chunk', model: body.model ?? 'fake-chat', choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
-          res.write(`data: ${JSON.stringify({ id: 'chatcmpl-fake', object: 'chat.completion.chunk', model: body.model ?? 'fake-chat', choices: [{ index: 0, delta: {}, finish_reason: r.finish }] })}\n\n`);
+          // OpenAI-shaped chunks: a role chunk, content a few words at a time, tool calls as an
+          // id and name first and the arguments in pieces, a finish chunk, a usage chunk when asked, [DONE].
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+          const model = body.model ?? 'fake-chat';
+          const send1 = (delta: object, finish: string | null = null) => res.write(`data: ${JSON.stringify({ id: 'chatcmpl-fake', object: 'chat.completion.chunk', created: 0, model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+          const delay = opts.tokenDelayMs ?? (Number(process.env.FAKE_TOKEN_DELAY_MS) || 0);
+          const pause = () => (delay ? new Promise((r) => setTimeout(r, delay)) : Promise.resolve());
+          send1({ role: 'assistant', content: r.tool_calls ? null : '' });
+          if (r.tool_calls) {
+            for (const [index, t] of r.tool_calls.entries()) {
+              const args: string = t.function.arguments ?? '';
+              const cut = Math.ceil(args.length / 2);
+              send1({ tool_calls: [{ index, id: t.id, type: 'function', function: { name: t.function.name, arguments: '' } }] });
+              await pause();
+              for (const part of [args.slice(0, cut), args.slice(cut)]) if (part) { send1({ tool_calls: [{ index, function: { arguments: part } }] }); await pause(); }
+            }
+          } else {
+            for (const w of (r.content ?? '').match(/\S+\s*/g) ?? []) { send1({ content: w }); await pause(); }
+          }
+          send1({}, r.finish);
+          if (body.stream_options?.include_usage) res.write(`data: ${JSON.stringify({ id: 'chatcmpl-fake', object: 'chat.completion.chunk', created: 0, model, choices: [], usage })}\n\n`);
           return res.end('data: [DONE]\n\n');
         }
         return send(200, { id: 'chatcmpl-fake', object: 'chat.completion', created: 0, model: body?.model ?? 'fake-chat', choices: [{ index: 0, message, finish_reason: r.finish }], usage });
@@ -209,6 +230,6 @@ export function startFakeModels(port = 8300, host = '127.0.0.1'): Promise<FakeMo
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const i = process.argv.indexOf('--port');
   const port = i >= 0 ? Number(process.argv[i + 1]) : 8300;
-  const f = await startFakeModels(port, process.env.HOST || '127.0.0.1');
+  const f = await startFakeModels(port, process.env.HOST || '127.0.0.1', { tokenDelayMs: Number(process.env.FAKE_TOKEN_DELAY_MS) || 0 });
   console.log(`fake models listening on ${f.baseUrl}`);
 }

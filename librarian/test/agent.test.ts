@@ -16,13 +16,13 @@ const DM_LINE = 'The vault code is seven seven three nine and nobody must learn 
 const OPEN_LINE = 'We arrive at the harbour of Saltmarsh as the evening bells ring';
 
 type Handler = (req: any) => any;
-interface Env { base: string; server: any; deps: any; T: Record<string, string>; ID: Record<string, string>; W: string; model: { queue: Handler[]; seen: any[] }; call: (m: string, u: string, t?: string, b?: unknown) => Promise<{ status: number; body: any }>; ok: (m: string, u: string, t?: string, b?: unknown) => Promise<any>; }
+interface Env { base: string; server: any; deps: any; T: Record<string, string>; ID: Record<string, string>; W: string; model: { queue: Handler[]; seen: any[]; hook?: (url: string) => Promise<void>; log: { url: string; start: number; end: number }[] }; call: (m: string, u: string, t?: string, b?: unknown) => Promise<{ status: number; body: any }>; ok: (m: string, u: string, t?: string, b?: unknown) => Promise<any>; }
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
 
 async function boot(withModel: boolean): Promise<Env> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-agent-'));
-  const model = { queue: [] as Handler[], seen: [] as any[] };
+  const model = { queue: [] as Handler[], seen: [] as any[], hook: undefined as undefined | ((url: string) => Promise<void>), log: [] as { url: string; start: number; end: number }[] };
   const fake = (async (url: any, init?: any) => {
     const u = String(url);
     if (u.startsWith('http://fake.test/v1/chat/completions')) {
@@ -31,9 +31,14 @@ async function boot(withModel: boolean): Promise<Env> {
       const h = model.queue.shift();
       if (!h) return new Response('no scripted reply', { status: 500 });
       const message = h(body);
+      if (message instanceof Response) return message;
       return new Response(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    return fetch(url, init);
+    const start = performance.now();
+    await model.hook?.(u);
+    const r = await fetch(url, init);
+    model.log.push({ url: u, start, end: performance.now() });
+    return r;
   }) as typeof fetch;
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1', ...(withModel ? { ALX_MODEL_CHAT_URL: 'http://fake.test/v1', ALX_MODEL_CHAT_MODEL: 'fake' } : {}) }, fetch: fake });
   const server = made.app.listen(0);
@@ -105,9 +110,10 @@ test('Agent: the DM harness runs a read tool and answers with a citation', async
   assert.equal(reply.status, 'done');
   assert.match(reply.text, /lighthouse/);
   assert.ok(reply.citations.some((c: any) => c.kind === 'page' && c.id === e.ID.velmira && c.path === 'dm/Velmira.md'), JSON.stringify(reply.citations));
-  // The DM harness lists every tool, writes included; the DM transcript line is in its context.
-  assert.ok(toolNames(e.model.seen[0]).includes('save_page') && toolNames(e.model.seen[0]).includes('add_combatant'));
-  assert.ok(e.model.seen[0].messages[0].content.includes(DM_LINE));
+  // Only the tools that fit are offered (at most 8), and the library search is always among them.
+  assert.ok(toolNames(e.model.seen[0]).length <= 8 && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
+  // The library matches for the question came with it (DM copies), so the model could answer in one round.
+  assert.ok(e.model.seen[0].messages.at(-1).content.includes('Library matches'));
   // The tool result the model got is the DM copy of the page.
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && m.content.includes(SECRET)));
   assert.equal(chat.actions.length, 0);
@@ -118,6 +124,8 @@ test('Agent: it answers from the transcript with a citation', async () => {
   const e = env;
   e.model.queue.push(() => toolCall('search_transcript', { query: 'harbour' }), () => say('You arrived at the harbour as the evening bells rang.'));
   const { reply } = await ask(e, e.T.dm, 'What happened when we arrived?');
+  // The latest transcript (with the DM-only line) rides in the user message for a question about the session.
+  assert.ok(e.model.seen.at(-2).messages.at(-1).content.includes(DM_LINE));
   assert.ok(reply.citations.some((c: any) => c.kind === 'transcript' && c.id === 'ln_1' && c.snippet.includes('harbour')), JSON.stringify(reply.citations));
 });
 
@@ -167,7 +175,7 @@ test('Agent: tool names set to auto-approve run at once, and are audited', async
   assert.equal((await e.call('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: 'next_turn' })).status, 400);
   await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['next_turn'] });
   e.model.queue.push(() => toolCall('next_turn', {}), () => say('Next turn.'));
-  const { chat } = await ask(e, e.T.dm, 'next turn');
+  const { chat } = await ask(e, e.T.dm, 'Move combat along to the following creature and tell me how it went');
   assert.equal(chat.actions.length, 0);
   const now = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm);
   assert.ok(now.active);
@@ -208,11 +216,11 @@ test('Agent: a player never gets DM text in the model input or in a tool result'
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => toolCall('read_page', { page: e.ID.velmira }), () => toolCall('search_library', { query: 'smuggler queen Velmira' }, 'c2'), () => toolCall('read_page', { page: e.ID.saltmarsh }, 'c3'), () => toolCall('search_transcript', { query: 'vault code' }, 'c4'), () => say('I do not know about that.'));
-  const { reply } = await ask(e, e.T.jess, 'Who is the smuggler queen Velmira?');
+  const { reply } = await ask(e, e.T.jess, 'Who is the smuggler queen Velmira, and what happened at Saltmarsh?');
   assert.equal(reply.text, 'I do not know about that.');
   const everything = JSON.stringify(e.model.seen.map((r) => r.messages));
   for (const secret of ['treasury beneath the lighthouse', 'secretly answers', DM_LINE, 'seven seven three nine']) assert.ok(!everything.includes(secret), `the model input held DM text: ${secret}`);
-  // It did get what a player may read.
+  // It did get what a player may read: the shared page, and the players' transcript.
   assert.ok(everything.includes('fishing town ruled by the harbour council'));
   assert.ok(everything.includes(OPEN_LINE));
   // The DM-only page was a 404 to the player's own token.
@@ -383,4 +391,420 @@ test('Agent: combat tools through MCP place a creature in initiative and read as
   // The DM-only transcript line is not in a player's search.
   const tr = await e.ok('GET', `${A(e)}/transcript?q=vault`, e.T.jess);
   assert.deepEqual(tr.lines, []);
+});
+
+// ---- speed and streaming ----------------------------------------------------------
+
+import { fastPlan, matchCombatant, rollDice, searchTerms, selectTools, MAX_TOOLS } from '../src/features/agent/intent.ts';
+import { SentenceGate } from '../src/features/agent/leak.ts';
+
+/** A streamed model reply: OpenAI-shaped chunks, one text piece each. */
+const streamOf = (pieces: string[], gapMs = 0): Response => {
+  const enc = new TextEncoder();
+  const c = (delta: object, finish: string | null = null) => `data: ${JSON.stringify({ id: 'c', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+  const body = new ReadableStream<Uint8Array>({
+    async start(ctl) {
+      ctl.enqueue(enc.encode(c({ role: 'assistant', content: '' })));
+      for (const p of pieces) { if (gapMs) await new Promise((r) => setTimeout(r, gapMs)); ctl.enqueue(enc.encode(c({ content: p }))); }
+      ctl.enqueue(enc.encode(c({}, 'stop')));
+      ctl.enqueue(enc.encode('data: [DONE]\n\n'));
+      ctl.close();
+    },
+  });
+  return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+};
+
+interface Live { events: { type: string; data: any }[]; close: () => void; until: (f: (e: { type: string; data: any }) => boolean, ms?: number) => Promise<void> }
+/** Listen to the world's live events as one account. */
+async function listen(e: Env, token: string): Promise<Live> {
+  const ac = new AbortController();
+  const res = await fetch(`${e.base}/api/worlds/${e.W}/events`, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal });
+  const events: Live['events'] = [];
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  void (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buf += dec.decode(value, { stream: true });
+        let i: number;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const type = chunk.match(/^event: (.*)$/m)?.[1];
+          const data = chunk.match(/^data: (.*)$/m)?.[1];
+          if (type && data) events.push({ type, data: JSON.parse(data) });
+        }
+      }
+    } catch { /* closed */ }
+  })();
+  const until = async (f: (x: { type: string; data: any }) => boolean, ms = 4000) => {
+    const t0 = Date.now();
+    while (!events.some(f)) { if (Date.now() - t0 > ms) throw new Error('live event never came: ' + JSON.stringify(events.slice(-5))); await new Promise((r) => setTimeout(r, 10)); }
+  };
+  await new Promise((r) => setTimeout(r, 30));
+  return { events, close: () => ac.abort(), until };
+}
+const agentEvents = (l: Live, kind?: string) => l.events.filter((x) => x.type === 'agent' && (!kind || x.data.kind === kind)).map((x) => x.data);
+
+test('Agent: most questions are answered in ONE model round, from the library matches that came with the question', async () => {
+  const e = env;
+  e.model.seen.length = 0;
+  e.model.queue.push((req) => {
+    const last = req.messages.at(-1).content;
+    assert.ok(last.includes('[Saltmarsh]') && last.includes('fishing town'), 'the snippet is in the prompt');
+    return say('Saltmarsh is ruled by the harbour council of seven captains [Saltmarsh].');
+  });
+  const { reply } = await ask(e, e.T.dm, 'Who rules Saltmarsh?', { page: e.ID.saltmarsh, selection: 'seven captains' });
+  assert.equal(e.model.seen.length, 1, 'one round, no tool calls');
+  assert.match(reply.text, /harbour council/);
+  assert.ok(reply.citations.some((c: any) => c.id === e.ID.saltmarsh && c.kind === 'page'), 'a prefetched page the reply names is cited');
+  const last = e.model.seen[0].messages.at(-1).content;
+  assert.ok(last.includes(`(${e.ID.saltmarsh})`) && last.includes('looking at the library page [Saltmarsh]') && last.includes('"""seven captains"""'), 'ids, the page on screen and the selection');
+  assert.ok(last.endsWith('Who rules Saltmarsh?'));
+  assert.equal(reply.timings.rounds, 1);
+  assert.equal(reply.timings.toolCalls, 0);
+  assert.ok(reply.timings.snippets >= 1 && reply.timings.toolsOffered <= MAX_TOOLS && reply.timings.totalMs >= reply.timings.modelMs);
+  assert.ok(all<any>(e.deps.db, `SELECT detail FROM audit WHERE world_id = ? AND action = 'agent.timing'`, e.W).some((a) => /rounds 1/.test(a.detail) && /gateway/.test(a.detail)));
+});
+
+test('Agent: the system prompt is static and first, so a server can cache it; the context rides in the user message', async () => {
+  const e = env;
+  e.model.seen.length = 0;
+  e.model.queue.push(() => say('One.'), () => say('Two.'));
+  await ask(e, e.T.dm, 'Tell me about Saltmarsh');
+  await ask(e, e.T.dm, 'Who is Velmira and what does she want');
+  const [a, b] = e.model.seen;
+  assert.equal(a.messages[0].role, 'system');
+  assert.equal(a.messages[0].content, b.messages[0].content);
+  assert.ok(!/World date|Library matches/.test(a.messages[0].content));
+  assert.match(a.messages[0].content, /never invent/i);
+  assert.match(a.messages[0].content, /\[Page title\]/);
+  assert.ok(b.messages.at(-1).content.includes('Velmira'), 'the DM sees the DM-only page match');
+  const p = e.model.seen.length;
+  e.model.queue.push(() => say('Player.'));
+  await ask(e, e.T.jess, 'Tell me about Saltmarsh');
+  assert.notEqual(e.model.seen[p].messages[0].content, a.messages[0].content, 'each harness has its own prompt');
+  assert.match(e.model.seen[p].messages[0].content, /cannot change anything/);
+});
+
+test('Agent: the combat state rides along for the DM only, while a fight is running', async () => {
+  const e = env;
+  const goblin = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.dm, { name: 'Prefetch Goblin', initiative: 12, hp: 7, maxHp: 7 });
+  e.model.seen.length = 0;
+  e.model.queue.push(() => say('Noted.'), () => say('Fine.'));
+  await ask(e, e.T.dm, 'How is the fight going?');
+  await ask(e, e.T.jess, 'How is the fight going?');
+  const dmText = e.model.seen[0].messages.at(-1).content;
+  assert.ok(dmText.includes('Prefetch Goblin') && dmText.includes(goblin.id) && /Combat:/.test(dmText));
+  assert.ok(!/Prefetch Goblin|Combat:/.test(JSON.stringify(e.model.seen[1].messages)), 'a player is not handed combat state');
+  await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${goblin.id}`, e.T.dm);
+});
+
+test('Agent: only the tools that fit are offered (at most 8), and search_library and read_page always are', async () => {
+  const names = toolsFor(true).map((t) => t.name);
+  const cases: [string, string[]][] = [
+    ['Add a goblin and deal 5 damage in combat', ['add_combatant', 'damage_combatant', 'next_turn']],
+    ['How does grappling work? What is the rule for advantage?', ['lookup_rule']],
+    ['Save a page about the lighthouse', ['save_page', 'list_pages']],
+    ['What did we say last session?', ['search_transcript']],
+    ['Make a statblock for a harbour guard', ['make_statblock']],
+    ['Give the party 50 gold', ['add_coin', 'add_item']],
+    ['What is the date, and let us take a long rest', ['get_world_date', 'advance_world_time']],
+    ['hello', []],
+  ];
+  for (const [text, want] of cases) {
+    const got = selectTools(text, names);
+    assert.ok(got.length <= MAX_TOOLS, `${text}: ${got.length} tools`);
+    assert.ok(got.includes('search_library') && got.includes('read_page'), text);
+    for (const w of want) assert.ok(got.includes(w), `${text}: missing ${w} in ${got.join(',')}`);
+  }
+  // A message that matches everything still stays within the limit.
+  assert.equal(selectTools('combat statblock rules session page npc gold date broker request schedule vote players', names).length, MAX_TOOLS);
+  // Only what exists is offered, and a player's list has no writes.
+  const player = toolsFor(true).filter((t) => !t.write).map((t) => t.name);
+  assert.ok(selectTools('add a goblin to combat and save a page', player).every((n) => player.includes(n)));
+  // Over the wire.
+  const e = env;
+  e.model.seen.length = 0;
+  e.model.queue.push(() => say('Done.'));
+  await ask(e, e.T.dm, 'Add a goblin to the fight and then deal 4 damage to it');
+  const offered = toolNames(e.model.seen[0]);
+  assert.ok(offered.length <= MAX_TOOLS && offered.includes('add_combatant') && offered.includes('search_library'), offered.join(','));
+  assert.equal(e.model.seen[0].parallel_tool_calls, true);
+});
+
+test('Agent: several tool calls in one turn run at the same time', async () => {
+  const e = env;
+  e.model.seen.length = 0;
+  e.model.log.length = 0;
+  e.model.hook = async (u) => { if (/\/library\/(search|pages)/.test(u)) await new Promise((r) => setTimeout(r, 150)); };
+  try {
+    e.model.queue.push(
+      () => ({ role: 'assistant', content: null, tool_calls: [
+        { id: 'p1', type: 'function', function: { name: 'search_library', arguments: JSON.stringify({ query: 'harbour' }) } },
+        { id: 'p2', type: 'function', function: { name: 'read_page', arguments: JSON.stringify({ page: e.ID.saltmarsh }) } },
+        { id: 'p3', type: 'function', function: { name: 'search_library', arguments: JSON.stringify({ query: 'lighthouse' }) } },
+      ] }),
+      () => say('Looked at all three.'),
+    );
+    const { reply } = await ask(e, e.T.dm, 'Look into the harbour, the lighthouse and Saltmarsh');
+    assert.equal(reply.text, 'Looked at all three.');
+    const calls = e.model.log.filter((l) => /\/library\/(search|pages)/.test(l.url));
+    assert.equal(calls.length, 3);
+    // One after another would take 450 ms; together they overlap.
+    assert.ok(Math.max(...calls.map((c) => c.start)) < Math.min(...calls.map((c) => c.end)), 'all three were in flight together');
+    assert.ok(reply.timings.toolMs < 400, `tool time ${reply.timings.toolMs}ms`);
+    assert.equal(reply.timings.toolCalls, 3);
+    // The answers go back in the order asked.
+    const tools = e.model.seen[1].messages.filter((m: any) => m.role === 'tool');
+    assert.deepEqual(tools.map((m: any) => m.tool_call_id), ['p1', 'p2', 'p3']);
+  } finally { e.model.hook = undefined; }
+});
+
+test('Agent: dice, the date, next turn and adding creatures need no model at all', async () => {
+  const e = bare;
+  // Rolling.
+  const roll = await ask(e, e.T.dm, 'roll 2d6+3');
+  assert.equal(roll.reply.status, 'done');
+  const m = roll.reply.text.match(/= \*\*(\d+)\*\*/);
+  assert.ok(m && Number(m[1]) >= 5 && Number(m[1]) <= 15, roll.reply.text);
+  assert.equal(roll.reply.timings.fast, true);
+  assert.equal((await ask(e, e.T.jess, 'roll d20')).reply.status, 'done');
+  // The date.
+  const date = await ask(e, e.T.jess, "what's the date?");
+  assert.match(date.reply.text, /^It is \*\*.+\*\*\.$/);
+  // Next turn is a write: a pending action, not done.
+  const next = await ask(e, e.T.dm, 'next turn');
+  assert.equal(next.chat.actions.length, 1);
+  assert.equal(next.chat.actions[0].tool, 'next_turn');
+  assert.equal(next.chat.actions[0].status, 'pending');
+  assert.match(next.reply.text, /Waiting for your approval/);
+  const state = async () => { const c = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm); return JSON.stringify([c.active, c.round, c.turn]); };
+  const before = await state();
+  assert.equal(await state(), before, 'nothing ran yet');
+  assert.equal((await e.ok('POST', `${A(e)}/actions/${next.chat.actions[0].id}`, e.T.dm, { decision: 'approve' })).status, 'done');
+  assert.notEqual(await state(), before, 'approving ran it');
+  // "add 1d4 goblins": one pending add per goblin rolled.
+  const count = async () => (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.length;
+  const had = await count();
+  const add = await ask(e, e.T.dm, 'add 1d4 goblins');
+  const n = add.chat.actions.length;
+  assert.ok(n >= 1 && n <= 4, `${n} goblins`);
+  assert.ok(add.chat.actions.every((a: any) => a.tool === 'add_combatant' && a.status === 'pending' && /^Goblin( \d)?$/.test(a.args.name) && a.args.initiative >= 1 && a.args.initiative <= 20));
+  assert.match(add.reply.text, new RegExp(`Adding ${n} Goblin`));
+  assert.equal(await count(), had, 'not added until approved');
+  // By name: damage a creature that is there.
+  const sb = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.dm, { name: 'Fast Ogre', initiative: 9, hp: 30, maxHp: 30 });
+  const hit = await ask(e, e.T.dm, 'damage fast ogre for 7');
+  assert.equal(hit.chat.actions.at(-1).tool, 'damage_combatant');
+  assert.deepEqual(hit.chat.actions.at(-1).args, { combatant: sb.id, amount: 7 });
+  const who = await ask(e, e.T.dm, "who's up?");
+  assert.match(who.reply.text, /turn \(round/);
+  // A player gets dice and the date only; a command needs the model, which is not set.
+  assert.equal((await e.call('POST', `${A(e)}/chats/${(await e.ok('POST', `${A(e)}/chats`, e.T.jess, {})).id}/messages`, e.T.jess, { text: 'next turn' })).status, 503);
+  assert.equal(e.model.seen.length, 0, 'no model call for any of it');
+  assert.ok(all<any>(e.deps.db, `SELECT detail FROM audit WHERE world_id = ? AND action = 'agent.timing'`, e.W).every((a) => /no model/.test(a.detail)));
+});
+
+test('Agent: a fast command that is set to auto-approve runs at once', async () => {
+  const e = bare;
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['add_combatant'] });
+  const { chat, reply } = await ask(e, e.T.dm, 'add 3 orcs to combat');
+  assert.equal(chat.actions.length, 0);
+  assert.match(reply.text, /Done: Add Orc 1 to combat/);
+  const names = (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.map((c: any) => c.name);
+  for (const n of ['Orc 1', 'Orc 2', 'Orc 3']) assert.ok(names.includes(n), names.join(','));
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: [] });
+});
+
+test('Agent: what is and is not a fast command', () => {
+  const dm = (t: string) => fastPlan(t, true);
+  assert.equal(dm('roll 2d6+3')?.kind, 'reply');
+  assert.equal(dm('Roll a d20 with advantage')?.kind, 'reply');
+  assert.equal(dm('please roll 4d6')?.kind, 'reply');
+  assert.equal(dm('2d8+1')?.kind, 'reply');
+  assert.equal(dm("What's the date today?")?.kind, 'date');
+  assert.equal(dm('what time is it')?.kind, 'date');
+  assert.equal(dm('next turn')?.kind, 'calls');
+  assert.equal(dm('Next turn!')?.kind, 'calls');
+  assert.equal(dm('add 3 orcs')?.kind, 'calls');
+  assert.equal(dm('add a goblin to combat')?.kind, 'calls');
+  assert.equal((dm('add 1d4 goblins') as any).calls.every((c: any) => c.tool === 'add_combatant'), true);
+  assert.equal(dm('hit goblin 2 for 5')?.kind, 'combat');
+  assert.equal(dm('heal Aria for 8')?.kind, 'combat');
+  // Questions and bigger asks go to the model.
+  for (const t of ['roll initiative for the goblins and tell me the order', 'add a page about goblins', 'add a goblin', 'add 2 items to the party', 'what is the date of the festival?', 'what happened last session', 'roll the dice on whether the guards notice, and describe it', 'add 99 goblins', 'add 0 goblins']) assert.equal(dm(t), null, t);
+  // A player: dice and the date only.
+  assert.equal(fastPlan('roll d20', false)?.kind, 'reply');
+  assert.equal(fastPlan('next turn', false), null);
+  assert.equal(fastPlan('add 2 goblins', false), null);
+  // Dice with a fixed rng.
+  const r = rollDice('2d6+3', (n) => n)!;
+  assert.deepEqual([r.total, r.parts[0].rolls], [15, [6, 6]]);
+  assert.equal(rollDice('d20-1', () => 10)!.total, 9);
+  assert.equal(rollDice('1d8+1d4+2', (n) => n)!.total, 14);
+  assert.equal(rollDice('3+1d4', () => 1)!.total, 4);
+  assert.equal(rollDice('3+4', () => 1), null);
+  assert.equal(rollDice('1000d6', () => 1), null);
+  assert.equal(rollDice('hello', () => 1), null);
+  assert.equal(matchCombatant([{ id: 'a', name: 'Goblin 1' }, { id: 'b', name: 'Goblin 2' }], 'goblin'), null);
+  assert.equal(matchCombatant([{ id: 'a', name: 'Goblin 1' }, { id: 'b', name: 'Goblin 2' }], 'goblin 2')?.id, 'b');
+  assert.deepEqual(searchTerms('Who rules the town of Saltmarsh?'), ['rules', 'town', 'saltmarsh']);
+});
+
+test('Agent: the reply streams to its owner as it is written, and only to the owner', async () => {
+  const e = env;
+  const dm = await listen(e, e.T.dm);
+  const tom = await listen(e, e.T.tom);
+  try {
+    const pieces = ['Saltmarsh ', 'is a fishing ', 'town. ', 'Its council ', 'has seven captains.'];
+    e.model.queue.push(() => streamOf(pieces, 25));
+    const { id, reply } = await ask(e, e.T.dm, 'Describe Saltmarsh');
+    assert.equal(reply.text, pieces.join(''));
+    const deltas = agentEvents(dm, 'delta').filter((x) => x.chatId === id);
+    assert.ok(deltas.length >= 2, `${deltas.length} bursts`);
+    assert.equal(deltas.map((x) => x.text).join(''), pieces.join(''));
+    assert.ok(deltas.every((x) => x.messageId === reply.id));
+    const firstDelta = dm.events.findIndex((x) => x.type === 'agent' && x.data.kind === 'delta');
+    const done = dm.events.findIndex((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === id);
+    assert.ok(firstDelta >= 0 && firstDelta < done, 'text arrived before the message was finished');
+    assert.deepEqual(agentEvents(tom), [], 'another player gets nothing');
+    assert.ok(reply.timings.firstTokenMs < reply.timings.totalMs, `first text ${reply.timings.firstTokenMs}ms of ${reply.timings.totalMs}ms`);
+    // The chat view of a message being written shows what has come so far.
+    e.model.queue.push(() => streamOf(['Part one. ', 'Part two. ', 'Part three.'], 120));
+    const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
+    await e.ok('POST', `${A(e)}/chats/${cid}/messages`, e.T.dm, { text: 'Go on' });
+    await dm.until((x) => x.type === 'agent' && x.data.kind === 'delta' && x.data.chatId === cid);
+    const mid = await e.ok('GET', `${A(e)}/chats/${cid}`, e.T.dm);
+    assert.equal(mid.busy, true);
+    assert.match(mid.messages.at(-1).text, /^Part one/);
+    await dm.until((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === cid);
+  } finally { dm.close(); tom.close(); }
+});
+
+test('Agent: Stop ends the answer and keeps what was shown', async () => {
+  const e = env;
+  const dm = await listen(e, e.T.dm);
+  try {
+    e.model.queue.push(() => streamOf(['First part. ', 'Second part. ', 'Third part. ', 'Fourth part. ', 'Fifth part.'], 150));
+    const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
+    await e.ok('POST', `${A(e)}/chats/${cid}/messages`, e.T.dm, { text: 'Tell a long tale' });
+    await dm.until((x) => x.type === 'agent' && x.data.kind === 'delta' && x.data.chatId === cid);
+    assert.equal((await e.ok('POST', `${A(e)}/chats/${cid}/stop`, e.T.dm)).stopped, true);
+    await dm.until((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === cid);
+    const c = await e.ok('GET', `${A(e)}/chats/${cid}`, e.T.dm);
+    const last = c.messages.at(-1);
+    assert.equal(last.status, 'done');
+    assert.match(last.text, /^First part\./);
+    assert.match(last.text, /_Stopped\._$/);
+    assert.ok(!last.text.includes('Fifth'));
+    assert.equal(c.busy, false);
+    assert.equal((await e.ok('POST', `${A(e)}/chats/${cid}/stop`, e.T.dm)).stopped, false, 'nothing left to stop');
+    assert.equal((await e.call('POST', `${A(e)}/chats/${cid}/stop`, e.T.jess)).status, 404);
+  } finally { dm.close(); }
+});
+
+test('Agent: the player stream never sends a sentence that leaks DM-only text', async () => {
+  const e = env;
+  const jess = await listen(e, e.T.jess);
+  const dm = await listen(e, e.T.dm);
+  try {
+    // The secret arrives in the third sentence, split mid-word across chunks.
+    const text = `Greetings, traveller. The harbour is busy today. Also, ${SECRET}. Anyway, that is all.`;
+    const pieces: string[] = [];
+    for (let i = 0; i < text.length; i += 7) pieces.push(text.slice(i, i + 7));
+    e.model.queue.push(() => streamOf(pieces, 2));
+    const { id, reply } = await ask(e, e.T.jess, 'Tell me a secret');
+    assert.equal(reply.text, "I can't answer that from what you know.");
+    assert.equal(reply.status, 'done');
+    assert.deepEqual(reply.citations, []);
+    const sent = agentEvents(jess, 'delta').filter((x) => x.chatId === id).map((x) => x.text).join('');
+    // Nothing of the secret, not even half of it, was ever sent. What came before was fine to send.
+    for (const frag of ['Velmira', 'smuggler queen', 'treasury', 'lighthouse', 'Anyway']) assert.ok(!sent.includes(frag), `sent "${frag}": ${sent}`);
+    assert.equal(sent, 'Greetings, traveller. ');
+    assert.ok(agentEvents(jess, 'replace').some((x) => x.chatId === id && x.text === "I can't answer that from what you know."), 'the screen is told to replace what it has');
+    assert.equal(agentEvents(jess).filter((x) => JSON.stringify(x).includes('treasury')).length, 0);
+    // The DM hears about it, the player does not.
+    await dm.until((x) => x.type === 'agent' && x.data.kind === 'leak' && x.data.chatId === id);
+    assert.ok(!agentEvents(jess, 'leak').length);
+    assert.equal((await e.ok('GET', `${A(e)}/leaks`, e.T.dm)).leaks.filter((l: any) => l.chatId === id).length, 1);
+    // A clean answer streams through whole, sentence by sentence.
+    const clean = 'Saltmarsh is a fishing town. Its harbour council has seven captains. They meet at dusk.';
+    const ps: string[] = [];
+    for (let i = 0; i < clean.length; i += 5) ps.push(clean.slice(i, i + 5));
+    e.model.queue.push(() => streamOf(ps, 1));
+    const ok2 = await ask(e, e.T.jess, 'What is Saltmarsh?');
+    assert.equal(ok2.reply.text, clean);
+    const sent2 = agentEvents(jess, 'delta').filter((x) => x.chatId === ok2.id).map((x) => x.text).join('');
+    assert.equal(sent2.trim(), clean);
+    assert.equal(ok2.reply.timings.gateMs >= 0, true);
+  } finally { jess.close(); dm.close(); }
+});
+
+test('Agent: the leak gate holds a sentence until the next is complete, so a run across the boundary is caught', () => {
+  const check = (t: string) => (t.toLowerCase().replace(/[^a-z ]/g, '').replace(/ +/g, ' ').includes('brown fox jumps over the lazy') ? { blocked: true, match: 'x' } : { blocked: false });
+  const out: string[] = [];
+  const g = new SentenceGate(check, (s) => out.push(s));
+  // "...the quick brown fox." / "Jumps over the lazy dog today." : neither sentence alone holds the run.
+  for (const piece of ['Hello there. ', 'Mind this: the quick brown fox. ', 'Jumps over the lazy dog today. ', 'Bye.']) g.push(piece);
+  g.end();
+  assert.ok(g.blocked);
+  assert.equal(out.join(''), 'Hello there. ', 'the first half of the run was never sent');
+  // A gate that finds nothing sends everything, in order, and end() flushes the unfinished last sentence.
+  const out2: string[] = [];
+  const h = new SentenceGate(() => ({ blocked: false }), (s) => out2.push(s));
+  for (const p of ['One. Tw', 'o. Thr', 'ee']) h.push(p);
+  assert.deepEqual(out2, ['One. '], 'only a sentence that has a complete follower is released');
+  assert.equal(h.end(), true);
+  assert.equal(out2.join(''), 'One. Two. Three');
+});
+
+test('Agent: long chats are sent as a summary plus the last 8 messages', async () => {
+  const e = bare;
+  const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
+  for (let i = 0; i < 7; i++) await ask(e, e.T.dm, `roll d${6 + i}`, {}, cid);
+  const { historyFor } = await import('../src/features/agent/harness.ts');
+  const { summarize } = await import('../src/features/agent/summary.ts');
+  const row = () => all<any>(e.deps.db, 'SELECT summary, summary_upto FROM agent_chats WHERE id = ?', cid)[0];
+  await summarize(e.deps, cid);
+  assert.ok(row().summary.includes('Asked: roll d6'), row().summary);
+  assert.ok(row().summary_upto > 0);
+  const h = historyFor(e.deps, cid);
+  assert.ok(h.messages.length <= 16 && h.messages.length >= 8, `${h.messages.length} messages`);
+  assert.equal(h.messages.at(-1)!.role, 'assistant');
+  assert.match(h.summary, /Asked: roll d6/);
+});
+
+test('Agent: a history summary goes into the system prompt, and the window stays small', async () => {
+  const e = env;
+  const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
+  for (let i = 0; i < 6; i++) { e.model.queue.push(() => say(`Answer ${i}.`)); await ask(e, e.T.dm, `Question number ${i} about Saltmarsh`, {}, cid); }
+  const { summarize } = await import('../src/features/agent/summary.ts');
+  await summarize(e.deps, cid);
+  e.model.seen.length = 0;
+  e.model.queue.push(() => say('Latest.'));
+  await ask(e, e.T.dm, 'And one more thing about Saltmarsh', {}, cid);
+  const m = e.model.seen[0].messages;
+  assert.match(m[0].content, /Earlier in this chat \(summary\):[\s\S]*Question number 0/);
+  assert.ok(m.length <= 1 + 16 + 1, `${m.length} messages sent`);
+  assert.ok(m.length >= 1 + 8 + 1);
+});
+
+test('Agent: the gateway adds under 50 ms per model round (fake model, instant tools)', async () => {
+  const e = env;
+  const per: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    e.model.queue.push(() => toolCall('world_info', {}, `ov${i}`), () => say('Done.'));
+    const { reply } = await ask(e, e.T.dm, `Check the world for overhead run ${i}`);
+    assert.equal(reply.timings.rounds, 2);
+    per.push(reply.timings.gatewayMs / reply.timings.rounds);
+  }
+  // The first run warms caches; judge the best of the rest.
+  assert.ok(Math.min(...per.slice(1)) < 50, `gateway overhead per round: ${per.map((x) => x.toFixed(1)).join(', ')} ms`);
+  e.model.queue.push(() => say('Player.'));
+  const p = await ask(e, e.T.jess, 'Overhead check for players');
+  assert.ok(p.reply.timings.gatewayMs < 50, `player gateway ${p.reply.timings.gatewayMs} ms`);
 });
