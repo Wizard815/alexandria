@@ -9,7 +9,7 @@ import { only } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { ctx, me, memberIds } from '../../routes/_shared.ts';
 import { normalizeStatblock, saveStatblockPage } from '../agent/statblock.ts';
-import { cleanForPlayer, renderMd, renderParts, sculpt, type Tpl, type Values } from './engine.ts';
+import { bodyHash, cleanForPlayer, renderMd, renderParts, sculpt, type Tpl, type Values } from './engine.ts';
 import { BUILTINS, FIELD_TYPES, type Field, type Target } from './templates.ts';
 
 const SCHEMA = `
@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS sculpt_history (
   id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   template_id TEXT, template_name TEXT NOT NULL, vals TEXT NOT NULL, md TEXT NOT NULL, by_account TEXT, at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS sculpt_history_world ON sculpt_history(world_id, at);
+CREATE TABLE IF NOT EXISTS sculpt_player_pages (
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, page_id TEXT NOT NULL, body_hash TEXT NOT NULL,
+  PRIMARY KEY (world_id, page_id));
 `;
 
 const audit = (db: any, worldId: string, accountId: string | null, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -103,7 +106,7 @@ function routes(d: Deps) {
   const W = (res: any): string => ctx(res).world.id;
   r.use((_req, res, next) => { seed(d.db, W(res)); next(); });
 
-  const rows = (res: any) => all<any>(d.db, 'SELECT * FROM sculpt_templates WHERE world_id = ? ORDER BY builtin_key IS NULL, created_at, name', W(res));
+  const rows = (res: any) => all<any>(d.db, 'SELECT * FROM sculpt_templates WHERE world_id = ? ORDER BY builtin_key IS NULL, created_at, rowid', W(res));
   const find = (res: any, ref: unknown): any => {
     const s = String(ref ?? '').trim();
     const row = one<any>(d.db, 'SELECT * FROM sculpt_templates WHERE world_id = ? AND (id = ? OR builtin_key = ? OR name = ? COLLATE NOCASE)', W(res), s, s, s);
@@ -168,7 +171,17 @@ function routes(d: Deps) {
     };
     const savePage = (pattern: string, extra: Record<string, unknown> = {}) => d.library.save(w, { path: pagePath(pattern), title, body: md, frontmatter: { title, tags: ['sculpt', tpl.name.toLowerCase().replace(/\s+/g, '-')], visibility, ...extra }, visibility }, me(res));
     switch (base.kind) {
-      case 'page': { const p = savePage(base.path); audit(d.db, w, me(res), 'sculpt.save', `page ${p.path}`); return { kind: 'page', pageId: p.id, path: p.path, title: p.title, visibility }; }
+      case 'page': {
+        const p = savePage(base.path);
+        audit(d.db, w, me(res), 'sculpt.save', `page ${p.path}`);
+        // A player-view page passed the leak check just now: remember its text so
+        // Read aloud and Send still work after saving (see cleanForPlayer).
+        if (tpl.perspective === 'player') {
+          const body = one<any>(d.db, 'SELECT body FROM pages WHERE id = ?', p.id)?.body ?? '';
+          run(d.db, 'INSERT OR REPLACE INTO sculpt_player_pages (world_id, page_id, body_hash) VALUES (?, ?, ?)', w, p.id, bodyHash(body));
+        }
+        return { kind: 'page', pageId: p.id, path: p.path, title: p.title, visibility };
+      }
       case 'shop': {
         const items = (base.listField ? v[base.listField] ?? '' : '').split(/\r?\n/).map((l) => l.replace(/^\s*([-*+]|\d+\.)\s+/, '').trim()).filter(Boolean).map((l) => {
           const m = l.match(/^(.*?)\s*[—–-]\s+(\d[\d.,]*\s*(?:pp|gp|ep|sp|cp)\b.*)$/i);
