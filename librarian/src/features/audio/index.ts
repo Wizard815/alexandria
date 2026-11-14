@@ -53,7 +53,8 @@ const feature: Feature = {
     const consentOf = (worldId: string, accountId: string) => !!one<any>(db, 'SELECT agreed FROM audio_consent WHERE world_id = ? AND account_id = ?', worldId, accountId)?.agreed;
     const activeSession = (worldId: string) => one<any>(db, 'SELECT * FROM audio_sessions WHERE world_id = ? AND stopped_at IS NULL ORDER BY started_at DESC', worldId);
     const sessionOf = (res: Response, sid: string) => {
-      const s = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ? AND world_id = ?', sid, ctx(res).world.id);
+      // "current" is the recording that is running now.
+      const s = sid === 'current' ? activeSession(ctx(res).world.id) : one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ? AND world_id = ?', sid, ctx(res).world.id);
       if (!s) throw new HttpError(404, 'Recording session not found');
       return s;
     };
@@ -268,6 +269,12 @@ const feature: Feature = {
 
     return r;
   },
+
+  mcpTools: [
+    { name: 'recording_status', description: 'Is a session being recorded, since when, and has each player agreed to the recording?', props: {}, call: () => ({ method: 'GET', path: '/audio/status' }) },
+    { name: 'start_recording', write: true, description: 'DM: start recording the game session (the transcript the session log is drafted from). Players must have agreed to the recording consent; check recording_status first.', props: { name: { type: 'string', description: 'Session name, e.g. Session 21' } }, call: (a) => ({ method: 'POST', path: '/audio/sessions', body: { name: a.name } }) },
+    { name: 'stop_recording', write: true, description: 'DM: stop the recording that is running.', props: {}, call: () => ({ method: 'POST', path: '/audio/sessions/current/stop', body: {} }) },
+  ],
 
   start: (d: Deps) => {
     const eng = engine(d);
