@@ -186,7 +186,7 @@ test('Sculpt: custom templates can be created, edited and deleted', async () => 
   assert.equal((await env.call('POST', `${env.S}/templates`, env.T.dm, { ...body, perspective: 'player' })).status, 422);
   env.model.calls.length = 0;
   const r = await env.ok('POST', `${env.S}/run`, env.T.dm, { templateId: made.id, values: {} });
-  assert.ok(r.values.what && /gp$/.test(r.values.worth));
+  assert.ok(r.values.what && /^\d+ (pp|gp|ep|sp|cp)/.test(r.values.worth));
   assert.equal(env.model.calls.length, 1);
   const up = await env.ok('PUT', `${env.S}/templates/${made.id}`, env.T.dm, { ...body, name: 'Trinket 2' });
   assert.equal(up.name, 'Trinket 2');
