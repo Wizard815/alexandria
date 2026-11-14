@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Modal } from '../../ui/index.tsx';
+import { DockButton, DockItem, useExclusivePanel } from '../../ui/Dock.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { engine, useEngine } from './engine.ts';
 import { CardView, Highlighted, loadCard, useMatches, type Match } from './keywords.tsx';
@@ -13,7 +14,7 @@ import { useAttach } from './shared.tsx';
 interface Line { id: string; rev: number; start: number; end: number; speaker: string; speakerId?: string | null; text: string; audience?: 'players' | 'dm'; override?: 'players' | 'dm' | null }
 type Corner = 'br' | 'bl' | 'tr' | 'tl';
 interface Prefs { x: number; y: number; w: number; h: number; corner: Corner | null; opacity: number; colour: string; size: number; min: boolean; drawerOpen: boolean }
-const DEFAULTS: Prefs = { x: 40, y: 80, w: 340, h: 280, corner: 'br', opacity: 92, colour: 'gold', size: 15, min: false, drawerOpen: false };
+const DEFAULTS: Prefs = { x: 40, y: 80, w: 340, h: 280, corner: 'br', opacity: 92, colour: 'gold', size: 15, min: true, drawerOpen: false };
 const COLOURS: Record<string, string> = { gold: '#D9B26A', teal: '#86CFC4', rose: '#E39AA6', sky: '#8FB8E8', slate: '#A8B0BF' };
 const CORNERS: Corner[] = ['br', 'bl', 'tl', 'tr'];
 const KEY = 'alx.island.prefs';
@@ -53,7 +54,7 @@ function RecordingBadge() {
   useRecordingSync();
   const st = useEngine();
   if (!st.recording) return null;
-  return <div className="au-badge" role="status" aria-live="polite"><span className="au-rec-dot" /> Recording</div>;
+  return <DockItem order={1} keep><span className="au-badge" role="status" aria-live="polite"><span className="au-rec-dot" /> Recording</span></DockItem>;
 }
 
 function ConsentPrompt() {
@@ -89,6 +90,8 @@ function Island() {
   const body = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const patch = useCallback((p: Partial<Prefs>) => setPrefs((cur) => { const n = { ...cur, ...p }; savePrefs(n); return n; }), []);
+  const shut = useCallback(() => patch(phone ? { drawerOpen: false } : { min: true }), [patch, phone]);
+  useExclusivePanel('transcript', phone ? prefs.drawerOpen : !prefs.min, shut);
 
   // A search result links here with ?line=<id>&session=<id>: show that session and that line.
   const [params] = useSearchParams();
@@ -187,10 +190,10 @@ function Island() {
     </div>
   );
 
+  const open = phone ? prefs.drawerOpen : !prefs.min;
   const pill = (
-    <button type="button" className="au-pill" style={style} onClick={() => (phone ? patch({ drawerOpen: true }) : patch({ min: false }))} aria-label="Open the transcript">
-      {st.recording && <span className="au-rec-dot" />}<span className="au-pill-text">{last ? `${last.speaker}: ${last.text}` : 'Transcript'}</span>
-    </button>
+    <DockButton order={40} icon="fa-closed-captioning" label={open ? 'Close the transcript' : 'Open the transcript'} title={last ? `Transcript - ${last.speaker}: ${last.text}`.slice(0, 120) : 'Transcript'} active={open} live={st.recording}
+      onClick={() => (phone ? patch({ drawerOpen: !prefs.drawerOpen }) : patch({ min: !prefs.min }))} testId="dock-transcript" />
   );
 
   const card = hover && <div className="au-pop" style={{ left: hover.x, top: hover.y }}><CardView card={hover.card} m={hover.m} /></div>;
@@ -198,29 +201,29 @@ function Island() {
   if (phone) {
     if (!prefs.drawerOpen) return pill;
     return (
-      <div className="au-island au-drawer" style={style}>
+      <><div className="au-island au-drawer" style={style}>
         <div className="au-head"><strong>Transcript</strong>{st.recording && <span className="au-rec-dot" />}<span className="au-sp" />
           <Controls p={prefs} patch={patch} phone />
           <button type="button" className="au-btn" onClick={() => patch({ drawerOpen: false })} aria-label="Close the transcript">▾</button></div>
         {bubbles}{card}
-      </div>
+      </div>{pill}</>
     );
   }
   if (prefs.min) return <>{pill}{card}</>;
   return (
-    <div className={`au-island${prefs.corner ? ` c-${prefs.corner}` : ''}`} style={style} ref={box} role="complementary" aria-label="Live transcript">
+    <>{pill}<div className={`au-island${prefs.corner ? ` c-${prefs.corner}` : ''}`} style={style} ref={box} role="complementary" aria-label="Live transcript">
       <div className="au-head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         <strong>Transcript</strong>{st.recording && <span className="au-rec-dot" />}<span className="au-sp" />
         <Controls p={prefs} patch={patch} />
         <button type="button" className="au-btn" onClick={() => patch({ min: true })} aria-label="Minimise the transcript">—</button>
       </div>
       {bubbles}{card}
-    </div>
+    </div></>
   );
 }
 
 function corner(c: Corner): React.CSSProperties {
-  return { [c[0] === 'b' ? 'bottom' : 'top']: 16, [c[1] === 'r' ? 'right' : 'left']: 16 } as React.CSSProperties;
+  return { [c[0] === 'b' ? 'bottom' : 'top']: c[0] === 'b' ? 68 : 16, [c[1] === 'r' ? 'right' : 'left']: c[1] === 'r' ? 'var(--dock-right, 16px)' : 16 } as React.CSSProperties;
 }
 
 function Controls({ p, patch, phone }: { p: Prefs; patch: (x: Partial<Prefs>) => void; phone?: boolean }) {
