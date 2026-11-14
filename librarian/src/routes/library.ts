@@ -8,6 +8,7 @@ import { splitFrontmatter } from '../core/frontmatter.ts';
 import { HttpError, str } from '../core/util.ts';
 import { joinFrontmatter } from '../core/frontmatter.ts';
 import { ctx, me } from './_shared.ts';
+import { hybridPages } from '../features/search/embeddings.ts';
 
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -41,7 +42,13 @@ export default function libraryRoutes(d: Deps) {
     }
     res.json(out);
   });
-  r.get('/search', (req, res) => res.json(L.search(ctx(res).world.id, str(req.query.q, 'q', { max: 200 }), ctx(res).viewer)));
+  // Ranked page search with <mark> snippets. ?semantic=1 also merges nearest-meaning matches when an embeddings model is set.
+  r.get('/search', async (req, res) => {
+    const c = ctx(res);
+    const q = str(req.query.q, 'q', { max: 200 });
+    if (req.query.semantic === '1') return void res.json(await hybridPages(d, c.world.id, q, c.viewer.role === 'dm' ? 'dm' : 'party', 20));
+    res.json(L.search(c.world.id, q, c.viewer));
+  });
   // DM: shared pages that look like they contain DM notes written as prose.
   r.get('/lint', requireDM, (_req, res) => res.json(L.lint(ctx(res).world.id)));
   r.get('/relations', (_req, res) => res.json(L.relations(ctx(res).world.id, ctx(res).viewer)));
