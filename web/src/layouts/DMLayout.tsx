@@ -5,11 +5,16 @@ import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
 import * as F from '../features/registry.ts';
 
-const GROUPS: [string, [string, string][]][] = [
-  ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory'], ['approvals', '✓ Approvals'], ['broker', '⚖ Information broker']]],
-  ['The world', [['library', '❧ Library'], ['people', '☺ People'], ['relations', '⚭ Relations'], ['map', '✧ Map'], ['requests', '✎ Requests'], ['messages', '✉ Messages'], ['calendar', '▦ Session calendar'], ['whiteboard', '▤ Whiteboard']]],
-  ['Setup', [['settings', '⚙ World settings'], ['connect', '⌁ Connect an AI']]],
+// The DM's menu, one place. Every route lives here exactly once; a route a
+// feature adds through dmNav that is not listed falls into the group it asked for.
+const NAV: [string, [string, string][]][] = [
+  ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory'], ['approvals', '✓ Approvals'], ['broker', '⚖ Information broker'], ['stage', '▣ Stage'], ['sound', '♪ Sound board'], ['chat', '💬 Session chat'], ['clock', '☾ World clock']]],
+  ['The world', [['library', '❧ Library'], ['people', '☺ People'], ['relations', '⚭ Relations'], ['map', '✧ Map'], ['rules', '❖ Rules'], ['worldlore', '✺ WorldLore'], ['whiteboard', '▤ Whiteboard']]],
+  ['Tools', [['sculpt', '✍ Sculpting'], ['sessionlog', '❡ Session log'], ['requests', '✎ Requests'], ['messages', '✉ Messages'], ['calendar', '▦ Session calendar']]],
+  ['Setup', [['audio', '● Audio setup'], ['settings', '⚙ World settings'], ['connect', '⌁ Connect an AI']]],
 ];
+const LISTED = new Set(NAV.flatMap(([, l]) => l.map(([to]) => to)));
+const GROUPS: [string, [string, string][]][] = NAV.map(([label, core]) => [label, [...core, ...F.dmNav.filter((n) => n.group === label && !LISTED.has(n.to)).map((n) => [n.to, n.label] as [string, string])]]);
 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
@@ -34,7 +39,7 @@ export function DMLayout() {
       {drawer && <div className="drawer-backdrop" onClick={() => setDrawer(false)} />}
       <nav className={`side${drawer ? ' open' : ''}`} aria-label="DM">
         <div className="stack tight"><span className="brand">Alexandria</span><span className="sub">Dungeon Master · {info.name}</span></div>
-        {GROUPS.map(([label, core]) => [label, [...core, ...F.dmNav.filter((n) => n.group === label).map((n) => [n.to, n.label] as [string, string])]] as const).map(([label, links]) => (
+        {GROUPS.map(([label, links]) => (
           <div className="nav-group" key={label}>
             <span className="nav-label">{label}</span>
             {links.map(([to, text]) => (
