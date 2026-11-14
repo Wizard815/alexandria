@@ -88,7 +88,7 @@ function* walk(root: string, dir = root): Generator<string> {
   }
 }
 
-function vaultDir(vaultsDir: string | null, folder: string) {
+export function vaultDir(vaultsDir: string | null, folder: string) {
   if (!vaultsDir) throw new ConfigError('Vault sources are off: set ALX_VAULTS_DIR on the librarian');
   const root = path.resolve(vaultsDir);
   const full = path.resolve(root, folder || '.');
