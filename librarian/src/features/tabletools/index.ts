@@ -11,7 +11,7 @@ const VIS = { type: 'string', enum: ['dm', 'party'] };
 
 const tools: McpTool[] = [
   // ---- approvals ----
-  { name: 'list_approvals', description: 'DM: everything waiting on you: coin requests, item changes, disputes and alerts, each with its id, plus recent decisions and gives between players.', props: {}, call: () => ({ method: 'GET', path: '/approvals' }) },
+  { name: 'list_approvals', dmOnly: true, description: 'DM: everything waiting on you: coin requests, item changes, disputes and alerts, each with its id, plus recent decisions and gives between players.', props: {}, call: () => ({ method: 'GET', path: '/approvals' }) },
   {
     name: 'decide_approval', write: true,
     description: 'DM: decide a waiting coin request or item change from list_approvals. action: approve, edit (approve with changes: amountCp for coin, item {name, qty, note, dmNote, owner} for items), reject, or revert (undo a player\'s own change you were alerted to).',
