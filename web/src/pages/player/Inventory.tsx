@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Tabs, Field, Modal, useAction, useToast } from '../../ui/index.tsx';
+import { TradeButton } from '../../features/sessionchat/TradeDialog.tsx';
 import { AlertsCard, useMine } from '../broker/shared.tsx';
 import { ItemHover } from '../../features/itemcards/index.tsx';
 import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
@@ -53,7 +54,7 @@ export default function PlayerInventory() {
       <PageHead title="Inventory and coin" lead="Your pack and the party's shared stash. The DM can see both." />
       <div className="row between">
         <Tabs label="Whose" value={tab} onChange={setTab} items={info.settings.partyPurse ? [['me', 'My pack'], ['party', 'Party stash']] : [['me', 'My pack'], ['party', 'Party stash']]} />
-        <button type="button" className="btn primary small" onClick={() => setEdit({ name: '', qty: 1, note: '' })}>＋ Add item</button>
+        <span className="row"><TradeButton /><button type="button" className="btn primary small" onClick={() => setEdit({ name: '', qty: 1, note: '' })}>＋ Add item</button></span>
       </div>
       <ErrorBox error={inv.error ?? act.error} />
       <AlertsCard mine={mine.data} reload={async () => { await Promise.all([mine.reload(), inv.reload()]); }} />
