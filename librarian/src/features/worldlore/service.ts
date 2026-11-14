@@ -40,7 +40,7 @@ export const LIBRARY_ROOT = 'WorldLore';
 export interface LoreConfig {
   kind: 'source' | 'library';
   sourceId?: string;
-  /** A source's externalId (LegendKeeper resource id) or folder path (Markdown); the library folder for `library`. */
+  /** A source's externalId (LegendKeeper resource id, Kanka `kanka:<entity id>` of a note or journal) or folder path (Markdown); the library folder for `library`. */
   root: string;
   defaultLevel: 'dm' | 'broker' | 'party';
   /** The DM's own link to the workspace, when the app can't work it out. */
@@ -85,7 +85,12 @@ export function setConfig(d: Deps, worldId: string, next: LoreConfig | null, who
     const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', next.sourceId, worldId);
     if (!src) throw new HttpError(404, 'Source not found in this world');
     const c = connectorFor(src.kind, parseJson(src.config, {}));
-    if (!c?.write) throw new HttpError(400, `${c?.label ?? src.kind} cannot be written to; pick a LegendKeeper source or a Markdown folder, or use the library`);
+    if (!c?.write) throw new HttpError(400, `${c?.label ?? src.kind} cannot be written to; pick a LegendKeeper, Kanka or Markdown source, or use the library`);
+    if (c.id.startsWith('kanka')) {
+      const id = /^(?:kanka:)?(\d{1,12})$/.exec(next.root.trim())?.[1];
+      if (!id) throw new HttpError(400, 'The WorldLore home in Kanka is one note or journal: pick it from the list');
+      next = { ...next, root: `kanka:${id}` };
+    }
   }
   if (next?.kind === 'library') next = { ...next, root: LIBRARY_ROOT, sourceId: undefined };
   const cur = worldSettings(d, worldId);
@@ -358,8 +363,18 @@ export async function deletePage(d: Deps, worldId: string, who: string | null, a
     const ref = refFor(d, worldId, w, a.id);
     await w.connector!.write!.deletePage(w.srcCfg, w.ctx!, { root: w.cfg.root, id: ref }).catch(toHttp);
     const pg = one<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, w.src.id, ref);
+    const kids = w.connector!.id.startsWith('kanka') ? all<any>(d.db, 'SELECT external_id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND parent_external = ?', worldId, w.src.id, ref) : [];
     if (pg) d.library.remove(worldId, pg.id);
     run(d.db, 'DELETE FROM worldlore_pages WHERE world_id = ? AND ref = ?', worldId, ref);
+    // Kanka may move the children up or delete them with the page: read each again and keep it only if it is still in the workspace.
+    for (const k of kids) {
+      try { await resyncOne(d, worldId, w, k.external_id, k.visibility as WriteLevel, who); } catch (err) {
+        if (!(err instanceof WriteRefused)) throw err;
+        const row = one<any>(d.db, 'SELECT id FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, w.src.id, k.external_id);
+        if (row) d.library.remove(worldId, row.id);
+        run(d.db, 'DELETE FROM worldlore_pages WHERE world_id = ? AND ref = ?', worldId, k.external_id);
+      }
+    }
     finish(d, worldId, who, by, 'delete', `${pg?.title ?? ''} ${ref}`);
     return { ok: true };
   } finally { w.close(); }
@@ -403,6 +418,18 @@ export async function options(d: Deps, worldId: string) {
   return { sources: out, library: { root: LIBRARY_ROOT } };
 }
 
+/** Possible roots in one source whose name has `q` (Kanka notes and journals at any depth). */
+export async function searchOptions(d: Deps, worldId: string, sourceId: string, q: string) {
+  const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', sourceId, worldId);
+  if (!src) throw new HttpError(404, 'Source not found in this world');
+  const cfg = parseJson<Record<string, any>>(src.config, {});
+  const c = connectorFor(src.kind, cfg);
+  if (!c?.write?.search) return { roots: [] };
+  const mcp = workspaceMcpFactory(c, cfg, d.env, d.fetch, d.testMcp);
+  const ctx: ConnectorContext = { fetch: d.fetch, env: d.env, dataDir: d.dataDir, vaultsDir: d.vaultsDir, signal: AbortSignal.timeout(30_000), log: () => {}, mcp: mcp.factory, sourceId: src.id, shareVisible: false, incomplete: new Set() };
+  try { return { roots: await c.write.search(cfg, ctx, q) }; } catch (err: any) { return { roots: [], error: String(err.message).slice(0, 160) }; } finally { mcp.close(); }
+}
+
 /** Where the DM can open the workspace: a source link when known, and the library. */
 export function links(d: Deps, worldId: string) {
   const cfg = configOf(worldSettings(d, worldId));
@@ -416,6 +443,17 @@ export function links(d: Deps, worldId: string) {
   if (!url && (src.kind.startsWith('legendkeeper') || src.kind === 'mcp')) {
     const project = /\/projects\/([^/?#]+)/.exec(String(sc.apiUrl ?? ''))?.[1];
     if (project) { url = `https://www.legendkeeper.com/app/project/${project}/resource/${cfg.root}`; guess = true; }
+  }
+  if (!url && connectorFor(src.kind, sc)?.id.startsWith('kanka')) {
+    // The page's own link from the last sync, else Kanka's address shape: <app>/w/<campaign>/entities/<entity id>.
+    const row = one<any>(d.db, 'SELECT url FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, cfg.sourceId, cfg.root);
+    if (row?.url && /^https?:\/\//.test(row.url)) url = row.url;
+    else if (sc.campaignId && /^\d+$/.test(String(sc.campaignId)) && /^kanka:\d+$/.test(cfg.root)) {
+      const api = String(sc.apiUrl || 'https://api.kanka.io/1.0');
+      const app = /^https:\/\/api\.kanka\.io(\/|$)/.test(api) ? 'https://app.kanka.io' : new URL(api).origin;
+      url = `${app}/w/${sc.campaignId}/entities/${cfg.root.slice(6)}`;
+      guess = app !== 'https://app.kanka.io';
+    }
   }
   return { source: cfg.sourceId, sourceName: src.name, url, guess, libraryFolder: null };
 }
