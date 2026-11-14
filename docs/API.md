@@ -58,7 +58,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Area | Endpoints |
 |---|---|
 | World | `GET /` (name, role, settings), `GET /members`, `GET/PATCH /settings` (DM), `POST /invites` (DM), `GET /audit` (DM), `GET /events` |
-| Library | `GET /library/pages` (tree list), `GET /library/pages/:id` (blocks, properties, links, children; players get the player copy), `GET /library/pages/:id/markdown` (download), `POST /library/pages/bulk` `{ids}` (offline saves), `PUT /library/pages` (DM, Markdown), `DELETE /library/pages/:id` (DM), `GET /library/search?q=`, `GET /library/relations`, `GET /library/lint` (DM) |
+| Library | `GET /library/pages` (tree list), `GET /library/pages/:id` (blocks, properties, links, children; players get the player copy), `GET /library/pages/:id/markdown` (download), `POST /library/pages/bulk` `{ids}` (offline saves), `PUT /library/pages` (DM, Markdown), `DELETE /library/pages/:id` (DM), `GET /library/search?q=[&semantic=1]` (ranked; hits have `id, path, title, snippet` plus `snippetHtml` with `<mark>`, `titleHtml`, `score`, `matchedOn`; quote "phrases", `-exclude`), `GET /library/relations`, `GET /library/lint` (DM) |
 | Requests | `GET/POST /requests`, `POST /requests/:id/decide` (DM, can apply to the page) |
 | Messages | `GET/POST /messages`, `GET/POST /messages/:tid`, `POST /messages/:tid/members`, `POST /messages/:tid/keep` |
 | Quick events | `GET/POST /quick-events`, `POST /quick-events/:id/respond`, `/resolve`, `/cancel` |
@@ -239,3 +239,7 @@ Code come back from `/api/join` and `/api/keys` (`mcp.config`,
 
 `/v1/models`, `/v1/chat/completions` and `/v1/embeddings` pass through to
 `MODEL_BASE_URL`. Signed-in callers only.
+
+## Search
+
+`GET /api/worlds/:world/search?q=&kinds=&limit=` is one ranked list over library pages, people, game module terms, transcript lines, session log entries and items. `kinds` is a comma list of `page,person,term,transcript,log,item`. Each result has `kind, id, title, snippet, snippetHtml, titleHtml, link, score` (`link` is a path under `/w/:world/`). Players only get what they may see: player copies of pages, shared people, published log entries, players' transcript lines, their own and the party's items. With an embeddings model (the `extra` job) page results are merged with nearest-meaning matches; `semantic=0` turns that off. MCP tool: `search_world`.

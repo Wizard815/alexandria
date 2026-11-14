@@ -1,6 +1,7 @@
 // SQLite storage for the librarian. Uses Node's built-in node:sqlite, so
 // there is no native module to build. One database holds every world.
 import { DatabaseSync } from 'node:sqlite';
+import { ensureSearchIndex } from './pagesearch.ts';
 
 export type DB = DatabaseSync;
 
@@ -114,8 +115,7 @@ CREATE TABLE IF NOT EXISTS pages (
   updated_by TEXT,
   UNIQUE (world_id, path)
 );
-CREATE VIRTUAL TABLE IF NOT EXISTS fts_dm USING fts5(page_id UNINDEXED, world_id UNINDEXED, title, body);
-CREATE VIRTUAL TABLE IF NOT EXISTS fts_party USING fts5(page_id UNINDEXED, world_id UNINDEXED, title, body);
+-- Search indexes (fts_dm, fts_party, page_names) are created, versioned and rebuilt by core/pagesearch.ts (ensureSearchIndex, called from migrate()).
 
 CREATE TABLE IF NOT EXISTS relations (
   id TEXT PRIMARY KEY,
@@ -540,6 +540,8 @@ function migrate(db: DB) {
   add('player_properties', 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pages_source_ext ON pages (world_id, source_id, external_id) WHERE external_id IS NOT NULL');
   db.exec('CREATE INDEX IF NOT EXISTS pages_world_vis ON pages (world_id, visibility)');
+  // Search: create the FTS tables, or rebuild them when the layout/version changed (needs the pages columns above).
+  ensureSearchIndex(db);
 
   // DM approvals: player coin changes and player-added items wait for the DM.
   if (!cols('ledger').includes('status')) {
