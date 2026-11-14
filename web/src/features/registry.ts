@@ -12,7 +12,7 @@ export interface WebFeature {
   playerRoutes?: FeatureRoute[];
   /** Under /admin/<path>. */
   adminRoutes?: FeatureRoute[];
-  dmNav?: { group: 'At the table' | 'The world' | 'Setup'; to: string; label: string }[];
+  dmNav?: { group: 'At the table' | 'The world' | 'Tools' | 'Setup'; to: string; label: string }[];
   /** icon: a Font Awesome solid name, e.g. 'fa-scroll'. */
   playerNav?: { to: string; label: string; icon: string }[];
   adminNav?: { to: string; label: string }[];

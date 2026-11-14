@@ -31,3 +31,4 @@ jobs:
           npx playwright install --with-deps chromium
           node e2e/smoke.mjs
           node e2e/offline.mjs
+          node e2e/dm.mjs

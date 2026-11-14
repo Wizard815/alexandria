@@ -3,7 +3,7 @@
 @keyframes au-pulse { 70% { box-shadow: 0 0 0 7px rgba(229, 72, 77, 0); } 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0); } }
 @media (prefers-reduced-motion: reduce) { .au-rec-dot { animation: none; } }
 
-.au-badge { position: fixed; top: 10px; right: 12px; z-index: 900; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--danger-bg, #2A1A1A); border: 1px solid var(--danger, #C8675C); color: var(--danger-text, #F0A096); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none; }
+.au-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--danger-bg, #2A1A1A); border: 1px solid var(--danger, #C8675C); color: var(--danger-text, #F0A096); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none; }
 
 .au-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 16px; align-items: start; }
 .au-mic { opacity: 0.85; } .au-mic.on { opacity: 1; border-color: var(--line-strong); }
@@ -42,16 +42,12 @@
 .au-pop { position: fixed; z-index: 950; width: 290px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--panel-2, #232A37); border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); font-size: 14px; color: var(--text); }
 .au-card .md { font-size: 13px; }
 
-.au-pill { position: fixed; z-index: 800; display: inline-flex; align-items: center; gap: 8px; max-width: min(340px, 90vw); padding: 7px 14px; border-radius: 999px; background: var(--panel, #1C222D); border: 1px solid var(--line-strong, #5A4E33); color: var(--text, #EDE3CF); font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
-.au-pill-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* phones: a bottom drawer above the bottom navigation */
 @media (max-width: 640px) {
-  .au-island.au-drawer { left: 0; right: 0; bottom: 0; width: auto; height: 46vh; max-width: none; resize: none; border-radius: 14px 14px 0 0; padding-bottom: env(safe-area-inset-bottom); z-index: 850; }
-  .au-pill { left: 10px; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); max-width: none; justify-content: flex-start; }
-  .au-badge { top: 6px; right: 8px; }
+  .au-island.au-drawer { left: 8px; right: 8px; bottom: calc(68px + env(safe-area-inset-bottom)); width: auto; height: min(46vh, calc(100vh - 150px)); max-width: none; resize: none; border-radius: 14px; z-index: 760; }
+  body:has(.bottomnav) .au-island.au-drawer { bottom: calc(120px + env(safe-area-inset-bottom)); }
 }
-@media (min-width: 641px) { .au-pill { right: 16px; bottom: 16px; } }
 
 /* The line a search result linked to. */
 .au-bubble.found { outline: 2px solid var(--teal, #86CFC4); outline-offset: 2px; }

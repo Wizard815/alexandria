@@ -20,7 +20,7 @@ export default function DMRelations() {
 
   return (
     <div className="page wide">
-      <PageHead title="Relations & family" lead="Built from page frontmatter: parents, children, spouse, siblings, member_of and relations:. Anything under secret: is DM-only." />
+      <PageHead title="Relations & family" lead="Built from page frontmatter: parents, children, spouse, siblings, member_of and relations. Anything listed under secret is DM-only." />
       <ErrorBox error={rels.error} />
       <div className="card">
         <div className="row between">

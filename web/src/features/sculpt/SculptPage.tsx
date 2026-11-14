@@ -94,6 +94,7 @@ function Workshop({ tpl }: { tpl: Tpl }) {
 
   const missing = tpl.fields.some((f) => f.required && !values[f.key]?.trim());
   const hasBlock = tpl.fields.some((f) => f.type === 'statblock');
+  const noBlock = hasBlock && !tpl.fields.some((f) => f.type === 'statblock' && values[f.key]?.trim());
   const pageOptions = useMemo(() => (pages.data ?? []).filter((p) => !player || p.visibility === 'party').map((p) => p.title as string), [pages.data, player]);
 
   return (
@@ -142,12 +143,12 @@ function Workshop({ tpl }: { tpl: Tpl }) {
             </div>
           ))}
           <div className="row" style={{ flexWrap: 'wrap' }}>
-            <button type="button" className="btn" disabled={act.busy || missing || tpl.target.kind === 'none'} onClick={() => void save()}>Save{tpl.target.kind === 'person' ? ' to People' : tpl.target.kind === 'combat' ? ' statblock' : ''}</button>
+            <button type="button" className="btn" disabled={act.busy || missing || noBlock || tpl.target.kind === 'none'} onClick={() => void save()}>Save{tpl.target.kind === 'person' ? ' to People' : tpl.target.kind === 'combat' ? ' statblock' : ''}</button>
             {hasBlock && <button type="button" className="btn" disabled={act.busy || !values.statblock} onClick={() => void toCombat()}>Add to combat</button>}
             {player && <button type="button" className="btn" disabled={act.busy || !check?.text} onClick={() => void readAloud()}>Read aloud</button>}
             {player && <button type="button" className="btn" disabled={act.busy || !check?.text || !check.ok} onClick={() => void send()}>Send to players</button>}
           </div>
-          {missing && <span className="tiny muted">Fill the fields marked * to save.</span>}
+          {missing ? <span className="tiny muted">Fill the fields marked * to save.</span> : noBlock && <span className="tiny muted">Press Sculpt to make the statblock first.</span>}
         </div>
         <History onPick={(vals) => { setValues(vals); setLocked(new Set()); setPageId(undefined); }} tplId={tpl.id} />
       </section>
