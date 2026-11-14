@@ -35,11 +35,17 @@ export function treeText(v: unknown, out: string[] = []): string[] {
 interface PageRow { visibility: string; body: string; blocks: string | null; properties: string | null; player_body: string | null; player_blocks: string | null; player_properties: string | null }
 
 /** The 8-word runs of DM-only text in a world. */
-export function dmOnlyGrams(db: DB, worldId: string): Set<string> {
+/**
+ * Word sequences that only DM-only text contains. `skip(pageId, body)` may leave
+ * a page out; Sculpting uses it for read-aloud pages it saved after they passed
+ * this same check, while their text is unchanged.
+ */
+export function dmOnlyGrams(db: DB, worldId: string, skip?: (pageId: string, body: string) => boolean): Set<string> {
   const dm = new Set<string>();
   const players = new Set<string>();
   const add = (into: Set<string>, text: string) => { for (const g of grams(text)) into.add(g); };
-  for (const p of all<PageRow>(db, 'SELECT visibility, body, blocks, properties, player_body, player_blocks, player_properties FROM pages WHERE world_id = ?', worldId)) {
+  for (const p of all<PageRow & { id: string }>(db, 'SELECT id, visibility, body, blocks, properties, player_body, player_blocks, player_properties FROM pages WHERE world_id = ?', worldId)) {
+    if (skip?.(p.id, p.body ?? '')) continue;
     add(dm, [p.body, treeText(parseJson(p.blocks, [])).join(' '), treeText(parseJson(p.properties, [])).join(' ')].join('\n'));
     if (p.visibility === 'party') add(players, [p.player_body ?? '', treeText(parseJson(p.player_blocks, [])).join(' '), treeText(parseJson(p.player_properties, [])).join(' ')].join('\n'));
   }

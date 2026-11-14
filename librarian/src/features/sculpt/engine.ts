@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 // The sculpting engine: deterministic generators first (names, stock, coins,
 // the clock), then ONE chat call for the text that is still blank. Rendering
 // turns {{key}} and {{#dm}}...{{/dm}} into Markdown with secret blocks.
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, type ChatMessage } from '../../core/ai.ts';
-import { one } from '../../core/db.ts';
+import { all, one } from '../../core/db.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { dmOnlyGrams, grams } from '../agent/leak.ts';
 import { normalizeStatblock, statblockMarkdown } from '../agent/statblock.ts';
@@ -136,9 +137,16 @@ export function renderMd(parts: Part[]): string {
 }
 
 // ---- the leak check for player-perspective templates ----
+/** A short fingerprint of a page body. */
+export const bodyHash = (body: string) => createHash('sha256').update(body).digest('hex').slice(0, 32);
+
 export function cleanForPlayer(d: Deps, worldId: string, tpl: Tpl, values: Values): { values: Values; leaks: { key: string; match: string }[] } {
   if (tpl.perspective !== 'player') return { values, leaks: [] };
-  const dm = dmOnlyGrams(d.db, worldId);
+  // Read-aloud pages Sculpting saved from a player-view sculpt passed this check
+  // when saved; while their text is unchanged they are not DM secrets.
+  let saved = new Map<string, string>();
+  try { saved = new Map(all<any>(d.db, 'SELECT page_id, body_hash FROM sculpt_player_pages WHERE world_id = ?', worldId).map((r) => [r.page_id, r.body_hash])); } catch { /* older database */ }
+  const dm = dmOnlyGrams(d.db, worldId, (pid, body) => saved.get(pid) === bodyHash(body));
   const out: Values = {};
   const leaks: { key: string; match: string }[] = [];
   const dmKeys = new Set(tpl.fields.filter((f) => f.dmOnly).map((f) => f.key));

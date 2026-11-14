@@ -178,6 +178,21 @@ test('Sculpt: the player-perspective scene never contains DM-only text, even whe
   assert.equal((await env.call('POST', `${env.S}/send`, env.T.dm, { templateId: await tplId(env, 'Tavern'), values: {} })).status, 422);
 });
 
+test('Sculpt: a saved player-view scene can still be read aloud and sent, until its page is edited', async () => {
+  const id = await tplId(env, 'Scene, player perspective');
+  const vals = { location: 'Saltmarsh', time: 'Dawn', description: 'Mist hangs low over the fishing boats while the bells of the harbour toll for the morning catch.' };
+  const saved = await env.ok('POST', `${env.S}/save`, env.T.dm, { templateId: id, values: vals });
+  const pageId = saved.saved?.pageId ?? saved.pageId;
+  assert.ok(pageId, JSON.stringify(saved));
+  // The saved page is DM-only, but its text passed the check: Read aloud (check) and Send still work.
+  assert.equal((await env.ok('POST', `${env.S}/check`, env.T.dm, { templateId: id, values: vals })).ok, true);
+  await env.ok('POST', `${env.S}/send`, env.T.dm, { templateId: id, values: vals });
+  // Once the DM edits that page, its text counts as DM-only again (fail closed).
+  const pg = await env.ok('GET', `/api/worlds/${env.W}/library/pages/${pageId}`, env.T.dm);
+  await env.ok('PUT', `/api/worlds/${env.W}/library/pages`, env.T.dm, { path: pg.path, visibility: 'dm', markdown: `# Edited\n${vals.description}\nThe mist hides the smugglers unloading crates at the old pier tonight.` });
+  assert.equal((await env.ok('POST', `${env.S}/check`, env.T.dm, { templateId: id, values: vals })).ok, false);
+});
+
 test('Sculpt: custom templates can be created, edited and deleted', async () => {
   const body = { name: 'Trinket', description: 'A pocket oddity', perspective: 'dm', fields: [{ key: 'what', label: 'What', type: 'item' }, { key: 'worth', label: 'Worth', type: 'coins' }, { key: 'story', label: 'Story', type: 'longtext', dmOnly: true }], body: '# {{what}}\nWorth {{worth}}\n\n{{#dm}}\n{{story}}\n{{/dm}}\n', target: { kind: 'page', path: 'Trinkets/{{what}}', visibility: 'dm' } };
   const made = await env.ok('POST', `${env.S}/templates`, env.T.dm, body);
