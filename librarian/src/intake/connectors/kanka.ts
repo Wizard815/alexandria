@@ -27,7 +27,7 @@ const TYPES: [string, string, string | null][] = [
 const PLAYER_VISIBLE = new Set([1, 5]);
 // Post permission entries: 0 read, 1 update, 2 deny. A deny (or anything
 // unknown) means not every player can read the post.
-const postShared = (p: any) => PLAYER_VISIBLE.has(Number(p?.visibility_id))
+export const postShared = (p: any) => PLAYER_VISIBLE.has(Number(p?.visibility_id))
   && (p.permissions == null || (Array.isArray(p.permissions) && p.permissions.every((x: any) => x?.permission === 0 || x?.permission === 1)));
 
 // Mentions: [entity:ID], [character:ID], [location:ID|label]... The ID is
@@ -59,7 +59,7 @@ function fixRefs(bs: Block[]): Block[] {
   return bs;
 }
 
-const esc = (s: unknown) => String(s ?? '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
+export const esc = (s: unknown) => String(s ?? '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
 
 /** A post's level: broker or classified when it is named that way or tagged so (the most secret wins), else party. */
 export function postLevel(p: any, tagNames: (t: unknown) => string | undefined = (t) => (typeof t === 'object' && t ? String((t as any).name ?? '') : typeof t === 'string' ? t : undefined)): Level {
@@ -67,7 +67,7 @@ export function postLevel(p: any, tagNames: (t: unknown) => string | undefined =
   return maxLevel(levelOfWord(esc(p?.name)), tagLevel(tags));
 }
 
-function postBlocks(posts: any[], trust: (p: any) => boolean, levelOf: (p: any) => Level = postLevel): Block[] {
+export function postBlocks(posts: any[], trust: (p: any) => boolean, levelOf: (p: any) => Level = postLevel): Block[] {
   const out: Block[] = [];
   for (const p of posts) {
     const section: Block[] = [{ kind: 'heading', level: 2, content: [{ text: esc(p.name) || 'Post' }] }, ...kankaBlocks(p.entry ?? p.entry_parsed)];
@@ -156,23 +156,45 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+export const kankaBase = (cfg: { apiUrl?: unknown }) => String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
+
+/**
+ * One Kanka API request with the rate-limit handling every Kanka call shares:
+ * 30 requests a minute (90 for subscribers) per user; 429 when spent. Wait for
+ * Retry-After when sent, else back off 15 s, 30 s, 45 s. Any other status is
+ * returned for the caller to judge. `url` is absolute (it must start with the
+ * API base, so a token is never sent elsewhere).
+ */
+export async function kankaHttp(ctx: Pick<ConnectorContext, 'fetch' | 'signal'>, cfg: { token?: unknown; apiUrl?: unknown }, method: string, url: string, body?: unknown): Promise<{ status: number; body: any }> {
+  if (!url.startsWith(kankaBase(cfg) + '/')) throw new Error('Refusing a Kanka request outside the API URL');
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const r = await ctx.fetch(url, {
+      method,
+      headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctx.signal,
+    });
+    if (r.status === 429) {
+      const ra = Number(r.headers.get('retry-after'));
+      await pause(Number.isFinite(ra) && ra >= 0 && r.headers.get('retry-after') !== null ? Math.min(ra, 120) * 1000 : 15_000 * (attempt + 1), ctx.signal);
+      continue;
+    }
+    if (r.status === 204) return { status: 204, body: null };
+    if (method === 'GET' && r.ok) return { status: r.status, body: await r.json() };
+    return { status: r.status, body: await r.json().catch(() => null) };
+  }
+  throw new Error('Kanka kept rate-limiting; try again later');
+}
+
 async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<SyncItem> {
   const base = String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
   // 30 requests a minute (90 for subscribers) per user; 429 when spent. Wait
   // for Retry-After when sent, else back off 15 s, 30 s, 45 s.
   const get = async (url: string) => {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const r = await ctx.fetch(url, { headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'application/json' }, signal: ctx.signal });
-      if (r.status === 429) {
-        const ra = Number(r.headers.get('retry-after'));
-        await pause(Number.isFinite(ra) && ra >= 0 && r.headers.get('retry-after') !== null ? Math.min(ra, 120) * 1000 : 15_000 * (attempt + 1), ctx.signal);
-        continue;
-      }
-      if (r.status === 404) return null;
-      if (!r.ok) throw new Error(`Kanka answered ${r.status} for ${url.replace(base, '')}`);
-      return r.json() as Promise<any>;
-    }
-    throw new Error('Kanka kept rate-limiting; try again later');
+    const r = await kankaHttp(ctx, cfg, 'GET', url);
+    if (r.status === 404) return null;
+    if (r.status < 200 || r.status >= 300) throw new Error(`Kanka answered ${r.status} for ${url.replace(base, '')}`);
+    return r.body as any;
   };
   // Every page of a collection. links.next can drop ?related=1, so the next
   // URL is built here rather than followed (and never leaves the API host).

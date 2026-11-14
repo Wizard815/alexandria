@@ -203,22 +203,58 @@ curl -X POST https://alexandria.example/api/intake/src_abc/entries \
 
 Sources are read-only. The exception is the WorldLore workspace
 (`librarian/src/features/worldlore`): the DM sets one folder or resource of a
-source, or the `WorldLore/` folder of the library, as the AI's own wiki. The
+source (a LegendKeeper resource, a Markdown folder, a Kanka note or journal), or the
+`WorldLore/` folder of the library, as the AI's own wiki. The
 agent reads, writes, moves and deletes there with no confirmation
 (`lore_list`, `lore_read`, `lore_write`, `lore_move`, `lore_delete`; enabling
 it adds the write tools to the world's `agentAutoApprove`). Nothing else changes.
 
 A connector opts in with an optional `write` (`ConnectorWrite`: `createPage`,
-`updatePage`, `movePage`, `deletePage`, plus `readPage` and `roots`). It must
+`updatePage`, `movePage`, `deletePage`, plus `readPage`, `roots` and `search`). It must
 refuse (`WriteRefused`, 403) anything outside the workspace `root`, checked
 against the source itself. Shipped: LegendKeeper API key (REST v3), LegendKeeper
-MCP, Markdown folder. The LegendKeeper MCP may call only `create_resource`,
+MCP, Markdown folder, Kanka API token, mcp-kanka. The LegendKeeper MCP may call only `create_resource`,
 `write_page`, `update_resource`, `move_resource` and `delete_resource`
 (`confirm=true`), and only through `workspaceMcpFactory`; `readOnlyMcp` still
 refuses every write tool for sync and everything else. Pages carry a level
 (`dm`, `broker`, `party`, `classified`); an agent can write `party` only if the
 DM made `party` the workspace default, and `classified` pages are never sent to
-an AI. Kanka has no write capability yet.
+an AI.
+
+### Kanka
+
+The WorldLore home is one Kanka **note or journal**, saved as `kanka:<entity id>`
+(the picker lists the top-level ones and has a name search for deeper ones; the
+root link is `https://app.kanka.io/w/<campaign>/entities/<entity id>`, or the page
+URL from the last sync). The agent's pages are child entities of the **same type**,
+nested any depth. Everything else in the campaign stays read-only.
+
+- **Token (`kanka-api`, `kanka-write.ts`):** `POST`, `PATCH`, `DELETE`
+  `/campaigns/{id}/notes|journals/{id}`; the parent is `parent_id`, the parent's
+  *entity* id (Kanka 3.10+); the row id in the URL comes from
+  `GET /entities/{entity id}` (`child_id`). `entry` is HTML made from the Markdown;
+  `[entity:ID]`, `[entity:ID|text]` and Alexandria's `[[@kanka:ID|text]]` become
+  Kanka mentions. The token must belong to a campaign admin. 429 / `Retry-After`
+  use the same handling as sync (`kankaHttp`).
+- **mcp-kanka (`kanka-mcp`):** only `create_entities`, `update_entities` and
+  `delete_entities` (notes and journals, a handful of ids per call), through
+  `workspaceMcpFactory`. Posts, relations, tags, attributes, permissions,
+  calendars, migrations and every other write tool stay refused everywhere.
+- **Guard, before every write:** the target and its parent chain are read from
+  Kanka again (never the library), and the root must be among its ancestors, or
+  the target is a new child of a page inside the root. The root must still be a
+  note or journal. Kanka not saying where a page sits means refused. Refused: the
+  root being moved, renamed or deleted; moving out of the root, into the page
+  itself or its child; a page of another type; anything outside the root.
+- **Levels:** `party` sets `is_private: false` (only when the workspace default is
+  `party`); `dm`, `broker` and `classified` set `is_private: true`. `broker` and
+  `classified` add a tag of that name (created, private, when missing; matches
+  `core/levels.ts`) and a level change swaps it and keeps the page's other tags.
+  A `> [!secret]`, `[!broker]` or `[!classified]` callout, or a heading like
+  "Broker notes", makes the Kanka page private even if the level says party.
+- **After a write** that one entity is read back and saved to the library with its
+  level (no full sync). After a delete, the page's children are read again
+  (Kanka may re-parent or delete them) and dropped from WorldLore if they left it.
 
 ## Write a connector
 
