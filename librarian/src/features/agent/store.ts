@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS agent_chats (
   harness TEXT NOT NULL CHECK (harness IN ('dm', 'player')),
   title TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  summary_upto INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS agent_chats_owner ON agent_chats (world_id, account_id, updated_at);
 CREATE TABLE IF NOT EXISTS agent_messages (
@@ -24,7 +26,8 @@ CREATE TABLE IF NOT EXISTS agent_messages (
   citations TEXT NOT NULL DEFAULT '[]',
   context TEXT,
   blocked INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  timings TEXT
 );
 CREATE INDEX IF NOT EXISTS agent_messages_chat ON agent_messages (chat_id, created_at);
 CREATE TABLE IF NOT EXISTS agent_actions (
@@ -72,10 +75,43 @@ export const addMessage = (db: DB, chatId: string, role: 'user' | 'assistant', c
   return m;
 };
 
-export const finishMessage = (db: DB, msgId: string, content: string, status: 'done' | 'error', citations: Citation[] = [], blocked = false) =>
-  run(db, 'UPDATE agent_messages SET content = ?, status = ?, citations = ?, blocked = ? WHERE id = ?', content, status, JSON.stringify(citations), blocked ? 1 : 0, msgId);
+/** Where the time of one reply went, in milliseconds (see docs/MODELS.md, "Reading the timings"). */
+export interface Timings {
+  totalMs: number;
+  /** From the message arriving to the first text leaving for the screen. */
+  firstTokenMs?: number;
+  /** Time inside model calls (streaming included). */
+  modelMs: number;
+  /** Wall time running tools (parallel calls overlap). */
+  toolMs: number;
+  /** Library search and context gathering before the first model call. */
+  prepMs: number;
+  /** Everything that was neither the model nor a tool: totalMs - modelMs - toolMs. */
+  gatewayMs: number;
+  rounds: number;
+  toolCalls: number;
+  snippets: number;
+  toolsOffered: number;
+  /** Answered by a rule, with no model. */
+  fast?: boolean;
+  /** Time the player leak gate spent checking sentences. */
+  gateMs?: number;
+}
 
-export const messageView = (m: any) => ({ id: m.id, role: m.role, text: m.content, status: m.status, citations: parseJson<Citation[]>(m.citations, []), at: m.created_at });
+export const finishMessage = (db: DB, msgId: string, content: string, status: 'done' | 'error', citations: Citation[] = [], blocked = false, timings?: Timings) => {
+  partials.delete(msgId);
+  run(db, 'UPDATE agent_messages SET content = ?, status = ?, citations = ?, blocked = ?, timings = ? WHERE id = ?', content, status, JSON.stringify(citations), blocked ? 1 : 0, timings ? JSON.stringify(timings) : null, msgId);
+};
+
+/** The reply so far, for a message still being answered (what the screen would show right now). */
+const partials = new Map<string, string>();
+export const setPartial = (msgId: string, text: string) => { partials.set(msgId, text); };
+export const clearPartial = (msgId: string) => { partials.delete(msgId); };
+
+export const messageView = (m: any) => ({
+  id: m.id, role: m.role, text: m.status === 'working' ? partials.get(m.id) ?? m.content : m.content, status: m.status, citations: parseJson<Citation[]>(m.citations, []), at: m.created_at,
+  timings: m.timings ? parseJson<Timings | null>(m.timings, null) : null,
+});
 
 /** A chat with its messages and the actions waiting on the DM. */
 export function chatView(db: DB, chatId: string) {
