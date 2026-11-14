@@ -5,9 +5,10 @@ import { Router, type Response } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
+import { combatViewFor } from '../core/combatView.ts';
 import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
 import { dmAnd } from '../core/events.ts';
-import { healthForPlayers, type Viewer, type WorldSettings } from '../core/policy.ts';
+import { type Viewer, type WorldSettings } from '../core/policy.ts';
 import { HttpError, id, int, now, parseJson, str } from '../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
 
@@ -15,24 +16,7 @@ export default function liveRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
 
-  function combatView(worldId: string, v: Viewer, s: WorldSettings) {
-    const state = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', worldId) ?? { active: 0, round: 1, turn: 0 };
-    const list = all<any>(db, 'SELECT * FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', worldId);
-    if (v.role === 'dm') return { active: !!state.active, round: state.round, turn: state.turn, combatants: list.map((x) => ({ ...x, effects: parseJson(x.effects, []), hidden: !!x.hidden, is_pc: !!x.is_pc })) };
-    const shown = list.filter((x) => !x.hidden);
-    const current = list[state.turn % Math.max(list.length, 1)];
-    const myTurn = !!state.active && current?.account_id === v.accountId;
-    if (!s.initiativeVisible) return { active: !!state.active, round: state.round, myTurn };
-    return {
-      active: !!state.active, round: state.round, myTurn,
-      currentId: current && !current.hidden ? current.id : null,
-      combatants: shown.map((x) => ({
-        id: x.id, name: x.name, is_pc: !!x.is_pc, mine: x.account_id === v.accountId,
-        effects: parseJson(x.effects, []),
-        health: x.is_pc ? null : healthForPlayers(x.hp, x.max_hp, s.monsterHealth),
-      })),
-    };
-  }
+  const combatView = (worldId: string, v: Viewer, s: WorldSettings) => combatViewFor(db, worldId, v, s);
   const pushCombat = (res: Response) => {
     const c = ctx(res);
     const s = settings(res);
