@@ -13,7 +13,8 @@ import { featureSetting } from '../../core/policy.ts';
 import { HttpError, int, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
-import { describeCall, harnessTools, historyFor, runAgent, runTool, type Caller } from './harness.ts';
+import { describeCall, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
+import { fastPlan } from './intent.ts';
 import { addMessage, actionView, chatView, newChat, ownChat, SCHEMA } from './store.ts';
 import { buildStatblock, mod, normalizeStatblock, rollInitiative, saveStatblockPage, statblockFromBody, type Statblock } from './statblock.ts';
 
@@ -37,7 +38,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   r.get('/status', (_req, res) => {
     const s = settings(res);
-    res.json({ model: hasJob(d, 'chat'), harness: isDM(res) ? 'dm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isDM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [] });
+    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isDM(res) ? 'dm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isDM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [] });
   });
 
   // ---- chats ----
@@ -64,7 +65,7 @@ function routes(d: import('../../app.ts').Deps) {
     res.json({ ok: true });
   });
 
-  r.post('/chats/:id/messages', (req, res) => {
+  r.post('/chats/:id/messages', async (req, res) => {
     const who = caller(req, res);
     const chat = ownChat(d.db, W(res), me(res), String(req.params.id));
     if (!chat) throw new HttpError(404, 'Chat not found');
@@ -73,14 +74,24 @@ function routes(d: import('../../app.ts').Deps) {
     if (!text) throw new HttpError(400, 'text is required');
     const page = str(req.body?.page, 'page', { max: 300, optional: true });
     const selection = str(req.body?.selection, 'selection', { max: 3000, optional: true });
-    needModel();
+    // Dice, the date, "next turn" and the like are answered by a rule, so they work with no model at all.
+    const fast = fastPlan(text, who.harness === 'dm');
+    if (!fast) needModel();
     if (one(d.db, `SELECT 1 FROM agent_messages WHERE chat_id = ? AND status = 'working' AND created_at > ?`, chat.id, new Date(Date.now() - 10 * 60_000).toISOString())) throw new HttpError(409, 'The assistant is still answering the last message');
-    const history = historyFor(d, chat.id);
+    const { messages: history, summary } = historyFor(d, chat.id);
     addMessage(d.db, chat.id, 'user', text, { context: { page: page || undefined, selection: selection || undefined } });
     if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
-    void runAgent(d, who, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history });
+    void runAgent(d, who, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast });
     res.status(202).json(chatView(d.db, chat.id));
+  });
+
+  /** The Stop button: end the answer being written; what was shown so far is kept. */
+  r.post('/chats/:id/stop', (req, res) => {
+    caller(req, res);
+    const chat = ownChat(d.db, W(res), me(res), String(req.params.id));
+    if (!chat) throw new HttpError(404, 'Chat not found');
+    res.json({ stopped: stopRun(chat.id) });
   });
 
   // ---- pending actions (DM) ----
@@ -177,6 +188,12 @@ const feature: Feature = {
     const cols = (db.prepare('PRAGMA table_info(combatants)').all() as any[]).map((c) => c.name);
     if (!cols.includes('ac')) db.exec('ALTER TABLE combatants ADD COLUMN ac INTEGER');
     if (!cols.includes('statblock_page')) db.exec('ALTER TABLE combatants ADD COLUMN statblock_page TEXT');
+    // Replies keep their timings; a chat keeps a running summary of its older messages.
+    const mcols = (db.prepare('PRAGMA table_info(agent_messages)').all() as any[]).map((c) => c.name);
+    if (!mcols.includes('timings')) db.exec('ALTER TABLE agent_messages ADD COLUMN timings TEXT');
+    const ccols = (db.prepare('PRAGMA table_info(agent_chats)').all() as any[]).map((c) => c.name);
+    if (!ccols.includes('summary')) db.exec(`ALTER TABLE agent_chats ADD COLUMN summary TEXT NOT NULL DEFAULT ''`);
+    if (!ccols.includes('summary_upto')) db.exec('ALTER TABLE agent_chats ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0');
   },
   settings: {
     agentAutoApprove: {
