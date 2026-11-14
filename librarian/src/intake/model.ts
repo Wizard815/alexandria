@@ -4,6 +4,7 @@
 // for all of them. Blocks follow LegendKeeper's document schema, which is the
 // richest of the sources, so its pages keep their layout one to one.
 import { marked, type Token, type Tokens } from 'marked';
+import type { Level } from '../core/levels.ts';
 
 export interface Mention {
   /** Source-scoped id of the linked entry, e.g. a LegendKeeper resource id or "kanka:123". */
@@ -28,7 +29,8 @@ export interface Inline {
 
 export interface MapPin { name: string; lat: number; lng: number; type?: string; /** Source id of the page this pin is for. */ ref?: string; dm?: boolean }
 export interface PropertyRow { key: string; value: Inline[] }
-export interface PropertyGroup { title: string; rows: PropertyRow[]; dm?: boolean }
+/** `dm: true` is the older way to say level `dm`; `level` can also be broker or classified. */
+export interface PropertyGroup { title: string; rows: PropertyRow[]; dm?: boolean; level?: Level }
 
 export type Block =
   | { kind: 'heading'; level: number; content: Inline[] }
@@ -38,7 +40,8 @@ export type Block =
   | { kind: 'table'; children: Block[] }
   | { kind: 'tableRow'; children: Block[] }
   | { kind: 'tableCell'; header?: boolean; children: Block[] }
-  | { kind: 'secret'; children: Block[] }
+  /** A hidden block: `level` is dm unless it says broker or classified. */
+  | { kind: 'secret'; children: Block[]; level?: Level }
   | { kind: 'callout'; variant: string; title?: Inline[]; children: Block[] }
   | { kind: 'toggle'; title: Inline[]; children: Block[] }
   | { kind: 'blockquote'; children: Block[] }
@@ -67,7 +70,9 @@ export interface Entry {
   properties?: PropertyGroup[];
   blocks: Block[];
   /** dm or party. Adapters must fail closed: anything unsure is dm. */
-  visibility: 'dm' | 'party';
+  visibility: 'dm' | 'party' | 'broker' | 'classified';
+  /** A secrecy level the source worked out (for example from a private tag). The library raises the page to it. */
+  level?: Level;
   /** How hard this is to learn, for the information broker. */
   knowledge?: 'common' | 'local' | 'deep' | null;
   /** Link back to the page in its own app. */
@@ -133,7 +138,7 @@ export function blocksToMarkdown(blocks: Block[], titleOf?: (m: Mention) => stri
         out.push([line(rows[0]), `|${' --- |'.repeat(w)}`, ...rows.slice(1).map(line)].join('\n'));
         break;
       }
-      case 'secret': out.push(`> [!secret]\n${quote(md(b.children))}`); break;
+      case 'secret': out.push(`> [!${b.level === 'broker' || b.level === 'classified' ? b.level : 'secret'}]\n${quote(md(b.children))}`); break;
       case 'callout': out.push(`> [!${b.variant}]${b.title?.length ? ' ' + il(b.title) : ''}\n${quote(md(b.children))}`); break;
       case 'toggle': out.push(`> [!expand] ${il(b.title)}\n${quote(md(b.children))}`); break;
       case 'blockquote': out.push(quote(md(b.children))); break;
@@ -239,7 +244,10 @@ function tokensToBlocks(tokens: Token[]): Block[] {
           const variant = m[1].toLowerCase();
           const rest = q.text.slice(m[0].length);
           const children = tokensToBlocks(marked.lexer(rest));
-          if (variant === 'secret' || variant === 'dm' || variant === 'gm') out.push({ kind: 'secret', children: m[3] ? [{ kind: 'heading', level: 3, content: [{ text: m[3] }] }, ...children] : children });
+          if (variant === 'secret' || variant === 'dm' || variant === 'gm' || variant === 'broker' || variant === 'classified') {
+            const level = variant === 'broker' || variant === 'classified' ? variant : undefined;
+            out.push({ kind: 'secret', ...(level ? { level } : {}), children: m[3] ? [{ kind: 'heading', level: 3, content: [{ text: m[3] }] }, ...children] : children });
+          }
           else if (variant === 'expand' || m[2]) out.push({ kind: 'toggle', title: [{ text: m[3] || variant }], children });
           else out.push({ kind: 'callout', variant, ...(m[3] ? { title: [{ text: m[3] }] } : {}), children });
         } else out.push({ kind: 'blockquote', children: tokensToBlocks(q.tokens) });

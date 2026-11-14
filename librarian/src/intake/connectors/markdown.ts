@@ -3,6 +3,9 @@
 // files (an Obsidian MCP, a filesystem MCP...). Frontmatter becomes tags,
 // aliases and sidebar facts; [[wiki links]] become links; > [!secret]
 // callouts, %% comments %%, <!-- dm --> blocks and DM headings stay DM-only.
+// Levels (core/levels.ts): visibility: broker | classified, the tags broker and
+// classified, > [!broker] and > [!classified] callouts, Broker and Classified
+// headings, and broker_* / classified_* keys.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -12,6 +15,7 @@ import { ConfigError } from '../connector.ts';
 import type { Entry, Inline, PropertyGroup } from '../model.ts';
 import { type FM, type FMValue, splitFrontmatter } from '../../core/frontmatter.ts';
 import { normVisibility } from '../../core/policy.ts';
+import { type Level, keyLevel, normLevel } from '../../core/levels.ts';
 import { jsonOf } from '../../core/mcp.ts';
 
 const run = promisify(execFile);
@@ -38,7 +42,8 @@ export function frontmatterGroups(fm: FM): PropertyGroup[] {
   for (const [k, v] of Object.entries(fm)) {
     if (RESERVED.has(k.toLowerCase()) || /^(kanka|lk)_/.test(k)) continue;
     if (v && typeof v === 'object' && !Array.isArray(v)) {
-      groups.push({ title: k, ...(DM_KEY.test(k) ? { dm: true } : {}), rows: Object.entries(v).map(([kk, vv]) => ({ key: kk, value: valueInline(vv) })) });
+      const lv = keyLevel(k);
+      groups.push({ title: k, ...(DM_KEY.test(k) ? { dm: true } : {}), ...(lv === 'broker' || lv === 'classified' ? { level: lv } : {}), rows: Object.entries(v).map(([kk, vv]) => ({ key: kk, value: valueInline(vv) })) });
     } else facts.rows.push({ key: k.replace(/_/g, ' '), value: valueInline(v) });
   }
   return [...(facts.rows.length ? [facts] : []), ...groups];
@@ -52,6 +57,8 @@ export function markdownEntry(relPath: string, text: string, defaultVisibility: 
   const file = parts.pop()!.replace(/\.md$/i, '');
   const title = typeof fm.title === 'string' && fm.title ? fm.title : (/^#\s+(.+)$/m.exec(body)?.[1]?.trim() ?? file);
   const k = String(fm.knowledge ?? '').toLowerCase();
+  // broker and classified are levels of their own; the library also raises a page by its tags.
+  const named: Level = normLevel(fm.visibility);
   return {
     externalId: relPath,
     folder: parts,
@@ -66,6 +73,7 @@ export function markdownEntry(relPath: string, text: string, defaultVisibility: 
     markdown: body,
     frontmatter: fm,
     visibility: fm.visibility !== undefined && fm.visibility !== null ? (normVisibility(fm.visibility) === 'party' ? 'party' : 'dm') : defaultVisibility,
+    ...(fm.visibility !== undefined && fm.visibility !== null && (named === 'broker' || named === 'classified') ? { level: named } : {}),
     knowledge: k === 'common' || k === 'local' || k === 'deep' ? k : null,
   } as Entry;
 }

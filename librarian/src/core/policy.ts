@@ -8,6 +8,7 @@
 //    party search index is built from it, so DM text cannot reach a player
 //    through search, lore, relations or an AI answer built on them.
 import type { FM, FMValue } from './frontmatter.ts';
+import { type Audience, AUDIENCE_MAX, RANK, calloutVariantLevel, headingNamedLevel, keyLevel, levelOfWord, maxLevel } from './levels.ts';
 
 export type Role = 'dm' | 'player' | 'guest';
 export type Visibility = 'dm' | 'party' | 'me';
@@ -15,6 +16,19 @@ export type Visibility = 'dm' | 'party' | 'me';
 export interface Viewer {
   accountId: string;
   role: Role;
+  /**
+   * Set for a DM whose request comes from a model (header X-Alexandria-Caller:
+   * model, or an in-process caller that feeds one): `ai` is served the AI copy,
+   * which never has classified content. `broker` is the information broker's
+   * copy. Players ignore it. Spoofing it can only show less.
+   */
+  audience?: 'ai' | 'broker';
+}
+
+/** Which copy of a page a viewer is served: players the player copy, a DM the full copy, unless a model (or the broker) is asking for them. */
+export function audienceOf(v: Viewer): Audience {
+  if (v.role !== 'dm') return 'player';
+  return v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'dm';
 }
 
 export function normVisibility(v: unknown): Visibility {
@@ -36,23 +50,26 @@ export function canSee(viewer: Viewer, visibility: string, ownerId?: string | nu
   return isOwner || viewer.role === 'dm';
 }
 
-const DM_KEY = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
-
-/** Frontmatter with every DM-only key removed (secret:, dm_*, gm_* ...). */
-export function playerFrontmatter(fm: FM): FM {
+/** Frontmatter an audience may read: keys above its level (secret:, dm_*, broker_*, classified_* ...) are removed, and `visibility` never goes out. */
+export function frontmatterFor(fm: FM, audience: Audience): FM {
+  if (audience === 'dm') return fm;
+  const max = AUDIENCE_MAX[audience];
   const out: FM = {};
   for (const [k, v] of Object.entries(fm)) {
-    if (DM_KEY.test(k) || k === 'visibility') continue;
-    out[k] = stripNested(v);
+    if (RANK[keyLevel(k)] > max || k === 'visibility') continue;
+    out[k] = stripNested(v, max);
   }
   return out;
 }
 
-function stripNested(v: FMValue): FMValue {
-  if (Array.isArray(v)) return v.map(stripNested);
+/** Frontmatter with every DM-only key removed (secret:, dm_*, gm_* ...). The player copy. */
+export const playerFrontmatter = (fm: FM): FM => frontmatterFor(fm, 'player');
+
+function stripNested(v: FMValue, max: number): FMValue {
+  if (Array.isArray(v)) return v.map((x) => stripNested(x, max));
   if (v && typeof v === 'object') {
     const o: { [k: string]: FMValue } = {};
-    for (const [k, x] of Object.entries(v)) if (!DM_KEY.test(k)) o[k] = stripNested(x);
+    for (const [k, x] of Object.entries(v)) if (RANK[keyLevel(k)] <= max) o[k] = stripNested(x, max);
     return o;
   }
   return v;
@@ -61,24 +78,46 @@ function stripNested(v: FMValue): FMValue {
 const DM_HEADING = /\((dm|gm)( only)?\)|\[(dm|gm)\]|\b(dm|gm) only\b|^(secrets?|dm notes?|gm notes?|dm|gm)$/i;
 
 /**
- * Remove DM-only parts of a Markdown body:
- * - Obsidian comments %% ... %%
- * - <!-- dm --> ... <!-- /dm --> (also gm, secret)
- * - callouts that start with > [!secret], > [!dm] or > [!gm]
- * - any heading marked (DM), [DM], "DM only", or titled Secrets / DM notes,
- *   together with everything under it until the next heading of the same
- *   or a higher level
+ * Remove the parts of a Markdown body an audience may not read (the player
+ * copy unless told otherwise):
+ * - Obsidian comments %% ... %% (DM level)
+ * - <!-- dm --> ... <!-- /dm --> (also gm, secret), <!-- broker --> ... <!-- /broker -->
+ *   and <!-- classified --> ... <!-- /classified -->
+ * - callouts that start with > [!secret], > [!dm], > [!gm], > [!broker] or
+ *   > [!classified], and callouts or toggles titled Broker or Classified
+ * - any heading marked (DM), [DM], "DM only", or titled Secrets / DM notes /
+ *   Broker / Classified, together with everything under it until the next
+ *   heading of the same or a higher level
+ * A marker that is never closed hides the rest of the page rather than
+ * leaking it. Parts at a level the audience may read are kept (the markers
+ * of a region are dropped). The DM audience gets the text unchanged.
  */
-export function redactMarkdown(body: string): string {
-  let s = body.replace(/%%[\s\S]*?%%/g, '');
-  s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*?<!--\s*\/\s*(dm|gm|secret)\s*-->/gi, '');
-  // An unclosed DM marker hides the rest of the page rather than leaking it.
-  s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*$/i, '');
+export function redactMarkdown(body: string, audience: Audience = 'player'): string {
+  if (audience === 'dm') return body;
+  const max = AUDIENCE_MAX[audience];
+  // Classified regions go first, and only a matching close ends one: no model or other reader ever sees them.
+  let s = body.replace(/<!--\s*classified\s*-->[\s\S]*?<!--\s*\/\s*classified\s*-->/gi, '');
+  s = s.replace(/<!--\s*classified\s*-->[\s\S]*$/i, '');
+  // Obsidian comments are DM level: kept (unwrapped) for an audience that may read the DM level.
+  s = max >= RANK.dm ? s.replace(/%%/g, '') : s.replace(/%%[\s\S]*?%%/g, '');
+  if (max >= RANK.dm) {
+    s = s.replace(/<!--\s*\/?\s*(dm|gm|secret)\s*-->/gi, '');
+  } else {
+    s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*?<!--\s*\/\s*(dm|gm|secret)\s*-->/gi, '');
+    // An unclosed DM marker hides the rest of the page rather than leaking it.
+    s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*$/i, '');
+  }
+  if (max >= RANK.broker) {
+    s = s.replace(/<!--\s*\/?\s*broker\s*-->/gi, '');
+  } else {
+    s = s.replace(/<!--\s*broker\s*-->[\s\S]*?<!--\s*\/\s*broker\s*-->/gi, '');
+    s = s.replace(/<!--\s*broker\s*-->[\s\S]*$/i, '');
+  }
 
   const out: string[] = [];
   const lines = s.split(/\r?\n/);
   let skipLevel = 0;
-  let inSecretCallout = false;
+  let inHiddenCallout = false;
   let fence = false;
   for (const line of lines) {
     if (/^\s*(```|~~~)/.test(line)) fence = !fence;
@@ -87,16 +126,22 @@ export function redactMarkdown(body: string): string {
       if (h && h[1].length <= skipLevel) skipLevel = 0;
       else continue;
     }
-    if (h && DM_HEADING.test(h[2].trim()) ) {
-      skipLevel = h[1].length;
-      continue;
+    if (h) {
+      const t = h[2].trim();
+      const lvl = maxLevel(headingNamedLevel(t), DM_HEADING.test(t) ? 'dm' : null);
+      if (RANK[lvl] > max) {
+        skipLevel = h[1].length;
+        continue;
+      }
     }
-    if (inSecretCallout) {
+    if (inHiddenCallout) {
       if (/^\s*>/.test(line)) continue;
-      inSecretCallout = false;
+      inHiddenCallout = false;
     }
-    if (/^\s*>\s*\[!(secret|dm|gm)\]/i.test(line)) {
-      inSecretCallout = true;
+    // A callout opener, however deeply quoted: > [!broker], > > [!classified], > [!expand] Broker
+    const c = /^\s*(?:>\s*)+\[!([\w-]+)\][+-]?[ \t]*(.*)$/.exec(line);
+    if (c && RANK[maxLevel(calloutVariantLevel(c[1]), levelOfWord(c[2]))] > max) {
+      inHiddenCallout = true;
       continue;
     }
     out.push(line);
@@ -140,8 +185,23 @@ export function secretHints(body: string): string[] {
 
 /** Player copy of a page, or null when the page is not shared with the party. */
 export function playerCopy(visibility: string, fm: FM, body: string): { fm: FM; body: string } | null {
-  if (normVisibility(visibility) !== 'party') return null;
-  return { fm: playerFrontmatter(fm), body: redactMarkdown(body) };
+  return copyOfMarkdown(visibility, 'player', fm, body);
+}
+
+/**
+ * The Markdown copy of a page for an audience, or null when the page's level
+ * is above what the audience may read (a classified page has no AI copy, a dm
+ * page no broker or player copy). Only `party` pages are shared with players.
+ */
+export function copyOfMarkdown(level: string, audience: Audience, fm: FM, body: string): { fm: FM; body: string } | null {
+  if (!levelAllows(level, audience)) return null;
+  return { fm: frontmatterFor(fm, audience), body: redactMarkdown(body, audience) };
+}
+
+/** May this audience read a page of this level? Unknown levels count as dm. */
+export function levelAllows(level: string, audience: Audience): boolean {
+  const l = level === 'party' || level === 'broker' || level === 'classified' ? level : 'dm';
+  return RANK[l] <= AUDIENCE_MAX[audience];
 }
 
 export interface WorldSettings {

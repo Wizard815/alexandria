@@ -538,6 +538,8 @@ function migrate(db: DB) {
   add('player_blocks', 'TEXT');
   add('properties', "TEXT NOT NULL DEFAULT '[]'");
   add('player_properties', 'TEXT');
+  // Secrecy levels (core/levels.ts): the broker copy (party + broker content) and the AI copy (everything but classified).
+  for (const c of ['broker_frontmatter', 'broker_body', 'broker_blocks', 'broker_properties', 'ai_frontmatter', 'ai_body', 'ai_blocks', 'ai_properties']) add(c, 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pages_source_ext ON pages (world_id, source_id, external_id) WHERE external_id IS NOT NULL');
   db.exec('CREATE INDEX IF NOT EXISTS pages_world_vis ON pages (world_id, visibility)');
   // Search: create the FTS tables, or rebuild them when the layout/version changed (needs the pages columns above).
