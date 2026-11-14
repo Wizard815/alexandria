@@ -19,6 +19,13 @@ export const only = (...ids: string[]): Audience => (v) => ids.includes(v.accoun
 
 export class EventHub {
   private subs = new Set<Sub>();
+  private taps = new Set<(worldId: string, type: string, data: unknown) => void>();
+
+  /** Server-side listener for every emit (not per viewer). For features that react to an event type, such as a session starting. Never forward `data` to a viewer. */
+  tap(fn: (worldId: string, type: string, data: unknown) => void): () => void {
+    this.taps.add(fn);
+    return () => { this.taps.delete(fn); };
+  }
 
   subscribe(worldId: string, viewer: Viewer, res: Response) {
     res.writeHead(200, {
@@ -42,6 +49,7 @@ export class EventHub {
     for (const s of this.subs) {
       if (s.worldId === worldId && audience(s.viewer)) s.res.write(payload);
     }
+    for (const t of this.taps) { try { t(worldId, type, data); } catch { /* a listener never breaks an emit */ } }
   }
 
   /** Emit a value computed per viewer (for role-filtered views like combat). */
