@@ -15,6 +15,7 @@ import { useNet } from '../../lib/net.ts';
 import { Blocks, Facts, Icon, LIB_CSS, type RenderCtx } from './Blocks.tsx';
 import { Tree, TREE_CSS, type PageRow } from './Tree.tsx';
 import { Editor, SecretHint } from './Editor.tsx';
+import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Levels.tsx';
 import { AskModal } from './AskModal.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
@@ -32,7 +33,7 @@ export default function LibraryPage() {
   const [hits, setHits] = useState<any[] | null>(null);
   const [tag, setTag] = useState('');
   const [kind, setKind] = useState('');
-  const [vis, setVis] = useState<'all' | 'party' | 'dm'>('all');
+  const [vis, setVis] = useState<'all' | 'party' | 'broker' | 'dm' | 'classified'>('all');
   const [savedOnly, setSavedOnly] = useState(false);
   const [sort, setSort] = useState<Sort>('tree');
   const [side, setSide] = useState<Side>('pages');
@@ -74,7 +75,7 @@ export default function LibraryPage() {
   const needle = q.trim().toLowerCase();
   const list = useMemo(() => rows.filter((r) =>
     (!tag || r.tags?.includes(tag)) && (!kind || r.kind === kind) && (!savedOnly || savedIds.has(r.id)) &&
-    (vis === 'all' || (vis === 'party' ? r.visibility === 'party' : r.visibility !== 'party')) &&
+    (vis === 'all' || levelOf(r.visibility) === vis) &&
     (!needle || r.title.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle))), [rows, tag, kind, savedOnly, savedIds, vis, needle]);
   const flat = useMemo(() => (sort === 'tree' && !needle ? null : [...list].sort((a, b) => (sort === 'recent' ? b.updated_at.localeCompare(a.updated_at) : a.title.localeCompare(b.title, undefined, { numeric: true })))), [list, sort, needle]);
 
@@ -145,7 +146,7 @@ export default function LibraryPage() {
               <div className="lib-filters">
                 <select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}><option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                 {kinds.length > 1 && <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select>}
-                {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">Everyone + DM</option><option value="party">Shared</option><option value="dm">DM only</option></select>}
+                {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="dm">DM only</option><option value="classified">Classified</option></select>}
                 <select aria-label="Order" value={sort} onChange={(e) => setSort(e.target.value as Sort)}><option value="tree">Folders</option><option value="recent">Recent</option><option value="title">A–Z</option></select>
                 <label className="lib-check"><input type="checkbox" checked={savedOnly} onChange={(e) => setSavedOnly(e.target.checked)} /> Saved for offline</label>
                 {filtered && <button type="button" className="btn small" onClick={() => { setTag(''); setKind(''); setVis('all'); setSavedOnly(false); }}>Clear</button>}
@@ -197,7 +198,7 @@ function FlatList({ rows, selected, onOpen, saved }: { rows: PageRow[]; selected
         <button key={r.id} type="button" className={`list-item${selected === r.id ? ' active' : ''}`} onClick={() => onOpen(r.id)}>
           {r.icon?.glyph ? <Icon icon={r.icon} size={14} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />}
           <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{r.title}</strong><span className="tiny faint lib-ellipsis">{[r.source, ...(r.folder ?? [])].filter(Boolean).join(' / ') || r.path} · {when(r.updated_at)}</span></span>
-          {r.visibility && r.visibility !== 'party' && <span className="lib-dm-dot" title="DM only" />}
+          {r.visibility && r.visibility !== 'party' && <LevelChip level={r.visibility} />}
           {saved.has(r.id) && <i className="fa-solid fa-download lib-saved-ico" title="Saved for offline" />}
         </button>
       ))}
@@ -302,6 +303,11 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
     await w.deletePage(id);
     onDeleted();
   });
+  const setLevel = (level: string) => act.run(async () => {
+    await w.call('PUT', `/library/pages/${encodeURIComponent(id)}/level`, { level });
+    toast(`Level: ${LEVEL_LABEL[levelOf(level)]}`);
+    await load();
+  });
   const crumbs = [pg.source, ...(pg.folder ?? [])].filter(Boolean);
   const parent = rows.find((r) => r.id === rows.find((x) => x.id === id)?.parentId);
   const facts: any[] = pg.properties ?? [];
@@ -318,7 +324,8 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
         <h1 className="lib-title">{pg.icon?.glyph && <Icon icon={pg.icon} size={26} />}<span>{pg.title}</span></h1>
         {pg.aliases?.length > 0 && <div className="small muted">Also called {pg.aliases.join(', ')}</div>}
         <div className="row wrap lib-meta">
-          {isDM && pg.visibility && <VisChip v={pg.visibility} />}
+          {isDM && pg.visibility && <LevelChip level={pg.visibility} all />}
+          {editable && !offlineAt && <select aria-label="Level" value={levelOf(pg.visibility)} onChange={(e) => void setLevel(e.target.value)} disabled={act.busy}>{LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}</select>}
           {pg.tags?.map((t: string) => <span key={t} className="chip"><i className="fa-solid fa-tag" aria-hidden="true" /> {t}</span>)}
           {pg.updated_at && <span className="tiny faint">Updated {when(pg.updated_at)}</span>}
         </div>
@@ -338,6 +345,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
         {isDM && pg.source && <p className="tiny faint" style={{ margin: '6px 0 0' }}>Synced from {pg.source}; edit it there. Delete removes it here until the next sync brings it back.</p>}
         <ErrorBox error={act.error} />
       </header>
+      {isDM && levelOf(pg.visibility) === 'classified' && <ClassifiedFrame />}
       <div className={`lib-body${facts.length ? ' with-facts' : ''}`}>
         <div className="lib-page">
           {blocks.length ? <Blocks blocks={blocks} ctx={ctx} /> : <p className="muted">This page is empty.</p>}

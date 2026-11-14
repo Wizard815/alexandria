@@ -134,7 +134,7 @@ function gpFrom(v: unknown): number | null {
 
 function libraryCands(db: DB, worldId: string): Cand[] {
   const out: Cand[] = [];
-  for (const p of all<any>(db, 'SELECT id, title, tags, frontmatter, body FROM pages WHERE world_id = ? ORDER BY path', worldId)) {
+  for (const p of all<any>(db, "SELECT id, title, tags, frontmatter, ai_body AS body FROM pages WHERE world_id = ? AND ai_body IS NOT NULL AND visibility <> 'classified' ORDER BY path", worldId)) {
     const tags = parseJson<unknown>(p.tags, []);
     if (!Array.isArray(tags) || !tags.some((x) => String(x).replace(/^#/, '').trim().toLowerCase() === 'item')) continue;
     const fm = parseJson<Record<string, unknown>>(p.frontmatter, {});

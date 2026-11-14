@@ -19,9 +19,13 @@ const feature: Feature = {
     if (!cols('broker_page_rules').includes('spoiler')) db.exec('ALTER TABLE broker_page_rules ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0');
     // needs_review: held for the DM to approve; dm_written: a person wrote the answer.
     if (!cols('broker_requests').includes('needs_review')) db.exec('ALTER TABLE broker_requests ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0');
+    // broker_level: the answer used broker-level lines (a held-for-review default, see brokerLevelDelivery).
+    if (!cols('broker_requests').includes('broker_level')) db.exec('ALTER TABLE broker_requests ADD COLUMN broker_level INTEGER NOT NULL DEFAULT 0');
     if (!cols('broker_requests').includes('dm_written')) db.exec('ALTER TABLE broker_requests ADD COLUMN dm_written INTEGER NOT NULL DEFAULT 0');
   },
   settings: {
+    // Answers that use broker-level content wait for the DM ('review') or follow their tier's delivery ('auto').
+    brokerLevelDelivery: { type: 'enum', values: ['review', 'auto'], default: 'review' },
     brokerTopics: { type: 'json', default: [], validate: strings(30, 300) },
     brokerSiteUrl: { type: 'string', default: '', max: 500 },
     brokerSiteLabel: { type: 'string', default: '', max: 80 },

@@ -127,7 +127,8 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
   let user: string;
   let source: { kind: string; ref: string; title: string };
   if ('pageId' in src) {
-    const pg: any = d.library.get(worldId, src.pageId, viewer);
+    // The page goes to a model: the AI copy, which never has classified content.
+    const pg: any = d.library.get(worldId, src.pageId, viewer.role === 'dm' ? { ...viewer, audience: 'ai' } : viewer);
     user = `Library page "${pg.title}":\n\n${String(pg.body ?? '').slice(0, 8000)}\n\nBuild the creature's statblock from this page. Use any numbers the page gives; fill in what is missing to fit the creature.`;
     source = { kind: 'page', ref: pg.id, title: pg.title };
   } else {

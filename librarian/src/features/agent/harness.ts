@@ -92,7 +92,7 @@ export async function runTool(d: Deps, caller: { worldId: string; token: string;
   const c = tool.call(args ?? {});
   const base = `http://127.0.0.1:${caller.port}/api/worlds/${enc(caller.worldId)}`;
   try {
-    const r = await d.fetch(base + c.path, { method: c.method, headers: { Authorization: `Bearer ${caller.token}`, 'Content-Type': 'application/json' }, body: c.body === undefined ? undefined : JSON.stringify(c.body) });
+    const r = await d.fetch(base + c.path, { method: c.method, headers: { Authorization: `Bearer ${caller.token}`, 'Content-Type': 'application/json', 'X-Alexandria-Caller': 'model' }, body: c.body === undefined ? undefined : JSON.stringify(c.body) });
     return { ok: r.ok, status: r.status, text: await r.text() };
   } catch (err: any) {
     return { ok: false, status: 502, text: `Librarian call failed: ${String(err?.message ?? err).slice(0, 200)}` };
@@ -148,6 +148,9 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
 
 // ---- context ------------------------------------------------------------------
 
+/** Everything the agent is given from the library is the AI copy: a DM's viewer becomes the model's, which never sees classified content. */
+const forModel = (v: Viewer): Viewer => (v.role === 'dm' ? { ...v, audience: 'ai' } : v);
+
 const lineText = (l: { speaker: string; text: string; audience?: string }) => `${l.speaker}${l.audience === 'dm' ? ' (DM only)' : ''}: ${l.text}`;
 
 function recentTranscript(d: Deps, worldId: string, includeDm: boolean, limit = 30): string {
@@ -159,7 +162,7 @@ function recentTranscript(d: Deps, worldId: string, includeDm: boolean, limit = 
 
 async function get(d: Deps, c: Caller, path: string): Promise<any> {
   try {
-    const r = await d.fetch(`http://127.0.0.1:${c.port}/api/worlds/${enc(c.worldId)}${path}`, { headers: { Authorization: `Bearer ${c.token}` } });
+    const r = await d.fetch(`http://127.0.0.1:${c.port}/api/worlds/${enc(c.worldId)}${path}`, { headers: { Authorization: `Bearer ${c.token}`, 'X-Alexandria-Caller': 'model' } });
     return r.ok ? await r.json() : null;
   } catch { return null; }
 }
@@ -171,7 +174,7 @@ export interface Hit { id: string; path?: string; title: string; snippet: string
 export function prefetchLibrary(d: Deps, c: Caller, text: string): Hit[] {
   const terms = searchTerms(text);
   if (!terms.length) return [];
-  const find = (q: string): Hit[] => { try { return (d.library.search(c.worldId, q, c.viewer) as Hit[]) ?? []; } catch { return []; } };
+  const find = (q: string): Hit[] => { try { return (d.library.search(c.worldId, q, forModel(c.viewer)) as Hit[]) ?? []; } catch { return []; } };
   let hits = find(terms.slice(0, 6).join(' '));
   if (hits.length < 3 && terms.length > 1) {
     // Every word must match, so a long question finds nothing: try the most specific words alone.
@@ -225,7 +228,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   if (cb) L.push(cb.slice(0, 2500));
   if (hits.length) {
     const top = hits.slice(0, 2).map((h) => {
-      try { const pg: any = d.library.get(c.worldId, h.id, c.viewer); return String(pg.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 500); } catch { return ''; }
+      try { const pg: any = d.library.get(c.worldId, h.id, forModel(c.viewer)); return String(pg.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 500); } catch { return ''; }
     });
     L.push(`Library matches for this message (page id in parentheses; cite by [title]):\n${hits.map((h, i) => `- [${h.title}] (${h.id}): ${h.snippet}${top[i] && i < 2 ? `\n  Starts: ${top[i]}` : ''}`).join('\n')}`);
   } else L.push('Library matches for this message: none.');
@@ -239,11 +242,11 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   }
   if (ctxIn.page) {
     try {
-      const pg: any = d.library.get(c.worldId, ctxIn.page, c.viewer);
+      const pg: any = d.library.get(c.worldId, ctxIn.page, forModel(c.viewer));
       L.push(`The user is looking at the library page [${pg.title}] (${pg.id}):\n${String(pg.body ?? '').slice(0, 5000)}`);
     } catch { /* not a page this viewer may open */ }
   }
-  if (ctxIn.selection) L.push(`The user selected this text on the page:\n"""${ctxIn.selection.slice(0, 3000)}"""`);
+  if (ctxIn.selection && !d.library.containsClassified(c.worldId, ctxIn.selection)) L.push(`The user selected this text on the page:\n"""${ctxIn.selection.slice(0, 3000)}"""`);
   return { text: L.join('\n\n'), hits, prepMs: ms(t0) };
 }
 
@@ -418,7 +421,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const chatTools = tools.filter((t) => picked.has(t.name)).map(asChatTool);
     T.toolsOffered = chatTools.length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
-    const check = c.harness === 'player' ? leakChecker(d.db, c.worldId, userText) : null;
+    const check = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
     const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary) }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';

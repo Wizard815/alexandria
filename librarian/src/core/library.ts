@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { type DB, one, all, run, tx } from './db.ts';
 import { type FM, type FMValue, joinFrontmatter, splitFrontmatter } from './frontmatter.ts';
-import { audienceOf, copyOfMarkdown, redactMarkdown, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
+import { audienceOf, copyOfMarkdown, frontmatterFor, redactMarkdown, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
 import { importedRelations } from '../intake/records.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
 import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts';
@@ -256,6 +256,39 @@ export class Library {
   hiddenTitles(worldId: string, audience: Audience = 'player'): Set<string> {
     return new Set(all<{ t: string; v: string }>(this.db, 'SELECT lower(title) AS t, visibility AS v FROM pages WHERE world_id = ?', worldId)
       .filter((r) => !canSeeLevel(normLevel(r.v), audience)).map((r) => r.t));
+  }
+
+  /**
+   * Does this text repeat something that is classified (a classified page, or
+   * a classified part of a page)? Used on text a person typed or selected
+   * before it goes to a model. Matches whole text or a sentence of at least 8
+   * characters against what the DM copy has and the AI copy lacks.
+   */
+  containsClassified(worldId: string, text: string): boolean {
+    const norm = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const chunks = [norm(text), ...text.split(/[.!?\n]+/).map(norm)].filter((c) => c.length >= 8);
+    if (!chunks.length) return false;
+    for (const p of all<any>(this.db, 'SELECT visibility, body, blocks, properties, ai_body, ai_blocks, ai_properties FROM pages WHERE world_id = ?', worldId)) {
+      const flat = (...xs: (string | null)[]) => norm(xs.map((x) => (x ?? '').replace(/"[a-zA-Z]+":/g, ' ')).join(' '));
+      const dm = flat(p.body, p.blocks, p.properties);
+      const ai = normLevel(p.visibility) === 'classified' ? '' : flat(p.ai_body, p.ai_blocks, p.ai_properties);
+      for (const c of chunks) if (dm.includes(c) && !ai.includes(c)) return true;
+    }
+    return false;
+  }
+
+  /** Does the page at this path hold anything classified (the whole page, a block, a facts group or a frontmatter key)? */
+  hasClassified(worldId: string, pagePath: string): boolean {
+    const pg = one<any>(this.db, 'SELECT visibility, blocks, properties, frontmatter FROM pages WHERE world_id = ? AND path = ?', worldId, pagePath);
+    if (!pg) return false;
+    if (normLevel(pg.visibility) === 'classified') return true;
+    const none = () => false;
+    const blocks = JSON.parse(pg.blocks || '[]');
+    const props = JSON.parse(pg.properties || '[]');
+    const fm = JSON.parse(pg.frontmatter || '{}');
+    return JSON.stringify(blocksFor(blocks, 'ai', none)) !== JSON.stringify(blocks)
+      || JSON.stringify(propertiesFor(props, 'ai', none)) !== JSON.stringify(props)
+      || Object.keys(frontmatterFor(fm, 'ai')).length !== Object.keys(fm).filter((k) => k !== 'visibility').length;
   }
 
   /** Resolve mentions in a world: by source ref first, then by title or alias. */

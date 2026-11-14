@@ -60,7 +60,7 @@ export default function requestRoutes(d: Deps) {
         applied = d.library.save(c.world.id, { path: str(apply.path, 'apply.path', { max: 300 }), title: row.title, body: text, visibility: oneOf(apply.visibility, 'apply.visibility', ['dm', 'party'] as const, 'dm') }, me(res));
       } else {
         if (!row.page_id) throw new HttpError(400, 'This request is not about a page');
-        const pg = d.library.get(c.world.id, row.page_id, c.viewer) as any;
+        const pg = d.library.get(c.world.id, row.page_id, { accountId: c.viewer.accountId, role: c.viewer.role }) as any;
         applied = d.library.save(c.world.id, { path: pg.path, title: pg.title, frontmatter: pg.frontmatter, visibility: pg.visibility, body: mode === 'append' ? `${pg.body.trimEnd()}\n\n${text}\n` : text }, me(res));
       }
     }
