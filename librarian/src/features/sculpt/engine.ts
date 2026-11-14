@@ -226,7 +226,7 @@ export async function sculpt(d: Deps, worldId: string, worldName: string, tpl: T
   if (blank.length) {
     if (!model) notes.push(`No chat model is set (Admin → Models), so ${blank.map((f) => f.label).join(', ')} stay empty. Fill them by hand.`);
     else {
-      const viewer: Viewer = player ? PLAYER : { accountId: 'sculpt-dm-view', role: 'dm' };
+      const viewer: Viewer = player ? PLAYER : { accountId: 'sculpt-dm-view', role: 'dm', audience: 'ai' };
       const context = Object.fromEntries(tpl.fields.filter((f) => values[f.key].trim() && !blank.includes(f) && f.type !== 'statblock' && !(player && f.dmOnly)).map((f) => [f.key, values[f.key].slice(0, 400)]));
       const snippets = notesFor(d, worldId, tpl, values, viewer);
       const sys = [

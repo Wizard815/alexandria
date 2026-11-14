@@ -131,7 +131,7 @@ export default function brokerRoutes(d: Deps) {
     const minutes = worldNow(worldId).minutes;
     const due = all<any>(db, `SELECT * FROM broker_requests WHERE world_id = ? AND status = 'waiting' AND needs_review = 0 AND ((wait_clock = 'real' AND ready_at <= ?) OR (wait_clock = 'game' AND ready_at_game <= ?))`, worldId, now(), minutes);
     for (const q of due) {
-      if (!q.dm_written && q.answer && leaks(db, d.library, worldId, q.answer, q.question)) {
+      if (!q.dm_written && q.answer && leaks(db, d.library, worldId, q.answer, q.question, !!q.broker_level)) {
         run(db, 'UPDATE broker_requests SET needs_review = 1 WHERE id = ?', q.id);
         emit(worldId, { ...q, status: 'waiting' });
         continue;
@@ -158,11 +158,12 @@ export default function brokerRoutes(d: Deps) {
     if (q.status === 'answered' || dm) { out.answer = q.answer; out.sources = JSON.parse(q.sources || '[]'); }
     if (q.status === 'answered') out.voice = `${cfg.persona.name} ${cfg.persona.voice}`;
     if (dm) {
+      out.broker_level = !!q.broker_level;
       out.asker = q.account_id; out.asker_name = nm[q.account_id] ?? 'Someone';
       out.needs_review = !!q.needs_review && q.status === 'waiting';
       // DM only: how the question was judged, and the DM-side lines that matched.
       const c: (Classification & { routing?: Labels }) | null = q.classification ? JSON.parse(q.classification) : null;
-      out.classification = c ? { type: c.type, verdict: c.verdict, reason: c.reason, entities: c.entities, knowledge: c.knowledge, multiplier: c.multiplier, dmEvidence: c.dmEvidence, routing: c.routing ?? null } : { type: questionType(q.question), verdict: null, reason: 'Asked before questions were classified.', entities: [], knowledge: null, multiplier: 1, dmEvidence: [], routing: null };
+      out.classification = ctx(res).viewer.audience === 'ai' ? null : c ? { type: c.type, verdict: c.verdict, reason: c.reason, entities: c.entities, knowledge: c.knowledge, multiplier: c.multiplier, dmEvidence: c.dmEvidence, routing: c.routing ?? null } : { type: questionType(q.question), verdict: null, reason: 'Asked before questions were classified.', entities: [], knowledge: null, multiplier: 1, dmEvidence: [], routing: null };
     }
     return out;
   };
@@ -279,13 +280,16 @@ export default function brokerRoutes(d: Deps) {
     const refused = secret && cfg.unknown === 'refuse';
     const cost = secret ? null : Math.round(tier.costCp! * len.multiplier * c.multiplier);
     const reason = guarded ? `Goes to you: ${labels.intent !== 'fact' ? labels.intent : 'the audit labels are low-confidence'}. ${c.reason}` : c.reason;
-    keep({ kind: secret ? 'secret' : 'priced', tier: tier.id, cost, wait: secret ? null : tier.wait, found, refused, delivery: tier.delivery, classification: { ...c, reason, routing: labels } });
+    // An answer that uses broker-level lines waits for the DM unless the world says brokerLevelDelivery: auto.
+    const brokerLevel = !!found?.brokerLevel && !secret;
+    const delivery: Delivery = brokerLevel && featureSetting(settings(res), 'brokerLevelDelivery') !== 'auto' ? 'review' : tier.delivery;
+    keep({ kind: secret ? 'secret' : 'priced', tier: tier.id, cost, wait: secret ? null : tier.wait, found, refused, delivery, brokerLevel, classification: { ...c, reason, routing: labels } });
     const line = refused
       ? `${p} shakes their head. "Never heard of it. Ask me something else."`
       : secret
         ? `${p} frowns. "That's not something I know. I'll have to ask around, and that costs whatever it costs."`
         : cost === 0 ? `${p} shrugs. "Everyone knows that. No charge."` : `${p} considers it. "${tier.name}. ${money(cost!)}, and give me ${waitText(tier.wait)}."`;
-    return { ...shape, tier: tier.id, tier_name: tier.name, cost_cp: cost, wait: secret ? null : tier.wait, wait_text: refused ? 'no answer' : secret ? 'the DM decides' : waitText(tier.wait), secret, refused, line, kind: secret ? 'secret' : 'priced', delivery: secret ? 'review' : tier.delivery };
+    return { ...shape, tier: tier.id, tier_name: tier.name, cost_cp: cost, wait: secret ? null : tier.wait, wait_text: refused ? 'no answer' : secret ? 'the DM decides' : waitText(tier.wait), secret, refused, line, kind: secret ? 'secret' : 'priced', delivery: secret ? 'review' : delivery };
   }
   // GET works with read-only keys (MCP); it never charges.
   // Secret, spoiler and unknown questions get the same reply, so a quote never reveals that a secret exists.
@@ -338,8 +342,8 @@ export default function brokerRoutes(d: Deps) {
       tx(db, () => {
         const { payer, ledgerId } = charge(res, me(res), q.cost, q.question);
         const ra = readyAt(w, q.wait);
-        run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, created_at, classification, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          rid, w, me(res), q.question, q.length, q.tier, q.cost, payer, ledgerId, ra.clock, ra.at, ra.game, q.found.answer, JSON.stringify(q.found.sources), now(), cls, q.delivery === 'review' ? 1 : 0);
+        run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, created_at, classification, needs_review, broker_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          rid, w, me(res), q.question, q.length, q.tier, q.cost, payer, ledgerId, ra.clock, ra.at, ra.game, q.found.answer, JSON.stringify(q.found.sources), now(), cls, q.delivery === 'review' ? 1 : 0, q.brokerLevel ? 1 : 0);
       });
       settle(w);
       audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost}`);
@@ -383,7 +387,9 @@ export default function brokerRoutes(d: Deps) {
     const { cfg } = loadConfig(db, w);
     const tier = c.verdict === 'shared' ? cfg.tiers.find((t) => t.knowledge === c.knowledge) ?? null : cfg.tiers.find((t) => t.knowledge === 'secret') ?? null;
     const routing = await routeQuestion(d, w, question, topicsOf(res), visibleItems(d, w, me(res)).map((i) => i.name));
-    res.json({ ...c, routing, tier: tier?.id ?? null, tier_name: tier?.name ?? null, cost_cp: c.verdict === 'shared' && tier?.costCp !== null && tier ? Math.round(tier.costCp! * c.multiplier) : null });
+    // A model asking (spoofed marker or not) gets no DM-side text.
+    const blind = ctx(res).viewer.audience === 'ai';
+    res.json({ ...c, ...(blind ? { dmEvidence: [], reason: 'Hidden from models.' } : {}), routing, tier: tier?.id ?? null, tier_name: tier?.name ?? null, cost_cp: c.verdict === 'shared' && tier?.costCp !== null && tier ? Math.round(tier.costCp! * c.multiplier) : null });
   });
 
   const noteOut = (n: any) => ({ id: n.id, page_id: n.page_id, page_title: n.page_id ? one<any>(db, 'SELECT title FROM pages WHERE id = ?', n.page_id)?.title ?? null : null, topic: n.topic, text: n.text, knowledge: n.knowledge, active: !!n.active, from_request: n.from_request, at: n.at });
