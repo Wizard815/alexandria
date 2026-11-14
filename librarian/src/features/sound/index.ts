@@ -16,7 +16,7 @@ import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, names } from '../../routes/_shared.ts';
 import { dmOnly } from '../../core/events.ts';
 import { MIME, sniff, serveFile } from './files.ts';
-import { scan, withOverrides, nearest, type Index, type Track } from './library.ts';
+import { scan, withOverrides, nearest, CORNERS, type Index, type Track } from './library.ts';
 import { sendSound, TARGETS, toPlayers, type Target } from './send.ts';
 import * as spotify from './spotify.ts';
 import { mintTicket, readTicket } from './ticket.ts';
@@ -125,6 +125,30 @@ const feature: Feature = {
       serveFile(req, res, f.abs, f.mime);
     });
   },
+  mcpTools: [
+    { name: 'list_sound_library', description: "DM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
+    { name: 'list_sound_scenes', description: 'DM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
+    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players).', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
+    {
+      name: 'play_music', write: true,
+      description: "DM: play background music. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the DM's device, default), players or both.",
+      props: { mood: { type: 'string', enum: ['calm', 'tense', 'sneaky', 'combat'] }, area: { type: 'string', description: 'Music folder, e.g. dungeon' }, trackId: { type: 'string' }, volume: { type: 'number', description: '0 to 1' }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
+      call: (a) => (a.trackId ? { method: 'POST', path: '/sound/music/play', body: { trackId: a.trackId, volume: a.volume, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/music/mood', body: { mood: a.mood ?? 'calm', area: a.area, volume: a.volume, fadeMs: a.fadeMs, target: a.target } }),
+    },
+    { name: 'stop_music', write: true, description: 'DM: fade out the background music.', props: { fadeMs: { type: 'integer' } }, call: (a) => ({ method: 'POST', path: '/sound/music/stop', body: { fadeMs: a.fadeMs } }) },
+    {
+      name: 'play_ambience', write: true,
+      description: "DM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}]. With neither, the ambience stops.",
+      props: { scene: { type: 'string', description: 'Saved scene name or id' }, layers: { type: 'array', items: { type: 'object' } }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
+      call: (a) => (a.scene || a.layers?.length ? { method: 'POST', path: '/sound/ambience/scene', body: { scene: a.scene, layers: a.layers, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/ambience/stop', body: { fadeMs: a.fadeMs, target: a.target } }),
+    },
+    {
+      name: 'play_sfx', write: true,
+      description: 'DM: play a sound effect: a pad (padId), a sound effect id, or a name (the first effect whose name contains it, e.g. "creak").',
+      props: { padId: { type: 'string' }, id: { type: 'string' }, name: { type: 'string' }, volume: { type: 'number' }, target: { type: 'string', enum: [...TARGETS] } },
+      call: (a) => ({ method: 'POST', path: '/sound/sfx/play', body: { padId: a.padId, id: a.id, name: a.name, volume: a.volume, target: a.target } }),
+    },
+  ],
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
     const { db } = d;
@@ -237,14 +261,17 @@ const feature: Feature = {
       res.json({ track: t, event: ev });
     });
     r.post('/music/mood', requireDM, (req, res) => {
-      const x = spot(req.body?.x, 'x'), y = spot(req.body?.y, 'y');
+      // A corner name (calm, tense, sneaky, combat) stands for its spot on the map.
+      const corner = typeof req.body?.mood === 'string' ? CORNERS[req.body.mood.trim().toLowerCase()] : undefined;
+      if (req.body?.mood !== undefined && !corner) throw new HttpError(400, `mood must be one of ${Object.keys(CORNERS).join(', ')}`);
+      const x = corner ? corner.x : spot(req.body?.x, 'x'), y = corner ? corner.y : spot(req.body?.y, 'y');
       const area = req.body?.area ? str(req.body.area, 'area', { max: 120 }) : undefined;
       const pick = nearest(tracks(wid(res)), x, y, area);
       if (!pick) return res.json({ track: null, changed: false, fadeMs: 0, note: 'No track with a mood spot in that area' });
       const cur = getState(wid(res)).music;
       const fadeMs = fade(req.body?.fadeMs, 4000);
-      // Same track as now: leave it playing, no new event.
-      if (cur?.id === pick.id) return res.json({ track: pick, changed: false, fadeMs: 0 });
+      // Same track as now, for the same listeners: leave it playing, no new event. (A new target is a change.)
+      if (cur?.id === pick.id && (req.body?.target === undefined || req.body.target === cur.target)) return res.json({ track: pick, changed: false, fadeMs: 0 });
       const ev = playTrack(res, pick, { volume: vol(req.body?.volume, 'volume', cur?.volume ?? 0.7), fadeMs, target: target(req.body?.target, cur?.target ?? 'table') });
       res.json({ track: pick, changed: true, fadeMs, event: ev });
     });
@@ -285,7 +312,15 @@ const feature: Feature = {
       return { layers: next.map((l) => ({ kind: l.kind, volume: l.volume })), missing, events };
     };
     r.post('/ambience/scene', requireDM, (req, res) => {
-      res.json(applyScene(res, layersOf(req.body?.layers ?? []), { fadeMs: fade(req.body?.fadeMs, 3000), target: target(req.body?.target, 'table') }));
+      // A saved scene by id or name, or the layers themselves.
+      let layers = req.body?.layers ?? [];
+      if (req.body?.scene !== undefined) {
+        const want = String(req.body.scene).trim().toLowerCase();
+        const sc = all<any>(db, 'SELECT * FROM sound_scenes WHERE world_id = ?', wid(res)).find((x) => x.id === req.body.scene || String(x.name).toLowerCase() === want);
+        if (!sc) throw new HttpError(404, 'Scene not found');
+        layers = JSON.parse(sc.layers);
+      }
+      res.json(applyScene(res, layersOf(layers), { fadeMs: fade(req.body?.fadeMs, 3000), target: target(req.body?.target, 'table') }));
     });
     r.post('/ambience/stop', requireDM, (req, res) => {
       res.json(applyScene(res, [], { fadeMs: fade(req.body?.fadeMs, 3000), target: target(req.body?.target, getState(wid(res)).ambience?.target ?? 'both') }));
@@ -323,7 +358,9 @@ const feature: Feature = {
       const pad = req.body?.padId ? one<any>(db, 'SELECT * FROM sound_pads WHERE id = ? AND world_id = ?', String(req.body.padId), w) : null;
       if (req.body?.padId && !pad) throw new HttpError(404, 'Pad not found');
       const fid = String(pad?.file ?? req.body?.id ?? '');
-      const f = idx().sfx.find((s) => s.id === fid);
+      // A sound effect can also be asked for by name ("creak"): the first whose name contains it.
+      const byName = !pad && !req.body?.id && typeof req.body?.name === 'string' && req.body.name.trim() ? idx().sfx.find((s) => s.name.toLowerCase().includes(String(req.body.name).trim().toLowerCase())) : undefined;
+      const f = byName ?? idx().sfx.find((s) => s.id === fid);
       if (!f) throw new HttpError(404, 'Sound effect not found');
       const tg = target(req.body?.target, (pad?.target as Target) ?? 'table');
       if (toPlayers(tg)) allow(w, 'sfx', f.id, SFX_EXPIRY_MS);
