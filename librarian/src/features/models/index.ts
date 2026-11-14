@@ -14,15 +14,24 @@
 //   GET    /api/admin/models/providers/:id/voices preset voices (Argos GET /v1/audio/voices)
 //   POST   /api/admin/models/:job/test            ?which=fallback tests the fallback
 //   POST   /api/admin/models/:job/warm            a tiny request so the model is loaded
+//   GET    /api/admin/models/session              session mode settings + warm progress of the local jobs
+//   PUT    /api/admin/models/session              { loadOnStart, keepLoaded, unloadOnEnd }
+//   POST   /api/admin/models/warm-all             "Load all now": a tiny request to every local job, in parallel (202; poll GET session)
+//   POST   /api/admin/models/unload-all           "Unload all now": Argos POST /api/models/unload/{model} for each job model on an Argos provider
+//   GET    /api/admin/models/vram                 per Argos provider: GET /api/pool + /running, the job-model budget, the config snippets
+//   GET    /api/worlds/:world/models/ready        DM only: which local jobs are ready (for the table page card)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts'; // type only: a runtime import would deadlock the registry's top-level await
 import { all, one, run } from '../../core/db.ts';
-import type { Auth } from '../../core/auth.ts';
+import { requireDM, type Auth } from '../../core/auth.ts';
 import { HttpError, now } from '../../core/util.ts';
 import { JOBS, chat, chainFor, embed, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
 import { argosWebUrl, discover, fetchVoices, listModels, type ModelStatus } from './argos.ts';
-import { KINDS, MASK, createProvider, getProvider, guessKind, listProviders, migrateJobsToProviders, normalizeBase, type Kind, type ProviderRow } from './providers.ts';
+import { testJob } from './probe.ts';
+import { argosSnippets, budgetFor, readArgos } from './pool.ts';
+import { attachSessionEvents, gameSessionRunning, getSessionSettings, localJobs, setSessionSettings, unloadAll, warmAll, warmSnapshot } from './session.ts';
+import { KINDS, MASK, createProvider, getProvider, guessKind, listProviders, metaGet, metaSet, migrateJobsToProviders, normalizeBase, type Kind, type ProviderRow } from './providers.ts';
 
 export { MASK };
 export { argosWebUrl, discover, suggestJobs, normalizeModel } from './argos.ts';
@@ -87,6 +96,18 @@ function providerView(d: Deps, p: ProviderRow) {
   };
 }
 
+/** The model last saved for this job on a local and on a cloud provider, so switching back is one click. */
+function lastChoices(d: Deps, job: Job): Record<Location, { providerId: string; model: string } | null> {
+  const get = (loc: Location) => {
+    try {
+      const j = JSON.parse(metaGet(d.db, `last:${job}:${loc}`) ?? 'null');
+      const p = j?.providerId ? getProvider(d.db, String(j.providerId)) : undefined;
+      return p && p.location === loc ? { providerId: p.id, model: String(j.model ?? '') } : null;
+    } catch { return null; }
+  };
+  return { local: get('local'), cloud: get('cloud') };
+}
+
 function view(d: Deps, job: Job) {
   const r = saved(d, job);
   const effective = jobConfig(d, job);
@@ -107,7 +128,9 @@ function view(d: Deps, job: Job) {
     options: r ? parseOptions(r.options) : {},
     enabled: r ? !!r.enabled : true,
     keepWarm: !!r?.keep_warm,
-    fallback: fp ? { providerId: fp.id, model: r!.fallback_model, options: parseOptions(r!.fallback_options), allowCloud: !!r!.allow_cloud_fallback } : null,
+    fallback: fp ? { providerId: fp.id, model: r!.fallback_model, options: parseOptions(r!.fallback_options), allowCloud: !!r!.allow_cloud_fallback, location: fp.location } : null,
+    location: (p?.location ?? (effective ? effective.location ?? inferLocation(effective.baseUrl) : null)) as Location | null,
+    lastChoice: lastChoices(d, job),
     fallbackBlocked: blocked,
     source,
     effective: effective ? { baseUrl: effective.baseUrl, model: effective.model, hasKey: !!effective.apiKey, provider: p?.name ?? null, location: effective.location ?? inferLocation(effective.baseUrl), hasFallback: chain.length > 1 } : null,
@@ -130,52 +153,6 @@ const parseLocation = (v: unknown): Location => {
   if (v !== 'local' && v !== 'cloud') throw new HttpError(400, 'location must be "local" or "cloud"');
   return v;
 };
-
-/** A tiny silent 16 kHz mono WAV for the audio test. */
-function silentWav(seconds = 0.5): Uint8Array {
-  const n = Math.floor(16000 * seconds);
-  const b = Buffer.alloc(44 + n * 2);
-  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
-  b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
-  return new Uint8Array(b);
-}
-
-interface TestResult { ok: boolean; job: Job; ms: number; sample?: string; error?: string }
-
-/** The smallest real request each job can make. Used by Test and Warm up, and by keep warm. */
-async function testJob(d: Deps, job: Job, timeoutMs = 30_000): Promise<TestResult> {
-  const t0 = Date.now();
-  const done = (sample: string) => ({ ok: true, job, ms: Date.now() - t0, sample: sample.slice(0, 160) });
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    if (job === 'chat' || job === 'audit') {
-      const r = await chat(d, job, { messages: [{ role: 'user', content: 'Reply with the single word: ready' }], maxTokens: 16, temperature: 0 }, ctl.signal);
-      return done(r.content.trim() || '(empty reply)');
-    }
-    if (job === 'audio') {
-      const t = await transcribe(d, silentWav(), 'audio/wav', { filename: 'test.wav' }, ctl.signal);
-      return done(t.text || '(no speech heard, which is right for silence)');
-    }
-    if (job === 'voice') {
-      const s = await speak(d, 'Testing, one two three.', { format: 'wav' }, ctl.signal);
-      if (!s.audio.length) throw new ModelUnavailable('voice', 'The voice model sent no audio');
-      return done(`${s.audio.length} bytes of ${s.mime}`);
-    }
-    if (job === 'rerank') {
-      const r = await rerank(d, 'where the dragon sleeps', ['A cat naps on the windowsill.', 'The dragon sleeps under the mountain.'], { topN: 2 }, ctl.signal);
-      return done(`${r.length} scored, best is document ${r[0].index + 1}`);
-    }
-    const v = await embed(d, ['a tiny test sentence'], ctl.signal);
-    if (!v.length || !Array.isArray(v[0]) || !v[0].length) throw new ModelUnavailable('extra', 'The embeddings model sent no vector');
-    return done(`${v[0].length}-dimension vector`);
-  } catch (err: any) {
-    const msg = err?.name === 'AbortError' ? `Timed out after ${Math.round(timeoutMs / 1000)} seconds` : String(err?.message ?? err);
-    return { ok: false, job, ms: Date.now() - t0, error: msg.slice(0, 300) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ---- status: is the model loaded? ---------------------------------------------
 
@@ -214,14 +191,17 @@ export function sessionIsLive(d: Deps): boolean {
   try { return !!one(d.db, 'SELECT 1 FROM presence WHERE at > ?', new Date(Date.now() - 10 * 60_000).toISOString()); } catch { return false; }
 }
 
-/** One keep-warm round: a tiny request to each job that asks for it, but only while a session is live. */
+/**
+ * One keep-warm round: a tiny request to each job that has its own keep-warm switch (while a session is live),
+ * and, with "keep loaded" on in the session mode, to every local job while a game session runs.
+ */
 export async function keepWarmTick(d: Deps): Promise<Job[]> {
-  if (!sessionIsLive(d)) return [];
-  const rows = all<Row>(d.db, 'SELECT job FROM models_jobs WHERE keep_warm = 1 AND enabled = 1');
+  const want = new Set<Job>();
+  if (sessionIsLive(d)) for (const r of all<Row>(d.db, 'SELECT job FROM models_jobs WHERE keep_warm = 1 AND enabled = 1')) want.add(r.job as Job);
+  if (getSessionSettings(d.db).keepLoaded && gameSessionRunning(d)) for (const j of localJobs(d)) want.add(j);
   const warmed: Job[] = [];
-  for (const r of rows) {
-    const job = r.job as Job;
-    if (!JOBS.includes(job) || !jobConfig(d, job)) continue;
+  for (const job of JOBS) {
+    if (!want.has(job) || !jobConfig(d, job)) continue;
     await testJob(pinned(d, 'primary'), job, 20_000);
     warmed.push(job);
   }
@@ -270,6 +250,18 @@ const feature: Feature = {
     add('allow_cloud_fallback', 'INTEGER NOT NULL DEFAULT 0');
     add('keep_warm', 'INTEGER NOT NULL DEFAULT 0');
     migrateJobsToProviders(db);
+  },
+  // Listening for session start and end is the only thing this does (no routes).
+  appRoutes: (_app, d) => { attachSessionEvents(d); },
+  // The table page card: which local jobs are ready. DM only; job names and states, nothing from the world.
+  worldMount: 'models',
+  worldRoutes: (d) => {
+    const r = Router();
+    r.get('/ready', requireDM, (_req, res) => {
+      const s = getSessionSettings(d.db);
+      res.json({ enabled: s.loadOnStart, jobs: warmSnapshot(d) });
+    });
+    return r;
   },
   adminMount: 'models',
   adminRoutes: (d) => {
@@ -426,10 +418,57 @@ const feature: Feature = {
           ON CONFLICT(job) DO UPDATE SET base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, options=excluded.options, enabled=excluded.enabled, updated_at=excluded.updated_at,
             provider_id=excluded.provider_id, fallback_provider_id=excluded.fallback_provider_id, fallback_model=excluded.fallback_model, fallback_options=excluded.fallback_options, allow_cloud_fallback=excluded.allow_cloud_fallback, keep_warm=excluded.keep_warm`,
           job, row.base_url, row.model, row.api_key, row.options, row.enabled, row.updated_at, row.provider_id, row.fallback_provider_id, row.fallback_model, row.fallback_options, row.allow_cloud_fallback, row.keep_warm);
+        const mp = getProvider(d.db, row.provider_id);
+        if (mp && row.model) metaSet(d.db, `last:${job}:${mp.location}`, JSON.stringify({ providerId: mp.id, model: row.model }));
         audit(d, who(res), 'models.update', job);
         if (cloudOn) audit(d, who(res), 'models.cloud_fallback_allowed', `${job}: world text may leave this server when the local provider fails`);
       }
       res.json(all6());
+    });
+
+    // ---- session mode, load/unload all, the VRAM view
+    const sessionView = () => ({ settings: getSessionSettings(d.db), warm: warmSnapshot(d), sessionRunning: gameSessionRunning(d), localJobs: localJobs(d) });
+    r.get('/session', (_req, res) => res.json(sessionView()));
+    r.put('/session', (req, res) => {
+      const b = req.body ?? {};
+      for (const k of ['loadOnStart', 'keepLoaded', 'unloadOnEnd']) if (b[k] !== undefined && typeof b[k] !== 'boolean') throw new HttpError(400, `${k} must be true or false`);
+      const next = setSessionSettings(d.db, b);
+      audit(d, who(res), 'models.session_mode', JSON.stringify(next));
+      res.json(sessionView());
+    });
+    r.post('/warm-all', (_req, res) => {
+      const round = warmAll(d);
+      round.catch(() => {});
+      res.status(202).json(sessionView());
+    });
+    r.post('/unload-all', async (_req, res) => {
+      const results = await unloadAll(d);
+      audit(d, who(res), 'models.unload_all', results.map((x) => `${x.model}:${x.ok ? 'ok' : 'failed'}`).join(', ').slice(0, 400));
+      res.json({ results, ...sessionView() });
+    });
+    r.get('/vram', async (_req, res) => {
+      const byProvider = new Map<string, { job: string; model: string }[]>();
+      for (const j of JOBS) {
+        const c = jobConfig(d, j);
+        const p = c?.providerId ? getProvider(d.db, c.providerId) : undefined;
+        if (!c || !p || p.kind !== 'argos') continue;
+        byProvider.set(p.id, [...(byProvider.get(p.id) ?? []), { job: j, model: c.model }]);
+      }
+      const providers = await Promise.all(listProviders(d.db).filter((p) => p.kind === 'argos').map(async (p) => {
+        const jobModels = byProvider.get(p.id) ?? [];
+        const seen = await readArgos(d, { baseUrl: p.base_url, apiKey: p.api_key || undefined });
+        const budget = seen.pool?.enabled ? budgetFor(seen.pool, jobModels) : null;
+        const declared: Record<string, number> = {};
+        for (const m of seen.pool?.models ?? []) if (m.sizeKnown) declared[m.id] = m.sizeGiB;
+        const names = jobModels.map((j) => j.model);
+        const running = seen.running.map((m) => ({ ...m, usedByJobs: jobModels.filter((j) => j.model.toLowerCase() === m.model.toLowerCase()).map((j) => j.job) }));
+        return {
+          id: p.id, name: p.name, location: p.location, ok: seen.ok, error: seen.error, pool: seen.pool, running, budget, jobModels,
+          router: seen.pool?.router ?? 'group',
+          config: argosSnippets(names, declared),
+        };
+      }));
+      res.json({ providers });
     });
 
     const jobParam = (req: any): Job => {
