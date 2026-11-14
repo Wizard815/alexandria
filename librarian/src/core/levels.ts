@@ -216,14 +216,24 @@ export function classifiedOnly(page: PageRow): boolean {
  */
 export function isModelSafe(text: string, classifiedGrams: Set<string> | null | undefined, n = 8): boolean {
   if (!classifiedGrams) return false;
-  if (!classifiedGrams.size) return true;
-  const w = String(text ?? '').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
-  for (let i = 0; i + n <= w.length; i++) if (classifiedGrams.has(w.slice(i, i + n).join(' '))) return false;
-  return true;
+  return classifiedMatch(text, classifiedGrams, n) === null;
+}
+
+const tokens = (text: string): string[] => String(text ?? '').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
+
+/** The first run of `n` words in `text` that `classifiedGrams` has, or null. */
+export function classifiedMatch(text: string, classifiedGrams: Set<string>, n = 8): string | null {
+  if (!classifiedGrams.size) return null;
+  const w = tokens(text);
+  for (let i = 0; i + n <= w.length; i++) {
+    const g = w.slice(i, i + n).join(' ');
+    if (classifiedGrams.has(g)) return g;
+  }
+  return null;
 }
 
 export const levelWords = (text: string, n = 8): Set<string> => {
-  const w = String(text ?? '').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
+  const w = tokens(text);
   const out = new Set<string>();
   for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' '));
   return out;
