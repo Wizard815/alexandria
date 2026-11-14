@@ -17,7 +17,7 @@
 // model round. Only the tools that fit the message are offered. Replies
 // stream to the owner as 'agent' events. Obvious commands run with no model.
 import type { Deps } from '../../app.ts';
-import { chatStream, hasJob, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
+import { chatStream, hasJob, rerankItems, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly, only } from '../../core/events.ts';
 import type { Viewer, WorldSettings } from '../../core/policy.ts';
@@ -171,7 +171,7 @@ export interface MessageContext { page?: string; selection?: string }
 export interface Hit { id: string; path?: string; title: string; snippet: string }
 
 /** What the library search finds for the question, as this viewer may see it (at most 5). */
-export function prefetchLibrary(d: Deps, c: Caller, text: string): Hit[] {
+export function prefetchLibrary(d: Deps, c: Caller, text: string, max = 5): Hit[] {
   const terms = searchTerms(text);
   if (!terms.length) return [];
   const find = (q: string): Hit[] => { try { return (d.library.search(c.worldId, q, forModel(c.viewer)) as Hit[]) ?? []; } catch { return []; } };
@@ -181,7 +181,7 @@ export function prefetchLibrary(d: Deps, c: Caller, text: string): Hit[] {
     const seen = new Set(hits.map((h) => h.id));
     for (const t of [...terms].sort((a, b) => b.length - a.length).slice(0, 3)) for (const h of find(t)) if (!seen.has(h.id)) { seen.add(h.id); hits.push(h); }
   }
-  hits = hits.slice(0, 5);
+  hits = hits.slice(0, max);
   return hits.map((h) => ({ id: h.id, path: h.path, title: h.title, snippet: String(h.snippet ?? '').replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim() }));
 }
 
@@ -218,7 +218,9 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     !dm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
     !dm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
   ]);
-  const hits = prefetchLibrary(d, c, text);
+  let hits = prefetchLibrary(d, c, text, hasJob(d, 'rerank') ? 20 : 5);
+  // The optional rerank job picks the best five of the top 20 within 300 ms (the snippets are this viewer's own copy); otherwise the keyword order stands.
+  if (hits.length > 1 && hasJob(d, 'rerank')) hits = (await rerankItems(d, text, hits, (h) => `${h.title}\n${h.snippet}`)).slice(0, 5);
   const L: string[] = [];
   const clock = (() => { try { return getClock(d.db, c.worldId).label; } catch { return ''; } })();
   if (clock) L.push(`World date: ${clock}.`);
