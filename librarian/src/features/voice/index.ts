@@ -83,6 +83,16 @@ const feature: Feature = {
       serveFile(req, res, f.abs, f.mime);
     });
   },
+  mcpTools: [
+    { name: 'list_voice_presets', description: 'DM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
+    {
+      name: 'speak', write: true,
+      description: "DM: read text aloud with a voice preset (by name or id). By default it plays at the table; the preset's target says who else hears it. Text copied from DM-only notes is refused when it would reach players.",
+      props: { text: { type: 'string', description: 'What to say, up to 2000 characters' }, preset: { type: 'string', description: 'Preset name' }, presetId: { type: 'string' }, target: { type: 'string', enum: [...TARGETS] } },
+      required: ['text'],
+      call: (a) => ({ method: 'POST', path: '/voice/speak', body: { text: a.text, preset: a.preset, presetId: a.presetId, target: a.target } }),
+    },
+  ],
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
     const { db } = d;
@@ -126,7 +136,10 @@ const feature: Feature = {
       const w = wid(res);
       const text = str(req.body?.text, 'text', { max: 2000 }).trim();
       if (!text) throw new HttpError(400, 'text is required');
-      const p = one<any>(db, 'SELECT * FROM voice_presets WHERE id = ? AND world_id = ?', String(req.body?.presetId ?? ''), w);
+      // A preset by id, or by name (case does not matter).
+      const wantName = String(req.body?.preset ?? '').trim().toLowerCase();
+      const p = one<any>(db, 'SELECT * FROM voice_presets WHERE id = ? AND world_id = ?', String(req.body?.presetId ?? ''), w)
+        ?? (wantName ? all<any>(db, 'SELECT * FROM voice_presets WHERE world_id = ?', w).find((x) => String(x.name).toLowerCase() === wantName) : undefined);
       if (!p) throw new HttpError(404, 'Preset not found');
       const tg = oneOf(req.body?.target, 'target', TARGETS, p.target as Target);
       if (toPlayers(tg) && containsDmOnly(d, w, text) && req.body?.confirm !== true) {
