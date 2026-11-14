@@ -75,15 +75,16 @@ const indexes = new WeakMap<DB, Map<string, Index>>();
 
 /** Cheap fingerprint of a world's pages: changes on save, delete, and when player copies are rebuilt. */
 function librarySig(db: DB, worldId: string): string {
-  const r = one<any>(db, "SELECT count(*) AS n, max(updated_at) AS u, sum(player_body IS NOT NULL) AS p, sum(visibility = 'party') AS v, sum(length(title) + length(aliases)) AS l FROM pages WHERE world_id = ?", worldId);
-  return `${r?.n ?? 0}|${r?.u ?? ''}|${r?.p ?? 0}|${r?.v ?? 0}|${r?.l ?? 0}`;
+  const r = one<any>(db, "SELECT count(*) AS n, max(updated_at) AS u, sum(player_body IS NOT NULL) AS p, sum(visibility = 'party') AS v, sum(visibility = 'classified') AS c, sum(length(title) + length(aliases)) AS l FROM pages WHERE world_id = ?", worldId);
+  return `${r?.n ?? 0}|${r?.u ?? ''}|${r?.p ?? 0}|${r?.v ?? 0}|${r?.c ?? 0}|${r?.l ?? 0}`;
 }
 
 function indexFor(db: DB, worldId: string, viewer: Viewer): Index {
   const dm = viewer.role === 'dm';
+  const model = dm && viewer.audience !== undefined;
   const mods = worldModules(db, worldId);
-  const key = `${dm ? 'dm' : 'pl'}|${moduleVersion(db, worldId)}|${mods.version}|${librarySig(db, worldId)}`;
-  const slot = `${worldId}|${dm ? 'dm' : 'pl'}`;
+  const key = `${dm ? (model ? 'ai' : 'dm') : 'pl'}|${moduleVersion(db, worldId)}|${mods.version}|${librarySig(db, worldId)}`;
+  const slot = `${worldId}|${dm ? (model ? 'ai' : 'dm') : 'pl'}`;
   const cache = indexes.get(db) ?? new Map<string, Index>();
   indexes.set(db, cache);
   const hit = cache.get(slot);
@@ -91,7 +92,7 @@ function indexFor(db: DB, worldId: string, viewer: Viewer): Index {
   const idx = build(key, (put) => {
     // The world's own pages come first: a campaign page beats a generic rule of the same name.
     const rows = dm
-      ? all<any>(db, "SELECT id, title, kind, aliases FROM pages WHERE world_id = ? AND visibility IN ('dm', 'party')", worldId)
+      ? all<any>(db, `SELECT id, title, kind, aliases FROM pages WHERE world_id = ? AND visibility IN ('dm', 'party', 'broker'${model ? '' : ", 'classified'"})`, worldId)
       : all<any>(db, "SELECT id, title, kind, aliases FROM pages WHERE world_id = ? AND visibility = 'party' AND player_body IS NOT NULL", worldId);
     for (const p of rows) {
       const e: Entry = { term: p.title, kind: p.kind || 'page', source: 'library', id: p.id };

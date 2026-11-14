@@ -1,6 +1,7 @@
 // The Library file tree: grouped by source, then folders, then pages nested
 // under their parent page. Rendered as a windowed list so thousands of pages
 // scroll smoothly.
+import { LevelChip } from './Levels.tsx';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from './Blocks.tsx';
 
@@ -116,7 +117,7 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: Pa
               <button type="button" data-row={i} className="lib-row-btn" onClick={() => (n.page ? onOpen(n.page.id) : toggle(n.key))} onKeyDown={(e) => onKey(e, r, i)} title={n.page?.path ?? n.label}>
                 {n.page ? (n.page.icon?.glyph ? <Icon icon={n.page.icon} size={13} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />) : <i className={`fa-solid ${r.depth === 0 ? 'fa-database' : isOpen ? 'fa-folder-open' : 'fa-folder'} lib-ico`} aria-hidden="true" />}
                 <span className="lib-row-label">{n.label}</span>
-                {n.page?.visibility && n.page.visibility !== 'party' && <span className="lib-dm-dot" title="DM only" aria-label="DM only" />}
+                {n.page?.visibility && n.page.visibility !== 'party' && <LevelChip level={n.page.visibility} />}
                 {n.page && saved.has(n.page.id) && <i className="fa-solid fa-download lib-saved-ico" title="Saved for offline" aria-label="Saved for offline" />}
                 {!n.page && <span className="lib-count">{n.count}</span>}
               </button>

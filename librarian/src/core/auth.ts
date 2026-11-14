@@ -178,7 +178,9 @@ export function loadWorld(db: DB) {
       auth.access = 'read';
       if (!READ_METHODS.has(req.method)) throw new HttpError(403, 'Write keys work only for the DM of this world');
     }
-    const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role } };
+    // A request from a model (the MCP server, the agent's tools) says so: a DM's copy of it then has no classified content. Spoofing only shows less.
+    const fromModel = String(req.headers['x-alexandria-caller'] ?? '').toLowerCase() === 'model';
+    const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role, ...(fromModel && m.role === 'dm' ? { audience: 'ai' as const } : {}) } };
     res.locals.w = ctx;
     next();
   };

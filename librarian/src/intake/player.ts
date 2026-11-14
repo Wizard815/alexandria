@@ -1,16 +1,22 @@
 // The leak guard for structured pages. Same rules as policy.ts uses for
 // Markdown, applied to blocks, and fail closed: a block kind it does not know
-// is removed from the player copy, so a new source format can never leak.
+// is removed from every copy but the DM's, so a new source format can never
+// leak.
+//
+// One filter serves every copy (see core/levels.ts): `blocksFor(blocks,
+// audience, hidden)` keeps the blocks whose secrecy level the audience may
+// read. The player copy is the party level only; the broker copy adds broker
+// content; the AI copy adds everything except classified; the DM copy is
+// everything. `playerBlocks` / `playerProperties` are the player copy.
 import type { Block, Inline, Mention, PropertyGroup } from './model.ts';
+import { type Audience, AUDIENCE_MAX, RANK, type Level, blockLevel, groupLevel, headingLevel, keyLevel, maxLevel } from '../core/levels.ts';
 
 const DM_HEADING = /\((dm|gm)( only)?\)|\[(dm|gm)\]|\b(dm|gm) only\b|^(secrets?|dm notes?|gm notes?|dm|gm)$|^(dm|gm)\s*[—–-]/i;
-const DM_CALLOUTS = new Set(['secret', 'dm', 'gm', 'gm-only', 'dm-only', 'private']);
-const DM_KEY = /^(secret|secrets|dm|dm[ _-].*|gm|gm[ _-].*|private|hidden)$/i;
 
-/** True when a mention points at something players may not see. */
+/** True when a mention points at something the audience may not see. */
 export type IsHidden = (m: Mention) => boolean;
 
-function inlinePlayer(c: Inline[] | undefined, hidden: IsHidden): Inline[] {
+function inlineFor(c: Inline[] | undefined, hidden: IsHidden): Inline[] {
   return (c ?? []).map((x) => {
     if (!x.mention) return x;
     if (!hidden(x.mention)) return x;
@@ -20,40 +26,49 @@ function inlinePlayer(c: Inline[] | undefined, hidden: IsHidden): Inline[] {
   });
 }
 
-const headingText = (b: Block) => (b.kind === 'heading' ? b.content.map((x) => x.text ?? x.mention?.text ?? x.mention?.name ?? '').join('').trim() : '');
+/** Blocks the audience may read. The DM audience gets everything unchanged. */
+export function blocksFor(blocks: Block[], audience: Audience, hidden: IsHidden): Block[] {
+  if (audience === 'dm') return blocks;
+  return filterList(blocks, audience, hidden);
+}
 
-export function playerBlocks(blocks: Block[], hidden: IsHidden): Block[] {
+function filterList(blocks: Block[], aud: Audience, hidden: IsHidden): Block[] {
+  const max = AUDIENCE_MAX[aud];
   const out: Block[] = [];
-  let skip = 0; // heading level of a DM section being skipped
+  // Open heading sections (Broker, Classified, DM notes ...): everything under one is at least its level.
+  const sections: { depth: number; level: Level }[] = [];
   for (const b of blocks) {
-    if (skip) {
-      if (b.kind === 'heading' && b.level <= skip) skip = 0;
-      else continue;
+    if (b.kind === 'heading') {
+      while (sections.length && sections[sections.length - 1].depth >= b.level) sections.pop();
+      const hl = headingLevel(b, DM_HEADING);
+      if (hl !== 'party') sections.push({ depth: b.level, level: hl });
     }
-    if (b.kind === 'heading' && DM_HEADING.test(headingText(b))) { skip = b.level; continue; }
-    const p = playerBlock(b, hidden);
+    const eff = maxLevel(blockLevel(b), ...sections.map((s) => s.level));
+    if (RANK[eff] > max) continue;
+    const p = filterBlock(b, aud, hidden);
     if (p) out.push(p);
   }
   return out;
 }
 
-function playerBlock(b: Block, hidden: IsHidden): Block | null {
+function filterBlock(b: Block, aud: Audience, hidden: IsHidden): Block | null {
   switch (b.kind) {
-    case 'secret':
     case 'unsupported':
       return null;
+    case 'secret':
+      // Kept only for audiences that may read this block's level (checked by the caller); its words stay hidden-link safe.
+      return { ...b, children: filterList(b.children, aud, hidden) };
     case 'callout':
-      if (DM_CALLOUTS.has(b.variant.toLowerCase())) return null;
-      return { ...b, title: b.title ? inlinePlayer(b.title, hidden) : undefined, children: playerBlocks(b.children, hidden) };
+      return { ...b, title: b.title ? inlineFor(b.title, hidden) : undefined, children: filterList(b.children, aud, hidden) };
     case 'toggle':
-      return { ...b, title: inlinePlayer(b.title, hidden), children: playerBlocks(b.children, hidden) };
+      return { ...b, title: inlineFor(b.title, hidden), children: filterList(b.children, aud, hidden) };
     case 'heading':
     case 'paragraph':
-      return { ...b, content: inlinePlayer(b.content, hidden) } as Block;
+      return { ...b, content: inlineFor(b.content, hidden) } as Block;
     case 'image':
-      return { ...b, caption: b.caption ? inlinePlayer(b.caption, hidden) : undefined };
+      return { ...b, caption: b.caption ? inlineFor(b.caption, hidden) : undefined };
     case 'infobox': {
-      const groups = playerProperties(b.groups, hidden);
+      const groups = propertiesFor(b.groups, aud, hidden);
       return groups.length ? { ...b, groups } : null;
     }
     case 'bulletList':
@@ -63,9 +78,9 @@ function playerBlock(b: Block, hidden: IsHidden): Block | null {
     case 'tableRow':
     case 'tableCell':
     case 'blockquote':
-      return { ...b, children: playerBlocks(b.children, hidden) } as Block;
+      return { ...b, children: filterList(b.children, aud, hidden) } as Block;
     case 'map': {
-      // A pin shows only when the source shows it and the page it points at is shared.
+      // A pin shows only when the source shows it and the page it points at may be seen.
       const pins = (Array.isArray(b.pins) ? b.pins : []).filter((p) => p && p.dm !== true && typeof p.name === 'string' && !(p.ref && hidden({ ref: p.ref, name: p.name })));
       const image = typeof b.image === 'string' && /^https?:/i.test(b.image) ? b.image : undefined;
       return { kind: 'map', ...(b.title ? { title: b.title } : {}), ...(image ? { image } : {}), ...(b.width ? { width: b.width } : {}), ...(b.height ? { height: b.height } : {}), pins: pins.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng, ...(p.type ? { type: p.type } : {}), ...(p.ref ? { ref: p.ref } : {}) })) };
@@ -79,9 +94,21 @@ function playerBlock(b: Block, hidden: IsHidden): Block | null {
   }
 }
 
-export function playerProperties(groups: PropertyGroup[] = [], hidden: IsHidden): PropertyGroup[] {
+/** Property groups and rows the audience may read. */
+export function propertiesFor(groups: PropertyGroup[] = [], audience: Audience, hidden: IsHidden): PropertyGroup[] {
+  if (audience === 'dm') return groups;
+  const max = AUDIENCE_MAX[audience];
   return groups
-    .filter((g) => !g.dm && !DM_KEY.test(g.title.trim()))
-    .map((g) => ({ title: g.title, rows: g.rows.filter((r) => !DM_KEY.test(r.key.trim())).map((r) => ({ key: r.key, value: inlinePlayer(r.value, hidden) })) }))
+    .filter((g) => RANK[groupLevel(g)] <= max)
+    .map((g) => {
+      const rows = g.rows.filter((r) => RANK[keyLevel(r.key)] <= max).map((r) => ({ key: r.key, value: inlineFor(r.value, hidden) }));
+      return { title: g.title, ...(g.level ? { level: g.level } : {}), ...(g.dm ? { dm: g.dm } : {}), rows };
+    })
     .filter((g) => g.rows.length);
+}
+
+// The player copy: the party level only.
+export const playerBlocks = (blocks: Block[], hidden: IsHidden): Block[] => blocksFor(blocks, 'player', hidden);
+export function playerProperties(groups: PropertyGroup[] = [], hidden: IsHidden): PropertyGroup[] {
+  return propertiesFor(groups, 'player', hidden).map((g) => ({ title: g.title, rows: g.rows }));
 }

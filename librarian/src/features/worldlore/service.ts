@@ -216,7 +216,7 @@ function mark(d: Deps, worldId: string, ref: string, title: string, level: Write
 
 /** Set a page's level in the library (the source can't hold broker or classified) and rebuild player copies. */
 function applyLevel(d: Deps, worldId: string, pageId: string, level: WriteLevel) {
-  run(d.db, 'UPDATE pages SET visibility = ?, player_frontmatter = NULL, player_body = NULL, player_blocks = NULL, player_properties = NULL WHERE id = ? AND world_id = ?', level, pageId, worldId);
+  run(d.db, 'UPDATE pages SET visibility = ?, player_frontmatter = NULL, player_body = NULL, player_blocks = NULL, player_properties = NULL, broker_frontmatter = NULL, broker_body = NULL, broker_blocks = NULL, broker_properties = NULL, ai_frontmatter = NULL, ai_body = NULL, ai_blocks = NULL, ai_properties = NULL WHERE id = ? AND world_id = ?', level, pageId, worldId);
 }
 
 /** Re-sync one page into the library; the whole source when the connector can't read one page. */
@@ -372,7 +372,7 @@ export function readPage(d: Deps, worldId: string, viewer: { accountId: string; 
     const ok = row && inside(d, worldId, w).some((r) => r.id === row.id);
     if (!ok) throw new HttpError(row ? 403 : 404, row ? 'That page is outside the WorldLore workspace' : 'No such page');
     if (row.visibility === 'classified') throw new HttpError(403, 'Classified pages are never shown to an AI');
-    const pg = d.library.get(worldId, row.id, viewer as any);
+    const pg = d.library.get(worldId, row.id, { ...viewer, audience: 'ai' } as any);
     return { id: pg.id, ref: refOfRow(w, row), title: pg.title, path: pg.path, level: row.visibility, markdown: (pg as any).body, tags: pg.tags, updatedAt: pg.updated_at };
   } finally { w.close(); }
 }

@@ -76,6 +76,19 @@ All rules live in `src/core/policy.ts`.
    their own world and never carry admin rights. Keys cannot mint keys.
    Keys and sessions are stored only as hashes.
 
+## Secrecy levels
+
+Pages, blocks, fact groups and frontmatter keys carry one of four levels (`src/core/levels.ts`). `pages.visibility` is `party`, `broker`, `dm` or `classified`; the most secret level wins and anything unknown is `dm`.
+
+| Level | Players | Broker (may sell it) | Any AI or model context | The DM in the app |
+|---|---|---|---|---|
+| `party` | yes | yes | yes | yes |
+| `broker` | no | yes, held for DM review by default (`brokerLevelDelivery`: `review` or `auto`) | yes | yes |
+| `dm` | no | no | yes | yes |
+| `classified` | no | no | never sent to any model or MCP client, never embedded | yes, in a red "Classified: never shared with any AI" frame |
+
+Each page stores four copies, rebuilt on every save and sync (and once on start for older databases): the player copy (`player_*`), the broker copy (`broker_*`, party plus broker), the AI copy (`ai_*`, everything except classified) and the DM copy. Each has its own search index (`fts_party`, `fts_broker`, `fts_ai`, `fts_dm`), and the DM's semantic index is cut from the AI copy. Requests from the MCP server and the agent's tools send `X-Alexandria-Caller: model` and are served the AI copy. `copyFor(page, 'player' | 'broker' | 'ai' | 'dm')` returns a page's stored blocks, markdown, properties and frontmatter for an audience. How to mark each level in each source is in `docs/CONNECTORS.md`.
+
 ## Keys and the MCP endpoint
 
 | Key | Made by | Can do |

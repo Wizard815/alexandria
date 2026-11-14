@@ -6,6 +6,7 @@ import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRec
 import { ConfigError } from '../connector.ts';
 import type { Block, Entry, Inline, PropertyGroup } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
+import { levelOfWord } from '../../core/levels.ts';
 
 export interface Transport { get(path: string, query?: Record<string, unknown>): Promise<any> }
 
@@ -120,9 +121,38 @@ export function lkGroups(props: any[] = []): PropertyGroup[] {
     if (!rows.length) continue;
     const group: PropertyGroup = { title: String(g.title ?? (g.kind === 'textField' ? 'Text' : 'Facts')), rows };
     if (g.isHidden !== false) group.dm = true;
+    // A group titled Broker or Classified carries that level (it is also found by its title).
+    const named = levelOfWord(group.title);
+    if (named) group.level = named;
     out.push(group);
   }
   return out;
+}
+
+/** A secret block: dm level, or broker / classified when its first words say so. */
+function secretBlock(children: Block[]): Block {
+  const first = children[0];
+  if (first && (first.kind === 'paragraph' || first.kind === 'heading')) {
+    const text = first.content.map((x) => x.text ?? x.mention?.text ?? x.mention?.name ?? '').join('').trim();
+    const m = /^(broker|classified)\s*:\s*/i.exec(text);
+    if (m) {
+      // Take the label off the first words (it may sit in the first text run).
+      let cut = m[0].length;
+      const content: Inline[] = [];
+      for (const run of first.content) {
+        if (cut > 0 && run.text !== undefined && !run.mention) {
+          const lead = run.text.length - run.text.trimStart().length;
+          const take = Math.min(cut + lead, run.text.length);
+          const rest = run.text.slice(take);
+          cut -= Math.max(0, take - lead);
+          if (rest) content.push({ ...run, text: rest });
+        } else content.push(run);
+      }
+      const level = m[1].toLowerCase() as 'broker' | 'classified';
+      return { kind: 'secret', level, children: [content.length ? { ...first, content } : null, ...children.slice(1)].filter((x): x is Block => !!x) };
+    }
+  }
+  return { kind: 'secret', children };
 }
 
 const titleOf = (b: any) => (typeof b?.title === 'string' && b.title && b.isTitleHidden === false ? b.title : undefined);
@@ -148,7 +178,8 @@ export function lkBlocks(bs: any[] = []): Block[] {
       case 'tableRow': return [{ kind: 'tableRow', children: kids() }];
       case 'tableCell':
       case 'tableHeader': return [{ kind: 'tableCell', header: b.kind === 'tableHeader' || !!b.header, children: kids() }];
-      case 'secret': return [{ kind: 'secret', children: kids() }];
+      // A secret block whose first words are "BROKER:" or "CLASSIFIED:" is broker or classified level; the label is dropped.
+      case 'secret': return [secretBlock(kids())];
       case 'callout': {
         const variant = String(b.tone ?? b.variant ?? b.calloutType ?? b.type ?? b.style ?? 'note').toLowerCase();
         return [{ kind: 'callout', variant, ...(b.title ? { title: Array.isArray(b.title) ? inline(b.title) : [{ text: String(b.title) }] } : {}), children: kids() }];

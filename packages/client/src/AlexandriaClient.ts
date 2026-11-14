@@ -165,7 +165,7 @@ export class WorldClient {
   // Library / Lore
   pages() { return this.r<any[]>('GET', '/library/pages'); }
   page(idOrPath: string) { return this.r('GET', `/library/pages/${encodeURIComponent(idOrPath)}`); }
-  savePage(p: { path: string; markdown?: string; body?: string; title?: string; frontmatter?: Record<string, unknown>; visibility?: 'dm' | 'party' }) { return this.r('PUT', '/library/pages', p); }
+  savePage(p: { path: string; markdown?: string; body?: string; title?: string; frontmatter?: Record<string, unknown>; visibility?: 'dm' | 'party' | 'broker' | 'classified' }) { return this.r('PUT', '/library/pages', p); }
   deletePage(id: string) { return this.r('DELETE', `/library/pages/${id}`); }
   search(q: string) { return this.r<any[]>('GET', '/library/search', undefined, { q }); }
   relations() { return this.r<any[]>('GET', '/library/relations'); }

@@ -98,7 +98,7 @@ export default function mcpServerRoutes(d: Deps) {
         const c = tool.call(args);
         const base = `http://127.0.0.1:${req.socket.localPort}/api/worlds/${enc(auth.keyWorldId)}`;
         try {
-          const up = await d.fetch(base + c.path, { method: c.method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: c.body === undefined ? undefined : JSON.stringify(c.body) });
+          const up = await d.fetch(base + c.path, { method: c.method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Alexandria-Caller': 'model' }, body: c.body === undefined ? undefined : JSON.stringify(c.body) });
           const text = await up.text();
           return ok({ isError: !up.ok, content: [{ type: 'text', text }] });
         } catch (err: any) {

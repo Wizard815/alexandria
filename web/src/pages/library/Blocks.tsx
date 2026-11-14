@@ -6,7 +6,9 @@ import type { ReactNode } from 'react';
 
 export interface Mention { ref?: string; name?: string; text?: string }
 export interface Inline { text?: string; bold?: boolean; italic?: boolean; code?: boolean; strike?: boolean; underline?: boolean; link?: string; mention?: Mention }
-export interface PropertyGroup { title: string; rows: { key: string; value: Inline[] }[]; dm?: boolean }
+export interface PropertyGroup { title: string; rows: { key: string; value: Inline[] }[]; dm?: boolean; level?: string }
+import { LEVEL_CSS, LevelChip, levelOf, titleLevel } from './Levels.tsx';
+
 export type Block = { kind: string; [k: string]: any };
 
 export interface RenderCtx {
@@ -66,8 +68,8 @@ export function Facts({ groups, ctx }: { groups: PropertyGroup[]; ctx: RenderCtx
   return (
     <>
       {groups.map((g, i) => (
-        <section key={i} className={`lib-facts${g.dm ? ' lib-dm' : ''}`} aria-label={g.title}>
-          <h3>{g.title}{g.dm && <span className="lib-dm-tag">DM only</span>}</h3>
+        <section key={i} className={`lib-facts${g.dm || g.level ? ' lib-dm' : ''}`} aria-label={g.title}>
+          <h3>{g.title}{g.level === 'broker' || g.level === 'classified' || titleLevel(g.title) ? <LevelChip level={g.level ?? titleLevel(g.title)} /> : g.dm && <span className="lib-dm-tag">DM only</span>}</h3>
           <dl>{g.rows.map((r, j) => <div key={j} className="lib-fact"><dt>{r.key}</dt><dd><Inlines c={r.value} ctx={ctx} /></dd></div>)}</dl>
         </section>
       ))}
@@ -101,9 +103,12 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
       );
     case 'secret':
       // Only the DM ever receives these.
+      if (b.level === 'broker' || b.level === 'classified') return <aside className={`lvl-block lvl-${b.level}`} aria-label={b.level === 'classified' ? 'Classified: never shared with any AI' : 'Broker level'}><LevelChip level={b.level} />{b.level === 'classified' && <span className="tiny"> never shared with any AI</span>}{kids()}</aside>;
       return <aside className="lib-secret" aria-label="Secret, DM only"><span className="lib-secret-tag"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> Secret · DM only</span>{kids()}</aside>;
     case 'callout': {
       const v = String(b.variant ?? 'note').toLowerCase();
+      const cl = titleLevel((b.title ?? []).map((c: any) => c.text ?? '').join('')) ?? (v === 'broker' || v === 'classified' ? v : null);
+      if (cl) return <aside className={`lvl-block lvl-${levelOf(cl)}`}><LevelChip level={cl} />{kids()}</aside>;
       const [icon, color] = CALLOUT[v] ?? ['circle-info', 'var(--teal)'];
       return (
         <aside className="lib-callout" style={{ borderLeftColor: color }}>
@@ -192,6 +197,7 @@ export const LIB_CSS = `
 .lib-table p { margin: 0; }
 .lib-callout { margin: 10px 0; padding: 10px 14px; border-left: 4px solid var(--teal); background: var(--panel-2); border-radius: 0 8px 8px 0; }
 .lib-callout-title { font-family: var(--font); font-weight: 700; font-size: 15px; margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
+${LEVEL_CSS}
 .lib-secret { margin: 12px 0; padding: 12px 14px; border: 1px dashed var(--danger); border-radius: 8px; background: var(--danger-bg); }
 .lib-secret-tag { display: inline-flex; gap: 6px; align-items: center; font-family: var(--font); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--danger-text); margin-bottom: 6px; }
 .lib-toggle { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; }

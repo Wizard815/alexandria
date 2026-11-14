@@ -30,6 +30,28 @@ is the same for every source:
 Older source kinds (`vault`, `kanka`, `mcp` + `profile`) still work; they
 map to the connectors above.
 
+## Secrecy levels: marking content in every source
+
+Every page and block has one of four levels (`librarian/src/core/levels.ts`). The most secret level wins, and anything unknown or unparseable is `dm`.
+
+| Level | Players | Broker may sell it | Any AI or model (DM agent, Sculpting, session-log drafts, statblocks from pages, MCP clients, embeddings) | The DM in the app |
+|---|---|---|---|---|
+| `party` | yes | yes | yes | yes |
+| `broker` | no | yes (after DM review by default) | yes | yes |
+| `dm` | no | no | yes | yes |
+| `classified` | no | no | never sent, never embedded | yes, marked "Classified: never shared with any AI" |
+
+How to mark each level, in every source:
+
+| Where | Page level | Block level | Property groups and keys |
+|---|---|---|---|
+| Markdown, Obsidian, git, MCP files | frontmatter `visibility: broker` or `classified`; tags `broker` / `classified` (frontmatter, or `#classified` in the text) | `> [!broker]` and `> [!classified]` callouts; `<!-- broker --> ... <!-- /broker -->` and `<!-- classified --> ... <!-- /classified -->`; callouts or `> [!expand] Broker` toggles titled Broker or Classified; headings named Broker or Classified (with their section) | nested `broker:` / `classified:` maps; keys `broker_*` / `classified_*` |
+| LegendKeeper | resource tags `broker` / `classified` | secret blocks whose first words are `BROKER:` or `CLASSIFIED:`; callouts or toggles titled Broker or Classified; headings named so | property groups titled Broker or Classified |
+| Kanka | entity tags `broker` / `classified` (private tags count, and are never shown) | posts named Broker or Classified, or tagged so | attributes named `Broker ...` / `Classified ...` |
+| Alexandria's own pages | the Level picker in the Library editor, or `PUT /library/pages/:id/level` | the same callouts as Markdown | the same keys |
+
+A page tagged `classified` is classified even if its source shares it. A source can also hand over `broker` or `classified` as the entry's visibility, and a later sync keeps it. Players only ever get the player copy; the broker gets the broker copy (party plus broker); every model-facing path gets the AI copy (everything except classified). A request from a model (the MCP server, the agent's tools) carries the header `X-Alexandria-Caller: model` and the library then serves the AI copy; a caller who sets it by hand only sees less.
+
 ## Capabilities
 
 Each connector declares what it provides in `capabilities`: `pages`,

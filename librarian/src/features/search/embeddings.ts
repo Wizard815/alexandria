@@ -2,7 +2,9 @@
 // every page's chunks (about 500 characters) are embedded in the background
 // and stored, DM copy and player copy separately:
 //
-//   scope 'dm'    chunks of the DM copy   (only ever searched by a DM)
+//   scope 'dm'    chunks of the AI copy (pages.ai_body: everything but
+//                 classified, which is never embedded or sent to the
+//                 embeddings model); searched by a DM and by every model
 //   scope 'party' chunks of the player copy (pages.player_body); DM text is
 //                 never embedded into this scope
 //
@@ -38,6 +40,8 @@ CREATE TABLE IF NOT EXISTS search_chunk_state (
 `;
 
 export const CHUNK_CHARS = 500;
+/** Chunks are tagged with the level scheme they were cut under; older ones (cut from the full text) are never read. */
+const tagged = (model: string) => `${model}|lv1`;
 const MAX_CHUNKS_PER_PAGE = 40;
 const BATCH = 16;
 
@@ -90,9 +94,9 @@ interface Stale { id: string; world_id: string; title: string; updated_at: strin
 const copyChunks = (r: Stale) => chunkText(`${r.text}\n\n${factsText(r.props).replace(/\n/g, '\n\n')}`).map((c) => plainText(c)).filter(Boolean);
 
 function stalePages(db: DB, scope: Scope, model: string, limit: number): Stale[] {
-  const body = scope === 'dm' ? 'p.body' : 'p.player_body';
-  const props = scope === 'dm' ? 'p.properties' : 'p.player_properties';
-  const guard = scope === 'dm' ? '' : 'AND p.player_body IS NOT NULL AND p.visibility = \'party\'';
+  const body = scope === 'dm' ? 'p.ai_body' : 'p.player_body';
+  const props = scope === 'dm' ? 'p.ai_properties' : 'p.player_properties';
+  const guard = scope === 'dm' ? `AND p.ai_body IS NOT NULL AND p.visibility <> 'classified'` : 'AND p.player_body IS NOT NULL AND p.visibility = \'party\'';
   return all<Stale>(db, `SELECT p.id, p.world_id, p.title, p.updated_at, ${body} AS text, ${props} AS props FROM pages p
     LEFT JOIN search_chunk_state s ON s.page_id = p.id AND s.scope = ?
     WHERE 1 = 1 ${guard} AND (s.page_id IS NULL OR s.updated_at <> p.updated_at OR s.model <> ? OR s.sig <> length(${body}) + length(coalesce(${props}, '')))
@@ -105,6 +109,8 @@ export function pruneChunks(db: DB) {
     run(db, `DELETE FROM search_chunks WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id)`);
     run(db, `DELETE FROM search_chunk_state WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id)`);
     run(db, `DELETE FROM search_chunks WHERE scope = 'party' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id AND p.visibility = 'party' AND p.player_body IS NOT NULL)`);
+    run(db, `DELETE FROM search_chunks WHERE scope = 'dm' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id AND p.ai_body IS NOT NULL AND p.visibility <> 'classified')`);
+    run(db, `DELETE FROM search_chunk_state WHERE scope = 'dm' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id AND p.ai_body IS NOT NULL AND p.visibility <> 'classified')`);
     run(db, `DELETE FROM search_chunk_state WHERE scope = 'party' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id AND p.visibility = 'party' AND p.player_body IS NOT NULL)`);
   });
 }
@@ -124,7 +130,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number } = {}):
   try {
     for (const scope of ['party', 'dm'] as Scope[]) {
       while (budget > 0) {
-        const rows = stalePages(d.db, scope, cfg.model, Math.min(budget, 10));
+        const rows = stalePages(d.db, scope, tagged(cfg.model), Math.min(budget, 10));
         if (!rows.length) break;
         for (const r of rows) {
           const chunks = copyChunks(r);
@@ -135,13 +141,13 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number } = {}):
             if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
             for (const v of got) vecs.push(normalize(v));
           }
-          const sig = Number(one<any>(d.db, `SELECT length(${scope === 'dm' ? 'body' : 'player_body'}) + length(coalesce(${scope === 'dm' ? 'properties' : 'player_properties'}, '')) AS n FROM pages WHERE id = ?`, r.id)?.n ?? -1);
+          const sig = Number(one<any>(d.db, `SELECT length(${scope === 'dm' ? 'ai_body' : 'player_body'}) + length(coalesce(${scope === 'dm' ? 'ai_properties' : 'player_properties'}, '')) AS n FROM pages WHERE id = ?`, r.id)?.n ?? -1);
           // The page may have changed while the model worked; the next round will see the new signature.
           tx(d.db, () => {
             run(d.db, 'DELETE FROM search_chunks WHERE page_id = ? AND scope = ?', r.id, scope);
             chunks.forEach((c, i) => run(d.db, 'INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, ?, ?, ?, ?)', r.world_id, r.id, scope, i, c, toBlob(vecs[i])));
             run(d.db, `INSERT INTO search_chunk_state (page_id, scope, world_id, updated_at, sig, model) VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id`, r.id, scope, r.world_id, r.updated_at, sig, cfg.model);
+              ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id`, r.id, scope, r.world_id, r.updated_at, sig, tagged(cfg.model));
           });
           res.embedded += chunks.length;
           res.pages++;
@@ -149,7 +155,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number } = {}):
         }
       }
     }
-    res.remaining = (['party', 'dm'] as Scope[]).some((s) => stalePages(d.db, s, cfg.model, 1).length > 0);
+    res.remaining = (['party', 'dm'] as Scope[]).some((s) => stalePages(d.db, s, tagged(cfg.model), 1).length > 0);
   } catch (e: any) {
     res.error = String(e?.message ?? e).slice(0, 200);
     res.remaining = true;
@@ -173,14 +179,18 @@ function vectors(db: DB, worldId: string, scope: Scope) {
   const key = `${worldId}|${scope}`;
   const hit = m.get(key);
   if (hit && hit.stamp === stamp) return hit.rows;
-  const rows = all<any>(db, 'SELECT page_id, text, vec FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope).map((r) => ({ page: r.page_id as string, text: r.text as string, v: fromBlob(r.vec) }));
+  const rows = all<any>(db, scope === 'dm'
+    ? `SELECT c.page_id, c.text, c.vec FROM search_chunks c JOIN search_chunk_state s ON s.page_id = c.page_id AND s.scope = c.scope WHERE c.world_id = ? AND c.scope = ? AND s.model LIKE '%|lv1'`
+    : 'SELECT page_id, text, vec FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope).map((r) => ({ page: r.page_id as string, text: r.text as string, v: fromBlob(r.vec) }));
   m.set(key, { stamp, rows });
   return rows;
 }
 
 /** Nearest chunks to the query, best chunk per page. Empty when there is no embeddings model. */
-export async function semanticPages(d: Deps, worldId: string, scope: Scope, q: string, limit = 20): Promise<{ id: string; sim: number; text: string }[]> {
+export async function semanticPages(d: Deps, worldId: string, scopeIn: Scope, q: string, limit = 20): Promise<{ id: string; sim: number; text: string }[]> {
   if (!hasJob(d, 'extra')) return [];
+  // The DM, a model and the broker's reach all read the AI-copy chunks (stored as 'dm'); only players read the party chunks.
+  const scope: Scope = scopeIn === 'party' ? 'party' : 'dm';
   const got = await embed(d, [q.slice(0, 500)]);
   if (!got[0]?.length) return [];
   const qv = normalize(got[0]);
@@ -197,7 +207,7 @@ export async function semanticPages(d: Deps, worldId: string, scope: Scope, q: s
   const ranked = [...best].sort((a, b) => b[1].sim - a[1].sim).slice(0, limit * 2);
   if (!ranked.length) return [];
   // The page must still exist and, for the party scope, still be shared.
-  const guard = scope === 'party' ? `AND visibility = 'party' AND player_body IS NOT NULL` : '';
+  const guard = scope === 'party' ? `AND visibility = 'party' AND player_body IS NOT NULL` : `AND ai_body IS NOT NULL AND visibility <> 'classified'`;
   const ok = new Set(all<any>(d.db, `SELECT id FROM pages WHERE world_id = ? AND id IN (${ranked.map(() => '?').join(',')}) ${guard}`, worldId, ...ranked.map((r) => r[0])).map((r) => r.id));
   return ranked.filter((r) => ok.has(r[0])).slice(0, limit).map(([id, v]) => ({ id, sim: v.sim, text: v.text }));
 }
@@ -214,7 +224,7 @@ export function rrf(lists: string[][], k = 60): Map<string, number> {
  * on top. Without an embeddings model, or if it fails, the keyword hits.
  */
 export async function hybridPages(d: Deps, worldId: string, q: string, scope: Scope, limit = 20): Promise<PageHit[]> {
-  const kw = d.library.search(worldId, q, { accountId: '', role: scope === 'dm' ? 'dm' : 'player' }, Math.max(limit, 30)) as PageHit[];
+  const kw = d.library.search(worldId, q, scope === 'party' ? { accountId: '', role: 'player' } : { accountId: '', role: 'dm', ...(scope === 'ai' ? { audience: 'ai' as const } : {}) }, Math.max(limit, 30)) as PageHit[];
   if (!hasJob(d, 'extra') || !parseQuery(q).pos.length) return kw.slice(0, limit);
   let sem: { id: string; sim: number; text: string }[] = [];
   try { sem = await semanticPages(d, worldId, scope, q, Math.max(limit, 30)); } catch { return kw.slice(0, limit); }
@@ -224,7 +234,7 @@ export async function hybridPages(d: Deps, worldId: string, q: string, scope: Sc
   const pq: ParsedQuery = parseQuery(q);
   const missing = sem.filter((s) => !byId.has(s.id));
   if (missing.length) {
-    const rows = all<any>(d.db, `SELECT id, path, title FROM pages WHERE world_id = ? AND id IN (${missing.map(() => '?').join(',')})`, worldId, ...missing.map((m) => m.id));
+    const rows = all<any>(d.db, `SELECT id, path, title FROM pages WHERE world_id = ? AND id IN (${missing.map(() => '?').join(',')}) ${scope === 'party' ? "AND visibility = 'party'" : "AND visibility <> 'classified'"}`, worldId, ...missing.map((m) => m.id));
     const info = new Map(rows.map((r) => [r.id, r]));
     for (const m of missing) {
       const r = info.get(m.id);
