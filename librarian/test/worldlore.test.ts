@@ -348,8 +348,8 @@ test('TestWorldLore_McpGuardStillRefusesEveryOtherWrite', async () => {
   const other = workspaceMcpFactory(connectorFor('markdown-folder')!, {}, {}, fetch, raw as any).factory();
   assert.throws(() => other.call('create_resource', { name: 'x' }), /not a read tool/);
   // And only the connectors with a write capability can be a workspace.
-  assert.equal(connectorFor('kanka-api')?.write, undefined);
-  assert.ok(connectorFor('legendkeeper-api')?.write && connectorFor('legendkeeper-mcp')?.write && connectorFor('markdown-folder')?.write);
+  for (const id of ['git', 'mcp-files', 'api', 'push']) assert.equal(connectorFor(id)?.write, undefined, id);
+  assert.ok(connectorFor('legendkeeper-api')?.write && connectorFor('legendkeeper-mcp')?.write && connectorFor('markdown-folder')?.write && connectorFor('kanka-api')?.write && connectorFor('kanka-mcp')?.write);
 });
 
 test('TestWorldLore_MarkdownToLkBlocks', () => {
@@ -543,9 +543,9 @@ test('TestWorldLore_EnablingAddsToolsToAutoApproveAndDisablingRemovesThem', asyn
     assert.equal((await e.call('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { worldLore: { kind: 'source', root: '../x', defaultLevel: 'dm' } })).status, 400);
     assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: 'nope', root: 'x', defaultLevel: 'dm' })).status, 404);
     assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: src, root: 'x', defaultLevel: 'classified' })).status, 400);
-    // A source that cannot be written to (Kanka) is refused.
-    const kanka = addSource(e, 'kanka-api', { apiUrl: 'https://kanka.test/api/1.0/campaigns/1', apiKey: 'xxxxxxxxxxxx' }, 'Kanka');
-    assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: kanka, root: 'x', defaultLevel: 'dm' })).status, 400);
+    // A source that cannot be written to (a git repo) is refused.
+    const git = addSource(e, 'git', { url: 'https://git.test/x.git' }, 'Git');
+    assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: git, root: 'x', defaultLevel: 'dm' })).status, 400);
   } finally { e.close(); }
 });
 
@@ -556,7 +556,7 @@ test('TestWorldLore_OptionsAndLinkForThePicker', async () => {
     fs.mkdirSync(path.join(e.tmp, 'vaults', 'notes', 'Places'), { recursive: true });
     const a = addSource(e, 'legendkeeper-api', LK_CFG, 'LK');
     addSource(e, 'markdown-folder', { folder: 'notes' }, 'Notes');
-    addSource(e, 'kanka-api', { apiUrl: 'https://kanka.test/api/1.0/campaigns/1', apiKey: 'xxxxxxxxxxxx' }, 'Kanka');
+    addSource(e, 'git', { url: 'https://git.test/x.git' }, 'Git');
     const o = await e.ok('GET', `/api/worlds/${e.W}/worldlore/options`, e.T.dm);
     assert.deepEqual(o.sources.map((s: any) => s.name).sort(), ['LK', 'Notes'], 'only writable sources');
     assert.deepEqual(o.sources.find((s: any) => s.name === 'LK').roots.map((r: any) => r.id).sort(), ['outside1', 'rootlore']);

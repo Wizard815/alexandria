@@ -103,7 +103,9 @@ export interface ConnectorWrite {
   /** The page as an entry, to re-sync just that page. Null: not readable (sync the whole source instead). */
   readPage?(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string }): Promise<Entry | null>;
   /** Top-level things the DM may pick as the workspace root. */
-  roots?(cfg: Record<string, any>, ctx: ConnectorContext): Promise<{ id: string; title: string; folder?: boolean }[]>;
+  roots?(cfg: Record<string, any>, ctx: ConnectorContext): Promise<{ id: string; title: string; folder?: boolean; kind?: string }[]>;
+  /** Pages at any depth whose name has `q`, as possible roots (for sources too big to list). */
+  search?(cfg: Record<string, any>, ctx: ConnectorContext, q: string): Promise<{ id: string; title: string; folder?: boolean; kind?: string }[]>;
 }
 
 export interface Connector {
