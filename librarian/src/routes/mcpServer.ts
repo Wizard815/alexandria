@@ -52,7 +52,7 @@ const CORE_TOOLS: Tool[] = [
 /** Every MCP tool: the core ones plus those features add. */
 export const allTools = (): Tool[] => [...CORE_TOOLS, ...featureMcpTools()];
 /** The tools a caller may use: write tools only for a DM's write access. */
-export const toolsFor = (canWrite: boolean): Tool[] => allTools().filter((t) => !t.write || canWrite);
+export const toolsFor = (canWrite: boolean): Tool[] => allTools().filter((t) => (!t.write || canWrite) && !(t.playerOnly && canWrite));
 
 export default function mcpServerRoutes(d: Deps) {
   const r = Router();
@@ -69,7 +69,7 @@ export default function mcpServerRoutes(d: Deps) {
     const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', auth.keyWorldId, auth.account.id);
     if (!m) return rpcError(req.body?.id, -32001, 'This key no longer has a world', 401);
     const canWrite = auth.access === 'write' && m.role === 'dm';
-    const tools = toolsFor(canWrite);
+    const tools = toolsFor(canWrite).filter((t) => !t.playerOnly || m.role === 'player');
 
     const msg = req.body;
     if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return rpcError(msg?.id, -32600, 'Invalid request', 400);
