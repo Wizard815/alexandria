@@ -23,6 +23,8 @@ export interface McpTool {
   description: string;
   /** Only listed for a DM's write key. */
   write?: boolean;
+  /** Only listed for a player's key (never a DM's, read or write). */
+  playerOnly?: boolean;
   props: Record<string, any>;
   required?: string[];
   /** The world API request to make; the path is relative to /api/worlds/:world. */
