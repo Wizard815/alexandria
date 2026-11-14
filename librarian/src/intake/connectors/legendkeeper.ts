@@ -7,9 +7,9 @@ import { ConfigError } from '../connector.ts';
 import type { Block, Entry, Inline, PropertyGroup } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
 
-interface Transport { get(path: string, query?: Record<string, unknown>): Promise<any> }
+export interface Transport { get(path: string, query?: Record<string, unknown>): Promise<any> }
 
-function mcpTransport(ctx: ConnectorContext, project?: string): Transport {
+export function mcpTransport(ctx: ConnectorContext, project?: string): Transport {
   const mcp = ctx.mcp();
   return {
     async get(path, query) {
@@ -22,7 +22,7 @@ function mcpTransport(ctx: ConnectorContext, project?: string): Transport {
 }
 
 /** Waits, but stops early when the sync is stopped. */
-function pause(ms: number, signal: AbortSignal): Promise<void> {
+export function pause(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error('Sync stopped'));
     const t = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, ms);
@@ -41,7 +41,7 @@ export function retryAfterMs(h: string | null | undefined): number | null {
 
 // REST v3: https://www.legendkeeper.com/api/v3/projects/<projectId>, Bearer key.
 // 429 RATE_LIMITED carries Retry-After; waits up to a minute, three times.
-function restTransport(ctx: ConnectorContext, base: string, key: string): Transport {
+export function restTransport(ctx: ConnectorContext, base: string, key: string): Transport {
   const root = base.replace(/\/$/, '');
   return {
     async get(path, query) {
