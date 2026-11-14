@@ -53,6 +53,19 @@ function chatReply(body: any): { content: string | null; tool_calls?: any[]; fin
     const sys = messages.filter((m) => m?.role === 'system').map((m) => text(m.content)).join('\n');
     const m = sys.match(/^FAKE_JSON:\s*(\{.*\})\s*$/m);
     let out = '{}';
+    // Sculpting: fill every blank field the request lists, so the whole flow works without a real model.
+    if (!m && /fill blank fields of the template/.test(sys)) {
+      try {
+        const req = JSON.parse(rawUser);
+        const name = String(req.filled?.name ?? 'Someone');
+        const o: Record<string, unknown> = {};
+        for (const f of req.blank ?? []) {
+          o[f.key] = f.type === 'statblock' ? { name, size: 'Medium', type: 'humanoid', alignment: 'neutral', cr: 1, xp: 200, ac: 13, hp: 27, hitDice: '5d8+5', speed: { walk: '30 ft.' }, abilities: { str: 10, dex: 14, con: 12, int: 10, wis: 10, cha: 10 }, traits: [], actions: [{ name: 'Shortsword', text: 'Melee Attack Roll: +4, reach 5 ft. Hit: 5 (1d6 + 2) piercing damage.' }] }
+            : f.type === 'select' ? (f.options?.[0] ?? '') : f.type === 'number' ? 3 : f.type === 'list' ? ['First thing', 'Second thing'] : `${f.label}: a made-up detail for ${name}.`;
+        }
+        out = JSON.stringify(o);
+      } catch { out = '{}'; }
+    }
     if (m) { try { out = JSON.stringify(JSON.parse(m[1])); } catch { out = '{}'; } }
     return { content: out, finish: 'stop' };
   }
