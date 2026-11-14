@@ -322,7 +322,8 @@ export default function brokerRoutes(d: Deps) {
     if (q.expires < Date.now()) { quotes.delete(qid); throw new HttpError(410, 'The quote ran out. Ask again for a fresh price.'); }
     quotes.delete(qid);
     const rid = id('brk_');
-    const cls = JSON.stringify(q.classification);
+    // Classified text lives on its page only: the stored evidence names the page and says so, never repeats the text.
+    const cls = JSON.stringify({ ...q.classification, dmEvidence: (q.classification?.dmEvidence ?? []).map((e: any) => (e.level === 'classified' ? { ...e, text: '(classified: open the page to read it)' } : e)) });
     if (q.refused) {
       // Turned away. The DM still sees what was asked (and could send an offer).
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, ?, ?, 'noted', ?, ?)`, rid, w, me(res), q.question, q.length, q.tier, now(), cls);

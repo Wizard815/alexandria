@@ -49,6 +49,18 @@ export default feature;
     (`player_blocks`, `player_md`, player properties) or from rows the
     player may see.
   - Add a test that tries to leak DM text and fails to.
+  - Add a marker for each secret your feature stores to
+    `librarian/test/security-world.ts` (see `docs/SECURITY.md`). The leak
+    crawler then reads every route, live stream and MCP tool as each kind of
+    viewer, and the AI crawler checks no model request carries a classified
+    one. Your routes are found by themselves.
+  - A route players may call to change something goes on the
+    `PLAYER_ROUTES` list in `librarian/test/security-crawl.test.ts`; every
+    other write route must refuse a player (401, 403 or 404) before it
+    reads the body.
+  - Model calls go through `core/ai.ts`, which refuses any request that
+    repeats classified text. Answers your routes give to a caller that
+    sends `X-Alexandria-Caller: model` are checked the same way.
 - **Import `app.ts` as a type only** (`import type { Deps } from '../../app.ts'`).
   A runtime import of `app.ts` from a feature hangs startup: the registry
   loads features with a top-level `await`. Write audit rows with `run()`
