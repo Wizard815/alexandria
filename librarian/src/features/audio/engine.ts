@@ -145,7 +145,7 @@ export class Engine {
     if (c && Date.now() - c.at < 60_000) return c.text;
     const names = new Set<string>();
     try {
-      for (const p of all<any>(this.d.db, 'SELECT title, frontmatter FROM pages WHERE world_id = ? ORDER BY updated_at DESC LIMIT 400', worldId)) {
+      for (const p of all<any>(this.d.db, "SELECT title, frontmatter FROM pages WHERE world_id = ? AND visibility <> 'classified' ORDER BY updated_at DESC LIMIT 400", worldId)) {
         if (p.title && p.title.length <= 40) names.add(p.title);
         const al = parseJson<any>(p.frontmatter, {}).aliases;
         for (const a of Array.isArray(al) ? al : typeof al === 'string' ? [al] : []) if (typeof a === 'string' && a.length <= 40) names.add(a);

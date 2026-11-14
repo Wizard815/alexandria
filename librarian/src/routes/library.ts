@@ -6,9 +6,11 @@ import { audit } from '../app.ts';
 import { requireDM } from '../core/auth.ts';
 import { splitFrontmatter } from '../core/frontmatter.ts';
 import { HttpError, str } from '../core/util.ts';
+import { safePagePath } from '../core/library.ts';
 import { joinFrontmatter } from '../core/frontmatter.ts';
 import { ctx, me } from './_shared.ts';
 import { hybridPages } from '../features/search/embeddings.ts';
+import { scopeFor } from '../features/search/global.ts';
 
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -46,7 +48,7 @@ export default function libraryRoutes(d: Deps) {
   r.get('/search', async (req, res) => {
     const c = ctx(res);
     const q = str(req.query.q, 'q', { max: 200 });
-    if (req.query.semantic === '1') return void res.json(await hybridPages(d, c.world.id, q, c.viewer.role === 'dm' ? 'dm' : 'party', 20));
+    if (req.query.semantic === '1') return void res.json(await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20));
     res.json(L.search(c.world.id, q, c.viewer));
   });
   // DM: shared pages that look like they contain DM notes written as prose.
@@ -61,8 +63,21 @@ export default function libraryRoutes(d: Deps) {
     let fm = b.frontmatter && typeof b.frontmatter === 'object' ? b.frontmatter : {};
     let body = typeof b.body === 'string' ? b.body : '';
     if (typeof b.markdown === 'string') ({ fm, body } = splitFrontmatter(b.markdown));
+    // A model never saw classified text, so what it writes must not replace a page that holds some.
+    const target = typeof b.path === 'string' ? safePagePath(b.path) : '';
+    if (c.viewer.audience === 'ai' && target && L.hasClassified(c.world.id, target)) throw new HttpError(409, 'This page holds classified content that no AI can see. Edit it in the app.');
     const saved = L.save(c.world.id, { path: str(b.path, 'path', { max: 300 }), title: b.title, body, frontmatter: fm, visibility: b.visibility ?? fm.visibility }, me(res));
     audit(d.db, c.world.id, me(res), 'page.save', `${saved.path} ${saved.visibility}`);
+    d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'dm' || saved.visibility === 'party');
+    res.json(saved);
+  });
+
+  // Set a page's level: party, broker, dm or classified (Alexandria's own pages).
+  r.put('/pages/:id/level', requireDM, (req, res) => {
+    const c = ctx(res);
+    if (c.viewer.audience === 'ai') throw new HttpError(403, 'Levels are set in the app');
+    const saved = L.setLevel(c.world.id, String(req.params.id), req.body?.level, me(res));
+    audit(d.db, c.world.id, me(res), 'page.level', `${saved.path} ${saved.visibility}`);
     d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'dm' || saved.visibility === 'party');
     res.json(saved);
   });
