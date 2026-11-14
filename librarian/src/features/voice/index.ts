@@ -88,6 +88,12 @@ const feature: Feature = {
     const { db } = d;
     const wid = (res: any) => ctx(res).world.id;
 
+    // Voice names the voice model offers (Argos lists Kokoro's voices); empty when unknown.
+    r.get('/voices', requireDM, async (_req, res) => {
+      let names: string[] = [];
+      try { names = await (await import('../models/index.ts')).listVoiceNames(d); } catch { /* no models feature or no list */ }
+      res.json({ voices: names });
+    });
     r.get('/presets', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM voice_presets WHERE world_id = ? ORDER BY name', wid(res)).map(presetOut)));
     const fields = (b: any, cur?: any) => ({
       name: b?.name !== undefined ? str(b.name, 'name', { max: 60 }).trim() : cur?.name ?? str(undefined, 'name'),
