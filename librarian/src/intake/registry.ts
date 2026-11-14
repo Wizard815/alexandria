@@ -20,6 +20,12 @@ kankaMcp.write = kankaMcpWrite;
 
 export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, markdownFolder, gitRepo, mcpFiles, genericApi, pushSource];
 
+// Every source that has a page to open in its own app also has this setting. Off: players never get the link (the source may show more than their copy).
+for (const c of CONNECTORS) {
+  if (c.push || c.id === 'git' || c.id === 'api') continue;
+  c.fields.push({ key: 'playersMayOpen', label: 'Players may open source pages', type: 'boolean', default: false, help: 'Off (safer): only you see the "Open in ..." button. The source page can show more than the player copy does, so turn this on only if your players have access to the source themselves.' });
+}
+
 /** The union of what these sources provide. */
 export function capabilityUnion(sources: { kind: string; config?: string }[]): Capability[] {
   const out = new Set<Capability>();

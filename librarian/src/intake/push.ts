@@ -91,6 +91,7 @@ export function cleanEntry(raw: unknown, sourceShares: boolean): Entry {
     visibility: raw.visibility === 'party' && sourceShares ? 'party' : 'dm',
     knowledge,
     url: url(raw.url, 'url'),
+    position: typeof raw.position === 'number' && Number.isFinite(raw.position) ? raw.position : null,
     updatedAt: strOf(raw.updatedAt, 'updatedAt', 40) ?? null,
     ...(isMd ? { markdown: raw.markdown as string } : {}),
     ...(isMd && isObj(raw.frontmatter) ? { frontmatter: raw.frontmatter } : {}),
