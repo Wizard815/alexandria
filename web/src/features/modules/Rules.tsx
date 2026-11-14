@@ -1,6 +1,7 @@
 // The Rules page: search and read terms from the world's game modules.
 // Everyone in the world sees the same thing; modules hold no secrets.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHead, ErrorBox, Empty, Loading, Markdown } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 
@@ -8,9 +9,12 @@ const KINDS: [string, string][] = [['', 'All'], ['rule', 'Rules'], ['action', 'A
 
 export default function RulesPage() {
   const { w } = useWorld();
-  const [q, setQ] = useState('');
+  // Global search links here with ?q=<term>&term=<id>.
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(() => params.get('q') ?? '');
   const [kind, setKind] = useState('');
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(() => params.get('term'));
+  useEffect(() => { const t = params.get('term'); const pq = params.get('q'); if (pq) setQ(pq); if (t) setSel(t); }, [params]);
   const mods = useLoad<any>(() => w.call('GET', '/modules'), [w], ['modules']);
   const list = useLoad<any>(() => w.call('GET', `/modules/terms?limit=100&q=${encodeURIComponent(q)}${kind ? `&kind=${kind}` : ''}`), [w, q, kind], ['modules']);
   const term = useLoad<any>(() => (sel ? w.call('GET', `/modules/terms/${encodeURIComponent(sel)}`) : Promise.resolve(null)), [w, sel]);

@@ -1,6 +1,7 @@
 // The session log: players read published entries; the DM drafts, reviews,
 // checks for leaks and publishes.
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHead, ErrorBox, Empty, Loading, Field, Markdown, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 
@@ -25,7 +26,9 @@ const span = (e: Entry) => (e.worldFrom === e.worldTo ? e.worldFrom : `${e.world
 export function SessionLogPlayer() {
   const { w } = useWorld();
   const list = useLoad<Entry[]>(() => w.call('GET', '/sessionlog'), [w], ['sessionlog']);
-  const [sel, setSel] = useState<string | null>(null);
+  const [params] = useSearchParams(); // global search links here with ?entry=<id>
+  const [sel, setSel] = useState<string | null>(() => params.get('entry'));
+  useEffect(() => { const e = params.get('entry'); if (e) setSel(e); }, [params]);
   const cur = list.data?.find((e) => e.id === sel) ?? null;
   return (
     <div className="page">
@@ -58,7 +61,13 @@ export function SessionLogDM() {
   const act = useAction();
   const drafts = useLoad<DraftRow[]>(() => w.call('GET', '/sessionlog/drafts'), [w], ['sessionlog']);
   const entries = useLoad<Entry[]>(() => w.call('GET', '/sessionlog'), [w], ['sessionlog']);
+  const [params] = useSearchParams(); // global search links here with ?entry=<id>: open that entry's draft
   const [sel, setSel] = useState<string | null>(null);
+  useEffect(() => {
+    const e = params.get('entry');
+    const d = e ? entries.data?.find((x) => x.id === e)?.draftId : null;
+    if (d) setSel(d);
+  }, [params, entries.data]);
   const [audioId, setAudioId] = useState('');
   const sessions = useLoad<{ id: string; name: string; startedAt: string }[]>(() => w.call<any>('GET', '/audio/sessions').then((r) => (Array.isArray(r) ? r : r?.sessions ?? [])).catch(() => []), [w]);
 

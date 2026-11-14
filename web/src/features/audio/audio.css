@@ -52,3 +52,6 @@
   .au-badge { top: 6px; right: 8px; }
 }
 @media (min-width: 641px) { .au-pill { right: 16px; bottom: 16px; } }
+
+/* The line a search result linked to. */
+.au-bubble.found { outline: 2px solid var(--teal, #86CFC4); outline-offset: 2px; }
