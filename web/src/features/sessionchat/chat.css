@@ -16,8 +16,6 @@
 .sc-compose { display: flex; gap: 6px; align-items: flex-end; }
 .sc-compose textarea { flex: 1; min-height: 42px; max-height: 120px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); font: inherit; font-size: 16px; resize: vertical; }
 .sc-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; }
-.sc-fab { position: fixed; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 810; width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); font-size: 22px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
-.sc-fab .sc-badge { position: absolute; top: -4px; right: -4px; }
-.sc-drawer { position: fixed; right: 16px; bottom: calc(140px + env(safe-area-inset-bottom)); z-index: 811; width: min(380px, calc(100vw - 32px)); max-height: min(520px, calc(100vh - 170px)); overflow-y: auto; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
-@media (max-width: 640px) { .sc-drawer { right: 0; left: 0; bottom: 0; width: auto; max-height: 82vh; border-radius: 14px 14px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); } .sc-fab { bottom: calc(132px + env(safe-area-inset-bottom)); } }
+.sc-drawer { z-index: 811; width: min(380px, calc(100vw - 32px)); max-height: min(520px, calc(100vh - 170px)); overflow-y: auto; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+@media (max-width: 640px) { .sc-drawer.dock-panel { right: 8px; left: 8px; width: auto; max-height: min(66vh, calc(100vh - 150px)); } }
 .sc-trade { border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; background: var(--panel-2); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }

@@ -246,6 +246,69 @@ await step('DM agent chat', async () => {
   await call('POST', `${W}/agent/chats/${c.id ?? c.chat?.id}/messages`, dm, { text: 'Summarise Saltmarsh for me.' });
 });
 
+// ---- newer features --------------------------------------------------------
+
+await step('pages with broker and classified callouts', async () => {
+  ids.harbourbook = await page('Places/Harbour Ledger', 'party', `---
+knowledge: local
+---
+# Harbour Ledger
+The council clerk keeps a ledger of every cargo that crosses the quay.
+
+> [!broker] Broker
+> Ask the clerk after dark: three cargoes a month are never written down. A captain can be paid to remember.
+
+> [!classified] Classified
+> Velmira's own ships are the unlisted cargoes. Not even the Information broker may say so until the DM decides.
+`);
+  ids.broker = await page('Places/Dockside Rumours', 'broker', `# Dockside Rumours
+Sailors on the quay talk about a ship that never docks and a blue light under the bay. The broker knows who to ask, and for how many silver.
+`);
+});
+
+await step('people, a request and a message thread', async () => {
+  await call('POST', `${W}/people`, dm, { name: 'Odo Fennick', role: 'Harbour clerk', kind: 'neutral', attitude: 'Nervous', met: 'Session 21', visibility: 'party', pageId: ids.council });
+  await call('POST', `${W}/people`, dm, { name: 'Captain Brask', role: 'Harbour council', kind: 'rival', attitude: 'Suspicious', met: 'Session 21', visibility: 'party' });
+  await call('POST', `${W}/people`, dm, { name: 'Old Hennet', role: 'Lighthouse keeper', kind: 'ally', attitude: 'Chatty after a pint', visibility: 'party' });
+  await call('POST', `${W}/people`, dm, { name: 'Velmira', role: 'Smuggler queen', kind: 'rival', visibility: 'dm' });
+  await call('POST', `${W}/requests`, jess.token, { kind: 'question', title: 'Can I recall the keeper from my past?', body: 'Jessamine grew up on this coast. Would she know Old Hennet?' });
+  const t = await call('POST', `${W}/messages`, tom.token, { members: [dmAcc.account.id], title: 'A question about the lighthouse' });
+  await call('POST', `${W}/messages/${t.id}`, tom.token, { body: 'Can my character slip away to the dark lighthouse tonight?' });
+});
+
+await step('stage: a card shown, one staged', async () => {
+  const shown = await call('POST', `${W}/stage/cards`, dm, { kind: 'text', title: 'The lighthouse', text: 'A tall white tower on the headland. Its lamp has been dark for a month.', caption: 'Saltmarsh, dusk', show: true });
+  await call('POST', `${W}/stage/cards`, dm, { kind: 'text', title: 'A note under the door', text: 'Come to the Salty Dog at midnight. Tell no one. - a friend', caption: 'For later' });
+  await call('POST', `${W}/stage/cards`, dm, { kind: 'place', ref: ids.saltmarsh, title: 'Saltmarsh' });
+  return shown;
+});
+
+await step('session chat and party chat', async () => {
+  await call('POST', `${W}/sessionchat/sessions/start`, dm, { title: 'Session 23' }).catch(() => null);
+  await call('POST', `${W}/sessionchat/chat/table`, dm, { body: 'Welcome back. Last time you reached the harbour; tonight the lighthouse.' });
+  await call('POST', `${W}/sessionchat/chat/table`, jess.token, { body: 'We take the ferry first, right?' });
+  await call('POST', `${W}/sessionchat/chat/party`, tom.token, { body: 'Keep your voices down, the clerk is listening.' });
+  await call('POST', `${W}/sessionchat/chat/party`, ana.token, { body: 'I have the rope. Who has the lantern?' });
+});
+
+await step('a trade offer between players', async () => {
+  const inv = await call('GET', `${W}/inventory`, tom.token);
+  const list = Array.isArray(inv) ? inv : inv.items ?? [];
+  const potion = list.find((i: any) => /potion/i.test(i.name));
+  await call('POST', `${W}/sessionchat/trades`, tom.token, { to: jess.id, offerItemId: potion?.id, offerQty: 1, wantItem: 'Arrows', wantQty: 5, note: 'A potion for five arrows?' });
+});
+
+await step('WorldLore workspace (library) and a broker-level page', async () => {
+  await call('PUT', `${W}/worldlore/config`, dm, { kind: 'library', root: 'WorldLore', defaultLevel: 'broker' });
+  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/The Lantern Hall', title: 'The Lantern Hall', markdown: '# The Lantern Hall\nWhere the harbour council meets each new moon. Rumour says the cellar connects to the smugglers\' tunnels.\n', level: 'broker', by: 'the DM' });
+  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/Council secrets', title: 'Council secrets', markdown: '# Council secrets\nWho owes Velmira what. DM only.\n', level: 'dm', by: 'the DM' });
+});
+
+await step('Sculpting history', async () => {
+  await call('POST', `${W}/sculpt/run`, dm, { template: 'NPC for quick RP', values: { name: 'Odo Fennick', role: 'harbour clerk' } });
+  await call('POST', `${W}/sculpt/run`, dm, { template: 'Tavern', values: { name: 'The Salty Dog' } });
+});
+
 console.log(`
 Alexandria demo is running: ${base}
 

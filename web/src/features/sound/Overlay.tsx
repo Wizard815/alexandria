@@ -4,6 +4,7 @@
 //   players: plays what is aimed at players, on the channels they switched on.
 import { useEffect, useRef, useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
+import { DockButton } from '../../ui/Dock.tsx';
 import { Engine, loadSpeakers, type Channel, type SoundEvent } from './engine.ts';
 import { getSwitches, loadSwitches } from './switches.ts';
 
@@ -68,10 +69,5 @@ export default function SoundOverlay() {
   }, [w, on, isDM, info.id]);
 
   if (!blocked) return null;
-  return (
-    <button type="button" className="btn primary" style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 50 }}
-      onClick={() => { setBlocked(false); eng.current?.refresh(); }}>
-      <i className="fa-solid fa-volume-high" aria-hidden="true" /> Tap to allow sound
-    </button>
-  );
+  return <DockButton order={5} primary icon="fa-volume-high" label="Tap to allow sound" text="Allow sound" onClick={() => { setBlocked(false); eng.current?.refresh(); }} testId="dock-sound" />;
 }

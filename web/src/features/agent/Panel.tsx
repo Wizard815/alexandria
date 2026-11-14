@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
+import { DockButton, useDockShift } from '../../ui/Dock.tsx';
 import Chat from './Chat.tsx';
 import Statblock from './Statblock.tsx';
 import './agent.css';
@@ -38,7 +39,8 @@ function Panel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [set]);
 
-  if (!open) return <button type="button" className="ag-tab" aria-label="Open the assistant (Ctrl+K)" title="Ctrl+K" onClick={() => { set(true); focusInput(); }}><i className="fa-solid fa-comments" aria-hidden="true" /> Assistant</button>;
+  useDockShift(open);
+  if (!open) return <DockButton order={20} icon="fa-wand-magic-sparkles" label="Open the assistant (Ctrl+K)" title="Assistant (Ctrl+K)" text="Assistant" onClick={() => { set(true); focusInput(); }} testId="dock-agent" />;
   return (
     <aside className="ag-panel" aria-label="Assistant">
       <header className="ag-head">
