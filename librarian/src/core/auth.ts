@@ -7,6 +7,8 @@
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { type DB, one, run } from './db.ts';
+import { repeatsClassified } from './ai.ts';
+import { libraryOf } from './library.ts';
 import { HttpError, id, now, secret, sha256 } from './util.ts';
 import type { Role, Viewer } from './policy.ts';
 
@@ -182,6 +184,14 @@ export function loadWorld(db: DB) {
     const fromModel = String(req.headers['x-alexandria-caller'] ?? '').toLowerCase() === 'model';
     const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role, ...(fromModel && m.role === 'dm' ? { audience: 'ai' as const } : {}) } };
     res.locals.w = ctx;
+    // What a model is told never repeats classified content, whatever route it came from (the MCP server, the agent's tools, a client that sends the marker).
+    if (ctx.viewer.audience === 'ai') {
+      const json = res.json.bind(res);
+      res.json = ((body: unknown) => {
+        if (repeatsClassified(db, libraryOf(db), body, `${req.method} ${req.path}`, world.id)) return res.status(409).type('json').send(JSON.stringify({ error: 'Withheld: this answer repeats classified content, which is never sent to any AI.' }));
+        return json(body);
+      }) as typeof res.json;
+    }
     next();
   };
 }
