@@ -81,13 +81,13 @@ const feature: Feature = {
   },
   mcpTools: [
     {
-      name: 'lore_list',
+      name: 'lore_list', dmOnly: true,
       description: "Pages in WorldLore, your own wiki for this world: title, level, who wrote it. Use it to see what you have already written before writing more. Classified pages are not listed.",
       props: {},
       call: () => ({ method: 'GET', path: '/worldlore/pages?ai=1' }),
     },
     {
-      name: 'lore_read',
+      name: 'lore_read', dmOnly: true,
       description: 'Read one WorldLore page by id (from lore_list).',
       props: { id: S('Page id') }, required: ['id'],
       call: (a) => ({ method: 'GET', path: `/worldlore/pages/${enc(a.id)}` }),

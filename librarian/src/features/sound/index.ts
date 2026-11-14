@@ -126,8 +126,8 @@ const feature: Feature = {
     });
   },
   mcpTools: [
-    { name: 'list_sound_library', description: "DM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
-    { name: 'list_sound_scenes', description: 'DM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
+    { name: 'list_sound_library', dmOnly: true, description: "DM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
+    { name: 'list_sound_scenes', dmOnly: true, description: 'DM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
     { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players).', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
     {
       name: 'play_music', write: true,
