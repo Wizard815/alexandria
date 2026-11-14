@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Field, Loading, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
+import SessionCard from './SessionCard.tsx';
+import VramCard from './VramCard.tsx';
 
 type Kind = 'argos' | 'openai' | 'ollama' | 'lmstudio' | 'openai-compatible';
 type Location = 'local' | 'cloud';
 type Seen = 'loaded' | 'unloaded' | 'unknown' | 'missing' | 'unreachable';
 
 interface Provider { id: string; name: string; kind: Kind; baseUrl: string; apiKey: string; location: Location; webUrl?: string; usedBy: string[] }
-interface FallbackView { providerId: string; model: string; options: Record<string, unknown>; allowCloud: boolean }
+interface FallbackView { providerId: string; model: string; options: Record<string, unknown>; allowCloud: boolean; location?: Location }
+interface Choice { providerId: string; model: string }
 interface JobView {
   job: string; uses: string; providerId: string; baseUrl: string; model: string; apiKey: string; options: Record<string, unknown>;
   enabled: boolean; keepWarm: boolean; fallback: FallbackView | null; fallbackBlocked: boolean;
+  location: Location | null; lastChoice?: Record<Location, Choice | null>;
   source: 'saved' | 'env' | 'none'; effective: { baseUrl: string; model: string; hasKey: boolean; provider: string | null; location: Location; hasFallback: boolean } | null;
 }
 interface Found { id: string; name: string; description: string; status: Seen; inputModalities: string[]; outputModalities: string[]; vision: boolean; tools: boolean; reranker: boolean; contextLength: number | null; role: string }
@@ -27,6 +31,7 @@ const CLOUD_WARNING = 'World text will leave this server for this cloud provider
 const STATUS_TEXT: Record<Seen, string> = { loaded: 'loaded', unloaded: 'unloaded', unknown: 'status unknown', missing: 'model not found there', unreachable: 'provider not reachable' };
 
 const StatusChip = ({ s }: { s?: Seen }) => (s ? <span className={`chip ${s === 'loaded' ? 'green' : s === 'unloaded' ? 'gold' : s === 'unknown' ? '' : 'red'}`} data-status={s}>{STATUS_TEXT[s]}</span> : null);
+const WhereChip = ({ l }: { l: Location }) => <span className={`chip ${l === 'cloud' ? 'red' : 'green'}`} data-where={l}>{l === 'cloud' ? 'Cloud' : 'Local'}</span>;
 const LocChip = ({ l }: { l: Location }) => <span className={`chip ${l === 'cloud' ? 'red' : 'green'}`}>{l === 'cloud' ? 'cloud' : 'local'}</span>;
 
 // ---- discovery table ---------------------------------------------------------------
@@ -194,6 +199,19 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   const { client } = useAuth();
   const [providerId, setProviderId] = useState(j.providerId);
   const [model, setModel] = useState(j.model);
+  // Local or Cloud: the provider list is filtered to the chosen place, and the last model used in each place is remembered.
+  const [loc, setLoc] = useState<Location>(providers.find((p) => p.id === j.providerId)?.location ?? j.location ?? 'local');
+  const drafts = useRef<Record<Location, Choice | null>>({ local: j.lastChoice?.local ?? null, cloud: j.lastChoice?.cloud ?? null });
+  const pickLoc = (next: Location) => {
+    if (next === loc) return;
+    if (providerId) drafts.current[loc] = { providerId, model };
+    const back = drafts.current[next];
+    const first = providers.find((p) => p.location === next);
+    setLoc(next);
+    setProviderId(back && providers.some((p) => p.id === back.providerId) ? back.providerId : first?.id ?? '');
+    setModel(back && providers.some((p) => p.id === back.providerId) ? back.model : '');
+  };
+  const here = providers.filter((p) => p.location === loc);
   const [options, setOptions] = useState(Object.keys(j.options).length ? JSON.stringify(j.options) : '');
   const [enabled, setEnabled] = useState(j.enabled);
   const [keepWarm, setKeepWarm] = useState(j.keepWarm);
@@ -225,7 +243,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   return (
     <section className="card" aria-label={NAMES[j.job]} data-job={j.job}>
       <div className="row between">
-        <div><h2 style={{ margin: 0 }}>{NAMES[j.job] ?? j.job}</h2><p className="muted small" style={{ margin: 0 }}>{j.uses}</p></div>
+        <div><div className="row"><h2 style={{ margin: 0 }}>{NAMES[j.job] ?? j.job}</h2><WhereChip l={loc} /></div><p className="muted small" style={{ margin: 0 }}>{j.uses}</p></div>
         <Switch checked={enabled} onChange={setEnabled} label={`${NAMES[j.job]} on`} />
       </div>
       <p className="tiny muted" style={{ margin: 0 }}>
@@ -234,10 +252,16 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
         {j.source === 'none' && (j.job === 'rerank' ? 'Not set. Search keeps its keyword order.' : 'No model set. Features that need it fall back or stay off.')}
       </p>
 
-      <Field label="Provider">
+      <div className="row small" role="radiogroup" aria-label={`${NAMES[j.job]} runs`}>
+        {(['local', 'cloud'] as Location[]).map((l) => (
+          <button key={l} type="button" role="radio" aria-checked={loc === l} className={`btn small${loc === l ? ' on' : ''}`} onClick={() => pickLoc(l)} data-pick={l}>{l === 'local' ? 'Local' : 'Cloud'}</button>
+        ))}
+        <span className="tiny muted">{loc === 'local' ? 'On your own machines: world text stays here.' : 'A third party: world text leaves this server.'}</span>
+      </div>
+      <Field label="Provider" help={here.length === 0 ? `No ${loc} provider yet. Add one above.` : undefined}>
         <select value={providerId} onChange={(e) => setProviderId(e.target.value)} aria-label={`${NAMES[j.job]} provider`}>
           <option value="">(none: use the server's environment)</option>
-          {providers.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.location})</option>)}
+          {here.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </Field>
       <Field label="Model name" help={providerId && !(models[providerId]?.length) ? 'Press Discover on the provider to pick from its models.' : undefined}>
@@ -257,6 +281,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
                 {providers.filter((p) => p.id !== providerId).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.location})</option>)}
               </select>
             </Field>
+            {fb && <p className="small row" style={{ margin: 0 }} data-testid={`fallback-where-${j.job}`}>The fallback runs <WhereChip l={fb.location} /></p>}
             <Field label="Fallback model"><input value={fbModel} onChange={(e) => setFbModel(e.target.value)} list={fbListId} /></Field>
             <datalist id={fbListId}>{(models[fbProvider] ?? []).map((m) => <option key={m.id} value={m.id}>{m.status}</option>)}</datalist>
             {crossesToCloud && (
@@ -323,6 +348,9 @@ export default function ModelsPage() {
           <ArgosPreset jobs={jobs} onDone={reload} />
           {providers.map((p) => <ProviderCard key={p.id + p.name + p.baseUrl + p.location + p.apiKey} p={p} onChanged={reload} onFound={remember} />)}
           <AddProvider onDone={reload} />
+          <h2 style={{ marginBottom: 0 }}>Session and memory</h2>
+          <SessionCard onChanged={() => void refreshStatus()} />
+          <VramCard refreshKey={signature} />
           <h2 style={{ marginBottom: 0 }}>Jobs</h2>
           {jobs.map((j) => <JobRow key={JSON.stringify(j) + providers.length} j={j} providers={providers} models={models} status={status?.jobs[j.job]} onSaved={reload} />)}
         </>
