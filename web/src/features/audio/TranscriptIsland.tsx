@@ -3,6 +3,7 @@
 // it, change its opacity, colour and text size, or minimise it to a pill.
 // On phones it is a bottom drawer. Settings are per device (localStorage).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Modal } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { engine, useEngine } from './engine.ts';
@@ -89,18 +90,31 @@ function Island() {
   const stick = useRef(true);
   const patch = useCallback((p: Partial<Prefs>) => setPrefs((cur) => { const n = { ...cur, ...p }; savePrefs(n); return n; }), []);
 
-  // Which session to show: the live one, else the latest.
+  // A search result links here with ?line=<id>&session=<id>: show that session and that line.
+  const [params] = useSearchParams();
+  const wantLine = params.get('line');
+  const wantSession = params.get('session');
+
+  // Which session to show: the one a link asks for, else the live one, else the latest.
   const load = useCallback(async () => {
     try {
       const s = await w.call<any>('GET', '/audio/status');
-      const id = s.session?.id ?? s.lastSession?.id ?? null;
+      const id = wantSession ?? s.session?.id ?? s.lastSession?.id ?? null;
       setSid(id);
       if (!id) { setLines([]); return; }
       const r = await w.call<any>('GET', `/audio/sessions/${id}/lines`);
       setLines(r.lines);
     } catch { /* guests and offline: nothing to show */ }
-  }, [w]);
+  }, [w, wantSession]);
   useEffect(() => { void load(); }, [load, st.sessionId, st.recording]);
+  // Open the island on the linked line and scroll to it.
+  useEffect(() => {
+    if (!wantLine) return;
+    patch(phone ? { drawerOpen: true } : { min: false });
+    stick.current = false;
+    const t = setTimeout(() => document.querySelector(`[data-line="${CSS.escape(wantLine)}"]`)?.scrollIntoView({ block: 'center' }), 150);
+    return () => clearTimeout(t);
+  }, [wantLine, lines.length, phone, patch]);
   useEffect(() => on(['transcript-line'], (e) => {
     const d = e.data;
     setLines((cur) => {
@@ -169,7 +183,7 @@ function Island() {
   const bubbles = (
     <div className="au-body" ref={body} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
       {lines.length === 0 && <p className="au-empty">{st.recording ? 'Listening… the first lines appear after a few seconds.' : 'No transcript yet.'}</p>}
-      {lines.slice(-60).map((l) => <Bubble key={l.id} l={l} isDM={isDM} onHover={showCard} onMark={mark} />)}
+      {(wantLine && !lines.slice(-60).some((l) => l.id === wantLine) ? lines.filter((l, i) => i >= lines.length - 60 || l.id === wantLine) : lines.slice(-60)).map((l) => <Bubble key={l.id} l={l} isDM={isDM} onHover={showCard} onMark={mark} found={l.id === wantLine} />)}
     </div>
   );
 
@@ -228,12 +242,12 @@ function Controls({ p, patch, phone }: { p: Prefs; patch: (x: Partial<Prefs>) =>
   );
 }
 
-function Bubble({ l, isDM, onHover, onMark }: { l: Line; isDM: boolean; onHover: (m: Match | null, el?: HTMLElement) => void; onMark: (l: Line, a: 'dm' | 'auto') => void }) {
+function Bubble({ l, isDM, onHover, onMark, found }: { l: Line; isDM: boolean; onHover: (m: Match | null, el?: HTMLElement) => void; onMark: (l: Line, a: 'dm' | 'auto') => void; found?: boolean }) {
   const { w } = useWorld();
   const matches = useMatches(w, l.id, l.rev, l.text);
   const dmOnly = l.audience === 'dm';
   return (
-    <div className={`au-bubble${dmOnly ? ' dm' : ''}`}>
+    <div className={`au-bubble${dmOnly ? ' dm' : ''}${found ? ' found' : ''}`} data-line={l.id}>
       <span className="au-who">{l.speaker || 'Someone'}{dmOnly && <em className="au-tag">DM only</em>}</span>
       <span className="au-text"><Highlighted text={l.text} matches={matches} onHover={onHover} /></span>
       {isDM && !dmOnly && <button type="button" className="au-mini" onClick={() => onMark(l, 'dm')} title="Hide this line from the players">Make DM-only</button>}
