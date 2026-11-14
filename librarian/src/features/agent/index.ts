@@ -212,7 +212,7 @@ const feature: Feature = {
       props: {
         name: S('Name, e.g. Goblin Boss'), initiative: { type: 'integer', description: 'Initiative total' }, hp: { type: 'integer' }, maxHp: { type: 'integer' }, ac: { type: 'integer', description: 'Armor class' },
         hidden: { type: 'boolean', description: 'Hide from players' }, effects: { type: 'array', items: { type: 'string' } },
-        statblockPage: S('Library page id of the saved statblock'), statblock: { type: 'object', description: 'A statblock with hp, ac and abilities' },
+        accountId: S("A player's account id, for a player character"), statblockPage: S('Library page id of the saved statblock'), statblock: { type: 'object', description: 'A statblock with hp, ac and abilities' },
       },
       required: ['name'],
       call: (a) => {
@@ -220,12 +220,14 @@ const feature: Feature = {
         const hp = a.hp ?? sb?.hp;
         const dex = sb?.abilities?.dex;
         const initiative = a.initiative ?? (typeof dex === 'number' ? Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + mod(dex))) : undefined);
-        return { method: 'POST', path: '/live/combatants', body: { name: a.name, initiative, hp, maxHp: a.maxHp ?? hp, ac: a.ac ?? sb?.ac, hidden: a.hidden, effects: a.effects, statblockPage: a.statblockPage } };
+        return { method: 'POST', path: '/live/combatants', body: { name: a.name, initiative, hp, maxHp: a.maxHp ?? hp, ac: a.ac ?? sb?.ac, hidden: a.hidden, effects: a.effects, statblockPage: a.statblockPage, accountId: a.accountId } };
       },
     },
     { name: 'damage_combatant', write: true, description: `DM: deal damage to a combatant. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Damage, 0 or more' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { damage: a.amount } }) },
     { name: 'heal_combatant', write: true, description: `DM: heal a combatant (not above its max HP). ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Healing, 0 or more' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { heal: a.amount } }) },
     { name: 'set_conditions', write: true, description: `DM: replace a combatant's conditions (e.g. Prone, Poisoned). Send the full list; an empty list clears them. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), conditions: { type: 'array', items: { type: 'string' } } }, required: ['combatant', 'conditions'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { effects: a.conditions } }) },
+    { name: 'remove_combatant', write: true, description: `DM: take a creature out of the combat tracker (e.g. when it dies or flees). ${COMBAT_NOTE}`, props: { combatant: S('Combatant id') }, required: ['combatant'], call: (a) => ({ method: 'DELETE', path: `/live/combatants/${enc(a.combatant)}` }) },
+    { name: 'set_combat', write: true, description: 'DM: start or end combat (active), or set the round or whose turn it is (0 is the first in the order).', props: { active: { type: 'boolean' }, round: { type: 'integer' }, turn: { type: 'integer' } }, call: (a) => ({ method: 'PUT', path: '/live/combat', body: { active: a.active, round: a.round, turn: a.turn } }) },
     { name: 'next_turn', write: true, description: 'DM: end the current turn and move to the next combatant (starts combat if it is not active).', props: {}, call: () => ({ method: 'POST', path: '/live/combat/next' }) },
     {
       name: 'search_transcript',
