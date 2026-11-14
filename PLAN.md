@@ -813,6 +813,77 @@ screen, big touch targets, and a lot less on each screen.
 **Done:** every player screen and the DM assistant pass at all four shapes,
 and the redesign is reviewed on the real Z Fold before it ships.
 
+## 16. Where things run: web, app, gateway
+
+**The web app is for viewing and light use.** It covers the library, the
+broker, chats, the stage, the session log, inventory and the world date. It
+doesn't need hardware features. Browser recording stays only as a fallback.
+
+**The installed app** (Tauri; Linux, Windows and macOS for the DM, plus
+phones) handles hardware on the machine it runs on:
+- several mics and speakers, hold-to-talk keys, speaker groups (§3.1)
+- multiple monitors: pop the stage, combat or the transcript out to a
+  second screen or a TV, and remember the layout
+- global hotkeys and macros that work while another window is in front
+  (below)
+
+**The gateway hosts shared integrations that are always on.** The web app
+and the installed app both use them, and so can any device on the network:
+- the action registry and macro triggers (below)
+- lights (below)
+- **mics and speakers plugged into the gateway machine itself**, e.g. a
+  table mic or a speaker in the room. They work with no app running: a small
+  audio helper on the gateway records and plays through them. In Docker this
+  needs the sound device passed into the container. A mic on the DM's own PC
+  still needs the installed app.
+
+### 16.1 Actions and macros
+- **An action** is one named thing Alexandria can do, e.g.:
+  - next turn, damage the current target by N
+  - long rest, next day
+  - play a sound pad, set the music mood, start an ambience scene
+  - show or hide a stage card
+  - start or stop recording, hold an aside
+  - send a quick event, speak a voice preset
+  - roll dice, quick-gen gold
+- **The gateway keeps the list of actions,** each with optional arguments.
+  The DM builds **macros** from them: a sequence such as "Combat starts":
+  red lights, combat music, show the combat card.
+- **Triggers:**
+  - **Installed app:** global hotkeys.
+    - **VIA/QMK keyboards:** program keys to F13–F24 (or Ctrl+Alt+Shift
+      combinations) in VIA, then bind those keys to macros in Alexandria.
+    - **Two-way (later):** QMK Raw HID lets the keyboard's own LEDs show
+      state, e.g. whose turn it is or that recording is on.
+  - **Web app:** the same bindings while its tab is focused.
+  - **Gateway trigger URLs:** each macro can have a signed URL, so a Stream
+    Deck (via Companion), a phone shortcut, Home Assistant or any button that
+    can send a web request runs it with no app installed. The URL can be
+    revoked and only runs that one macro.
+  - **MIDI pads (later):** through the installed app.
+- **Safety:** macros run with the DM's rights and are audited. Players can
+  have macros too, limited to what they may do.
+
+### 16.2 Lights
+- **Hosted by the gateway,** so lights work from the web app, the installed
+  app or a macro.
+- **Drivers:**
+  - WLED (JSON API)
+  - Philips Hue (the bridge's local API)
+  - Home Assistant (light services, which covers most other brands)
+  - OpenRGB (its SDK server: PC RGB, many keyboards including QMK)
+- **Scenes** set a colour, brightness and effect per light group. Events can
+  trigger scenes:
+  - combat starts or ends
+  - a player's turn (their colour)
+  - damage flash
+  - a long rest (warm, dim)
+  - the music mood map (colour follows the mood)
+  - recording on
+  - quick events
+- **Performance:** a rate limit and debounce, so lights never lag the table.
+  Off by default.
+
 ## Decisions
 
 1. **Live transcript for players:** yes, with key-word cards. It's built from
@@ -828,3 +899,7 @@ and the redesign is reviewed on the real Z Fold before it ships.
 5. **Transcript:** one transcript with two views (DM and players). Each mic
    has a "Players' transcript" switch (§3.1, §3.3a).
 6. **The DM phone app** is an assistant to the desktop (§15).
+7. **The web app is for viewing.** Hardware (mics, speakers, monitors,
+   hotkeys and macros) belongs to the installed app. Shared devices
+   (lights, gateway mics and speakers, macro trigger URLs) are hosted by the
+   gateway (§16).
