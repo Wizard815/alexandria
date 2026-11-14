@@ -8,6 +8,7 @@ import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyGroup, markdownToBlocks } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
 import { htmlToMarkdown } from '../html.ts';
+import { type Level, levelOfWord, maxLevel, tagLevel } from '../../core/levels.ts';
 
 // [API module, Alexandria type, legacy parent field]. Since Kanka 3.10 every
 // nestable module has `parent_id`, the parent's entity id; older responses
@@ -60,11 +61,20 @@ function fixRefs(bs: Block[]): Block[] {
 
 const esc = (s: unknown) => String(s ?? '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
 
-function postBlocks(posts: any[], trust: (p: any) => boolean): Block[] {
+/** A post's level: broker or classified when it is named that way or tagged so (the most secret wins), else party. */
+export function postLevel(p: any, tagNames: (t: unknown) => string | undefined = (t) => (typeof t === 'object' && t ? String((t as any).name ?? '') : typeof t === 'string' ? t : undefined)): Level {
+  const tags = (Array.isArray(p?.tags) ? p.tags : []).map(tagNames).filter((x: string | undefined): x is string => !!x);
+  return maxLevel(levelOfWord(esc(p?.name)), tagLevel(tags));
+}
+
+function postBlocks(posts: any[], trust: (p: any) => boolean, levelOf: (p: any) => Level = postLevel): Block[] {
   const out: Block[] = [];
   for (const p of posts) {
     const section: Block[] = [{ kind: 'heading', level: 2, content: [{ text: esc(p.name) || 'Post' }] }, ...kankaBlocks(p.entry ?? p.entry_parsed)];
-    if (trust(p)) out.push(...section);
+    const level = levelOf(p);
+    // A broker or classified post is that level whatever its Kanka visibility says.
+    if (level === 'broker' || level === 'classified') out.push({ kind: 'secret', level, children: section });
+    else if (trust(p)) out.push(...section);
     else out.push({ kind: 'secret', children: section });
   }
   return out;
@@ -187,6 +197,10 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
   const lookup = (mod: string, id: unknown) => (id == null ? undefined : byModule.get(`${mod}:${id}`));
   // Tag names, only for tags players can see (not private, not hidden).
   const tagName = new Map<string, string>(rows.filter(({ mod, e }) => mod === 'tags' && e.is_private === false && e.is_hidden !== true).map(({ e }) => [String(e.id), esc(e.name)]));
+  // Every tag's name, private or not, only to find the broker and classified tags (they raise a page or post's level and are never shown).
+  const anyTagName = new Map<string, string>(rows.filter(({ mod }) => mod === 'tags').map(({ e }) => [String(e.id), esc(e.name)]));
+  const tagOf = (t: unknown): string | undefined => (typeof t === 'object' && t ? ((t as any).name ? esc((t as any).name) : anyTagName.get(String((t as any).id ?? (t as any).tag_id))) : anyTagName.get(String(t)));
+  const levelTags = (tags: unknown): string[] => (Array.isArray(tags) ? tags : []).map(tagOf).filter((n): n is string => !!n && tagLevel([n]) !== 'party');
   // is_attributes_private is documented on /entities; fill it in from there when the module list leaves it out.
   if (rows.some(({ e }) => typeof e.is_attributes_private !== 'boolean' && Array.isArray(e.attributes) && e.attributes.length)) {
     const flags = new Map<string, boolean>();
@@ -206,12 +220,12 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
       parentExternalId: pid ? `kanka:${pid}` : null,
       folder: [type[0].toUpperCase() + type.slice(1) + 's'],
       title: esc(e.name),
-      tags,
+      tags: [...tags, ...levelTags(e.tags).filter((t) => !tags.includes(t))],
       type,
       icon: null,
       banner: typeof e.image_full === 'string' && /^https?:/.test(e.image_full) && e.has_custom_image !== false && !/default/.test(e.image_full) ? e.image_full : null,
       properties: kankaProperties(e, type, lookup),
-      blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared)],
+      blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared, (p) => postLevel(p, tagOf))],
       // Kanka's own private flag always wins; a missing flag counts as private.
       visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm',
       url: e.urls?.view ?? null,

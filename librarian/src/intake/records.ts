@@ -8,7 +8,7 @@
 import type { DB } from '../core/db.ts';
 import { all, one, run, tx } from '../core/db.ts';
 import type { Block, Mention } from './model.ts';
-import { playerBlocks } from './player.ts';
+import { blocksFor, playerBlocks } from './player.ts';
 import type { CalendarDefinition, Capability, SyncRecord, TimelineGroup } from './connector.ts';
 
 /** The tables for records (the `intake` feature owns them and adds this to its schema). Safe to run again. */
@@ -59,7 +59,7 @@ END;
 `;
 const ready = new WeakSet<object>();
 
-export interface RecordViewer { role: string }
+export interface RecordViewer { role: string; audience?: 'ai' | 'broker' }
 
 /** Which capability a record kind needs a connector to have declared. */
 export const RECORD_CAPABILITY: Record<SyncRecord['kind'], Capability> = { relation: 'relations', timeline: 'timelines', calendar: 'calendars', mapMarker: 'maps' };
@@ -168,7 +168,9 @@ export function saveRecords(db: DB, worldId: string, sourceId: string, records: 
 
 const isDm = (v: RecordViewer) => v.role === 'dm';
 
-interface PageRef { id: string; title: string; party: boolean }
+interface PageRef { id: string; title: string; party: boolean; classified: boolean }
+/** A model-facing read of the DM's records must not see a page that is classified, or its title. */
+const modelBlind = (v: RecordViewer, p: PageRef | null | undefined) => v.role === 'dm' && v.audience !== undefined && !!p?.classified;
 /** Looks up a source's page by its own id. A page not found counts as not shared. */
 function pageLookup(db: DB, worldId: string) {
   const cache = new Map<string, PageRef | null>();
@@ -177,7 +179,7 @@ function pageLookup(db: DB, worldId: string) {
     const k = `${sourceId}\u0000${ext}`;
     if (!cache.has(k)) {
       const p = one<any>(db, 'SELECT id, title, visibility, player_body FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, sourceId, ext);
-      cache.set(k, p ? { id: p.id, title: p.title, party: p.visibility === 'party' && p.player_body !== null } : null);
+      cache.set(k, p ? { id: p.id, title: p.title, party: p.visibility === 'party' && p.player_body !== null, classified: p.visibility === 'classified' } : null);
     }
     return cache.get(k)!;
   };
@@ -190,7 +192,7 @@ export function importedRelations(db: DB, worldId: string, viewer: RecordViewer)
   for (const r of all<any>(db, 'SELECT * FROM intake_relations WHERE world_id = ? ORDER BY external_id', worldId)) {
     const a = find(r.source_id, r.from_ref);
     const b = find(r.source_id, r.to_ref);
-    if (!a || !b) continue;
+    if (!a || !b || modelBlind(viewer, a) || modelBlind(viewer, b)) continue;
     const shared = r.visibility === 'party' && a.party && b.party;
     if (!isDm(viewer) && !shared) continue;
     out.push({ id: `${r.source_id}:${r.external_id}`, from_title: a.title, to_title: b.title, kind: r.label, visibility: shared ? 'party' : 'dm', attitude: r.attitude, source_id: r.source_id });
@@ -208,16 +210,20 @@ export function timelinesFor(db: DB, worldId: string, viewer: RecordViewer) {
   const out: any[] = [];
   for (const t of all<any>(db, `SELECT t.* FROM intake_timelines t JOIN sources s ON s.id = t.source_id WHERE t.world_id = ? ${isDm(viewer) ? '' : "AND t.visibility = 'party'"} ORDER BY t.name`, worldId)) {
     const dm = isDm(viewer);
+    const model = dm && viewer.audience !== undefined;
     const hidden = (m: Mention) => !m.ref || !find(t.source_id, m.ref)?.party;
+    // Descriptions for the DM's models: no link to a classified page, and a link that resolves to nothing is hidden too.
+    const blind = (m: Mention) => !m.ref || !find(t.source_id, m.ref) || find(t.source_id, m.ref)!.classified;
+    const desc = (b: Block[]): Block[] => (!dm ? playerBlocks(b, hidden) : model ? blocksFor(b, 'ai', blind) : b);
     const groups = (JSON.parse(t.data || '[]') as TimelineGroup[]).map((g) => ({
       name: g.name, abbreviation: g.abbreviation ?? null,
-      description: g.description ? (dm ? g.description : playerBlocks(g.description, hidden)) : [] as Block[],
+      description: g.description ? desc(g.description) : [] as Block[],
       events: g.events.filter((e) => dm || e.visibility === 'party').map((e) => {
         const page = find(t.source_id, e.ref);
         return {
           id: e.id, name: e.name, date: e.date ?? null, color: e.color ?? null, visibility: e.visibility,
-          description: e.description ? (dm ? e.description : playerBlocks(e.description, hidden)) : [] as Block[],
-          page: page && (dm || page.party) ? { id: page.id, title: page.title } : null,
+          description: e.description ? desc(e.description) : [] as Block[],
+          page: page && (dm || page.party) && !modelBlind(viewer, page) ? { id: page.id, title: page.title } : null,
         };
       }),
     }));
@@ -232,8 +238,9 @@ export function markersFor(db: DB, worldId: string, viewer: RecordViewer) {
   const out: any[] = [];
   for (const m of all<any>(db, 'SELECT m.* FROM intake_markers m JOIN sources s ON s.id = m.source_id WHERE m.world_id = ? ORDER BY m.name', worldId)) {
     const map = find(m.source_id, m.map_ref);
-    if (!map) continue;
+    if (!map || modelBlind(viewer, map)) continue;
     const page = find(m.source_id, m.ref);
+    if (modelBlind(viewer, page)) continue;
     const shared = m.visibility === 'party' && map.party && (!m.ref || !!page?.party);
     if (!isDm(viewer) && !shared) continue;
     out.push({
