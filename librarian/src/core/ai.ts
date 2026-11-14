@@ -1,4 +1,4 @@
-// The five model jobs (PLAN.md §10). Every feature calls models through
+// The model jobs (PLAN.md §10). Every feature calls models through
 // here, never directly, so the admin can point each job at any
 // OpenAI-compatible endpoint (Argos, Ollama, a whisper server, Kokoro, or a
 // cloud provider) and tests can fake them with Deps.fetch.
@@ -9,6 +9,14 @@
 //   audio  speech to text  (POST {base}/audio/transcriptions)
 //   voice  text to speech  (POST {base}/audio/speech)
 //   extra  embeddings      (POST {base}/embeddings)
+//   rerank optional: reorders search hits (POST {base}/rerank)
+//
+// A job may name a fallback (JobConfig.fallback). When the main provider
+// cannot answer (no connection, a timeout, a 5xx, a model that is unloaded
+// or not found) the call is retried once on the fallback. A 4xx about the
+// request itself never falls back. A local to cloud fallback needs the job's
+// explicit allowCloudFallback switch. Every attempt is screened for classified
+// text first, so the fallback path is as guarded as the main one.
 //
 // Where each job's settings come from: setJobResolver() (the models
 // feature stores them, set in Admin → Models). Until one is set, the
@@ -19,8 +27,11 @@ import type { Deps } from '../app.ts';
 import { classifiedMatch } from './levels.ts';
 import { run, type DB } from './db.ts';
 
-export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra';
-export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra'];
+export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank';
+export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
+
+/** Where a provider runs: 'local' keeps world text on your machines, 'cloud' sends it to a third party. */
+export type Location = 'local' | 'cloud';
 
 export interface JobConfig {
   /** Ends in /v1 (or wherever the OpenAI-style paths start). */
@@ -32,7 +43,22 @@ export interface JobConfig {
    * are read by Alexandria and never sent: see JOB_OPTION_KEYS.
    */
   options?: Record<string, unknown>;
+  /** Which saved provider this came from (Admin → Models); unset for the environment. */
+  providerId?: string;
+  /** Where the provider runs. Unset means: judge from the URL (inferLocation). */
+  location?: Location;
+  /** Tried once when this one cannot answer (see the top of this file). */
+  fallback?: JobConfig;
+  /** The admin allowed this job to fall back from a local provider to a cloud one. */
+  allowCloudFallback?: boolean;
 }
+
+const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|\[?::1\]?$|\[?f[cd][0-9a-f]{2}:|host\.docker\.internal$|[^.]+$|.*\.(local|lan|internal|home\.arpa|ts\.net)$)/i;
+/** A guess at where a URL runs: this machine, a private network, or a single-word host (a Docker service) is local; anything else is cloud. */
+export function inferLocation(baseUrl: string): Location {
+  try { return PRIVATE_HOST.test(new URL(baseUrl).hostname) ? 'local' : 'cloud'; } catch { return 'cloud'; }
+}
+const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.baseUrl);
 
 /**
  * Job options Alexandria reads itself (they are removed from the request body):
@@ -118,7 +144,9 @@ type Resolver = (d: Deps, job: Job) => JobConfig | null;
 function envResolver(d: Deps, job: Job): JobConfig | null {
   const e = d.env;
   const J = job.toUpperCase();
-  const base = e[`ALX_MODEL_${J}_URL`] || e.MODEL_BASE_URL || e.OPENAI_BASE_URL || (e.LOCAL_LLM_URL ? `${e.LOCAL_LLM_URL.replace(/\/$/, '')}/v1` : '');
+  const own = e[`ALX_MODEL_${J}_URL`];
+  // Rerank is optional and not every server has it: only an explicit URL turns it on.
+  const base = own || (job === 'rerank' ? '' : e.MODEL_BASE_URL || e.OPENAI_BASE_URL || (e.LOCAL_LLM_URL ? `${e.LOCAL_LLM_URL.replace(/\/$/, '')}/v1` : ''));
   const model = e[`ALX_MODEL_${J}_MODEL`] || (job === 'chat' || job === 'audit' ? e.MODEL_NAME || '' : '');
   if (!base) return null;
   return { baseUrl: base.replace(/\/$/, ''), apiKey: e[`ALX_MODEL_${J}_KEY`] || e.MODEL_API_KEY || e.OPENAI_API_KEY || undefined, model: model || 'default' };
@@ -130,10 +158,53 @@ export function setJobResolver(r: Resolver | null) { resolver = r ?? envResolver
 export function jobConfig(d: Deps, job: Job): JobConfig | null { return resolver(d, job) ?? (resolver === envResolver ? null : envResolver(d, job)); }
 export const hasJob = (d: Deps, job: Job) => !!jobConfig(d, job);
 
-function need(d: Deps, job: Job): JobConfig {
+const PIN = Symbol.for('alexandria.ai.pin');
+/** Deps that use only the job's main provider (or only its fallback): for Test and Warm up in Admin → Models. */
+export const pinned = (d: Deps, which: 'primary' | 'fallback'): Deps => ({ ...d, [PIN]: which } as Deps);
+
+/** The providers to try, in order: the main one, then (at most) its fallback if the rules allow it. */
+export function chainFor(d: Deps, job: Job): JobConfig[] {
   const c = jobConfig(d, job);
-  if (!c) throw new ModelUnavailable(job, `No model is set for "${job}" (Admin → Models)`);
-  return c;
+  if (!c) return [];
+  const fb = c.fallback;
+  const pin = (d as any)[PIN] as 'primary' | 'fallback' | undefined;
+  if (pin === 'fallback') return fb ? [fb] : [];
+  if (pin === 'primary' || !fb) return [c];
+  // Leaving the machine for a cloud provider needs the admin's explicit switch.
+  if (locationOf(c) === 'local' && locationOf(fb) === 'cloud' && !c.allowCloudFallback) return [c];
+  return [c, { ...fb, fallback: undefined }];
+}
+
+const LOADING = /(not loaded|unloaded|no models? (is |are )?loaded|(model|server) is (still )?(loading|starting|warming)|loading model)/i;
+/**
+ * Whether a failure means "this provider cannot answer right now": no connection,
+ * a timeout, a 5xx (a 503 while the model loads), a model that is unloaded or
+ * unknown. A 4xx about the request itself, a refused classified request and the
+ * caller's own abort never fall back.
+ */
+export function canFallBack(err: unknown): boolean {
+  if (err instanceof ClassifiedRefused) return false;
+  if (!(err instanceof ModelUnavailable)) return false;
+  const s = err.status;
+  if (s === undefined) return true;
+  if (s >= 500) return true;
+  if (s === 404 || s === 408) return true;
+  return s >= 400 && LOADING.test(err.message);
+}
+
+/**
+ * Run `fn` against the job's chain. `screen` runs before every attempt, the
+ * fallback's included, and throws ClassifiedRefused for classified text.
+ */
+async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobConfig) => Promise<T>, mayRetry: () => boolean = () => true): Promise<T> {
+  const chain = chainFor(d, job);
+  if (!chain.length) throw new ModelUnavailable(job, `No model is set for "${job}" (Admin → Models)`);
+  for (let i = 0; ; i++) {
+    screen();
+    try { return await fn(chain[i]); } catch (err) {
+      if (i + 1 >= chain.length || !canFallBack(err) || !mayRetry()) throw err;
+    }
+  }
 }
 
 // ---- transport -------------------------------------------------------------
@@ -413,8 +484,10 @@ function normalizeToolCalls(raw: unknown): ToolCall[] {
 }
 
 export async function chat(d: Deps, job: 'chat' | 'audit', req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
-  const c = need(d, job);
-  screenOutgoing(d, job, messageTexts(req));
+  return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatOne(d, job, c, req, signal));
+}
+
+async function chatOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, false, signal);
   let j: any;
@@ -518,8 +591,12 @@ export class ChunkAssembler {
  * signal to stop early (it throws AbortError; keep what onDelta gave you).
  */
 export async function chatStream(d: Deps, job: 'chat' | 'audit', req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
-  const c = need(d, job);
-  screenOutgoing(d, job, messageTexts(req));
+  // Once text has reached the caller the answer cannot be started again somewhere else.
+  let started = false;
+  return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatStreamOne(d, job, c, req, (t) => { started = true; onDelta(t); }, signal), () => !started);
+}
+
+async function chatStreamOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, true, signal);
   let firstTokenMs: number | undefined;
@@ -589,8 +666,10 @@ export interface TranscriptSegment { start: number; end: number; text: string; a
 export interface Transcript { text: string; language?: string; segments: TranscriptSegment[] }
 
 export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts: { prompt?: string; language?: string; filename?: string } = {}, signal?: AbortSignal): Promise<Transcript> {
-  const c = need(d, 'audio');
-  screenOutgoing(d, 'audio', [opts.prompt]);
+  return viaChain(d, 'audio', () => screenOutgoing(d, 'audio', [opts.prompt]), (c) => transcribeOne(d, c, audio, mime, opts, signal));
+}
+
+async function transcribeOne(d: Deps, c: JobConfig, audio: Uint8Array, mime: string, opts: { prompt?: string; language?: string; filename?: string }, signal?: AbortSignal): Promise<Transcript> {
   const fd = new FormData();
   fd.append('file', new Blob([audio], { type: mime }), opts.filename ?? `chunk.${mime.includes('ogg') ? 'ogg' : mime.includes('wav') ? 'wav' : 'webm'}`);
   fd.append('model', c.model);
@@ -618,8 +697,10 @@ export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts:
 // ---- voice: text to speech -------------------------------------------------
 
 export async function speak(d: Deps, text: string, opts: { voice?: string; speed?: number; format?: 'mp3' | 'wav' | 'opus' } = {}, signal?: AbortSignal): Promise<{ audio: Uint8Array; mime: string }> {
-  const c = need(d, 'voice');
-  screenOutgoing(d, 'voice', [text]);
+  return viaChain(d, 'voice', () => screenOutgoing(d, 'voice', [text]), (c) => speakOne(d, c, text, opts, signal));
+}
+
+async function speakOne(d: Deps, c: JobConfig, text: string, opts: { voice?: string; speed?: number; format?: 'mp3' | 'wav' | 'opus' }, signal?: AbortSignal): Promise<{ audio: Uint8Array; mime: string }> {
   const format = opts.format ?? 'mp3';
   const r = await post(d, 'voice', c, '/audio/speech', { ...bodyOptions(c), model: c.model, input: text.slice(0, 4000), voice: opts.voice ?? (c.options?.voice as string) ?? 'af_heart', speed: opts.speed ?? 1, response_format: format }, signal);
   const buf = new Uint8Array(await r.arrayBuffer());
@@ -629,9 +710,57 @@ export async function speak(d: Deps, text: string, opts: { voice?: string; speed
 // ---- extra: embeddings -----------------------------------------------------
 
 export async function embed(d: Deps, texts: string[], signal?: AbortSignal): Promise<number[][]> {
-  const c = need(d, 'extra');
-  screenOutgoing(d, 'extra', texts);
-  const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: texts }, signal);
-  const j: any = await r.json().catch(() => ({}));
-  return (j.data ?? []).map((x: any) => x.embedding as number[]);
+  return viaChain(d, 'extra', () => screenOutgoing(d, 'extra', texts), async (c) => {
+    const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: texts }, signal);
+    const j: any = await r.json().catch(() => ({}));
+    return (j.data ?? []).map((x: any) => x.embedding as number[]);
+  });
+}
+
+// ---- rerank: put the best documents first ----------------------------------
+
+export interface RerankHit { index: number; score: number }
+
+/**
+ * Score documents against a query (POST {base}/rerank, the Cohere/Jina/Argos
+ * shape). Returns the best `topN` as { index into documents, score }, best
+ * first. Documents go through the classified screen like any outgoing text,
+ * on the fallback too. Callers set a deadline with `signal`.
+ */
+export async function rerank(d: Deps, query: string, documents: string[], opts: { topN?: number } = {}, signal?: AbortSignal): Promise<RerankHit[]> {
+  const topN = Math.max(1, Math.min(opts.topN ?? documents.length, documents.length));
+  return viaChain(d, 'rerank', () => screenOutgoing(d, 'rerank', [query, ...documents]), async (c) => {
+    const r = await post(d, 'rerank', c, '/rerank', { model: c.model, query, documents, top_n: topN }, signal);
+    const j: any = await r.json().catch(() => ({}));
+    const list: any[] = Array.isArray(j.results) ? j.results : Array.isArray(j.data) ? j.data : [];
+    const out: RerankHit[] = [];
+    for (const x of list) {
+      const index = Number(x?.index);
+      const score = Number(x?.relevance_score ?? x?.score);
+      if (Number.isInteger(index) && index >= 0 && index < documents.length && Number.isFinite(score)) out.push({ index, score });
+    }
+    if (!out.length) throw new ModelUnavailable('rerank', 'The rerank model sent no results');
+    return out.sort((a, b) => b.score - a.score).slice(0, topN);
+  });
+}
+
+/**
+ * Reorder `items` (a search's top hits) with the rerank job, within `budgetMs`.
+ * Anything that goes wrong (no rerank job, too slow, an error, a refused
+ * classified document) leaves the order as it was. `textOf` must read the same
+ * viewer's copy of the item the search itself used. Items the reranker did not
+ * return keep their relative order after the ones it did.
+ */
+export async function rerankItems<T>(d: Deps, query: string, items: T[], textOf: (item: T) => string, opts: { budgetMs?: number; top?: number } = {}): Promise<T[]> {
+  if (items.length < 2 || !hasJob(d, 'rerank') || !query.trim()) return items;
+  const top = Math.min(opts.top ?? 20, items.length);
+  const head = items.slice(0, top);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), opts.budgetMs ?? 300);
+  try {
+    const hits = await rerank(d, query.slice(0, 500), head.map((x) => textOf(x).slice(0, 1500)), { topN: top }, ctl.signal);
+    const seen = new Set<number>();
+    const first = hits.filter((h) => !seen.has(h.index) && seen.add(h.index)).map((h) => head[h.index]);
+    return [...first, ...head.filter((_, i) => !seen.has(i)), ...items.slice(top)];
+  } catch { return items; } finally { clearTimeout(timer); }
 }
