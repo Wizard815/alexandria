@@ -177,6 +177,27 @@ curl -X POST https://alexandria.example/api/intake/src_abc/entries \
                  {"kind":"secret","children":[{"kind":"paragraph","content":[{"text":"DM only."}]}]}]}]}'
 ```
 
+## WorldLore: the one writable part
+
+Sources are read-only. The exception is the WorldLore workspace
+(`librarian/src/features/worldlore`): the DM sets one folder or resource of a
+source, or the `WorldLore/` folder of the library, as the AI's own wiki. The
+agent reads, writes, moves and deletes there with no confirmation
+(`lore_list`, `lore_read`, `lore_write`, `lore_move`, `lore_delete`; enabling
+it adds the write tools to the world's `agentAutoApprove`). Nothing else changes.
+
+A connector opts in with an optional `write` (`ConnectorWrite`: `createPage`,
+`updatePage`, `movePage`, `deletePage`, plus `readPage` and `roots`). It must
+refuse (`WriteRefused`, 403) anything outside the workspace `root`, checked
+against the source itself. Shipped: LegendKeeper API key (REST v3), LegendKeeper
+MCP, Markdown folder. The LegendKeeper MCP may call only `create_resource`,
+`write_page`, `update_resource`, `move_resource` and `delete_resource`
+(`confirm=true`), and only through `workspaceMcpFactory`; `readOnlyMcp` still
+refuses every write tool for sync and everything else. Pages carry a level
+(`dm`, `broker`, `party`, `classified`); an agent can write `party` only if the
+DM made `party` the workspace default, and `classified` pages are never sent to
+an AI. Kanka has no write capability yet.
+
 ## Write a connector
 
 Implement `Connector` from `librarian/src/intake/connector.ts` and add it
