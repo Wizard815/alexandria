@@ -104,7 +104,7 @@ function terms(d: Deps, worldId: string, v: Viewer, q: string, p: ParsedQuery): 
     if (seen.has(id)) return;
     seen.add(id);
     const sn = makeSnippet(summary, p);
-    out.push({ hit: { id, title: term, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(term, p), link: `${base}?q=${encodeURIComponent(term)}`, meta: { termKind: kind, module } }, rel, exact });
+    out.push({ hit: { id, title: term, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(term, p), link: `${base}?q=${encodeURIComponent(term)}&term=${encodeURIComponent(id)}`, meta: { termKind: kind, module } }, rel, exact });
   };
   // By name first (what you type while looking for "fireball"), then by meaning of the question.
   const byName = searchTerms(d.db, worldId, q, { limit: 8 }).terms;
@@ -115,12 +115,11 @@ function terms(d: Deps, worldId: string, v: Viewer, q: string, p: ParsedQuery): 
 
 function transcript(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[] {
   const dm = v.role === 'dm';
-  // Cheap prefilter on the longest plain ASCII word; the matcher does the real work.
-  const w = p.pos.flatMap((t) => t.words).filter((x) => /^[a-z0-9]+$/.test(x)).sort((a, b) => b.length - a.length)[0];
-  const like = w ? `AND l.text LIKE ? ESCAPE '\\'` : '';
+  // No SQL text prefilter: LIKE can't fold accents ("cafe" vs "café"), and the
+  // matcher below folds them. Newest lines first, so the cap keeps recent sessions.
   const rows = all<any>(d.db, `SELECT l.id, l.session_id, l.start_ms, l.speaker_account, l.speaker_label, l.text, s.name AS session_name
     FROM audio_lines l LEFT JOIN audio_sessions s ON s.id = l.session_id
-    WHERE l.world_id = ? ${dm ? '' : "AND l.audience = 'players'"} ${like} ORDER BY l.start_ms LIMIT 3000`, worldId, ...(w ? [`%${w}%`] : []));
+    WHERE l.world_id = ? ${dm ? '' : "AND l.audience = 'players'"} ORDER BY l.rowid DESC LIMIT 5000`, worldId);
   if (!rows.length) return [];
   const nm = names(d.db, worldId);
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number }[] = [];
@@ -132,7 +131,7 @@ function transcript(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): Global
     const min = Math.floor(r.start_ms / 60000);
     const sec = String(Math.floor((r.start_ms % 60000) / 1000)).padStart(2, '0');
     out.push({
-      hit: { id: r.id, title: `${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`, snippet: sn.text, snippetHtml: sn.html, titleHtml: escapeHtml(`${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`), link: `${dm ? 'dm/' : ''}audio?line=${encodeURIComponent(r.id)}`, meta: { sessionId: r.session_id, startMs: r.start_ms, speaker } },
+      hit: { id: r.id, title: `${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`, snippet: sn.text, snippetHtml: sn.html, titleHtml: escapeHtml(`${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`), link: `${dm ? 'dm/' : ''}audio?line=${encodeURIComponent(r.id)}&session=${encodeURIComponent(r.session_id)}`, meta: { sessionId: r.session_id, startMs: r.start_ms, speaker } },
       rel,
     });
   }
