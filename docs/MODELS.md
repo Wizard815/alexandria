@@ -102,6 +102,72 @@ text still never goes to any model.
   a recording is running or someone was on a world page in the last ten
   minutes.
 
+### Local or cloud, per job
+
+Every job row has a **Local** / **Cloud** choice and a chip saying which it
+is. Picking one filters the provider list to providers of that location
+(set on the provider: **Where it runs**). The last provider and model you
+saved in each place is remembered per job, so switching back is one click;
+a choice you have not saved yet is kept while you flip between the two. A
+fallback shows its own location, and the rule is unchanged: a local job with
+a cloud fallback only falls back to the cloud when **Allow falling back to
+the cloud** is ticked.
+
+### Session mode for Argos
+
+Admin → Models → **Session mode** is one setting for the whole server (not
+per world: the GPUs are shared by every world). All three switches are off
+by default. A session starts when the DM starts a session chat session or an
+audio recording, and ends when the last of them stops.
+
+- **Load before play.** When a session starts, one tiny request goes to
+  every enabled **local** job at once (cloud jobs are skipped). Progress
+  shows in Admin → Models and as a **Models ready** card on the DM's table
+  page: `chat ✓ audit ✓ whisper … loading`.
+- **Keep loaded.** While a session runs, the keep-warm ping goes to every
+  local job, not only the ones with their own **keep warm** switch.
+- **Unload when the session ends.** When the last session ends, Alexandria
+  calls Argos's `POST /api/models/unload/{model}` for each job model that is
+  on an **Argos** provider (once per model, main models only). Providers of
+  any other kind, fallbacks, and models no job uses are never touched.
+- **Load all now** / **Unload all now** do the same on demand.
+
+The requests are fixed strings ("Reply with the single word: ready", a
+half second of silence, a short test sentence) and a body-less unload call.
+No world text is sent.
+
+### The VRAM view
+
+Admin → Models → **VRAM** reads each Argos provider's `GET /api/pool` and
+`GET /running` and shows:
+
+- the cards: total, used and free GiB (the pool's plan from each model's
+  declared `vram`, not live memory);
+- the loaded models with their declared VRAM;
+- a **budget** for the models the jobs use: the sum of their declared VRAM
+  against the free space (plus what they already hold), and a check per job
+  model: fits, **no vram declared** (the pool cannot plan for it), **not an
+  Argos model name**, **too big** (more than all the cards together) or
+  **won't fit with the others** (placed largest first, each model on the
+  card with the most room; only a model bigger than one card is split, as
+  the pool does).
+
+If the pool router is off, it says so and lists what `/running` reports.
+
+**Copy Argos config** produces YAML to merge into Argos's config so the job
+models stay resident. Which one to use depends on Argos's router:
+
+- **Group router** (the default): `ttl: 0` on each model (never unload on
+  idle) and a `dnd` group with `persistent: true`, `swap: false`,
+  `exclusive: false` and the models as members, so they all stay loaded and
+  no other group can evict them.
+- **Pool router:** `ttl: 0` and a `vram:` per model, and the models under
+  `routing.router.settings.pool.persistent`, so the pool never evicts them
+  for another model.
+
+Merge the `ttl` and `vram` lines into your existing model entries; do not
+repeat a model key.
+
 ### Rerank
 
 If the rerank job is set, library search and the DM agent's library matches
@@ -128,6 +194,17 @@ All admin only (others get 403).
   suggested model per job with the reason (or why it is left unset) and
   Argos's voices.
 - `GET /api/admin/models/status`: loaded or unloaded per job, from Argos.
+- `GET` / `PUT /api/admin/models/session` with `{ loadOnStart, keepLoaded, unloadOnEnd }`
+  (booleans): the session mode, with `warm` (per local job: `idle`,
+  `loading`, `ready` or `failed`), `sessionRunning` and `localJobs`.
+- `POST /api/admin/models/warm-all` (answers 202 at once; poll `GET session`)
+  and `POST /api/admin/models/unload-all` (returns `results` per model).
+- `GET /api/admin/models/vram`: per Argos provider, `pool`, `running`,
+  `budget`, `jobModels` and the `config` snippets for both routers.
+- `GET /api/worlds/:world/models/ready` (DM only): the warm state for the
+  table page card.
+- Each job in `GET /api/admin/models` has `location` and `lastChoice`
+  (`{ local, cloud }`, each `{ providerId, model }` or `null`).
 - `GET /api/admin/models/providers/:id/voices?model=`: preset voices.
 - `POST /api/admin/models/:job/test` (`?which=fallback`) and
   `POST /api/admin/models/:job/warm` return `{ ok, job, ms, sample }` or
@@ -217,6 +294,57 @@ Pick current versions when you build; these are size classes, not pins.
 
 That is about 30–40 GB loaded together. The rest is for the chat model's
 context (long transcripts need it) and a larger model later.
+
+### Running everything locally on 64 GB
+
+A plan for one box with 64 GB of VRAM (for example two 32 GB cards). The
+sizes are estimates: check your own model files, quant and context, and set
+Argos's `vram` from what you measure.
+
+| Job | Suggested | Approx. VRAM |
+|---|---|---|
+| Chat | A ~30B mixture-of-experts model (about 3B active) at Q4_K_M, 32k context, 4 parallel slots | 22–26 GB |
+| Audit (decision) | A 3–4B instruct model at Q8, 8k context | ~5 GB |
+| Speech to text | Whisper large-v3-turbo (faster-whisper int8), one instance handling 5 live mics at 5 s chunks | 3–4 GB |
+| Text to speech | Kokoro-82M | under 1 GB |
+| Embeddings | bge-m3 class | ~1.5 GB |
+| Rerank | bge-reranker-v2-m3 class | ~1.5 GB |
+| Total | | about 34–39 GB, leaving ~25 GB free |
+
+Why these choices:
+
+- **MoE over dense for chat.** A dense 32B model reads all 32B weights for
+  every token, so it is about 3× slower per token than a mixture-of-experts
+  model that activates about 3B of its 30B, and it needs more KV cache (the
+  attention memory that grows with context and parallel slots). The MoE
+  still holds all its weights in VRAM, which is why it is 22–26 GB and not 3.
+- **The 2 GB reserve.** Argos's pool keeps `reserveGiB` (default 2 GiB per
+  card) free for KV cache growth, compute buffers and other processes, so a
+  32 GB card plans with about 30. Do not plan to fill a card.
+- **On 2 × 32 GB,** put chat on one card and everything else on the other.
+  The chat model gets a whole card's compute and bandwidth, and the small
+  models (about 12 GB together) never compete with it. The pool router does
+  this by itself when the sizes are declared; with the group router, pin each
+  model's card with `HIP_VISIBLE_DEVICES` or `CUDA_VISIBLE_DEVICES` in its
+  `env`.
+- **The ~25 GB left over** can go to a longer context (chat memory grows with
+  it), a bigger quant of the chat model (Q6 instead of Q4_K_M), or a vision
+  model for maps and handouts.
+- **What a reranker is.** Search first finds candidates cheaply (keywords,
+  embeddings). A reranker is a relevance scorer: it reads the question and
+  each candidate together and scores how well the candidate answers it, then
+  the list is reordered by score. Cloudflare's bge-reranker, Jina Reranker
+  and Cohere Rerank are hosted ones; bge-reranker-v2-m3 is a common local
+  one. It is optional: without it search keeps its keyword order.
+- **Why audit is a small chat model, not a reranker.** The audit job decides
+  things in words: whether a question is about a secret, where a question
+  should be routed, whether an answer spoils the plot. That needs a model
+  that can follow an instruction and answer in JSON, which a reranker (it
+  only returns a score per document) cannot do. Keep it small so the check
+  is fast.
+
+Then switch on **Session mode** above, press **Copy Argos config**, and
+Argos keeps all of this resident for the whole session.
 
 ## Pointing each job at a server
 
@@ -329,6 +457,9 @@ real model.
 | Endpoint | What it does |
 |---|---|
 | `GET /v1/models` | Argos-shaped records for `fake-chat` (tools, 32768 context), `fake-audit`, `fake-whisper`, `fake-kokoro`, `fake-embed` and `fake-rerank`: `status`, `architecture` modalities, `capabilities` and `context_length`. `startFakeModels(0, host, { unloaded: ['fake-rerank'], apiKey: 'sk-x' })` reports models as unloaded and requires a Bearer key |
+| `GET /api/pool` | The pool router's shape: `cards` (`cap_gib`, `used_gib`, `free_gib`, `models`) and `models` (`state` ready or stopped, `size_gib`, `size_known`, `cards`, `persistent`), with declared sizes for a 64 GB box (chat 24, audit 5, whisper 3.5, kokoro 0.9, embed 1.5, rerank 1.5). `startFakeModels(0, host, { router: 'group' })` answers `{ "router": "group", "enabled": false }` like an Argos without the pool; `vram: { 'fake-audit': null }` leaves a model undeclared |
+| `GET /running` | `{ "running": [{ model, state, cmd, proxy, ttl, name, description }] }` for the loaded models |
+| `POST /api/models/unload/{model}` | `OK` (404 `model not found` for an unknown name). The model reads unloaded until a request to it loads it again; `fake.loaded()` lists what is loaded |
 | `GET /v1/audio/voices` | `{ "voices": ["af_heart", "af_bella", "bm_george", "bf_emma"] }` |
 | `POST /v1/rerank` | `{ model, query, documents, top_n }` in, `results[{ index, relevance_score }]` out, scored by words shared with the query |
 | `POST /v1/chat/completions` | If `tools` are given and the last message is the user's and contains a tool's name (e.g. `list_pages`), returns a `tool_calls` entry for it with `{}` arguments. With `response_format: json_object`, returns the JSON from a `FAKE_JSON: {...}` line in the system prompt, or `{}`. Otherwise echoes `You said: "<first 80 chars of the last user message>"` and, if a `Context:` block is in the prompt, its first sentence (or, for the agent, the first library match it was given). `stream: true` sends OpenAI-shaped chunks: content a few words at a time, tool calls as an id and name then the arguments in pieces, and a usage chunk with `stream_options.include_usage`. Set `FAKE_TOKEN_DELAY_MS` to slow the chunks down for a demo. |
