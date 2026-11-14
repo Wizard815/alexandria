@@ -14,7 +14,7 @@ import { one } from '../../core/db.ts';
 import { HttpError } from '../../core/util.ts';
 import { ctx, isDM, me } from '../../routes/_shared.ts';
 import {
-  SCHEMA, configOf, deletePage, links, listPages, movePage, options, readPage, setConfig, validateConfig, workspace, worldSettings, writePage, type LoreConfig,
+  SCHEMA, configOf, deletePage, links, listPages, movePage, options, readPage, searchOptions, setConfig, validateConfig, workspace, worldSettings, writePage, type LoreConfig,
 } from './service.ts';
 
 const enc = encodeURIComponent;
@@ -43,6 +43,8 @@ const feature: Feature = {
 
     r.get('/', (_req, res) => res.json(state(d, ctx(res).world.id)));
     r.get('/options', async (_req, res) => res.json(await options(d, ctx(res).world.id)));
+    // Kanka has too many notes to list: search them by name (?source=<source id>&q=<text>).
+    r.get('/options/search', async (req, res) => res.json(await searchOptions(d, ctx(res).world.id, String(req.query.source ?? ''), String(req.query.q ?? ''))));
     // Body: { kind, sourceId?, root, defaultLevel, url? }, or null / { enabled: false } to turn it off.
     r.put('/config', (req, res) => {
       const b = req.body ?? {};
@@ -93,19 +95,19 @@ const feature: Feature = {
     {
       name: 'lore_write', write: true,
       description: 'Write to WorldLore, your own wiki. It runs at once, with no confirmation, and only inside WorldLore. Give an id to change a page, or a path (folders separated by /) or title to make one. Keep facts only the information broker knows at level broker. Never use it to change anything outside WorldLore.',
-      props: { id: S('Page id to change (omit to create)'), path: S('Where to create it, e.g. npcs/Odda'), title: S('Page title'), markdown: S('The whole page in Markdown (replaces the old text)'), level: LEVEL, parent: S('LegendKeeper: parent page id inside WorldLore (omit for the top)') },
+      props: { id: S('Page id to change (omit to create)'), path: S('Where to create it, e.g. npcs/Odda'), title: S('Page title'), markdown: S('The whole page in Markdown (replaces the old text)'), level: LEVEL, parent: S('LegendKeeper and Kanka: parent page id inside WorldLore (omit for the top)') },
       required: ['markdown'],
       call: (a) => ({ method: 'POST', path: '/worldlore/pages', body: { id: a.id, path: a.path, title: a.title, markdown: a.markdown, level: a.level, parent: a.parent, by: 'agent' } }),
     },
     {
       name: 'lore_move', write: true,
-      description: 'Move a WorldLore page. Runs at once, only inside WorldLore. `to` is a new parent page id (LegendKeeper), or a new path (Markdown folder or library).',
+      description: 'Move a WorldLore page. Runs at once, only inside WorldLore. `to` is a new parent page id (LegendKeeper, Kanka), or a new path (Markdown folder or library).',
       props: { id: S('Page id'), to: S('New parent id or new path') }, required: ['id', 'to'],
       call: (a) => ({ method: 'POST', path: `/worldlore/pages/${enc(a.id)}/move`, body: { to: a.to, by: 'agent' } }),
     },
     {
       name: 'lore_delete', write: true,
-      description: 'Delete a WorldLore page. Runs at once, only inside WorldLore; LegendKeeper keeps it in its trash.',
+      description: 'Delete a WorldLore page. Runs at once, only inside WorldLore; LegendKeeper keeps it in its trash; Kanka does not.',
       props: { id: S('Page id') }, required: ['id'],
       call: (a) => ({ method: 'DELETE', path: `/worldlore/pages/${enc(a.id)}?by=agent` }),
     },
