@@ -75,8 +75,10 @@ export interface Entry {
   level?: Level;
   /** How hard this is to learn, for the information broker. */
   knowledge?: 'common' | 'local' | 'deep' | null;
-  /** Link back to the page in its own app. */
+  /** Link back to the page in its own app (http, https or obsidian: only). */
   url?: string | null;
+  /** Where the source puts this page among everything it holds (lower first). Siblings are shown in this order. */
+  position?: number | null;
   updatedAt?: string | null;
   /** Markdown sources: the original body. The library runs the Markdown leak
    *  guard on it before parsing, and keeps it for the on-disk mirror. */
@@ -162,7 +164,20 @@ const quote = (s: string) => s.split('\n').map((l) => (l ? `> ${l}` : '>')).join
 
 // ---- Markdown -> blocks -------------------------------------------------------
 
-const WIKI = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g;
+const WIKI = /(!?)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g;
+const FILE_EMBED = /\.(png|jpe?g|gif|webp|svg|bmp|avif|pdf|mp3|mp4|wav|ogg|webm|mov)$/i;
+
+/** The page name a relative Markdown link points at (Other%20Note.md#part), or null for anything else. */
+export function relativeLinkName(href: string): string | null {
+  const h = String(href ?? '').trim();
+  if (!h || h.startsWith('#') || h.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
+  let p = h.split('#')[0].split('?')[0];
+  try { p = decodeURIComponent(p); } catch { /* keep as written */ }
+  const last = p.split('/').filter(Boolean).pop() ?? '';
+  if (/\.[a-z0-9]{1,5}$/i.test(last) && !/\.md$/i.test(last)) return null;
+  const name = last.replace(/\.md$/i, '').trim();
+  return name || null;
+}
 
 /** Inline Markdown text (already split by marked) with [[wiki links]] as mentions. */
 function inlineTokens(tokens: Token[] = [], marks: Partial<Inline> = {}): Inline[] {
@@ -171,7 +186,8 @@ function inlineTokens(tokens: Token[] = [], marks: Partial<Inline> = {}): Inline
     let last = 0;
     for (const m of raw.matchAll(WIKI)) {
       if (m.index! > last) out.push({ ...marks, text: raw.slice(last, m.index) });
-      out.push({ mention: { name: m[1].trim(), ...(m[2] ? { text: m[2].trim() } : {}) } });
+      // ![[picture.png]] is an embedded file, not a link; ![[Page]] is shown as a link to the page.
+      if (!(m[1] && FILE_EMBED.test(m[2].trim()))) out.push({ mention: { name: m[2].trim(), ...(m[3] ? { text: m[3].trim() } : {}) } });
       last = m.index! + m[0].length;
     }
     if (last < raw.length) out.push({ ...marks, text: raw.slice(last) });
@@ -185,8 +201,12 @@ function inlineTokens(tokens: Token[] = [], marks: Partial<Inline> = {}): Inline
       case 'link': {
         const l = t as Tokens.Link;
         const inner = inlineTokens(l.tokens, marks);
-        if (/^https?:|^mailto:/i.test(l.href)) inner.forEach((x) => { if (!x.mention) x.link = l.href; });
-        out.push(...inner);
+        const external = /^https?:|^mailto:/i.test(l.href);
+        const rel = external ? null : relativeLinkName(l.href);
+        if (external) inner.forEach((x) => { if (!x.mention) x.link = l.href; });
+        // [text](Other Note.md): a link to another page of the vault, resolved by name like a wiki link.
+        if (rel && !inner.some((x) => x.mention)) out.push({ mention: { name: rel, text: inner.map((x) => x.text ?? '').join('') || rel } });
+        else out.push(...inner);
         break;
       }
       case 'br': out.push({ ...marks, text: '\n' }); break;

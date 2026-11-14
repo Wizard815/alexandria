@@ -8,17 +8,19 @@ export interface Mention { ref?: string; name?: string; text?: string }
 export interface Inline { text?: string; bold?: boolean; italic?: boolean; code?: boolean; strike?: boolean; underline?: boolean; link?: string; mention?: Mention }
 export interface PropertyGroup { title: string; rows: { key: string; value: Inline[] }[]; dm?: boolean; level?: string }
 import { LEVEL_CSS, LevelChip, levelOf, titleLevel } from './Levels.tsx';
+import { mentionKey, mentionView, safeHref, safeImageUrl } from './links.ts';
+export { mentionKey };
 
 export type Block = { kind: string; [k: string]: any };
 
 export interface RenderCtx {
   links: Record<string, string>;
+  /** Current titles of linked pages, for mentions the source gave no words for. */
+  titles?: Record<string, string>;
   open: (pageId: string) => void;
   isDM: boolean;
   children: { id: string; title: string; icon?: { glyph?: string; color?: string } | null }[];
 }
-
-export const mentionKey = (m: Mention) => (m.ref ? `ref:${m.ref}` : `name:${String(m.name ?? '').toLowerCase()}`);
 
 export function Icon({ icon, size = 18 }: { icon?: { glyph?: string; color?: string } | null; size?: number }) {
   if (!icon?.glyph) return null;
@@ -31,8 +33,7 @@ export function Inlines({ c, ctx }: { c?: Inline[]; ctx: RenderCtx }) {
     <>
       {(c ?? []).map((x, i) => {
         if (x.mention) {
-          const label = x.mention.text ?? x.mention.name ?? '';
-          const target = ctx.links[mentionKey(x.mention)];
+          const { text: label, target } = mentionView(x.mention, ctx.links, ctx.titles);
           if (!target) return <span key={i}>{label}</span>; // unresolved: plain text, never a link
           return <a key={i} className="lib-mention" href={`?page=${target}`} onClick={(e) => { if (!e.metaKey && !e.ctrlKey) { e.preventDefault(); ctx.open(target); } }}>{label}</a>;
         }
@@ -44,7 +45,8 @@ export function Inlines({ c, ctx }: { c?: Inline[]; ctx: RenderCtx }) {
         if (x.italic) n = <em>{n}</em>;
         if (x.strike) n = <s>{n}</s>;
         if (x.underline) n = <u>{n}</u>;
-        if (x.link && /^(https?:|mailto:)/i.test(x.link)) n = <a href={x.link} target="_blank" rel="noopener noreferrer">{n}</a>;
+        const href = safeHref(x.link);
+        if (href) n = <a href={href} target="_blank" rel="noopener noreferrer">{n}</a>;
         return <span key={i}>{n}</span>;
       })}
     </>
@@ -126,8 +128,8 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
     case 'divider':
       return <hr />;
     case 'image':
-      return /^https?:/i.test(b.url) ? (
-        <figure className="lib-figure"><img src={b.url} alt={b.alt ?? ''} loading="lazy" style={b.width ? { maxWidth: Math.min(b.width, 1600) } : undefined} />{b.caption?.length ? <figcaption><Inlines c={b.caption} ctx={ctx} /></figcaption> : null}</figure>
+      return safeImageUrl(b.url) ? (
+        <figure className="lib-figure"><img src={safeImageUrl(b.url)!} alt={b.alt ?? ''} loading="lazy" style={b.width ? { maxWidth: Math.min(b.width, 1600) } : undefined} />{b.caption?.length ? <figcaption><Inlines c={b.caption} ctx={ctx} /></figcaption> : null}</figure>
       ) : null;
     case 'infobox': {
       const width = Math.min(Math.max(Number(b.width) || 40, 20), 60);
@@ -145,7 +147,7 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
       // A map document: its picture and a list of pins (the librarian already removed pins players may not see).
       return (
         <figure className="lib-figure">
-          {typeof b.image === 'string' && /^https?:/i.test(b.image) ? <img src={b.image} alt={b.title ? `Map: ${b.title}` : 'Map'} loading="lazy" style={{ maxWidth: Math.min(Number(b.width) || 1200, 1600) }} /> : null}
+          {safeImageUrl(b.image) ? <img src={safeImageUrl(b.image)!} alt={b.title ? `Map: ${b.title}` : 'Map'} loading="lazy" style={{ maxWidth: Math.min(Number(b.width) || 1200, 1600) }} /> : null}
           {Array.isArray(b.pins) && b.pins.length > 0 && (
             <figcaption>
               <strong>{b.title ?? 'Map'}</strong> · {b.pins.length} pin{b.pins.length === 1 ? '' : 's'}
@@ -175,7 +177,7 @@ function ListItem({ li, ctx }: { li: Block; ctx: RenderCtx }) {
 }
 
 export const LIB_CSS = `
-.lib-page { font-family: var(--font-read); font-size: 17px; line-height: 1.6; overflow-wrap: anywhere; }
+.lib-page { container-type: inline-size; font-family: var(--font-read); font-size: 17px; line-height: 1.6; overflow-wrap: anywhere; }
 .lib-page::after { content: ''; display: block; clear: both; }
 .lib-page p { margin: 0 0 10px; }
 .lib-page ul, .lib-page ol { margin: 0 0 10px; padding-left: 24px; }
@@ -219,5 +221,6 @@ ${LEVEL_CSS}
 .lib-collection a { color: var(--text); text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
 .lib-collection a:hover { color: var(--accent-strong); }
 .lib-unsupported { font-family: var(--font); font-size: 12px; color: var(--faint); border: 1px dashed var(--line); border-radius: 6px; padding: 4px 8px; }
+@container (max-width: 640px) { .lib-infobox { float: none !important; width: 100% !important; margin: 0 0 12px !important; } }
 @media (max-width: 760px) { .lib-infobox { float: none !important; width: 100% !important; margin: 0 0 12px !important; } }
 `;
