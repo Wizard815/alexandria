@@ -1,0 +1,31 @@
+/* The overlay dock: one row of round buttons in the bottom-right corner. */
+.dock { position: fixed; right: var(--dock-right, 12px); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 700; display: flex; flex-direction: row; flex-wrap: wrap-reverse; justify-content: flex-end; align-items: center; gap: 8px; max-width: calc(100vw - 24px); pointer-events: none; }
+.dock > * { pointer-events: auto; }
+.dock-slot { display: inline-flex; }
+.dock-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.dock-btn:hover { border-color: var(--accent); color: var(--accent-strong); }
+.dock-btn.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-strong); }
+.dock-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.dock-text { font-size: 13px; white-space: nowrap; }
+.dock-badge { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; }
+.dock-live { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; background: #E5484D; animation: au-pulse 1.6s infinite; }
+.dock-toggle { display: none; position: relative; order: 100; width: 44px; height: 44px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-size: 16px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+@media (max-width: 760px) {
+  .dock-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .dock:not(.open) .dock-slot:not(.keep) { display: none; }
+  /* A dot on the folded button when something wants attention (unread chat, recording, sound blocked). */
+  .dock:not(.open):has(.dock-badge, .dock-live, .dock-btn.primary) .dock-toggle::after { content: ''; position: absolute; top: 3px; right: 3px; width: 11px; height: 11px; border-radius: 50%; background: var(--danger); border: 2px solid var(--panel); }
+  .dock-text { display: none; }
+  .dock-btn { padding: 0; width: 44px; }
+  .dock { gap: 6px; }
+  body:has(.bottomnav) .dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  body:has(.bottomnav) .dock-panel { bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-agent-open] .dock { display: none; }
+}
+/* Panels that open from a dock button sit just above the dock. */
+.dock-panel { position: fixed; right: var(--dock-right, 12px); bottom: calc(68px + env(safe-area-inset-bottom, 0px)); z-index: 760; }
+/* The assistant is a side panel: the dock slides left of it and the page leaves room for it. */
+:root[data-agent-open] { --dock-right: calc(min(420px, 100vw) + 12px); }
+@media (min-width: 1100px) { :root[data-agent-open] .main { margin-right: 420px; } }
+.main { padding-bottom: 64px; }
+.toast { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
