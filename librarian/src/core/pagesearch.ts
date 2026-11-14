@@ -2,9 +2,14 @@
 // and alias list used for exact matches and typo tolerance, query parsing
 // (words, "phrases", -exclusions), ranking and snippets.
 //
-// Leak rules (see policy.ts): the party index is built ONLY from player
-// copies. A player search reads fts_party and page_names with scope 'party',
-// and snippets are cut from pages.player_body, never from pages.body.
+// Leak rules (see policy.ts and levels.ts): every index is built ONLY from
+// the matching copy of a page.
+//   party   player copies   (pages.player_body)   what players may search
+//   broker  broker copies   (pages.broker_body)   what the broker may use
+//   ai      AI copies       (pages.ai_body)       everything but classified: every model-facing search
+//   dm      DM copies       (pages.body)          only the DM's own screen
+// A search reads the table and page_names scope of its own copy, and
+// snippets are cut from that copy's column, never from pages.body.
 //
 // This file does not import db.ts (db.ts calls ensureSearchIndex while
 // opening), it only uses the database handle it is given.
@@ -13,15 +18,33 @@ import type { DatabaseSync } from 'node:sqlite';
 type DB = DatabaseSync;
 
 /** Bump when the index layout or what goes in it changes: the index is rebuilt on start. */
-export const SEARCH_INDEX_VERSION = 3;
+export const SEARCH_INDEX_VERSION = 4;
 
 const FTS_COLS = 'page_id UNINDEXED, world_id UNINDEXED, title, aliases, headings, body';
 const FTS_OPTS = `tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3'`;
 /** bm25 weights per column: page_id, world_id, title, aliases, headings, body. */
 const WEIGHTS = '0, 0, 12, 10, 3, 1';
 
-const ftsTable = (scope: Scope) => (scope === 'dm' ? 'fts_dm' : 'fts_party');
-export type Scope = 'dm' | 'party';
+export type Scope = 'dm' | 'party' | 'broker' | 'ai';
+const TABLES: Record<Scope, string> = { dm: 'fts_dm', party: 'fts_party', broker: 'fts_broker', ai: 'fts_ai' };
+const ftsTable = (scope: Scope) => TABLES[scope] ?? 'fts_party';
+/** The pages columns that hold a scope's copy: body and sidebar properties. */
+const COPY_COLS: Record<Scope, { body: string; props: string }> = {
+  dm: { body: 'body', props: 'properties' },
+  party: { body: 'player_body', props: 'player_properties' },
+  broker: { body: 'broker_body', props: 'broker_properties' },
+  ai: { body: 'ai_body', props: 'ai_properties' },
+};
+/** A SQL guard that keeps only pages that have this scope's copy (and a level the copy's audience may read). */
+export const scopeGuard = (scope: Scope, alias = 'p'): string => {
+  const a = alias ? `${alias}.` : '';
+  switch (scope) {
+    case 'party': return `AND ${a}visibility = 'party' AND ${a}player_body IS NOT NULL`;
+    case 'broker': return `AND ${a}visibility IN ('party', 'broker') AND ${a}broker_body IS NOT NULL`;
+    case 'ai': return `AND ${a}visibility IN ('party', 'broker', 'dm') AND ${a}ai_body IS NOT NULL`;
+    default: return '';
+  }
+};
 
 // ---- text helpers ----------------------------------------------------------
 
@@ -310,29 +333,38 @@ export function unindexWorld(db: DB, scope: Scope, worldId: string) {
 function createTables(db: DB) {
   db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS fts_dm USING fts5(${FTS_COLS}, ${FTS_OPTS});
     CREATE VIRTUAL TABLE IF NOT EXISTS fts_party USING fts5(${FTS_COLS}, ${FTS_OPTS});
+    CREATE VIRTUAL TABLE IF NOT EXISTS fts_broker USING fts5(${FTS_COLS}, ${FTS_OPTS});
+    CREATE VIRTUAL TABLE IF NOT EXISTS fts_ai USING fts5(${FTS_COLS}, ${FTS_OPTS});
     CREATE TABLE IF NOT EXISTS page_names (page_id TEXT NOT NULL, world_id TEXT NOT NULL, scope TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, norm TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS page_names_lookup ON page_names (world_id, scope, norm);
     CREATE INDEX IF NOT EXISTS page_names_page ON page_names (page_id);
     CREATE TABLE IF NOT EXISTS search_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
 }
 
-/** Rebuild every index from the pages table (DM copy and stored player copy). */
+/** Rebuild every index from the pages table (DM copy and the stored player, broker and AI copies). */
 export function rebuildAll(db: DB) {
   bump(db);
   db.exec('BEGIN');
   try {
-    db.exec('DELETE FROM fts_dm; DELETE FROM fts_party; DELETE FROM page_names;');
-    const hidden = new Map<string, Set<string>>();
-    for (const r of db.prepare(`SELECT world_id, lower(title) AS t FROM pages WHERE visibility <> 'party'`).all() as any[]) {
-      if (!hidden.has(r.world_id)) hidden.set(r.world_id, new Set());
-      hidden.get(r.world_id)!.add(r.t);
+    db.exec('DELETE FROM fts_dm; DELETE FROM fts_party; DELETE FROM fts_broker; DELETE FROM fts_ai; DELETE FROM page_names;');
+    // Titles to hide from each copy's aliases: pages above the copy's level.
+    const hidden: Record<'party' | 'broker' | 'ai', Map<string, Set<string>>> = { party: new Map(), broker: new Map(), ai: new Map() };
+    const cond: Record<'party' | 'broker' | 'ai', string> = { party: `visibility <> 'party'`, broker: `visibility NOT IN ('party', 'broker')`, ai: `visibility NOT IN ('party', 'broker', 'dm')` };
+    for (const k of ['party', 'broker', 'ai'] as const) {
+      for (const r of db.prepare(`SELECT world_id, lower(title) AS t FROM pages WHERE ${cond[k]}`).all() as any[]) {
+        if (!hidden[k].has(r.world_id)) hidden[k].set(r.world_id, new Set());
+        hidden[k].get(r.world_id)!.add(r.t);
+      }
     }
     const parse = (s: string | null) => { try { return JSON.parse(s || 'null'); } catch { return null; } };
-    for (const pg of db.prepare('SELECT id, world_id, title, origin, aliases, frontmatter, body, properties, player_frontmatter, player_body, player_properties FROM pages').iterate() as Iterable<any>) {
+    for (const pg of db.prepare('SELECT * FROM pages').iterate() as Iterable<any>) {
       const al: string[] = (parse(pg.aliases) ?? []).map(String);
       const dmAl = [...al, ...(pg.origin === 'markdown' ? dmOnlyAliases(parse(pg.frontmatter)) : [])];
       indexPage(db, 'dm', pg.id, pg.world_id, pg.title, dmAl, pg.body, factsText(pg.properties));
-      if (pg.player_body !== null) indexPage(db, 'party', pg.id, pg.world_id, pg.title, playerAliases(pg.origin, parse(pg.player_frontmatter), al, hidden.get(pg.world_id) ?? new Set()), pg.player_body, factsText(pg.player_properties));
+      for (const [scope, pre] of [['party', 'player_'], ['broker', 'broker_'], ['ai', 'ai_']] as const) {
+        if (pg[`${pre}body`] === null || pg[`${pre}body`] === undefined) continue;
+        indexPage(db, scope, pg.id, pg.world_id, pg.title, playerAliases(pg.origin, parse(pg[`${pre}frontmatter`]), al, hidden[scope].get(pg.world_id) ?? new Set()), pg[`${pre}body`], factsText(pg[`${pre}properties`]));
+      }
     }
     db.prepare(`INSERT INTO search_meta (key, value) VALUES ('index_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(String(SEARCH_INDEX_VERSION));
     db.exec('COMMIT');
@@ -350,9 +382,9 @@ export function rebuildAll(db: DB) {
 export function ensureSearchIndex(db: DB) {
   const sqlOf = (n: string) => ((db.prepare(`SELECT sql FROM sqlite_master WHERE name = ?`).get(n) as any)?.sql as string | undefined) ?? '';
   const metaOk = sqlOf('search_meta') && (db.prepare(`SELECT value FROM search_meta WHERE key = 'index_version'`).get() as any)?.value === String(SEARCH_INDEX_VERSION);
-  const layoutOk = sqlOf('fts_dm').includes('headings') && sqlOf('fts_party').includes('headings');
+  const layoutOk = ['fts_dm', 'fts_party', 'fts_broker', 'fts_ai'].every((t) => sqlOf(t).includes('headings'));
   if (metaOk && layoutOk) { createTables(db); return; }
-  db.exec('DROP TABLE IF EXISTS fts_dm; DROP TABLE IF EXISTS fts_party; DROP TABLE IF EXISTS page_names;');
+  db.exec('DROP TABLE IF EXISTS fts_dm; DROP TABLE IF EXISTS fts_party; DROP TABLE IF EXISTS fts_broker; DROP TABLE IF EXISTS fts_ai; DROP TABLE IF EXISTS page_names;');
   createTables(db);
   rebuildAll(db);
 }
@@ -389,7 +421,7 @@ export function searchPages(db: DB, worldId: string, q: string, scope: Scope, li
   if (!p.pos.length) return [];
   limit = Math.max(1, Math.min(limit, 200));
   const table = ftsTable(scope);
-  const guard = scope === 'party' ? `AND p.visibility = 'party' AND p.player_body IS NOT NULL` : '';
+  const guard = scopeGuard(scope);
   const run = (expr: string, n: number) => db.prepare(`SELECT ${table}.page_id AS id, p.path, ${table}.title AS title, p.updated_at, bm25(${table}, ${WEIGHTS}) AS rank
     FROM ${table} JOIN pages p ON p.id = ${table}.page_id
     WHERE ${table} MATCH ? AND ${table}.world_id = ? ${guard} ORDER BY rank LIMIT ?`).all(expr, worldId, n) as any[];
@@ -441,7 +473,7 @@ export function searchPages(db: DB, worldId: string, q: string, scope: Scope, li
   }
 
   // Snippets come from the same copy the index was built from.
-  const cols = scope === 'dm' ? 'body, properties' : 'player_body AS body, player_properties AS properties';
+  const cols = `${COPY_COLS[scope].body} AS body, ${COPY_COLS[scope].props} AS properties`;
   const body = db.prepare(`SELECT ${cols} FROM pages WHERE id = ?`);
   return out.map(({ c, s }) => {
     const row: any = body.get(c.id);
