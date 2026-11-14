@@ -6,19 +6,28 @@
 // Point any job at http://127.0.0.1:8300/v1 (any key, any model name), or add
 // it once in Admin → Models as an Argos provider and press Discover: it answers
 // GET /v1/models the way Argos does (status, modalities, capabilities, context),
-// plus /v1/audio/voices and /v1/rerank.
+// plus /v1/audio/voices and /v1/rerank. It also answers Argos's own endpoints, in
+// Argos's shapes: GET /api/pool (the pool router's cards and models; with
+// `router: 'group'` it answers { enabled: false } like Argos does), GET /running, and
+// POST /api/models/unload/{model} (the model reads "unloaded" until the next request to it).
 // In tests: const f = await startFakeModels(0); ... f.baseUrl ... await f.close();
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export interface FakeRequest { method: string; path: string; authorization: string | undefined; body: any }
+/** Declared VRAM in GiB per model, as the pool router would plan with it. Realistic for a 64 GB box; null leaves a model undeclared. */
+export const FAKE_VRAM: Record<string, number | null> = { 'fake-chat': 24, 'fake-audit': 5, 'fake-whisper': 3.5, 'fake-kokoro': 0.9, 'fake-embed': 1.5, 'fake-rerank': 1.5 };
+const FAKE_CARDS = [{ id: '0', cap: 32, models: ['fake-chat'] }, { id: '1', cap: 32, models: ['fake-audit', 'fake-whisper', 'fake-kokoro', 'fake-embed', 'fake-rerank'] }];
+
 export interface FakeModels {
   port: number;
   /** http://127.0.0.1:<port>/v1 */
   baseUrl: string;
   /** Every request seen, newest last (the audio upload is not kept, only its size). */
   requests: FakeRequest[];
+  /** Model ids that are loaded right now (unloading and later requests change it). */
+  loaded: () => string[];
   close: () => Promise<void>;
 }
 
@@ -199,8 +208,12 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
-export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDelayMs?: number; /** Require this Bearer key (401 otherwise), like Argos with apiKeys set. */ apiKey?: string; /** Model ids reported as unloaded. */ unloaded?: string[] } = {}): Promise<FakeModels> {
+export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDelayMs?: number; /** Require this Bearer key (401 otherwise), like Argos with apiKeys set. */ apiKey?: string; /** Model ids reported as unloaded. */ unloaded?: string[]; /** Which Argos router GET /api/pool reports (default pool). */ router?: 'pool' | 'group'; /** Override FAKE_VRAM (null = undeclared). */ vram?: Record<string, number | null>; /** Milliseconds every model request takes (for parallelism tests). */ delayMs?: number } = {}): Promise<FakeModels> {
   const requests: FakeRequest[] = [];
+  const unloaded = new Set(opts.unloaded ?? []);
+  const pinnedOff = new Set(opts.unloaded ?? []); // reported unloaded for good; only a model unloaded through the API comes back on a request
+  const vram = { ...FAKE_VRAM, ...(opts.vram ?? {}) };
+  const specIds = new Set(SPECS.map((m) => m.id));
   const server = http.createServer(async (req, res) => {
     const path = (req.url ?? '/').split('?')[0].replace(/\/+$/, '');
     const send = (status: number, body: unknown, type = 'application/json') => {
@@ -219,8 +232,38 @@ export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDe
 
       if (opts.apiKey && req.headers.authorization !== `Bearer ${opts.apiKey}`) return send(401, { error: { message: 'invalid or missing API key' } });
       if (req.method === 'GET' && path === '/v1/models') {
-        return send(200, { object: 'list', data: SPECS.map((m) => modelRecord(m, (opts.unloaded ?? []).includes(m.id) ? 'unloaded' : 'loaded')) });
+        return send(200, { object: 'list', data: SPECS.map((m) => modelRecord(m, unloaded.has(m.id) ? 'unloaded' : 'loaded')) });
       }
+      if (req.method === 'GET' && path === '/api/pool') {
+        if (opts.router === 'group') return send(200, { router: 'group', enabled: false });
+        const loadedIds = SPECS.map((m) => m.id).filter((id) => !unloaded.has(id));
+        const sizeOf = (id: string) => vram[id] ?? 0;
+        const cards = FAKE_CARDS.map((c) => {
+          const here = c.models.filter((id) => loadedIds.includes(id));
+          const used = +here.reduce((a, id) => a + sizeOf(id), 0).toFixed(2);
+          return { id: c.id, cap_gib: c.cap, used_gib: used, free_gib: +(c.cap - used).toFixed(2), models: here };
+        });
+        const models = SPECS.map((m) => {
+          const on = loadedIds.includes(m.id);
+          const card = FAKE_CARDS.find((c) => c.models.includes(m.id));
+          return { id: m.id, state: on ? 'ready' : 'stopped', size_gib: sizeOf(m.id), size_known: sizeOf(m.id) > 0, cards: on && card ? [card.id] : [], in_flight: 0, persistent: m.id === 'fake-whisper', protected: false, ...(on ? { load_seconds: 4.2 } : {}) };
+        });
+        return send(200, { router: 'pool', enabled: true, placement: true, budget_gib: 64, protect_seconds: 600, cards, models, queue: [], swaps: [] });
+      }
+      if (req.method === 'GET' && path === '/running') {
+        const running = SPECS.filter((m) => !unloaded.has(m.id)).map((m) => ({ model: m.id, state: 'ready', cmd: `fake-server --model ${m.id}`, proxy: '', ttl: 0, name: m.id, description: m.description }));
+        return send(200, { running });
+      }
+      if (req.method === 'POST' && path.startsWith('/api/models/unload/')) {
+        const id = decodeURIComponent(path.slice('/api/models/unload/'.length));
+        if (!specIds.has(id)) return send(404, 'model not found', 'text/plain');
+        unloaded.add(id);
+        return send(200, 'OK', 'text/plain');
+      }
+      // A request to a model loads it again, as Argos does.
+      if (req.method === 'POST' && typeof body?.model === 'string' && specIds.has(body.model) && !pinnedOff.has(body.model)) unloaded.delete(body.model);
+      else if (req.method === 'POST' && up?.fields.model && specIds.has(up.fields.model) && !pinnedOff.has(up.fields.model)) unloaded.delete(up.fields.model);
+      if (opts.delayMs && req.method === 'POST' && path.startsWith('/v1/')) await new Promise((r) => setTimeout(r, opts.delayMs));
       if (req.method === 'GET' && path === '/v1/audio/voices') {
         return send(200, { voices: VOICES });
       }
@@ -284,6 +327,7 @@ export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDe
         port: p,
         baseUrl: `http://${host}:${p}/v1`,
         requests,
+        loaded: () => SPECS.map((m) => m.id).filter((id) => !unloaded.has(id)),
         close: () => new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections?.(); }),
       });
     });
