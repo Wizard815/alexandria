@@ -3,10 +3,13 @@
 // already exist in the party's player copies, or notes the DM wrote to be
 // sold. Everything else goes to the DM.
 //
-// The classifier reads both sides:
+// The classifier reads three sides (levels: core/levels.ts):
 // - the player side: player copies of shared pages, plus DM-written notes
-// - the DM side: full pages, but only the lines a player can't already read
-//   (DM-only pages, secret blocks, DM headings, DM fact groups)
+// - the broker side: the broker copy (party plus broker-level content), the
+//   lines players can't read but the broker may sell. An answer that uses
+//   one is flagged `brokerLevel`; the route holds it for DM review by default
+// - the DM side: full pages, but only the lines neither of the above has
+//   (dm and classified text: secret blocks, DM headings, DM fact groups)
 // If the question is really about DM-side material, or names a DM-only page,
 // it is "secret": nothing is sold automatically and the DM decides. The DM
 // side never leaves this module except in `dmEvidence`, which only the DM is
@@ -21,20 +24,20 @@ export type QuestionType = 'who' | 'where' | 'when' | 'why' | 'how' | 'price' | 
 export type Verdict = 'shared' | 'secret' | 'unknown';
 export type Knowledge = 'common' | 'local' | 'deep';
 
-export interface Evidence { page: string | null; title: string; text: string; score: number; knowledge: string | null; note?: string }
+export interface Evidence { page: string | null; title: string; text: string; score: number; knowledge: string | null; note?: string; level?: 'broker' | 'dm' | 'classified' }
 export interface Classification {
   type: QuestionType;
   verdict: Verdict;
   /** One line for the DM: why it was judged this way. */
   reason: string;
   /** Pages and people the question names. DM only (titles of DM-only pages). */
-  entities: { id: string; title: string; shared: boolean }[];
+  entities: { id: string; title: string; shared: boolean; brokerOk?: boolean }[];
   knowledge: Knowledge;
   multiplier: number;
   /** Player-safe answer: only player-copy lines and DM notes. Null unless verdict is 'shared'. */
-  player: { answer: string; sources: { id: string | null; title: string }[] } | null;
-  /** DM-side lines that matched. Never sent to players. */
-  dmEvidence: { page: string; title: string; text: string }[];
+  player: { answer: string; sources: { id: string | null; title: string }[]; brokerLevel?: boolean } | null;
+  /** DM-side lines that matched. Never sent to players. `level` says whether a model may see it (dm) or never (classified). */
+  dmEvidence: { page: string; title: string; text: string; level?: 'dm' | 'classified' }[];
 }
 
 const STOP = new Set('the a an and or of to in on at is are was were what who whom whose where when why how does do did about tell me with from for that this there their they his her its it be been can could would should into than then any some much many more most have has had our your you we i know want need find out anything everything thing things happened happen going around really truly actually'.split(' '));
@@ -76,22 +79,24 @@ export const pageRules = (db: DB, worldId: string) => new Map(all<PageRule>(db, 
 /** Pages (and people) the question names, by title or alias. DM side: includes DM-only pages. */
 export function namedEntities(db: DB, worldId: string, question: string) {
   const s = ` ${question.toLowerCase().replace(/[’']/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ')} `;
-  const out = new Map<string, { id: string; title: string; shared: boolean; len: number }>();
-  const consider = (id: string, name: string, title: string, shared: boolean) => {
+  const out = new Map<string, { id: string; title: string; shared: boolean; brokerOk: boolean; len: number }>();
+  const consider = (id: string, name: string, title: string, shared: boolean, brokerOk = shared) => {
     const n = String(name).toLowerCase().replace(/[’']/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     if (n.length < 3 || STOP.has(n)) return;
     if (!s.includes(` ${n} `)) return;
     const prev = out.get(id);
-    if (!prev || prev.len < n.length) out.set(id, { id, title, shared, len: n.length });
+    if (!prev || prev.len < n.length) out.set(id, { id, title, shared, brokerOk, len: n.length });
   };
   for (const p of all<any>(db, 'SELECT id, title, aliases, visibility, player_body FROM pages WHERE world_id = ?', worldId)) {
     const shared = p.visibility === 'party' && p.player_body !== null;
-    for (const n of [p.title, ...JSON.parse(p.aliases || '[]')]) consider(p.id, n, p.title, shared);
+    // A broker-level page is one the broker may talk about, though players can't read it.
+    const brokerOk = shared || p.visibility === 'broker';
+    for (const n of [p.title, ...JSON.parse(p.aliases || '[]')]) consider(p.id, n, p.title, shared, brokerOk);
   }
   for (const p of all<any>(db, 'SELECT id, name, visibility FROM people WHERE world_id = ?', worldId)) consider(`person:${p.id}`, p.name, p.name, p.visibility === 'party');
   // A shorter name inside a longer one ("Kesh" in "Old Kesh") is the same thing.
   const list = [...out.values()].sort((a, b) => b.len - a.len);
-  return list.filter((e, i) => !list.slice(0, i).some((x) => x.title.toLowerCase().includes(e.title.toLowerCase()) && x.id !== e.id && x.len > e.len)).slice(0, 6).map(({ id, title, shared }) => ({ id, title, shared }));
+  return list.filter((e, i) => !list.slice(0, i).some((x) => x.title.toLowerCase().includes(e.title.toLowerCase()) && x.id !== e.id && x.len > e.len)).slice(0, 6).map(({ id, title, shared, brokerOk }) => ({ id, title, shared, brokerOk }));
 }
 
 /** Free-text spoiler topics the DM listed (DM only). */
@@ -168,41 +173,72 @@ export function classify(db: DB, library: Library, worldId: string, question: st
     playerUnits.push({ page: shared ? n.page_id : null, title: shared ? pg.title : 'The broker’s own sources', text: n.text, score: sc, knowledge: n.knowledge, note: n.id });
   }
 
-  // DM side: lines players can't read.
-  const dmUnits: Evidence[] = [];
-  for (const pid of collect(dmViewer)) {
+  // Broker side: lines of the broker copy that players can't read. The broker may sell these (after DM review by default).
+  const brokerViewer: Viewer = { accountId: asPlayer.accountId, role: 'dm', audience: 'broker' };
+  const aiViewer: Viewer = { accountId: asPlayer.accountId, role: 'dm', audience: 'ai' };
+  const brokerUnits: Evidence[] = [];
+  const brokerLineKeys = new Map<string, Set<string>>();
+  for (const pid of collect(brokerViewer)) {
     let pg: any;
-    try { pg = library.get(worldId, pid, dmViewer); } catch { continue; }
+    try { pg = library.get(worldId, pid, brokerViewer); } catch { continue; }
     if (!playerLineKeys.has(pg.id)) {
-      // Find what the player copy holds, if this page is shared at all.
       try {
         const pp: any = library.get(worldId, pid, asPlayer);
         playerLineKeys.set(pg.id, new Set([...lines(pp.body), ...propLines(pp.properties ?? [])].map(key)));
       } catch { playerLineKeys.set(pg.id, new Set()); }
     }
     const seen = playerLineKeys.get(pg.id)!;
+    const keys = new Set<string>();
     const tw = words(pg.title);
     for (const text of [...lines(pg.body), ...propLines(pg.properties ?? [])]) {
+      keys.add(key(text));
       if (seen.has(key(text))) continue;
       const sc = score(q, text, tw, bonus(pg.id));
-      if (sc) dmUnits.push({ page: pg.id, title: pg.title, text, score: sc, knowledge: null });
+      if (sc) brokerUnits.push({ page: pg.id, title: pg.title, text, score: sc, knowledge: null, level: 'broker' });
+    }
+    brokerLineKeys.set(pg.id, keys);
+  }
+
+  // DM side: lines neither players nor the broker can read (dm and classified text).
+  const dmUnits: Evidence[] = [];
+  const readKeys = (viewer: Viewer, pid: string): Set<string> => {
+    try {
+      const pp: any = library.get(worldId, pid, viewer);
+      return new Set([...lines(pp.body), ...propLines(pp.properties ?? [])].map(key));
+    } catch { return new Set(); }
+  };
+  for (const pid of collect(dmViewer)) {
+    let pg: any;
+    try { pg = library.get(worldId, pid, dmViewer); } catch { continue; }
+    if (!playerLineKeys.has(pg.id)) playerLineKeys.set(pg.id, readKeys(asPlayer, pid));
+    const seen = playerLineKeys.get(pg.id)!;
+    const brokerSeen = brokerLineKeys.get(pg.id) ?? readKeys(brokerViewer, pid);
+    const aiSeen = readKeys(aiViewer, pid);
+    const tw = words(pg.title);
+    for (const text of [...lines(pg.body), ...propLines(pg.properties ?? [])]) {
+      if (seen.has(key(text)) || brokerSeen.has(key(text))) continue;
+      const sc = score(q, text, tw, bonus(pg.id));
+      if (sc) dmUnits.push({ page: pg.id, title: pg.title, text, score: sc, knowledge: null, level: aiSeen.has(key(text)) ? 'dm' : 'classified' });
     }
   }
   playerUnits.sort((a, b) => b.score - a.score);
   dmUnits.sort((a, b) => b.score - a.score);
-  const dmEvidence = dmUnits.slice(0, 4).map((u) => ({ page: u.page!, title: u.title, text: u.text }));
+  const dmEvidence = dmUnits.slice(0, 4).map((u) => ({ page: u.page!, title: u.title, text: u.text, level: u.level as 'dm' | 'classified' }));
 
   // Never-sell pages can't be sold, but still count as "the broker knows of it".
-  const sellable = playerUnits.filter((u) => !(u.page && rules.get(u.page)?.never_sell));
+  // Broker-level lines are sold like player lines (and flagged: the route holds those for review).
+  brokerUnits.sort((a, b) => b.score - a.score);
+  const allUnits = [...playerUnits, ...brokerUnits].sort((a, b) => b.score - a.score);
+  const sellable = allUnits.filter((u) => !(u.page && rules.get(u.page)?.never_sell));
   const pBest = sellable[0]?.score ?? 0;
   const dBest = dmUnits[0]?.score ?? 0;
-  const blockedBest = playerUnits[0] && playerUnits[0] !== sellable[0] ? playerUnits[0].score : 0;
+  const blockedBest = allUnits[0] && allUnits[0] !== sellable[0] ? allUnits[0].score : 0;
 
-  const hiddenEntity = entities.find((e) => !e.shared);
+  const hiddenEntity = entities.find((e) => !e.shared && !e.brokerOk);
   let verdict: Verdict;
   let reason: string;
   if (hiddenEntity) { verdict = 'secret'; reason = `Names “${hiddenEntity.title}”, which players can't see.`; }
-  else if (blockedBest >= threshold && blockedBest >= pBest) { verdict = 'secret'; reason = `The best match is on “${playerUnits[0].title}”, which is set to never sell.`; }
+  else if (blockedBest >= threshold && blockedBest >= pBest) { verdict = 'secret'; reason = `The best match is on “${allUnits[0].title}”, which is set to never sell.`; }
   else if (dBest >= threshold && (pBest < threshold || dBest > pBest + 0.5 || (cue && dBest >= pBest - 0.5))) {
     verdict = 'secret';
     reason = pBest >= threshold ? `DM-only text on “${dmUnits[0].title}” fits the question better than what players can read${cue ? ' (and it asks for the truth behind something)' : ''}.` : `Only DM-only text on “${dmUnits[0].title}” answers it.`;
@@ -221,5 +257,5 @@ export function classify(db: DB, library: Library, worldId: string, question: st
     if ((RANK[k] ?? 1) > (RANK[level] ?? 0)) level = k;
     if (rule) multiplier = Math.max(multiplier, rule.multiplier);
   }
-  return { ...base, verdict, reason, knowledge: (RANK[level] !== undefined ? level : 'local') as Knowledge, multiplier, player: { answer: take.map((u) => u.text).join('\n\n'), sources }, dmEvidence };
+  return { ...base, verdict, reason, knowledge: (RANK[level] !== undefined ? level : 'local') as Knowledge, multiplier, player: { answer: take.map((u) => u.text).join('\n\n'), sources, brokerLevel: take.some((u) => u.level === 'broker') }, dmEvidence };
 }

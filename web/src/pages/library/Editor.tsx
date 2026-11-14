@@ -18,7 +18,7 @@ export function Editor({ initial, isNew, onSaved, onCancel }: { initial: any; is
     try { frontmatter = JSON.parse(fm || '{}'); } catch { throw new Error('Frontmatter must be valid JSON'); }
     const p = path.trim() || title.trim();
     if (!p) throw new Error('Give the page a title or path');
-    const saved: any = await w.savePage({ path: p, title: title.trim() || undefined, body, frontmatter, visibility: vis as 'dm' | 'party' });
+    const saved: any = await w.savePage({ path: p, title: title.trim() || undefined, body, frontmatter, visibility: vis as 'dm' | 'party' | 'broker' | 'classified' });
     onSaved(saved);
   });
 
@@ -29,8 +29,9 @@ export function Editor({ initial, isNew, onSaved, onCancel }: { initial: any; is
         <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Old Kesh" /></Field>
         <Field label="Path" help={isNew ? 'Folder/name. Leave empty to use the title.' : 'Changing the path makes a new page.'}><input className="mono" value={path} onChange={(e) => setPath(e.target.value)} placeholder="Places/Old Kesh" /></Field>
       </div>
-      <div className="row"><span className="small muted">Who can read it</span><VisibilityPicker value={vis} onChange={setVis} labels={{ dm: 'DM only', party: 'Shared with the party' }} /></div>
-      <Field label="Page (Markdown)" help="Use [[Page name]] to link. > [!note] makes a callout; > [!secret] is removed from the player copy.">
+      <div className="row"><span className="small muted">Who can read it</span><VisibilityPicker value={vis} onChange={setVis} options={['party', 'broker', 'dm', 'classified']} labels={{ party: 'Shared with the party', broker: 'Broker may sell it', dm: 'DM only', classified: 'Classified: no AI' }} /></div>
+      {vis === 'classified' && <div className="note small"><i className="fa-solid fa-lock" aria-hidden="true" /> Classified pages are never sent to any AI model or MCP client, never embedded, and never shown to players or the broker.</div>}
+      <Field label="Page (Markdown)" help="Use [[Page name]] to link. > [!note] makes a callout; > [!secret] is removed from the player copy; > [!broker] the broker may sell; > [!classified] no AI ever sees.">
         <textarea className="code" rows={18} value={body} onChange={(e) => setBody(e.target.value)} />
       </Field>
       <details><summary className="small muted">Frontmatter (JSON): tags, aliases, facts, relations, secret:</summary>
@@ -50,6 +51,8 @@ export function SecretHint() {
         <span><code className="mono">{'> [!secret]'}</code> callouts (also <code className="mono">[!dm]</code>, <code className="mono">[!gm]</code>) are removed, with every <code className="mono">&gt;</code> line under them. LegendKeeper secret blocks are removed the same way.</span>
         <span><code className="mono">%% comment %%</code> and <code className="mono">{'<!-- dm --> … <!-- /dm -->'}</code> are removed.</span>
         <span>A heading marked <code className="mono">(DM)</code>, <code className="mono">[DM]</code>, "DM only" or starting "DM —", or titled Secrets / DM notes, is removed with everything under it.</span>
+        <span><code className="mono">{'> [!broker]'}</code> is for the information broker: players never see it, the broker may sell it (after your review), AI can read it.</span>
+        <span><code className="mono">{'> [!classified]'}</code> is never sent to any AI model or MCP client and never embedded; only you see it. Also <code className="mono">{'<!-- classified --> … <!-- /classified -->'}</code>, a heading named Classified or Broker (with its section), a LegendKeeper secret block starting “CLASSIFIED:” or “BROKER:”, <code className="mono">classified_*</code> / <code className="mono">broker_*</code> frontmatter keys, <code className="mono">visibility: broker</code> or <code className="mono">classified</code>, and the tags <code className="mono">broker</code> / <code className="mono">classified</code> (the most secret level wins).</span>
         <span>Frontmatter under <code className="mono">secret:</code>, and facts like <code className="mono">dm_notes</code>, never reach players.</span>
         <span>Links to DM-only pages show as “(hidden)”. Blocks the librarian doesn't know are never shown to players.</span>
       </div>

@@ -10,12 +10,13 @@ import { key, lines, propLines, words } from '../../core/brokerClassify.ts';
 
 const DM: Viewer = { accountId: '', role: 'dm' };
 const PLAYER: Viewer = { accountId: '', role: 'player' };
+const BROKER: Viewer = { accountId: '', role: 'dm', audience: 'broker' };
 const MID_CAP = /(?<=[a-z,;:]\s)[A-Z][\p{L}]{3,}/gu;
 
 export interface DmSide { lines: string[]; names: Set<string> }
 
 /** What only the DM can read in this world, and what players can read (to tell the two apart). */
-export function dmSide(db: DB, library: Library, worldId: string, extraPlayerText = ''): DmSide {
+export function dmSide(db: DB, library: Library, worldId: string, extraPlayerText = '', allowBroker = false): DmSide {
   const dmLines: string[] = [];
   const dmNames = new Set<string>();
   const playerWords = new Set<string>(words(extraPlayerText));
@@ -29,6 +30,14 @@ export function dmSide(db: DB, library: Library, worldId: string, extraPlayerTex
       for (const t of [...lines(pp.body), ...propLines(pp.properties ?? [])]) { seen.add(key(t)); for (const w of words(t)) playerWords.add(w); }
       for (const w of words(String(pp.title))) playerWords.add(w);
     } catch { /* not shared */ }
+    // A broker answer may use broker-level lines; dm and classified lines stay blocked (so does every line, in any other answer).
+    if (allowBroker) {
+      try {
+        const bp: any = library.get(worldId, p.id, BROKER);
+        for (const t of [...lines(bp.body), ...propLines(bp.properties ?? [])]) { seen.add(key(t)); for (const w of words(t)) playerWords.add(w); }
+        for (const w of words(String(bp.title))) playerWords.add(w);
+      } catch { /* no broker copy */ }
+    }
     for (const t of [...lines(dm.body), ...propLines(dm.properties ?? [])]) {
       if (seen.has(key(t))) continue;
       dmLines.push(t);
@@ -40,10 +49,10 @@ export function dmSide(db: DB, library: Library, worldId: string, extraPlayerTex
 }
 
 /** The first DM-only thing found in a player-facing text, or null when it is clean. */
-export function leaks(db: DB, library: Library, worldId: string, text: string, question = ''): string | null {
+export function leaks(db: DB, library: Library, worldId: string, text: string, question = '', allowBroker = false): string | null {
   const t = String(text ?? '');
   if (!t.trim()) return null;
-  const side = dmSide(db, library, worldId, question);
+  const side = dmSide(db, library, worldId, question, allowBroker);
   const k = key(t);
   for (const l of side.lines) if (k.includes(key(l))) return 'a DM-only line';
   const ws = new Set(words(t));
