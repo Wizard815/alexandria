@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import { ErrorBox, Tabs, useAction } from '../../ui/index.tsx';
+import { DockButton } from '../../ui/Dock.tsx';
 import './quickgen.css';
 
 type Tab = 'names' | 'items' | 'gold';
@@ -37,7 +38,7 @@ export default function QuickGenOverlay() {
   if (!isDM) return null;
   return (
     <>
-      {!open && <button type="button" className="qg-fab" onClick={() => setOpen(true)} aria-label="Quick generators (Alt+G)" title="Quick generators (Alt+G)">🎲 <span>Quick gen</span></button>}
+      <DockButton order={30} icon="fa-dice" label="Quick generators (Alt+G)" title="Quick generators (Alt+G)" active={open} onClick={() => setOpen((o) => !o)} testId="dock-quickgen" />
       {open && <Panel onClose={() => setOpen(false)} />}
     </>
   );
