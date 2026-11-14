@@ -354,9 +354,17 @@ test('Coverage: a tool set to auto-approve runs without waiting', async () => {
 });
 
 test('Coverage: the player harness offers and runs read tools only', async () => {
-  const readTools = toolsFor(false).filter((t) => !t.write);
+  // DM-only lookups are never offered to a player's model (they would only get 403).
+  const dmOnly = toolsFor(false).filter((t) => !t.write && t.dmOnly);
+  assert.ok(dmOnly.length >= 10, 'the DM-only lookups are flagged');
+  for (const t of dmOnly) {
+    const r = await drive('jess', t.name, await argsFor(t));
+    assert.match(r.result, /Unknown tool/, `${t.name} is hidden from players`);
+    assert.ok(!r.offered.includes(t.name), `${t.name} is not offered to a player's model`);
+  }
+  const readTools = toolsFor(false).filter((t) => !t.write && !t.dmOnly);
   const writeTools = toolsFor(true).filter((t) => t.write);
-  assert.ok(readTools.length >= 40 && writeTools.length >= 30);
+  assert.ok(readTools.length >= 30 && writeTools.length >= 30);
   // toolsFor(false) is already read only: no write tool, and no DM's playerOnly mix-up either.
   assert.deepEqual(toolsFor(false).filter((t) => t.write), []);
   const actionsBefore = all<any>(deps.db, 'SELECT id FROM agent_actions WHERE world_id = ?', W).length;

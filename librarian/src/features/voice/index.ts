@@ -84,7 +84,7 @@ const feature: Feature = {
     });
   },
   mcpTools: [
-    { name: 'list_voice_presets', description: 'DM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
+    { name: 'list_voice_presets', dmOnly: true, description: 'DM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
     {
       name: 'speak', write: true,
       description: "DM: read text aloud with a voice preset (by name or id). By default it plays at the table; the preset's target says who else hears it. Text copied from DM-only notes is refused when it would reach players.",

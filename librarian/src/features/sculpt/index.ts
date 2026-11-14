@@ -319,7 +319,7 @@ const feature: Feature = {
     required: ['template', 'values'],
     call: (a) => ({ method: 'POST', path: '/sculpt/send', body: { templateId: a.template, values: a.values } }),
   }, {
-    name: 'sculpt_templates',
+    name: 'sculpt_templates', dmOnly: true,
     description: 'DM: the sculpting templates for this world, with their fields.',
     props: {},
     call: () => ({ method: 'GET', path: '/sculpt/templates' }),
