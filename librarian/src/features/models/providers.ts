@@ -53,8 +53,8 @@ export function createProvider(db: DB, p: { name?: string; kind: Kind; baseUrl: 
   return row;
 }
 
-const metaGet = (db: DB, k: string) => one<{ value: string }>(db, 'SELECT value FROM models_meta WHERE key = ?', k)?.value;
-const metaSet = (db: DB, k: string, v: string) => run(db, 'INSERT INTO models_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
+export const metaGet = (db: DB, k: string) => one<{ value: string }>(db, 'SELECT value FROM models_meta WHERE key = ?', k)?.value;
+export const metaSet = (db: DB, k: string, v: string) => run(db, 'INSERT INTO models_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
 
 /**
  * Old settings kept a base URL and key on every job. Turn them into providers:
