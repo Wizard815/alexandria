@@ -45,7 +45,7 @@ try {
     if ((await page.locator('.sculpt-card').count()) < 1) problems.push(`${label}: search found nothing`);
 
     await page.goto(`${W}/dm/combat`);
-    const rows = () => page.locator('[aria-label="Initiative order"] .card').count();
+    const rows = () => page.locator('[aria-label="Initiative order"] .cb-row').count();
     await page.waitForTimeout(500);
     const before = await rows();
     await page.getByRole('button', { name: 'Encounter', exact: true }).click();
