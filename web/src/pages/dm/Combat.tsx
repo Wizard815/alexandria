@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Field, Switch, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { healthPreview, usePlayers } from './shared.tsx';
+import SculptButton from '../../features/sculpt/SculptButton.tsx';
 
 type Effect = { name: string; rounds?: number };
 
@@ -19,6 +20,7 @@ export default function DMCombat() {
   return (
     <div className="page wide">
       <PageHead title="Combat" lead={`Players see the order and effects. Monster health shows as ${info.settings.monsterHealth === 'none' ? 'nothing' : info.settings.monsterHealth}; the party's health is never shown. Hidden foes stay hidden.`}>
+        <SculptButton template="encounter" label="Encounter" autoSculpt onDone={() => void combat.reload()} /><SculptButton template="statblock" label="Quick statblock" onDone={() => void combat.reload()} />
         {c?.active ? (
           <>
             <span className="chip gold" style={{ fontSize: 15, padding: '4px 12px' }}>Round {c.round}</span>

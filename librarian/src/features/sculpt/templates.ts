@@ -1,12 +1,25 @@
 // The built-in sculpting templates. Each world gets its own editable copy.
-export type FieldType = 'text' | 'longtext' | 'number' | 'select' | 'list' | 'name' | 'item' | 'coins' | 'page' | 'statblock';
-export const FIELD_TYPES: readonly FieldType[] = ['text', 'longtext', 'number', 'select', 'list', 'name', 'item', 'coins', 'page', 'statblock'];
+export type FieldType = 'text' | 'longtext' | 'number' | 'select' | 'list' | 'name' | 'item' | 'coins' | 'page' | 'statblock' | 'dice' | 'table' | 'image' | 'pageLink' | 'rollTable';
+export const FIELD_TYPES: readonly FieldType[] = ['text', 'longtext', 'number', 'select', 'list', 'name', 'item', 'coins', 'page', 'statblock', 'dice', 'table', 'image', 'pageLink', 'rollTable'];
+export const CATEGORIES = ['Combat', 'NPCs', 'Places', 'Loot', 'Story', 'Prep'] as const;
+export type Category = (typeof CATEGORIES)[number];
 
 export interface Field {
   key: string; label: string; type: FieldType;
   options?: string[]; hint?: string; required?: boolean; dmOnly?: boolean;
-  /** Filled without a model: the world clock's date, or a shop's stock. */
-  gen?: 'clock' | 'stock';
+  /** Filled without a model: 'clock', 'stock', or an expression like "gen:coins mode=hoard level=$level", "dice:2d6", "pick:a|b". */
+  gen?: string;
+  /** Used when the model is missing or leaves the field blank. Same expression forms as gen. */
+  fallback?: string;
+  /** Applied to a blank field before anything else. */
+  default?: string;
+  /** table: column names. */
+  columns?: string[];
+  /** rollTable: the key of a field holding "d6" or "d20" (else die, else 6). */
+  dieField?: string;
+  die?: number;
+  /** Fine to leave empty: no "stays empty" note when there is no model. */
+  optional?: boolean;
 }
 export type Target =
   | { kind: 'page'; path: string; visibility: 'dm' | 'party' }
@@ -14,17 +27,26 @@ export type Target =
   | { kind: 'combat'; path?: string }
   | { kind: 'shop'; path: string; visibility: 'dm' | 'party'; listField?: string }
   | { kind: 'none' };
+/** What a sculpt may do with its result. Booleans are the ticked-by-default choices. */
+export interface Outputs {
+  page?: boolean; stage?: boolean; combat?: boolean; send?: boolean; broker?: boolean;
+  stageKind?: 'text' | 'event'; stageShow?: boolean;
+  /** The statblock field, or a list field of "N× Name (CR x, AC y, HP z)" lines, that goes into combat. */
+  combatField?: string;
+}
 
 export interface TemplateDef {
   key: string; name: string; description: string; perspective: 'dm' | 'player';
+  category: Category; outputs?: Outputs;
   fields: Field[]; body: string; target: Target;
 }
 
 const CRS = ['0', '1/8', '1/4', '1/2', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '12', '15', '17', '20'];
 
+import { MORE } from './builtins.ts';
 export const BUILTINS: TemplateDef[] = [
   {
-    key: 'statblock', name: 'Quick statblock', perspective: 'dm',
+    key: 'statblock', name: 'Quick statblock', perspective: 'dm', category: 'Combat', outputs: { page: true, combatField: 'statblock' },
     description: 'A full statblock from a name, a type, a CR and a role. Add it straight to combat.',
     fields: [
       { key: 'name', label: 'Name', type: 'text', hint: 'A name for this creature or kind of creature', required: true },
@@ -38,7 +60,7 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'combat' },
   },
   {
-    key: 'npc', name: 'NPC for quick RP', perspective: 'dm',
+    key: 'npc', name: 'NPC for quick RP', perspective: 'dm', category: 'NPCs', outputs: { page: true },
     description: 'Someone to play right now: look, voice, wants, what they know, a secret and a hook.',
     fields: [
       { key: 'name', label: 'Name', type: 'name', required: true },
@@ -55,7 +77,7 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'person', path: 'People/{{name}}', visibility: 'dm', alsoPage: true },
   },
   {
-    key: 'shop', name: 'Shop or store', perspective: 'dm',
+    key: 'shop', name: 'Shop or store', perspective: 'dm', category: 'Places', outputs: { page: true },
     description: 'A shop with an owner, a price level and stock with prices. Haggling notes stay DM-only.',
     fields: [
       { key: 'name', label: 'Shop name', type: 'text', required: true },
@@ -70,7 +92,7 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'shop', path: 'Shops/{{name}}', visibility: 'dm', listField: 'inventory' },
   },
   {
-    key: 'scene-dm', name: 'Scene, DM perspective', perspective: 'dm',
+    key: 'scene-dm', name: 'Scene, DM perspective', perspective: 'dm', category: 'Story', outputs: { page: true },
     description: 'Full DM notes for a scene, including what is really going on.',
     fields: [
       { key: 'title', label: 'Scene title', type: 'text', required: true },
@@ -86,7 +108,7 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'page', path: 'Scenes/{{title}}', visibility: 'dm' },
   },
   {
-    key: 'scene-player', name: 'Scene, player perspective', perspective: 'player',
+    key: 'scene-player', name: 'Scene, player perspective', perspective: 'player', category: 'Story', outputs: { page: false, stage: false, send: false },
     description: 'A read-aloud description built only from what the players can see. Checked for leaks before you read or send it.',
     fields: [
       { key: 'location', label: 'Location', type: 'page', hint: 'A library page the players can see', required: true },
@@ -99,7 +121,7 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'page', path: 'Scenes/{{location}} (read-aloud)', visibility: 'dm' },
   },
   {
-    key: 'tavern', name: 'Tavern', perspective: 'dm',
+    key: 'tavern', name: 'Tavern', perspective: 'dm', category: 'Places', outputs: { page: true },
     description: 'A tavern with a keeper, a feel, a house special, a rumour and a secret.',
     fields: [
       { key: 'name', label: 'Name', type: 'text', required: true },
@@ -115,7 +137,7 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'page', path: 'Places/{{name}}', visibility: 'dm' },
   },
   {
-    key: 'quest-hook', name: 'Quest hook', perspective: 'dm',
+    key: 'quest-hook', name: 'Quest hook', perspective: 'dm', category: 'Story', outputs: { page: true },
     description: 'A short hook: who asks, what they ask, the stakes, the reward and a twist.',
     fields: [
       { key: 'title', label: 'Title', type: 'text', required: true },
@@ -128,4 +150,5 @@ export const BUILTINS: TemplateDef[] = [
     body: '# {{title}}\n*Offered by {{giver}}*\n\n{{hook}}\n\n**Stakes.** {{stakes}}\n\n**Reward.** {{reward}}\n\n{{#dm}}\n**Twist.** {{twist}}\n{{/dm}}\n',
     target: { kind: 'page', path: 'Quests/{{title}}', visibility: 'dm' },
   },
+  ...MORE,
 ];

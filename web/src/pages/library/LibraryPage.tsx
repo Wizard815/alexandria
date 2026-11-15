@@ -9,6 +9,7 @@ import { useSearchParams } from 'react-router-dom';
 import { zipSync, strToU8 } from 'fflate';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
+import SculptPicker from '../../features/sculpt/SculptPicker.tsx';
 import { PageHead, ErrorBox, Empty, Loading, VisChip, Tabs, useToast, useAction } from '../../ui/index.tsx';
 import * as off from '../../lib/offline.ts';
 import { useNet } from '../../lib/net.ts';
@@ -338,6 +339,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
           </button>
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
+          {isDM && !offlineAt && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {isDM && !offlineAt && <button type="button" className="btn small danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>}
           {!isDM && !offlineAt && <>
