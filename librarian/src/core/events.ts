@@ -59,6 +59,14 @@ export class EventHub {
       const data = view(s.viewer);
       if (data !== null && data !== undefined) s.res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
     }
+    // Server-side listeners (taps) see the DM's view: they run inside the
+    // librarian and never forward data to a viewer (see tap()).
+    if (this.taps.size) {
+      let dmView: unknown;
+      try { dmView = view({ accountId: '', role: 'dm' } as Viewer); } catch { return; }
+      if (dmView === null || dmView === undefined) return;
+      for (const t of this.taps) { try { t(worldId, type, dmView); } catch { /* a listener never breaks an emit */ } }
+    }
   }
 
   count(worldId: string) {
