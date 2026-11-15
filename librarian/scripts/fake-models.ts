@@ -93,6 +93,11 @@ function chatReply(body: any): { content: string | null; tool_calls?: any[]; fin
 
   // A tool call when the last message is the user's and it names one of the tools.
   const tools: any[] = Array.isArray(body?.tools) ? body.tools : [];
+  // Lines like `FAKE_CALL add_combatant {"name":"Goblin","hp":7}` in the user's message make the fake call those tools with those arguments (a script for demos and tests).
+  if (last?.role === 'user' && tools.length) {
+    const calls = [...userText.matchAll(/^FAKE_CALL\s+([\w-]+)(?:\s+(\{.*\}))?\s*$/gm)];
+    if (calls.length) return { content: null, finish: 'tool_calls', tool_calls: calls.map((c, i) => ({ id: `call_fake_${i + 1}`, type: 'function', function: { name: c[1], arguments: c[2] ?? '{}' } })) };
+  }
   if (last?.role === 'user' && tools.length) {
     const hit = tools.map((t) => t?.function?.name as string).filter(Boolean).find((n) => userText.includes(n));
     if (hit) return { content: null, finish: 'tool_calls', tool_calls: [{ id: 'call_fake_1', type: 'function', function: { name: hit, arguments: '{}' } }] };

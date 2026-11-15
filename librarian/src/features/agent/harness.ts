@@ -56,7 +56,8 @@ const audit = (d: Deps, worldId: string, accountId: string | null, action: strin
 export async function harnessTools(harness: 'dm' | 'player'): Promise<McpTool[]> {
   // Loaded when first used: mcpServer imports the feature registry, which loads this feature.
   const m = await import('../../routes/mcpServer.ts');
-  const tools = m.toolsFor(harness === 'dm');
+  // Players are never offered DM-only lookups (they would only get 403).
+  const tools = m.toolsFor(harness === 'dm').filter((t: { dmOnly?: boolean }) => harness === 'dm' || !t.dmOnly);
   return harness === 'dm' ? tools : tools.filter((t) => !t.write);
 }
 
