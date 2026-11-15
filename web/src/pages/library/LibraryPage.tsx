@@ -14,6 +14,7 @@ import * as off from '../../lib/offline.ts';
 import { useNet } from '../../lib/net.ts';
 import { Blocks, Facts, Icon, LIB_CSS, type RenderCtx } from './Blocks.tsx';
 import { Tree, TREE_CSS, type PageRow } from './Tree.tsx';
+import { safeImageUrl, sourceLink } from './links.ts';
 import { Editor, SecretHint } from './Editor.tsx';
 import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Levels.tsx';
 import { AskModal } from './AskModal.tsx';
@@ -52,7 +53,7 @@ export default function LibraryPage() {
   const rows: PageRow[] = useMemo(() => {
     if (pages.data) return pages.data;
     if (!offline) return [];
-    return saved.map((s) => ({ id: s.pageId, path: s.page.path ?? s.title, title: s.title, kind: s.page.kind ?? 'page', tags: s.page.tags ?? [], folder: s.folder, icon: s.page.icon ?? null, parentId: null, source: s.source, updated_at: s.page.updated_at ?? s.savedAt, visibility: s.page.visibility }));
+    return saved.map((s) => ({ id: s.pageId, path: s.page.path ?? s.title, title: s.title, kind: s.page.kind ?? 'page', tags: s.page.tags ?? [], folder: s.folder, icon: s.page.icon ?? null, parentId: null, position: s.page.position ?? null, source: s.source, updated_at: s.page.updated_at ?? s.savedAt, visibility: s.page.visibility }));
   }, [pages.data, offline, saved]);
 
   // ?title=Name (from a wiki link) opens that page, or offers to make it.
@@ -147,7 +148,7 @@ export default function LibraryPage() {
                 <select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}><option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                 {kinds.length > 1 && <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select>}
                 {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="dm">DM only</option><option value="classified">Classified</option></select>}
-                <select aria-label="Order" value={sort} onChange={(e) => setSort(e.target.value as Sort)}><option value="tree">Folders</option><option value="recent">Recent</option><option value="title">A–Z</option></select>
+                <select aria-label="Order" value={sort} onChange={(e) => setSort(e.target.value as Sort)}><option value="tree">Source order</option><option value="recent">Recent</option><option value="title">A–Z</option></select>
                 <label className="lib-check"><input type="checkbox" checked={savedOnly} onChange={(e) => setSavedOnly(e.target.checked)} /> Saved for offline</label>
                 {filtered && <button type="button" className="btn small" onClick={() => { setTag(''); setKind(''); setVis('all'); setSavedOnly(false); }}>Clear</button>}
               </div>
@@ -287,7 +288,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
     if (pg && !offlineAt && savedAt && pg.updated_at && pg.updated_at > savedAt) void off.savePage(info.id, me, pg).then(() => onSavedChange());
   }, [pg, offlineAt, savedAt, info.id, me, onSavedChange]);
 
-  const ctx: RenderCtx = useMemo(() => ({ links: pg?.links ?? {}, open: onOpen, isDM, children: pg?.children ?? [] }), [pg, onOpen, isDM]);
+  const ctx: RenderCtx = useMemo(() => ({ links: pg?.links ?? {}, titles: pg?.linkTitles ?? {}, open: onOpen, isDM, children: pg?.children ?? [] }), [pg, onOpen, isDM]);
   if (error) return <div className="card"><ErrorBox error={error} /></div>;
   if (!pg) return <div className="card"><Loading what="page" /></div>;
   if (editing) return <Editor key={`edit:${pg.id}`} initial={pg} onSaved={(p) => { setEditing(false); toast(`Saved ${p.title}`); if (p.id !== id) onOpen(p.id); else void load(); }} onCancel={() => setEditing(false)} />;
@@ -308,6 +309,8 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
     toast(`Level: ${LEVEL_LABEL[levelOf(level)]}`);
     await load();
   });
+  // The librarian sends the link to a player only when the DM allowed it for this source.
+  const src = sourceLink(pg);
   const crumbs = [pg.source, ...(pg.folder ?? [])].filter(Boolean);
   const parent = rows.find((r) => r.id === rows.find((x) => x.id === id)?.parentId);
   const facts: any[] = pg.properties ?? [];
@@ -318,7 +321,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
   return (
     <article className="card lib-view">
       {offlineAt && <div className="lib-offline small" role="status"><i className="fa-solid fa-cloud-arrow-down" aria-hidden="true" /> Offline copy from {when(offlineAt)}.</div>}
-      {pg.banner && <div className="lib-banner" style={{ backgroundImage: `url("${String(pg.banner).replace(/["\\]/g, '')}")` }} role="img" aria-label="" />}
+      {safeImageUrl(pg.banner) && <div className="lib-banner" style={{ backgroundImage: `url("${safeImageUrl(pg.banner)}")` }} role="img" aria-label="" />}
       <header className="lib-head">
         {crumbs.length > 0 && <div className="tiny faint lib-crumbs">{crumbs.join(' / ')}{parent && <> / <button type="button" className="lib-link-btn inline" onClick={() => onOpen(parent.id)}>{parent.title}</button></>}</div>}
         <h1 className="lib-title">{pg.icon?.glyph && <Icon icon={pg.icon} size={26} />}<span>{pg.title}</span></h1>
@@ -334,7 +337,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
             <i className={`fa-solid ${savedAt ? 'fa-circle-check' : 'fa-download'}`} aria-hidden="true" /> {savedAt ? 'Saved for offline' : 'Save for offline'}
           </button>
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
-          {isDM && pg.url && <a className="btn small" href={pg.url} target="_blank" rel="noreferrer noopener"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> Open in source</a>}
+          {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
           {editable && !offlineAt && <button type="button" className="btn small" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {isDM && !offlineAt && <button type="button" className="btn small danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>}
           {!isDM && !offlineAt && <>
@@ -342,7 +345,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
             <button type="button" className="btn small" onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
           </>}
         </div>
-        {isDM && pg.source && <p className="tiny faint" style={{ margin: '6px 0 0' }}>Synced from {pg.source}; edit it there. Delete removes it here until the next sync brings it back.</p>}
+        {pg.source && <p className="tiny faint lib-source" style={{ margin: '6px 0 0' }}>From {pg.source}{pg.synced_at ? <>, last synced {when(pg.synced_at)}</> : null}.{isDM && ' Edit it there. Delete removes it here until the next sync brings it back.'}</p>}
         <ErrorBox error={act.error} />
       </header>
       {isDM && levelOf(pg.visibility) === 'classified' && <ClassifiedFrame />}
