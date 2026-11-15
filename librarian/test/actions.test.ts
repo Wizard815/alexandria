@@ -193,6 +193,10 @@ test('TestActions_EveryActionRuns', async () => {
   assert.equal(lightCalls.length, 1);
   assert.deepEqual(lightCalls[0].body.seg[0].col, [[255, 0, 0]]);
   assert.equal((await act(T.dm, 'lights.scene', { scene: 'ghost' })).status, 404);
+  // Templates: runs a built-in by name (no model: the generators fill it) without sending it anywhere.
+  r = await act(T.dm, 'sculpt.run', { template: 'Rumour table', count: 1, outputs: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal((await act(T.dm, 'sculpt.run', { template: 'No such template' })).status, 404);
   // Every action in the registry was exercised above.
   const rows = all<any>(deps.db, "SELECT detail FROM audit WHERE world_id = ? AND action = 'action.run'", W).map((x) => String(x.detail).split(' ')[0]);
   for (const a of ACTIONS) assert.ok(rows.includes(a.id), `${a.id} ran`);

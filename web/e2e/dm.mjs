@@ -130,7 +130,10 @@ try {
   await dm.getByLabel('Name', { exact: false }).first().fill('Mira Vossle');
   await dm.getByRole('button', { name: 'Sculpt', exact: true }).click();
   await dm.waitForFunction(() => /Mira Vossle/.test(document.querySelector('main')?.innerText ?? '') && !document.querySelector('main')?.innerText.includes('Nothing yet'), null, { timeout: 15000 }).catch(() => problems.push('sculpt: no preview after Sculpt'));
-  await dm.getByRole('button', { name: /Save to People/ }).click();
+  // Outputs are checkboxes now: tick "Save as a page" (the NPC template saves to People) and press Do selected.
+  const saveBox = dm.locator('label.sculpt-out', { hasText: 'Save as a page' }).locator('input[type=checkbox]');
+  if (!(await saveBox.isChecked())) await saveBox.check();
+  await dm.getByRole('button', { name: /^Do selected/ }).click();
   await dm.waitForTimeout(1200);
   const people = await api('GET', '/people');
   check(JSON.stringify(people.json).includes('Mira Vossle'), 'sculpt: the saved NPC is not in People');
