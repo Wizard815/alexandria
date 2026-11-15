@@ -33,6 +33,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(speak|say (it )?aloud|voice|narrat\w*|read aloud|aloud)\b/i, tools: ['speak', 'list_voice_presets'] },
   { re: /\b(chat|tell the (table|players|party)|message the (table|players|party)|announce|post to)\b/i, tools: ['send_table_chat', 'read_table_chat', 'read_party_chat', 'get_game_session'] },
   { re: /\b(record(ing)?|start (the |a )?(session|game|game night)|end (the |a )?(session|game|game night)|open the table|close the table|game session)\b/i, tools: ['start_recording', 'stop_recording', 'recording_status', 'start_game_session', 'end_game_session', 'get_game_session'] },
+  { re: /\b(macros?|hotkeys?|shortcuts?|trigger)\b/i, tools: ['list_macros', 'run_macro'] },
   { re: /\b(map|pins?|marks?|markers?|route|waypoints?)\b/i, tools: ['list_map_marks', 'add_map_mark', 'hide_map_mark', 'delete_map_mark'] },
   { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
   { re: /\b(find|search|look up|where)\b/i, tools: ['search_world', 'world_info'] },
