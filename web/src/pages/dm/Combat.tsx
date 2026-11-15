@@ -5,6 +5,7 @@ import { PageHead, ErrorBox, Empty, Loading, Field, Switch, useAction } from '..
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { healthPreview, usePlayers } from './shared.tsx';
 import SculptButton from '../../features/sculpt/SculptButton.tsx';
+import '../combat.css';
 
 type Effect = { name: string; rounds?: number };
 
@@ -19,18 +20,20 @@ export default function DMCombat() {
 
   return (
     <div className="page wide">
-      <PageHead title="Combat" lead={`Players see the order and effects. Monster health shows as ${info.settings.monsterHealth === 'none' ? 'nothing' : info.settings.monsterHealth}; the party's health is never shown. Hidden foes stay hidden.`}>
+      <PageHead title="Combat" lead={`Players see the order and conditions. Monster health shows as ${info.settings.monsterHealth === 'none' ? 'nothing' : info.settings.monsterHealth}; the party's health is never shown. Hidden foes stay hidden.`}>
         <SculptButton template="encounter" label="Encounter" autoSculpt onDone={() => void combat.reload()} /><SculptButton template="statblock" label="Quick statblock" onDone={() => void combat.reload()} />
+      </PageHead>
+      <div className="cb-bar">
         {c?.active ? (
           <>
             <span className="chip gold" style={{ fontSize: 15, padding: '4px 12px' }}>Round {c.round}</span>
-            <button type="button" className="btn primary" disabled={act.busy || !list.length} onClick={() => act.run(async () => { combat.setData(await w.nextTurn()); })}>Next turn ▸</button>
+            <button type="button" className="btn primary next" disabled={act.busy || !list.length} onClick={() => act.run(async () => { combat.setData(await w.nextTurn()); })}>Next turn ▸</button>
             <button type="button" className="btn" disabled={act.busy} onClick={() => void setState({ active: false })}>End combat</button>
           </>
         ) : (
           <button type="button" className="btn primary" disabled={act.busy || !list.length} onClick={() => void setState({ active: true, round: 1, turn: 0 })}>Start combat</button>
         )}
-      </PageHead>
+      </div>
       <ErrorBox error={combat.error || act.error} />
       <div className="cols">
         <section className="col-3 stack" aria-label="Initiative order">
@@ -91,51 +94,51 @@ function Row({ x, current, mode }: { x: any; current: boolean; mode: string }) {
   };
   const pct = x.hp !== null && x.max_hp ? Math.max(0, Math.min(100, (x.hp / x.max_hp) * 100)) : null;
 
+  const [fxOpen, setFxOpen] = useState(false);
   return (
-    <article className="card" style={current ? { borderColor: 'var(--accent)', background: 'var(--accent-bg)' } : x.hidden ? { borderStyle: 'dashed' } : undefined} aria-current={current ? 'step' : undefined}>
-      <div className="row between">
-        <div className="row">
-          <span className="chip gold" title="Initiative" style={{ fontSize: 14 }}>{x.initiative}</span>
-          <strong style={{ fontSize: 18 }}>{x.name}</strong>
-          {x.is_pc && <span className="chip teal">{nameOf(x.account_id)}'s PC</span>}
-          {x.hidden && <span className="chip red">Hidden from players</span>}
-          {current && <span className="chip gold">Their turn</span>}
-        </div>
-        <div className="row">
-          <label className="row small muted" style={{ gap: 6 }}>Hidden <Switch checked={!!x.hidden} onChange={(v) => void patch({ hidden: v })} label={`Hide ${x.name}`} /></label>
-          <button type="button" className="btn small ghost" aria-label={`Remove ${x.name}`} disabled={act.busy} onClick={() => void act.run(() => w.call('DELETE', `/live/combatants/${x.id}`))}>✕</button>
-        </div>
+    <article className={`cb-row${current ? ' current' : ''}${x.hidden ? ' hidden-foe' : ''}`} aria-current={current ? 'step' : undefined}>
+      <div className="cb-head">
+        <span className="chip gold" title="Initiative" style={{ fontSize: 14 }}>{x.initiative}</span>
+        <span className="name">{current ? '▶ ' : ''}{x.name}</span>
+        {x.is_pc && <span className="chip teal">{nameOf(x.account_id)}'s PC</span>}
+        {x.hidden && <span className="chip red">Hidden from players</span>}
+        {current && <span className="chip gold">Their turn</span>}
+        <label className="row small muted push" style={{ gap: 6 }}>Hidden <Switch checked={!!x.hidden} onChange={(v) => void patch({ hidden: v })} label={`Hide ${x.name}`} /></label>
+        <button type="button" className="btn small ghost" aria-label={`Remove ${x.name}`} disabled={act.busy} onClick={() => void act.run(() => w.call('DELETE', `/live/combatants/${x.id}`))}>✕</button>
       </div>
-      <div className="row">
+      <div className="cb-hit">
         {x.hp !== null && (
-           <span ref={hpRef} title="Scroll to change by 1" className="stat" style={{ minWidth: 120, cursor: 'ns-resize' }}>
+          <span ref={hpRef} title="Scroll to change by 1" className="cb-hp" style={{ cursor: 'ns-resize' }}>
             <b>{x.hp}<span className="muted" style={{ fontSize: 15 }}> / {x.max_hp}</span></b>
-            {pct !== null && <span style={{ height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: `${pct}%`, background: pct > 50 ? 'var(--ok-text)' : pct > 25 ? 'var(--accent)' : 'var(--danger)' }} /></span>}
+            {pct !== null && <span className="bar"><span style={{ width: `${pct}%`, background: pct > 50 ? 'var(--ok-text)' : pct > 25 ? 'var(--accent)' : 'var(--danger)' }} /></span>}
           </span>
         )}
-        <form className="row" onSubmit={(e) => { e.preventDefault(); applyAmount(false); }}>
+        <form className="row" style={{ flex: '1 1 auto', gap: 8 }} onSubmit={(e) => { e.preventDefault(); applyAmount(false); }}>
           <label className="sr-only" htmlFor={`amt-${x.id}`}>Amount for {x.name}</label>
-          <input id={`amt-${x.id}`} className="input" style={{ width: 90 }} inputMode="numeric" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
+          <input id={`amt-${x.id}`} className="input" inputMode="numeric" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
             onKeyDown={(e) => { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); applyAmount(true); } }} />
-          <button type="submit" className="btn small danger" disabled={!amount}>Damage</button>
-          <button type="button" className="btn small" disabled={!amount} onClick={() => applyAmount(true)}>Heal</button>
+          <button type="submit" className="btn danger" disabled={!amount}>Damage</button>
+          <button type="button" className="btn" disabled={!amount} onClick={() => applyAmount(true)}>Heal</button>
         </form>
       </div>
-      <div className="row">
+      <div className="cb-fx">
         {effects.map((ef, i) => (
           <span key={i} className="chip gold">{ef.name}{ef.rounds ? ` · ${ef.rounds} rd` : ''}
-            <button type="button" className="btn ghost small" style={{ minHeight: 20, padding: '0 4px' }} aria-label={`Remove ${ef.name}`} onClick={() => void patch({ effects: effects.filter((_, j) => j !== i) })}>×</button>
+            <button type="button" className="btn ghost small x" aria-label={`Remove ${ef.name}`} onClick={() => void patch({ effects: effects.filter((_, j) => j !== i) })}>×</button>
           </span>
         ))}
-        <form className="row" onSubmit={addEffect}>
-          <label className="sr-only" htmlFor={`ef-${x.id}`}>New effect on {x.name}</label>
-          <input id={`ef-${x.id}`} className="input" style={{ width: 150 }} placeholder="Effect (Prone…)" value={effect} onChange={(e) => setEffect(e.target.value)} />
-          <label className="sr-only" htmlFor={`efr-${x.id}`}>Rounds</label>
-          <input id={`efr-${x.id}`} className="input" style={{ width: 70 }} inputMode="numeric" placeholder="Rounds" value={rounds} onChange={(e) => setRounds(e.target.value.replace(/[^\d]/g, ''))} />
-          <button type="submit" className="btn small" disabled={!effect.trim()}>Add effect</button>
-        </form>
+        {fxOpen ? (
+          <form onSubmit={(e) => { addEffect(e); setFxOpen(false); }}>
+            <label className="sr-only" htmlFor={`ef-${x.id}`}>New condition on {x.name}</label>
+            <input id={`ef-${x.id}`} className="input" style={{ width: 150 }} placeholder="Prone, Poisoned…" autoFocus value={effect} onChange={(e) => setEffect(e.target.value)} />
+            <label className="sr-only" htmlFor={`efr-${x.id}`}>Rounds</label>
+            <input id={`efr-${x.id}`} className="input" style={{ width: 80 }} inputMode="numeric" placeholder="Rounds" value={rounds} onChange={(e) => setRounds(e.target.value.replace(/[^\d]/g, ''))} />
+            <button type="submit" className="btn small" disabled={!effect.trim()}>Add</button>
+            <button type="button" className="btn small ghost" onClick={() => setFxOpen(false)}>Cancel</button>
+          </form>
+        ) : <button type="button" className="btn small" onClick={() => setFxOpen(true)}>+ Condition</button>}
       </div>
-      <span className="tiny faint">Players see: {x.hidden ? 'nothing (hidden)' : x.is_pc ? 'name and effects, no health' : `name, effects and ${healthPreview(x.hp, x.max_hp, mode)}`}</span>
+      <span className="tiny faint">Players see: {x.hidden ? 'nothing (hidden)' : x.is_pc ? 'name and conditions, no health' : `name, conditions and ${healthPreview(x.hp, x.max_hp, mode)}`}</span>
       <ErrorBox error={act.error} />
     </article>
   );
