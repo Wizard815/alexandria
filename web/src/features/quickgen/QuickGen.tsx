@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import { ErrorBox, Tabs, useAction } from '../../ui/index.tsx';
 import { DockButton } from '../../ui/Dock.tsx';
+import SculptButton from '../sculpt/SculptButton.tsx';
 import './quickgen.css';
 
 type Tab = 'names' | 'items' | 'gold';
@@ -141,7 +142,7 @@ function Panel({ onClose }: { onClose: () => void }) {
         <div className="qg-results" aria-live="polite">
           {sel.tab === 'names' && (
             <ul className="qg-list">
-              {names.map((n) => <li key={n.name}><button type="button" className="qg-row" onClick={() => { copy(n.name); setNote(`Copied ${n.name}.`); }}><strong>{n.name}</strong><span className="muted">{n.race}, {n.gender}</span></button></li>)}
+              {names.map((n) => <li key={n.name} className="qg-item"><button type="button" className="qg-row" onClick={() => { copy(n.name); setNote(`Copied ${n.name}.`); }}><strong>{n.name}</strong><span className="muted">{n.race}, {n.gender}</span></button><SculptButton template="npc" label="Sculpt NPC" values={{ name: n.name, race: n.race }} /></li>)}
             </ul>
           )}
           {sel.tab === 'items' && (
@@ -153,6 +154,7 @@ function Panel({ onClose }: { onClose: () => void }) {
                     <button type="button" className="qg-row" onClick={() => { copy(i.name); setNote(`Copied ${i.name}.`); }}>
                       <strong>{i.name}</strong><span className="muted">{i.rarity} {i.type} · {gp(i.priceGp)}</span>
                     </button>
+                    <SculptButton template="magic-item" label="Sculpt" values={{ name: i.name, rarity: i.rarity, type: i.type, price: gp(i.priceGp), summary: i.summary, attune: (i as { attunement?: boolean }).attunement ? "Requires attunement" : "No attunement needed" }} />
                     <button type="button" className="btn small" disabled={act.busy} onClick={() => void giveItem(i)}>Give</button>
                   </li>
                 ))}
