@@ -313,7 +313,13 @@ const feature: Feature = {
     required: ['template'],
     call: (a) => ({ method: 'POST', path: '/sculpt/run', body: { template: a.template, values: a.values ?? {}, lock: a.lock, only: a.only, save: !!a.save } }),
   }, {
-    name: 'sculpt_templates',
+    name: 'send_scene', write: true,
+    description: "DM: send a player-perspective scene (template 'Scene, player perspective', with the values sculpt gave back) to every player as a message. Refused if it repeats DM-only notes.",
+    props: { template: { type: 'string', description: 'A player-perspective template name or id' }, values: { type: 'object', description: 'The filled fields (location, time, weather, mood, description)' } },
+    required: ['template', 'values'],
+    call: (a) => ({ method: 'POST', path: '/sculpt/send', body: { templateId: a.template, values: a.values } }),
+  }, {
+    name: 'sculpt_templates', dmOnly: true,
     description: 'DM: the sculpting templates for this world, with their fields.',
     props: {},
     call: () => ({ method: 'GET', path: '/sculpt/templates' }),

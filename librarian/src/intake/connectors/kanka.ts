@@ -156,6 +156,26 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** The Kanka web app of an API URL: app.kanka.io for the hosted service, else the host of a self-hosted API. */
+export function kankaAppBase(apiUrl: unknown): string {
+  try {
+    const u = new URL(String(apiUrl || 'https://api.kanka.io/1.0'));
+    return u.hostname === 'api.kanka.io' ? 'https://app.kanka.io' : u.origin;
+  } catch { return 'https://app.kanka.io'; }
+}
+
+/** An entity's page in the Kanka app: /w/<campaign>/entities/<entity id> (documented as urls.view). */
+export function kankaEntityUrl(cfg: { apiUrl?: unknown; campaignId?: unknown }, entityId: unknown): string | null {
+  return /^\d+$/.test(String(cfg.campaignId ?? '')) && /^\d+$/.test(String(entityId ?? '')) ? `${kankaAppBase(cfg.apiUrl)}/w/${cfg.campaignId}/entities/${entityId}` : null;
+}
+
+/** Kanka lists by name, within its module order (characters, locations ...). A page's position is its place in that list. */
+export function kankaPositions<T>(rows: T[], mod: (r: T) => string, name: (r: T) => string, key: (r: T) => string): Map<string, number> {
+  const idx = new Map(TYPES.map(([m], i) => [m, i]));
+  const sorted = rows.slice().sort((a, b) => (idx.get(mod(a)) ?? 99) - (idx.get(mod(b)) ?? 99) || name(a).localeCompare(name(b), undefined, { numeric: true, sensitivity: 'base' }) || key(a).localeCompare(key(b), undefined, { numeric: true }));
+  return new Map(sorted.map((r, i) => [key(r), i]));
+}
+
 export const kankaBase = (cfg: { apiUrl?: unknown }) => String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
 
 /**
@@ -231,6 +251,7 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
     } catch (err: any) { ctx.log(`Could not read attribute privacy: ${err.message}. Attributes stay DM-only.`); }
     for (const { e } of rows) if (typeof e.is_attributes_private !== 'boolean' && flags.has(String(e.entity_id))) e.is_attributes_private = flags.get(String(e.entity_id));
   }
+  const positions = kankaPositions(rows.filter(({ e }) => e.is_template !== true), (r) => r.mod, (r) => esc(r.e.name), (r) => String(r.e.entity_id ?? r.e.id));
   for (const { mod, type, parentField, e } of rows) {
     if (e.is_template === true) continue;
     const entityId = String(e.entity_id ?? e.id);
@@ -250,7 +271,8 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
       blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared, (p) => postLevel(p, tagOf))],
       // Kanka's own private flag always wins; a missing flag counts as private.
       visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm',
-      url: e.urls?.view ?? null,
+      url: (typeof e.urls?.view === 'string' && /^https?:\/\//i.test(e.urls.view) ? e.urls.view : null) ?? kankaEntityUrl(cfg, entityId),
+      position: positions.get(entityId) ?? null,
       updatedAt: e.updated_at ?? null,
     };
   }
@@ -384,6 +406,8 @@ export const kankaApi: Connector = {
 
 // ---------- MCP (mcp-kanka) ----------
 
+// mcp-kanka's entity types as API modules (for the module order).
+const MCP_MODULE: Record<string, string> = { character: 'characters', location: 'locations', organization: 'organisations', family: 'families', item: 'items', note: 'notes', journal: 'journals', quest: 'quests', race: 'races', creature: 'creatures', event: 'events', ability: 'abilities', tag: 'tags' };
 const MCP_TYPES = ['character', 'creature', 'family', 'location', 'organization', 'item', 'race', 'note', 'journal', 'quest', 'event', 'ability', 'tag'];
 
 async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Entry> {
@@ -402,7 +426,9 @@ async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Ent
     }
   }
   ctx.log(`Listed ${listed.length} entities`);
+  const mcpPos = kankaPositions(listed, (e) => (MCP_MODULE[String(e.entity_type)] ?? String(e.entity_type)), (e) => esc(e.name), (e) => String(e.entity_id));
   const trust = cfg.trustPostVisibility === true;
+  const appBase = String(cfg.appUrl || 'https://app.kanka.io').replace(/\/$/, '');
   const ids = listed.map((e) => Number(e.entity_id));
   for (let i = 0; i < ids.length; i += 8) {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
@@ -426,6 +452,8 @@ async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Ent
         blocks: e ? [...kankaBlocks(e.entry), ...postBlocks(e.posts ?? [], (p) => trust && p.is_hidden === false)] : [],
         // Not loaded, or no explicit is_hidden=false: DM-only.
         visibility: e && e.is_hidden === false && ctx.shareVisible ? 'party' : 'dm',
+        url: /^\d+$/.test(String(cfg.campaignId ?? '')) && /^https?:\/\/\S+$/.test(appBase) ? `${appBase}/w/${cfg.campaignId}/entities/${id}` : null,
+        position: mcpPos.get(String(id)) ?? null,
         updatedAt: e?.updated_at ?? null,
       };
     }
@@ -443,6 +471,8 @@ export const kankaMcp: Connector = {
     { key: 'server', label: 'Local server name', type: 'text', showIf: { transport: 'stdio' }, placeholder: 'kanka' },
     { key: 'url', label: 'MCP URL', type: 'url', showIf: { transport: 'http' } },
     { key: 'token', label: 'MCP token', type: 'password', secret: true, showIf: { transport: 'http' } },
+    { key: 'campaignId', label: 'Campaign id', type: 'text', help: 'The number in your campaign’s address. Only used for the "Open in Kanka" button.' },
+    { key: 'appUrl', label: 'Kanka app address', type: 'url', placeholder: 'https://app.kanka.io', help: 'Only change this for a self-hosted Kanka.' },
     { key: 'trustPostVisibility', label: 'Trust post visibility', type: 'boolean', help: 'Only with mcp-kanka that includes the admin-post fix (a4bbb02). Off: every post is DM-only.' },
   ],
   validate(cfg) {
