@@ -1,5 +1,6 @@
-// Sculpting: fill in a few blanks and the agent fills the rest, from templates
-// kept per world. Deterministic generators first, then one chat call.
+// Sculpting: fill in a few blanks and the rest is filled to fit the world, from
+// templates kept per world. Generators and the world's context come first (no
+// model); then at most one chat call per sculpt, or per batch.
 import { Router } from 'express';
 import type { Deps } from '../../app.ts';
 import type { Feature } from '../types.ts';
@@ -9,8 +10,11 @@ import { only } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { ctx, me, memberIds } from '../../routes/_shared.ts';
 import { normalizeStatblock, saveStatblockPage } from '../agent/statblock.ts';
-import { bodyHash, cleanForPlayer, renderMd, renderParts, sculpt, type Tpl, type Values } from './engine.ts';
-import { BUILTINS, FIELD_TYPES, type Field, type Target } from './templates.ts';
+import { bodyHash, firstLeak, makeCtx, type Overrides, type RenderCtx } from './ctx.ts';
+import { MAX_BATCH, cleanForPlayer, publicText, renderMd, renderParts, sculptMany, type SculptResult, type Tpl, type Values } from './engine.ts';
+import { combatantsFromList, plain, publicOf, selfCall, OUTPUT_KEYS, type OutputKey } from './outputs.ts';
+import { CTX_VARS, exportTemplate, readImport, readTemplate } from './schema.ts';
+import { BUILTINS, CATEGORIES, type Field, type Outputs, type Target } from './templates.ts';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sculpt_templates (
@@ -25,80 +29,51 @@ CREATE INDEX IF NOT EXISTS sculpt_history_world ON sculpt_history(world_id, at);
 CREATE TABLE IF NOT EXISTS sculpt_player_pages (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, page_id TEXT NOT NULL, body_hash TEXT NOT NULL,
   PRIMARY KEY (world_id, page_id));
+CREATE TABLE IF NOT EXISTS sculpt_prefs (
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, account_id TEXT NOT NULL, template_id TEXT NOT NULL,
+  fav INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0, used_at TEXT,
+  PRIMARY KEY (world_id, account_id, template_id));
 `;
 
 const audit = (db: any, worldId: string, accountId: string | null, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
 const bad = (m: string) => new HttpError(422, m);
 
+const INSERT = 'INSERT INTO sculpt_templates (id, world_id, builtin_key, name, description, perspective, fields, body, target, category, outputs, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)';
+const defaultOutputs = (target: Target): Outputs => ({ page: target.kind !== 'none' });
+
 function seed(db: any, worldId: string) {
   const have = new Set(all<any>(db, 'SELECT builtin_key FROM sculpt_templates WHERE world_id = ? AND builtin_key IS NOT NULL', worldId).map((r) => r.builtin_key));
   for (const b of BUILTINS) {
     if (have.has(b.key)) continue;
-    run(db, 'INSERT INTO sculpt_templates (id, world_id, builtin_key, name, description, perspective, fields, body, target, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      id('sct_'), worldId, b.key, b.name, b.description, b.perspective, JSON.stringify(b.fields), b.body, JSON.stringify(b.target), now(), now());
+    run(db, INSERT, id('sct_'), worldId, b.key, b.name, b.description, b.perspective, JSON.stringify(b.fields), b.body, JSON.stringify(b.target), b.category, JSON.stringify(b.outputs ?? defaultOutputs(b.target)), now(), now());
   }
 }
 
-const view = (r: any) => ({
-  id: r.id, builtin: !!r.builtin_key, key: r.builtin_key ?? null, name: r.name, description: r.description, perspective: r.perspective as 'dm' | 'player',
-  fields: parseJson<Field[]>(r.fields, []), body: r.body, target: parseJson<Target>(r.target, { kind: 'none' }), updatedAt: r.updated_at,
-});
-const asTpl = (r: any): Tpl => { const v = view(r); return { id: v.id, name: v.name, description: v.description, perspective: v.perspective, fields: v.fields, body: v.body, target: v.target }; };
-
-const text = (v: unknown, field: string, max: number, required = false): string => {
-  if (v === undefined || v === null || v === '') { if (required) throw bad(`${field} is required`); return ''; }
-  if (typeof v !== 'string') throw bad(`${field} must be text`);
-  if (v.length > max) throw bad(`${field} is too long`);
-  return v.trim();
+const view = (r: any, prefs?: Map<string, any>) => {
+  const b = r.builtin_key ? BUILTINS.find((x) => x.key === r.builtin_key) : undefined;
+  const target = parseJson<Target>(r.target, { kind: 'none' });
+  const p = prefs?.get(r.id);
+  return {
+    id: r.id, builtin: !!r.builtin_key, key: r.builtin_key ?? null, name: r.name, description: r.description, perspective: r.perspective as 'dm' | 'player',
+    category: (r.category || b?.category || 'Story') as string,
+    fields: parseJson<Field[]>(r.fields, []), body: r.body, target, outputs: parseJson<Outputs>(r.outputs, b?.outputs ?? defaultOutputs(target)),
+    updatedAt: r.updated_at, favorite: !!p?.fav, uses: p?.uses ?? 0, lastUsedAt: p?.used_at ?? null,
+  };
 };
-
-function readTemplate(b: any) {
-  if (!b || typeof b !== 'object') throw bad('A template is needed');
-  const name = text(b.name, 'name', 80, true);
-  const perspective = b.perspective === 'player' ? 'player' : 'dm';
-  if (!Array.isArray(b.fields) || !b.fields.length || b.fields.length > 40) throw bad('A template needs 1 to 40 fields');
-  const seen = new Set<string>();
-  const fields: Field[] = b.fields.map((f: any, i: number) => {
-    const key = text(f?.key, `fields[${i}].key`, 32, true);
-    if (!/^[a-z][a-z0-9_]*$/.test(key)) throw bad(`Field key "${key}" must be lowercase letters, digits and underscores`);
-    if (seen.has(key)) throw bad(`Field key "${key}" is used twice`);
-    seen.add(key);
-    if (!FIELD_TYPES.includes(f.type)) throw bad(`Field "${key}" has an unknown type`);
-    const out: Field = { key, label: text(f.label, `fields[${i}].label`, 80) || key, type: f.type };
-    if (f.type === 'select') {
-      const o = Array.isArray(f.options) ? f.options.map((x: unknown) => String(x).trim()).filter(Boolean).slice(0, 40) : [];
-      if (!o.length) throw bad(`Field "${key}" needs options`);
-      out.options = o;
-    }
-    const hint = text(f.hint, `fields[${i}].hint`, 300);
-    if (hint) out.hint = hint;
-    if (f.required) out.required = true;
-    if (f.dmOnly) out.dmOnly = true;
-    if (f.gen === 'clock' || f.gen === 'stock') out.gen = f.gen;
-    return out;
-  });
-  const body = text(b.body, 'body', 20000, true);
-  for (const k of [...body.matchAll(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g)].map((m) => m[1])) if (!seen.has(k)) throw bad(`The body uses {{${k}}}, which is not a field`);
-  if (perspective === 'player' && (fields.some((f) => f.dmOnly) || /\{\{#dm\}\}/.test(body))) throw bad('A player-perspective template cannot have DM-only fields or {{#dm}} sections');
-  const t = b.target && typeof b.target === 'object' ? b.target : { kind: 'none' };
-  const vis = t.visibility === 'party' ? 'party' : 'dm';
-  const path = text(t.path, 'target.path', 200);
-  let target: Target;
-  switch (t.kind) {
-    case 'page': target = { kind: 'page', path: path || 'Sculpted/{{' + fields[0].key + '}}', visibility: vis }; break;
-    case 'person': target = { kind: 'person', path: path || 'People/{{' + fields[0].key + '}}', visibility: vis, alsoPage: t.alsoPage !== false }; break;
-    case 'shop': target = { kind: 'shop', path: path || 'Shops/{{' + fields[0].key + '}}', visibility: vis, listField: typeof t.listField === 'string' && seen.has(t.listField) ? t.listField : undefined }; break;
-    case 'combat':
-      if (!fields.some((f) => f.type === 'statblock')) throw bad('A combat target needs a statblock field');
-      target = { kind: 'combat' }; break;
-    case 'none': target = { kind: 'none' }; break;
-    default: throw bad('The save target must be page, person, combat, shop or none');
-  }
-  return { name, description: text(b.description, 'description', 400), perspective, fields, body, target };
-}
+const asTpl = (r: any): Tpl => { const v = view(r); return { id: v.id, name: v.name, description: v.description, perspective: v.perspective, category: v.category as Tpl['category'], fields: v.fields, body: v.body, target: v.target, outputs: v.outputs }; };
 
 const expand = (pattern: string, values: Values): string => pattern.replace(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g, (_m, k) => (values[k] ?? '').replace(/\s+/g, ' ').trim());
 const cleanPath = (p: string): string => p.split('/').map((s) => s.replace(/[\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim()).filter((s) => s && s !== '.' && s !== '..').join('/');
+
+interface CtxIn extends Overrides { page?: string }
+function contextIn(raw: unknown): CtxIn {
+  const o = raw && typeof raw === 'object' ? (raw as any) : {};
+  const out: CtxIn = {};
+  if (typeof o.location === 'string' && o.location.trim()) out.location = o.location.trim().slice(0, 120);
+  if (o.partyLevel !== undefined && Number.isFinite(Number(o.partyLevel))) out.partyLevel = Math.max(1, Math.min(20, Math.floor(Number(o.partyLevel))));
+  if (typeof o.page === 'string' && o.page.trim()) out.page = o.page.trim().slice(0, 120);
+  return out;
+}
 
 function routes(d: Deps) {
   const r = Router();
@@ -107,6 +82,7 @@ function routes(d: Deps) {
   r.use((_req, res, next) => { seed(d.db, W(res)); next(); });
 
   const rows = (res: any) => all<any>(d.db, 'SELECT * FROM sculpt_templates WHERE world_id = ? ORDER BY builtin_key IS NULL, created_at, rowid', W(res));
+  const prefsOf = (res: any) => new Map(all<any>(d.db, 'SELECT * FROM sculpt_prefs WHERE world_id = ? AND account_id = ?', W(res), me(res)).map((p) => [p.template_id, p]));
   const find = (res: any, ref: unknown): any => {
     const s = String(ref ?? '').trim();
     const row = one<any>(d.db, 'SELECT * FROM sculpt_templates WHERE world_id = ? AND (id = ? OR builtin_key = ? OR name = ? COLLATE NOCASE)', W(res), s, s, s);
@@ -118,28 +94,90 @@ function routes(d: Deps) {
     if (b && typeof b === 'object') for (const [k, v] of Object.entries(b)) if (v !== null && v !== undefined) out[k] = typeof v === 'string' ? v : typeof v === 'object' ? JSON.stringify(v) : String(v);
     return out;
   };
+  const rcFor = (res: any, tpl: Tpl, c: CtxIn = {}): RenderCtx => {
+    let location = c.location;
+    if (!location && c.page) location = one<any>(d.db, 'SELECT title FROM pages WHERE world_id = ? AND (id = ? OR title = ? COLLATE NOCASE OR path = ?)', W(res), c.page, c.page, c.page)?.title;
+    return makeCtx(d, W(res), tpl.perspective === 'player', { location, partyLevel: c.partyLevel });
+  };
+  /** "Sculpt from this page": the first blank page field gets the page. */
+  const withPage = (res: any, tpl: Tpl, values: Values, c: CtxIn): Values => {
+    if (!c.page) return values;
+    const pg = one<any>(d.db, 'SELECT title FROM pages WHERE world_id = ? AND (id = ? OR title = ? COLLATE NOCASE OR path = ?)', W(res), c.page, c.page, c.page);
+    if (!pg) throw new HttpError(404, 'That page was not found');
+    const f = tpl.fields.find((x) => (x.type === 'page' || x.type === 'pageLink') && !values[x.key]?.trim());
+    return f ? { ...values, [f.key]: pg.title } : values;
+  };
+  const touchUse = (res: any, tplId: string) => {
+    run(d.db, `INSERT INTO sculpt_prefs (world_id, account_id, template_id, uses, used_at) VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT (world_id, account_id, template_id) DO UPDATE SET uses = uses + 1, used_at = excluded.used_at`, W(res), me(res), tplId, now());
+  };
 
   // ---- templates ----
-  r.get('/templates', (_req, res) => res.json({ templates: rows(res).map(view) }));
+  r.get('/templates', (req, res) => {
+    const prefs = prefsOf(res);
+    const q = String(req.query.q ?? '').trim().toLowerCase();
+    const cat = String(req.query.category ?? '').trim().toLowerCase();
+    let list = rows(res).map((x) => view(x, prefs));
+    if (cat) list = list.filter((t) => t.category.toLowerCase() === cat);
+    if (q) list = list.filter((t) => `${t.name} ${t.description} ${t.category} ${t.fields.map((f) => f.label).join(' ')}`.toLowerCase().includes(q));
+    if (req.query.favorites === '1') list = list.filter((t) => t.favorite);
+    if (req.query.recent === '1') list = list.filter((t) => t.lastUsedAt).sort((a, b) => String(b.lastUsedAt).localeCompare(String(a.lastUsedAt))).slice(0, 8);
+    if (req.query.compact === '1') {
+      res.json({ templates: list.map((t) => ({ name: t.name, category: t.category, description: t.description, perspective: t.perspective, fields: t.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.options ? { options: f.options } : {}) })), outputs: t.outputs })), categories: CATEGORIES });
+      return;
+    }
+    res.json({ templates: list, categories: CATEGORIES });
+  });
   r.post('/templates', (req, res) => {
     const t = readTemplate(req.body);
     const tid = id('sct_');
-    run(d.db, 'INSERT INTO sculpt_templates (id, world_id, builtin_key, name, description, perspective, fields, body, target, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      tid, W(res), null, t.name, t.description, t.perspective, JSON.stringify(t.fields), t.body, JSON.stringify(t.target), now(), now());
+    run(d.db, INSERT, tid, W(res), null, t.name, t.description, t.perspective, JSON.stringify(t.fields), t.body, JSON.stringify(t.target), t.category, JSON.stringify(t.outputs), now(), now());
     audit(d.db, W(res), me(res), 'sculpt.template', `create ${t.name}`);
     res.status(201).json(view(one(d.db, 'SELECT * FROM sculpt_templates WHERE id = ?', tid)));
+  });
+
+  // Sharing: export, import (with a preview), duplicate.
+  r.post('/templates/import', (req, res) => {
+    const b = req.body ?? {};
+    const { template: t, summary } = readImport(b.json ?? b.data ?? b.template ?? b);
+    const clash = !!one(d.db, 'SELECT 1 FROM sculpt_templates WHERE world_id = ? AND name = ? COLLATE NOCASE', W(res), t.name);
+    if (b.preview) { res.json({ ok: true, preview: summary, nameTaken: clash }); return; }
+    let name = t.name;
+    for (let n = 2; one(d.db, 'SELECT 1 FROM sculpt_templates WHERE world_id = ? AND name = ? COLLATE NOCASE', W(res), name); n++) name = `${t.name} (${n})`.slice(0, 80);
+    const tid = id('sct_');
+    run(d.db, INSERT, tid, W(res), null, name, t.description, t.perspective, JSON.stringify(t.fields), t.body, JSON.stringify(t.target), t.category, JSON.stringify(t.outputs), now(), now());
+    audit(d.db, W(res), me(res), 'sculpt.template', `import ${name}`);
+    res.status(201).json(view(one(d.db, 'SELECT * FROM sculpt_templates WHERE id = ?', tid)));
+  });
+  r.get('/templates/:id/export', (req, res) => { res.json(exportTemplate(view(find(res, req.params.id)))); });
+  r.post('/templates/:id/duplicate', (req, res) => {
+    const v = view(find(res, req.params.id));
+    let name = `${v.name} (copy)`.slice(0, 80);
+    for (let n = 2; one(d.db, 'SELECT 1 FROM sculpt_templates WHERE world_id = ? AND name = ? COLLATE NOCASE', W(res), name); n++) name = `${v.name} (copy ${n})`.slice(0, 80);
+    const tid = id('sct_');
+    run(d.db, INSERT, tid, W(res), null, name, v.description, v.perspective, JSON.stringify(v.fields), v.body, JSON.stringify(v.target), v.category, JSON.stringify(v.outputs), now(), now());
+    audit(d.db, W(res), me(res), 'sculpt.template', `duplicate ${v.name}`);
+    res.status(201).json(view(one(d.db, 'SELECT * FROM sculpt_templates WHERE id = ?', tid)));
+  });
+  r.post('/templates/:id/favorite', (req, res) => {
+    const row = find(res, req.params.id);
+    const on = req.body?.on !== false;
+    run(d.db, `INSERT INTO sculpt_prefs (world_id, account_id, template_id, fav) VALUES (?, ?, ?, ?)
+      ON CONFLICT (world_id, account_id, template_id) DO UPDATE SET fav = excluded.fav`, W(res), me(res), row.id, on ? 1 : 0);
+    res.json({ ok: true, favorite: on });
   });
   r.put('/templates/:id', (req, res) => {
     const row = find(res, req.params.id);
     const t = readTemplate(req.body);
-    run(d.db, 'UPDATE sculpt_templates SET name = ?, description = ?, perspective = ?, fields = ?, body = ?, target = ?, updated_at = ? WHERE id = ?', t.name, t.description, t.perspective, JSON.stringify(t.fields), t.body, JSON.stringify(t.target), now(), row.id);
+    run(d.db, 'UPDATE sculpt_templates SET name = ?, description = ?, perspective = ?, fields = ?, body = ?, target = ?, category = ?, outputs = ?, updated_at = ? WHERE id = ?', t.name, t.description, t.perspective, JSON.stringify(t.fields), t.body, JSON.stringify(t.target), t.category, JSON.stringify(t.outputs), now(), row.id);
     audit(d.db, W(res), me(res), 'sculpt.template', `update ${t.name}`);
     res.json(view(one(d.db, 'SELECT * FROM sculpt_templates WHERE id = ?', row.id)));
   });
   r.delete('/templates/:id', (req, res) => {
     const row = find(res, req.params.id);
-    if (row.builtin_key) throw new HttpError(409, 'Built-in templates cannot be deleted. Edit them, or use Reset to restore the original.');
+    if (row.builtin_key) throw new HttpError(409, 'Built-in templates cannot be deleted. Edit them, use Reset to restore the original, or duplicate one to customise it.');
     run(d.db, 'DELETE FROM sculpt_templates WHERE id = ?', row.id);
+    run(d.db, 'DELETE FROM sculpt_prefs WHERE world_id = ? AND template_id = ?', W(res), row.id);
     audit(d.db, W(res), me(res), 'sculpt.template', `delete ${row.name}`);
     res.json({ ok: true });
   });
@@ -147,21 +185,38 @@ function routes(d: Deps) {
     const row = find(res, req.params.id);
     const b = BUILTINS.find((x) => x.key === row.builtin_key);
     if (!b) throw new HttpError(409, 'Only built-in templates can be reset');
-    run(d.db, 'UPDATE sculpt_templates SET name = ?, description = ?, perspective = ?, fields = ?, body = ?, target = ?, updated_at = ? WHERE id = ?', b.name, b.description, b.perspective, JSON.stringify(b.fields), b.body, JSON.stringify(b.target), now(), row.id);
+    run(d.db, 'UPDATE sculpt_templates SET name = ?, description = ?, perspective = ?, fields = ?, body = ?, target = ?, category = ?, outputs = ?, updated_at = ? WHERE id = ?', b.name, b.description, b.perspective, JSON.stringify(b.fields), b.body, JSON.stringify(b.target), b.category, JSON.stringify(b.outputs ?? defaultOutputs(b.target)), now(), row.id);
     res.json(view(one(d.db, 'SELECT * FROM sculpt_templates WHERE id = ?', row.id)));
   });
 
+  /** The world context templates can use ({{world.date}}, {{party.level}} ...), resolved without a model. */
+  r.get('/context', (req, res) => {
+    const rc = makeCtx(d, W(res), false, contextIn({ location: req.query.location, partyLevel: req.query.partyLevel }));
+    res.json({ vars: rc.vars(), names: CTX_VARS, partyLevel: rc.partyLevel() });
+  });
+
   // ---- saving ----
-  const saveTo = async (res: any, tpl: Tpl, values: Values, override: any) => {
+  /** Check the text players would see, for a DM template too: a page shared with the party, the stage, a message. */
+  const requirePublicClean = (rc: RenderCtx, tpl: Tpl, v: Values) => {
+    const hit = firstLeak(rc, publicText(renderParts(tpl, v, rc)));
+    if (hit) throw new HttpError(409, 'Not shared: the text repeats words from DM-only notes.');
+  };
+  const rememberPage = (w: string, pageId: string) => {
+    const body = one<any>(d.db, 'SELECT body FROM pages WHERE id = ?', pageId)?.body ?? '';
+    run(d.db, 'INSERT OR REPLACE INTO sculpt_player_pages (world_id, page_id, body_hash) VALUES (?, ?, ?)', w, pageId, bodyHash(body));
+  };
+
+  const saveTo = async (res: any, tpl: Tpl, values: Values, override: any, rc: RenderCtx, extra: { md?: string; title?: string } = {}) => {
     const w = W(res);
-    const cleaned = cleanForPlayer(d, w, tpl, values);
+    const cleaned = cleanForPlayer(d, w, tpl, values, rc);
     if (cleaned.leaks.length) throw new HttpError(409, `Not saved: ${cleaned.leaks.map((l) => l.key).join(', ')} repeats words from DM-only notes.`);
     const v = cleaned.values;
-    const md = renderMd(renderParts(tpl, v));
+    const md = extra.md ?? renderMd(renderParts(tpl, v, rc));
     const base = tpl.target;
     const o = override && typeof override === 'object' ? override : {};
     const visibility: 'dm' | 'party' = tpl.perspective === 'player' ? (o.visibility === 'party' ? 'party' : 'dm') : o.visibility === 'party' ? 'party' : o.visibility === 'dm' ? 'dm' : (base as any).visibility === 'party' ? 'party' : 'dm';
-    const title = (v.title || v.name || v.location || tpl.name).replace(/\s+/g, ' ').trim().slice(0, 120) || tpl.name;
+    if (visibility === 'party' && tpl.perspective !== 'player') requirePublicClean(rc, tpl, v);
+    const title = (extra.title || v.title || v.name || v.location || tpl.name).replace(/\s+/g, ' ').trim().slice(0, 120) || tpl.name;
     const pagePath = (pattern: string): string => {
       const p0 = cleanPath(expand(typeof o.path === 'string' && o.path.trim() ? o.path : pattern, v)) || `Sculpted/${title}`;
       const stem = p0.replace(/\.md$/i, '');
@@ -169,17 +224,15 @@ function routes(d: Deps) {
       for (let n = 2; one(d.db, 'SELECT 1 FROM pages WHERE world_id = ? AND path = ?', w, p); n++) p = `${stem} ${n}.md`;
       return p;
     };
-    const savePage = (pattern: string, extra: Record<string, unknown> = {}) => d.library.save(w, { path: pagePath(pattern), title, body: md, frontmatter: { title, tags: ['sculpt', tpl.name.toLowerCase().replace(/\s+/g, '-')], visibility, ...extra }, visibility }, me(res));
+    const savePage = (pattern: string, ex: Record<string, unknown> = {}) => {
+      const p = d.library.save(w, { path: pagePath(pattern), title, body: md, frontmatter: { title, tags: ['sculpt', tpl.name.toLowerCase().replace(/\s+/g, '-')], visibility, ...ex }, visibility }, me(res));
+      rememberPage(w, p.id);
+      return p;
+    };
     switch (base.kind) {
       case 'page': {
         const p = savePage(base.path);
         audit(d.db, w, me(res), 'sculpt.save', `page ${p.path}`);
-        // A player-view page passed the leak check just now: remember its text so
-        // Read aloud and Send still work after saving (see cleanForPlayer).
-        if (tpl.perspective === 'player') {
-          const body = one<any>(d.db, 'SELECT body FROM pages WHERE id = ?', p.id)?.body ?? '';
-          run(d.db, 'INSERT OR REPLACE INTO sculpt_player_pages (world_id, page_id, body_hash) VALUES (?, ?, ?)', w, p.id, bodyHash(body));
-        }
         return { kind: 'page', pageId: p.id, path: p.path, title: p.title, visibility };
       }
       case 'shop': {
@@ -198,7 +251,6 @@ function routes(d: Deps) {
         const pid = id('ppl_');
         const person = { id: pid, name: (v.name || title).slice(0, 120), role: (v.role || v.occupation || '').slice(0, 120), visibility };
         run(d.db, 'INSERT INTO people (id, world_id, name, role, attitude, kind, page_id, met, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', pid, w, person.name, person.role, '', 'neutral', pageId, '', visibility);
-        // A person the party may see is announced; the page's DM-only parts never leave the page.
         if (visibility === 'party') d.hub.emit(w, 'person', { id: pid, world_id: w, name: person.name, role: person.role, attitude: null, kind: 'neutral', page_id: pageId, met: null, visibility }, () => true);
         audit(d.db, w, me(res), 'sculpt.save', `person ${person.name}`);
         return { kind: 'person', personId: pid, pageId, path, title: person.name, visibility };
@@ -219,73 +271,195 @@ function routes(d: Deps) {
     run(d.db, 'DELETE FROM sculpt_history WHERE world_id = ? AND id NOT IN (SELECT id FROM sculpt_history WHERE world_id = ? ORDER BY at DESC, rowid DESC LIMIT 50)', W(res), W(res));
   };
 
+  const sendMessage = (res: any, title: string, body: string) => {
+    const w = W(res);
+    const players = memberIds(d.db, w, ['player']);
+    if (!players.length) throw new HttpError(409, 'There are no players in this world to send it to');
+    const people = [...new Set([me(res), ...players])];
+    const tid = id('thr_');
+    const at = now();
+    run(d.db, 'INSERT INTO threads (id, world_id, starter_id, title, kept, created_at, last_at) VALUES (?, ?, ?, ?, 0, ?, ?)', tid, w, me(res), title.slice(0, 100), at, at);
+    for (const p of people) run(d.db, 'INSERT INTO thread_members (thread_id, account_id) VALUES (?, ?)', tid, p);
+    const m = { id: id('msg_'), thread_id: tid, author_id: me(res), body: body.slice(0, 4000), at };
+    run(d.db, 'INSERT INTO messages (id, thread_id, author_id, body, at) VALUES (?, ?, ?, ?, ?)', m.id, m.thread_id, m.author_id, m.body, m.at);
+    d.hub.emit(w, 'thread', { id: tid, world_id: w, starter_id: me(res), title: title.slice(0, 100), kept: false, created_at: at, last_at: at, members: people }, only(...people));
+    d.hub.emit(w, 'message', m, only(...people));
+    audit(d.db, w, me(res), 'sculpt.send', title);
+    return tid;
+  };
+
+  // ---- the outputs: page, stage, combat, send, broker ----
+  const runOutputs = async (req: any, res: any, tpl: Tpl, results: Values[], want: Partial<Record<OutputKey, boolean>>, rc: RenderCtx, opts: { pageId?: string; target?: any; to?: unknown; hidden?: boolean } = {}) => {
+    const w = W(res);
+    const done: Record<string, any> = {};
+    const errors: Record<string, string> = {};
+    const attempt = async (k: OutputKey, fn: () => Promise<any>) => {
+      if (!want[k]) return;
+      try { done[k] = await fn(); } catch (e: any) { errors[k] = e instanceof HttpError ? e.message : String(e?.message ?? e).slice(0, 200); }
+    };
+    // Everything players or the broker may see is checked BEFORE anything is saved.
+    const needPublic = (['stage', 'send', 'broker'] as OutputKey[]).some((k) => want[k]);
+    let pub: { text: string } | null = null;
+    let pubError = '';
+    if (needPublic) {
+      try {
+        const cleaned = results.map((v) => cleanForPlayer(d, w, tpl, v, rc));
+        const bad1 = cleaned.find((c) => c.leaks.length);
+        if (bad1) throw new HttpError(409, 'Blocked: the text repeats words from DM-only notes.');
+        pub = publicOf(tpl, [], cleaned.map((c) => c.values), rc);
+      } catch (e: any) { pubError = e instanceof HttpError ? e.message : String(e?.message ?? e); }
+    }
+    const needs = (k: OutputKey) => { if (!pub) throw new HttpError(409, pubError || 'Nothing to share'); void k; return pub; };
+    const title = (results[0].title || results[0].name || results[0].location || tpl.name).replace(/\s+/g, ' ').trim().slice(0, 120) || tpl.name;
+    const o = tpl.outputs ?? {};
+
+    await attempt('combat', async () => {
+      const cf = tpl.fields.find((f) => f.key === o.combatField) ?? tpl.fields.find((f) => f.type === 'statblock');
+      if (!cf) throw bad('This template has nothing to add to combat');
+      const added: any[] = [];
+      for (const v of results) {
+        if (cf.type === 'statblock') {
+          const sb = normalizeStatblock(parseJson<any>(v[cf.key], null), v.name ?? '');
+          let pageId = opts.pageId ?? '';
+          if (!pageId) pageId = String(saveStatblockPage(d, w, me(res), sb, { kind: 'sculpt', ref: '', title: sb.name }).id);
+          const initiative = Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + Math.floor((sb.abilities.dex - 10) / 2)));
+          const j = await selfCall(req, w, 'POST', '/live/combatants', { name: sb.name, initiative, hp: sb.hp, maxHp: sb.hp, ac: sb.ac, hidden: !!opts.hidden, statblockPage: pageId });
+          added.push({ id: j.id, name: sb.name, initiative, hp: sb.hp, ac: sb.ac, pageId });
+        } else {
+          for (const c of combatantsFromList(d, w, rc, v[cf.key] ?? '')) {
+            const j = await selfCall(req, w, 'POST', '/live/combatants', { name: c.name, initiative: Math.max(-20, Math.min(60, c.initiative)), hp: c.hp ?? undefined, maxHp: c.hp ?? undefined, ac: c.ac ?? undefined, hidden: !!opts.hidden });
+            added.push({ id: j.id, name: c.name, initiative: c.initiative, hp: c.hp, ac: c.ac });
+          }
+        }
+      }
+      if (!added.length) throw bad('There was nothing to add: fill the monsters first');
+      audit(d.db, w, me(res), 'sculpt.combat', `${added.length} added`);
+      return { added, count: added.length };
+    });
+    await attempt('stage', async () => {
+      const text = needs('stage').text;
+      const kind = o.stageKind === 'event' ? 'event' : 'text';
+      const show = o.stageShow !== false;
+      const imgField = tpl.fields.find((f) => f.type === 'image' && !f.dmOnly);
+      const img = imgField ? (results[0][imgField.key] ?? '').trim() : '';
+      const card = await selfCall(req, w, 'POST', '/stage/cards', { kind, title, text, show, to: Array.isArray(opts.to) ? opts.to : undefined });
+      const out: any = { cardId: card.id, kind, shown: show };
+      if (img && (/^https:\/\//.test(img) || /^stg_/.test(img))) {
+        const ic = await selfCall(req, w, 'POST', '/stage/cards', { kind: 'image', ref: img, caption: title, show, to: Array.isArray(opts.to) ? opts.to : undefined });
+        out.imageCardId = ic.id;
+      }
+      audit(d.db, w, me(res), 'sculpt.stage', title);
+      return out;
+    });
+    await attempt('send', async () => {
+      if (tpl.perspective !== 'player') throw bad('Only player-perspective templates can be sent to players');
+      const text = needs('send').text;
+      return { threadId: sendMessage(res, title, text) };
+    });
+    await attempt('broker', async () => {
+      const text = plain(needs('broker').text).slice(0, 4900);
+      const n = await selfCall(req, w, 'POST', '/broker/notes', { topic: title.slice(0, 190), text, knowledge: 'local' });
+      audit(d.db, w, me(res), 'sculpt.broker', title);
+      return { noteId: n.id };
+    });
+    await attempt('page', async () => {
+      const t = tpl.target.kind;
+      if (results.length > 1 && t === 'page') {
+        const md = results.map((v) => renderMd(renderParts(tpl, v, rc)).trim()).join('\n\n---\n\n') + '\n';
+        return saveTo(res, tpl, results[0], opts.target, rc, { md, title: `${tpl.name} x${results.length}` });
+      }
+      const saved: any[] = [];
+      for (const v of results) saved.push(await saveTo(res, tpl, v, opts.target, rc));
+      return saved.length === 1 ? saved[0] : { kind: tpl.target.kind, saved, count: saved.length };
+    });
+    return { done, errors };
+  };
+
+  const wantOf = (tpl: Tpl, raw: unknown): Partial<Record<OutputKey, boolean>> => {
+    const want: Partial<Record<OutputKey, boolean>> = {};
+    if (raw === true) for (const k of OUTPUT_KEYS) want[k] = !!tpl.outputs?.[k];
+    else if (raw && typeof raw === 'object') for (const k of OUTPUT_KEYS) if ((raw as any)[k] !== undefined) want[k] = !!(raw as any)[k];
+    return want;
+  };
+
   // ---- sculpt ----
   r.post('/run', async (req, res) => {
     const b = req.body ?? {};
     const tpl = asTpl(find(res, b.templateId ?? b.template));
     const lock = Array.isArray(b.lock) ? b.lock.map(String) : [];
     const onlyKeys = Array.isArray(b.only) ? b.only.map(String) : undefined;
-    const out: any = await sculpt(d, W(res), ctx(res).world.name, tpl, valuesOf(b.values), { lock, only: onlyKeys });
+    const c = contextIn(b.context);
+    const count = Math.max(1, Math.min(MAX_BATCH, Math.floor(Number(b.count ?? 1)) || 1));
+    const rc = rcFor(res, tpl, c);
+    const values = withPage(res, tpl, valuesOf(b.values), c);
+    const out: any = await sculptMany(d, W(res), ctx(res).world.name, tpl, values, { lock, only: onlyKeys, count, rc });
     if (!onlyKeys?.length) remember(res, tpl, out.values, out.md);
-    if (b.save) out.saved = await saveTo(res, tpl, out.values, b.target);
+    touchUse(res, tpl.id);
+    if (b.save) out.saved = await saveTo(res, tpl, out.values, b.target, rc);
+    if (b.outputs) out.outputs = await runOutputs(req, res, tpl, (out.results as SculptResult[]).map((x) => x.values), wantOf(tpl, b.outputs), rc, { target: b.target, to: b.to });
     res.json(out);
   });
 
-  /** The rendered text, with the leak check for player templates. Used by Read aloud and Send. */
+  /** The rendered text, with the leak check for player templates. Used by the preview, Read aloud and Send. */
   r.post('/check', (req, res) => {
     const tpl = asTpl(find(res, req.body?.templateId));
-    const c = cleanForPlayer(d, W(res), tpl, valuesOf(req.body?.values));
-    const parts = renderParts(tpl, c.values);
-    const plain = parts.filter((p) => !p.dm).map((p) => p.md.replace(/[*_#>`]/g, '').replace(/^\s*-\s+/gm, '').trim()).join('\n\n');
-    res.json({ ok: !c.leaks.length, leaks: c.leaks, md: renderMd(parts), parts, text: plain });
+    const rc = rcFor(res, tpl, contextIn(req.body?.context));
+    const c = cleanForPlayer(d, W(res), tpl, valuesOf(req.body?.values), rc);
+    const parts = renderParts(tpl, c.values, rc);
+    const plainText = parts.filter((p) => !p.dm).map((p) => p.md.replace(/[*_#>`]/g, '').replace(/^\s*-\s+/gm, '').trim()).join('\n\n');
+    const out: any = { ok: !c.leaks.length, leaks: c.leaks, md: renderMd(parts), parts, text: plainText };
+    // Can the public part be shown on the stage, sent or sold? Only worked out when asked: it reads every page.
+    if (req.body?.public) { const hit = firstLeak(rc, publicText(parts)); out.publicOk = !hit; out.publicLeak = hit; }
+    res.json(out);
+  });
+
+  r.post('/outputs', async (req, res) => {
+    const b = req.body ?? {};
+    const tpl = asTpl(find(res, b.templateId ?? b.template));
+    const c = contextIn(b.context);
+    const rc = rcFor(res, tpl, c);
+    const list: Values[] = Array.isArray(b.results) && b.results.length ? b.results.slice(0, MAX_BATCH).map(valuesOf) : [valuesOf(b.values)];
+    const want = wantOf(tpl, b.outputs ?? true);
+    if (!Object.values(want).some(Boolean)) throw bad('Pick at least one output');
+    res.status(201).json(await runOutputs(req, res, tpl, list, want, rc, { pageId: typeof b.pageId === 'string' ? b.pageId : undefined, target: b.target, to: b.to, hidden: !!b.hidden }));
   });
 
   r.post('/save', async (req, res) => {
     const tpl = asTpl(find(res, req.body?.templateId));
-    res.status(201).json(await saveTo(res, tpl, valuesOf(req.body?.values), req.body?.target));
+    const rc = rcFor(res, tpl, contextIn(req.body?.context));
+    res.status(201).json(await saveTo(res, tpl, valuesOf(req.body?.values), req.body?.target, rc));
   });
 
   r.post('/send', (req, res) => {
     const tpl = asTpl(find(res, req.body?.templateId));
     if (tpl.perspective !== 'player') throw new HttpError(422, 'Only player-perspective templates can be sent to players');
-    const w = W(res);
-    const c = cleanForPlayer(d, w, tpl, valuesOf(req.body?.values));
+    const rc = rcFor(res, tpl, contextIn(req.body?.context));
+    const c = cleanForPlayer(d, W(res), tpl, valuesOf(req.body?.values), rc);
     if (c.leaks.length) throw new HttpError(409, 'Not sent: the text repeats words from DM-only notes.');
-    const body = renderParts(tpl, c.values).filter((p) => !p.dm).map((p) => p.md).join('\n\n').trim();
+    const body = publicText(renderParts(tpl, c.values, rc));
     if (!body) throw new HttpError(422, 'There is nothing to send yet');
-    const players = memberIds(d.db, w, ['player']);
-    if (!players.length) throw new HttpError(409, 'There are no players in this world to send it to');
-    const people = [...new Set([me(res), ...players])];
-    const tid = id('thr_');
-    const at = now();
     const title = (c.values.location || tpl.name).slice(0, 100);
-    run(d.db, 'INSERT INTO threads (id, world_id, starter_id, title, kept, created_at, last_at) VALUES (?, ?, ?, ?, 0, ?, ?)', tid, w, me(res), title, at, at);
-    for (const p of people) run(d.db, 'INSERT INTO thread_members (thread_id, account_id) VALUES (?, ?)', tid, p);
-    const m = { id: id('msg_'), thread_id: tid, author_id: me(res), body: body.slice(0, 4000), at };
-    run(d.db, 'INSERT INTO messages (id, thread_id, author_id, body, at) VALUES (?, ?, ?, ?, ?)', m.id, m.thread_id, m.author_id, m.body, m.at);
-    d.hub.emit(w, 'thread', { id: tid, world_id: w, starter_id: me(res), title, kept: false, created_at: at, last_at: at, members: people }, only(...people));
-    d.hub.emit(w, 'message', m, only(...people));
-    audit(d.db, w, me(res), 'sculpt.send', title);
-    res.status(201).json({ ok: true, threadId: tid });
+    res.status(201).json({ ok: true, threadId: sendMessage(res, title, body) });
   });
 
   /** Add a sculpted statblock to the combat tracker (through the live API, with the DM's own token). */
   r.post('/combat', async (req, res) => {
     const tpl = asTpl(find(res, req.body?.templateId));
-    const f = tpl.fields.find((x) => x.type === 'statblock');
-    if (!f) throw bad('This template has no statblock');
     const values = valuesOf(req.body?.values);
-    const sb = normalizeStatblock(parseJson<any>(values[f.key], null), values.name ?? '');
+    const rc = rcFor(res, tpl, contextIn(req.body?.context));
+    const cf = tpl.fields.find((x) => x.key === tpl.outputs?.combatField) ?? tpl.fields.find((x) => x.type === 'statblock');
+    if (!cf) throw bad('This template has no statblock');
+    if (cf.type === 'list') {
+      const o = await runOutputs(req, res, tpl, [values], { combat: true }, rc, { hidden: !!req.body?.hidden });
+      if (o.errors.combat) throw new HttpError(422, o.errors.combat);
+      res.status(201).json(o.done.combat);
+      return;
+    }
+    const sb = normalizeStatblock(parseJson<any>(values[cf.key], null), values.name ?? '');
     let pageId = typeof req.body?.pageId === 'string' ? req.body.pageId : '';
-    if (!pageId) pageId = String((await saveTo(res, tpl, values, undefined)).pageId ?? '');
+    if (!pageId) pageId = String((await saveTo(res, tpl, values, undefined, rc)).pageId ?? '');
     const initiative = Number.isInteger(req.body?.initiative) ? req.body.initiative : Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + Math.floor((sb.abilities.dex - 10) / 2)));
-    const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
-    const r2 = await fetch(`http://127.0.0.1:${req.socket.localPort}/api/worlds/${W(res)}/live/combatants`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : { Cookie: String(req.headers.cookie ?? '') }) },
-      body: JSON.stringify({ name: sb.name, initiative, hp: sb.hp, maxHp: sb.hp, ac: sb.ac, hidden: !!req.body?.hidden, statblockPage: pageId }),
-    });
-    const j: any = await r2.json().catch(() => ({}));
-    if (!r2.ok) throw new HttpError(r2.status >= 400 && r2.status < 600 ? r2.status : 502, `Could not add to combat: ${j?.error ?? r2.status}`);
+    const j = await selfCall(req, W(res), 'POST', '/live/combatants', { name: sb.name, initiative, hp: sb.hp, maxHp: sb.hp, ac: sb.ac, hidden: !!req.body?.hidden, statblockPage: pageId }).catch((e) => { throw new HttpError(e.status ?? 502, `Could not add to combat: ${e.message}`); });
     res.status(201).json({ combatant: { id: j.id, name: sb.name, initiative, hp: sb.hp, ac: sb.ac }, pageId });
   });
 
@@ -295,23 +469,33 @@ function routes(d: Deps) {
   return r;
 }
 
+function migrate(db: any) {
+  const cols = new Set(all<any>(db, 'PRAGMA table_info(sculpt_templates)').map((c) => c.name));
+  if (!cols.has('category')) db.exec(`ALTER TABLE sculpt_templates ADD COLUMN category TEXT NOT NULL DEFAULT ''`);
+  if (!cols.has('outputs')) db.exec(`ALTER TABLE sculpt_templates ADD COLUMN outputs TEXT NOT NULL DEFAULT ''`);
+}
+
 const feature: Feature = {
   id: 'sculpt',
   schema: SCHEMA,
+  migrate,
   worldMount: 'sculpt',
   worldRoutes: routes,
   mcpTools: [{
     name: 'sculpt', write: true,
-    description: 'DM: make something new from a template (an NPC, a shop, a statblock, a scene, a tavern, a quest hook). Give a template name or id (see sculpt_templates) and any values you have; the blanks are filled to fit the world. With save: true it is saved to the template\'s target (a library page, People, a statblock page). DM-only parts become secret blocks.',
+    description: 'DM: make something from a template (an NPC, a shop, a statblock, an encounter, a rumour table, a trap, loot, a letter ...). Give a template name or id (see list_templates) and any values you have ("make me a rumour table for Saltmarsh": template "Rumour table", values {place: "Saltmarsh"}); the blanks are filled to fit the world. count makes several at once in one go (6 rumours, 10 tavern names). outputs picks what happens with the result: page, stage (shown to players: only the player-safe parts), combat (adds monsters to initiative), send (player templates), broker. DM-only parts become secret blocks and never reach the stage, players or the broker.',
     props: {
       template: { type: 'string', description: 'Template name or id, e.g. "NPC for quick RP"' },
       values: { type: 'object', description: 'Field values you already know, by field key' },
       lock: { type: 'array', items: { type: 'string' }, description: 'Field keys to leave exactly as given' },
       only: { type: 'array', items: { type: 'string' }, description: 'Re-roll just these field keys' },
+      count: { type: 'integer', description: 'Make this many results at once (1 to 20)' },
+      context: { type: 'object', description: 'Optional: location (text), partyLevel (1-20) or page (a library page title or id to use as context)' },
+      outputs: { type: 'object', description: 'Booleans: page, stage, combat, send, broker' },
       save: { type: 'boolean', description: 'Also save the result to the template target' },
     },
     required: ['template'],
-    call: (a) => ({ method: 'POST', path: '/sculpt/run', body: { template: a.template, values: a.values ?? {}, lock: a.lock, only: a.only, save: !!a.save } }),
+    call: (a) => ({ method: 'POST', path: '/sculpt/run', body: { template: a.template, values: a.values ?? {}, lock: a.lock, only: a.only, count: a.count, context: a.context, outputs: a.outputs, save: !!a.save } }),
   }, {
     name: 'send_scene', write: true,
     description: "DM: send a player-perspective scene (template 'Scene, player perspective', with the values sculpt gave back) to every player as a message. Refused if it repeats DM-only notes.",
@@ -323,6 +507,14 @@ const feature: Feature = {
     description: 'DM: the sculpting templates for this world, with their fields.',
     props: {},
     call: () => ({ method: 'GET', path: '/sculpt/templates' }),
+  }, {
+    name: 'list_templates', dmOnly: true,
+    description: 'DM: find a sculpting template by what you need ("rumour", "trap", "encounter"). Returns a short list: name, category, what it does and its field keys, so you can call sculpt with partial values.',
+    props: {
+      query: { type: 'string', description: 'Words to look for in the name, description or fields' },
+      category: { type: 'string', description: 'Combat, NPCs, Places, Loot, Story or Prep' },
+    },
+    call: (a) => ({ method: 'GET', path: `/sculpt/templates?compact=1${a.query ? `&q=${encodeURIComponent(String(a.query))}` : ''}${a.category ? `&category=${encodeURIComponent(String(a.category))}` : ''}` }),
   }],
 };
 export default feature;

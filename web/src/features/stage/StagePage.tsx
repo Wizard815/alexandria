@@ -6,6 +6,7 @@ import { PageHead, Field, ErrorBox, Loading, Empty, useAction } from '../../ui/i
 import { LIB_CSS } from '../../pages/library/Blocks.tsx';
 import { when } from '../../lib/format.ts';
 import { CardView, cardTitle } from './CardView.tsx';
+import SculptPicker from '../sculpt/SculptPicker.tsx';
 import { StageCards, useStage, CSS } from './StageBoard.tsx';
 import type { Kind, StageCard, StageView } from './types.ts';
 
@@ -175,6 +176,7 @@ export default function StagePage() {
     <div className="page">
       <style>{LIB_CSS + CSS}</style>
       <PageHead title="Stage" lead="Prepare cards on the left, show them to the table on the right. Players only ever see what is on the board.">
+        <SculptPicker label="New card from template" entries={[{ key: 'handout', label: 'Letter or handout' }, { key: 'weather', label: 'Weather' }, { key: 'travel-event', label: 'Travel event' }, { key: 'puzzle', label: 'Puzzle or riddle' }, { key: 'rumours', label: 'Rumours' }]} preset={{ stage: true, page: false }} />
         <div className="row" role="group" aria-label="Layout" style={{ gap: 6 }}>
           {(['spotlight', 'grid', 'free'] as const).map((l) => <button key={l} type="button" className={`btn small${v?.layout === l ? ' on' : ''}`} aria-pressed={v?.layout === l} disabled={act.busy} onClick={() => void setLayout(l)}>{l[0].toUpperCase() + l.slice(1)}</button>)}
         </div>
