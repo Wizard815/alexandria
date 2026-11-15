@@ -51,7 +51,7 @@ export const INIT = () => {
   window.__crawl = {
     list() {
       const counts = {};
-      return [...document.querySelectorAll(SEL)].filter((e) => visible(e) && !e.disabled && e.getAttribute('aria-disabled') !== 'true').map((e) => {
+      return [...document.querySelectorAll(SEL)].filter((e) => visible(e) && !e.disabled && e.getAttribute('aria-disabled') !== 'true' && !e.closest('[inert]')).map((e) => {
         const r = region(e), l = label(e), k = `${r}|${l}`;
         counts[k] = (counts[k] ?? -1) + 1;
         const submit = e.tagName === 'BUTTON' && !!e.form && (e.type === 'submit');
