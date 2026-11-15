@@ -32,3 +32,5 @@ jobs:
           node e2e/smoke.mjs
           node e2e/offline.mjs
           node e2e/dm.mjs
+          node e2e/buttons.mjs
+          node e2e/leaks.mjs
