@@ -33,3 +33,4 @@ jobs:
           node e2e/offline.mjs
           node e2e/dm.mjs
           node e2e/dmphone.mjs
+          node e2e/sculpt.mjs
