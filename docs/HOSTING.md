@@ -145,3 +145,17 @@ into the data folder (it holds `librarian.db` and `audio/`):
   See `librarian/README.md`.
 - **Read-only keys for sources** where the source app offers them (for
   LegendKeeper, the MCP server reports `readOnly`).
+
+## Macros, trigger URLs and lights
+
+The gateway hosts the action registry, macro trigger URLs (`POST /api/trigger/<token>`)
+and the lights drivers; see [MACROS.md](MACROS.md). Lights need the gateway to
+reach your lights on the local network (WLED, a Hue bridge, Home Assistant,
+OpenRGB on port 6742); from Docker on a LAN, use host names or addresses the
+container can reach. Public IP addresses are refused unless
+`ALX_LIGHTS_ALLOW_PUBLIC=1`; `ALX_LIGHTS_MIN_MS` (default 250) is the gap
+between updates to one light group.
+
+Planned, not built: a gateway audio helper for a mic and speaker plugged into
+the gateway machine. In Docker that needs the sound device passed into the
+container (for example `devices: ["/dev/snd:/dev/snd"]` on Linux).
