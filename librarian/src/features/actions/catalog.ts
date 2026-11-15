@@ -243,6 +243,21 @@ export const ACTIONS: ActionDef[] = [
       return { text: c.text ?? null, totalCp: cp };
     },
   },
+  // ---- templates (Sculpting) ----
+  {
+    id: 'sculpt.run', title: 'Run a template', group: 'Story',
+    description: "Fill a Sculpting template (e.g. Encounter, Rumour table) and send the result where the template's outputs say: a page, the stage, combat, the players or the broker.",
+    roles: ['dm'],
+    args: [
+      A({ name: 'template', type: 'string', label: 'Template name or id', required: true, maxLength: 80 }),
+      A({ name: 'count', type: 'int', label: 'How many', default: 1, min: 1, max: 20 }),
+      A({ name: 'outputs', type: 'bool', label: "Send to the template's outputs", default: true }),
+    ],
+    run: async (rc, a) => {
+      const r = await ok(rc, 'POST', '/sculpt/run', { template: a.template, count: a.count ?? 1, ...(a.outputs === false ? {} : { outputs: true }) });
+      return { template: a.template, made: Array.isArray(r.results) ? r.results.length : 1, outputs: r.outputs ?? null };
+    },
+  },
   // ---- lights ----
   {
     id: 'lights.scene', title: 'Run a light scene', group: 'Lights', description: 'Set the lights to a saved scene.', roles: ['dm'], args: [A({ name: 'scene', type: 'string', label: 'Scene name or id', required: true, maxLength: 80 })],
