@@ -533,6 +533,7 @@ function migrate(db: DB) {
   add('icon', 'TEXT');
   add('banner', 'TEXT');
   add('url', 'TEXT');
+  add('position', 'REAL');
   add('knowledge', 'TEXT');
   add('blocks', "TEXT NOT NULL DEFAULT '[]'");
   add('player_blocks', 'TEXT');
