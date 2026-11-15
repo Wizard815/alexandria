@@ -5,49 +5,8 @@ import { LevelChip } from './Levels.tsx';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from './Blocks.tsx';
 
-export interface PageRow {
-  id: string; path: string; title: string; kind: string; tags: string[]; folder: string[];
-  icon: { glyph?: string; color?: string } | null; parentId: string | null; source: string | null; updated_at: string; visibility?: string;
-}
-
-interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number }
-
-export function buildTree(rows: PageRow[]): Node[] {
-  const roots: Node[] = [];
-  const byPage = new Map<string, Node>();
-  const ids = new Set(rows.map((r) => r.id));
-  for (const r of rows) byPage.set(r.id, { key: `p:${r.id}`, label: r.title, page: r, children: [], count: 0 });
-  const folderNode = (parent: Node[], key: string, label: string) => {
-    let n = parent.find((x) => !x.page && x.key === key);
-    if (!n) { n = { key, label, children: [], count: 0 }; parent.push(n); }
-    return n;
-  };
-  for (const r of rows) {
-    const node = byPage.get(r.id)!;
-    if (r.parentId && ids.has(r.parentId) && r.parentId !== r.id) { byPage.get(r.parentId)!.children.push(node); continue; }
-    const src = r.source ?? 'Written in Alexandria';
-    let level = folderNode(roots, `s:${src}`, src).children;
-    let key = `s:${src}`;
-    for (const f of r.folder ?? []) {
-      key += `/${f}`;
-      level = folderNode(level, `f:${key}`, f).children;
-    }
-    level.push(node);
-  }
-  const sortCount = (ns: Node[]): number => {
-    ns.sort((a, b) => (a.page && !b.page ? 1 : !a.page && b.page ? -1 : a.label.localeCompare(b.label, undefined, { numeric: true })));
-    let total = 0;
-    for (const n of ns) { n.count = (n.page ? 1 : 0) + sortCount(n.children); total += n.count; }
-    return total;
-  };
-  sortCount(roots);
-  return roots;
-}
-
-/** Every page id under a node, for "save this folder". */
-export function pageIds(n: Node): string[] {
-  return [...(n.page ? [n.page.id] : []), ...n.children.flatMap(pageIds)];
-}
+import { buildTree, pageIds, type Node, type PageRow } from './treeModel.ts';
+export { buildTree, pageIds, type PageRow };
 
 interface Row { node: Node; depth: number }
 const ROW = 32;

@@ -13,21 +13,35 @@ interface Category { re: RegExp; tools: string[] }
 // In the order they are tried; a message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
   { re: /\b(stat ?blocks?|stats? for|monster|creature|cr \d|challenge rating)\b/i, tools: ['make_statblock', 'lookup_term', 'read_term', 'add_combatant'] },
-  { re: /\b(combat|initiative|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?)\b/i, tools: ['get_combat', 'add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_conditions'] },
+  { re: /\b(combat|initiative|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?)\b/i, tools: ['get_combat', 'add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_conditions', 'remove_combatant', 'set_combat'] },
   { re: /\b(rules?|spell|spells|how (does|do|many|much)|dc \d|advantage|disadvantage|grapple|opportunity attack|saving throw|cast|concentration|cover|rest rules?|feat|class feature)\b/i, tools: ['lookup_rule', 'lookup_term', 'read_term'] },
+  { re: /\b(session (log|summary|recap)|publish|draft|the log|date change)\b/i, tools: ['draft_session_summary', 'list_session_log_drafts', 'read_session_log_draft', 'edit_session_log_draft', 'decide_session_date', 'publish_session_log', 'list_session_log'] },
   { re: /\b(session|last (time|session|game)|recap|transcript|happened|said|told|heard|remember|earlier|yesterday|we (met|found|fought|saw|decided))\b/i, tools: ['search_transcript', 'list_session_log'] },
   { re: /\b(world ?lore|llm wiki|your (own )?wiki|workspace)\b/i, tools: ['lore_write', 'lore_list', 'lore_read', 'lore_move', 'lore_delete'] },
   { re: /\b(pages?|save|write|draft|create|make a note|note|lore|wiki|library|folder|rewrite|edit|update|summari[sz]e|summary|outline)\b/i, tools: ['save_page', 'list_pages', 'list_relations'] },
-  { re: /\b(npc|people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote'] },
-  { re: /\b(items?|loot|gold|coins?|copper|silver|platinum|inventory|pouch|purse|give|gave|buy|sell|price|treasure)\b/i, tools: ['get_inventory', 'add_item', 'add_coin', 'list_transfers'] },
+  { re: /\b(npc|people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote', 'update_person', 'add_recall'] },
+  { re: /\b(requests?|approve|approvals?|change request|reject)\b/i, tools: ['list_approvals', 'decide_approval', 'list_requests', 'decide_request'] },
+  { re: /\b(items?|loot|gold|coins?|copper|silver|platinum|inventory|pouch|purse|give|gave|buy|sell|price|treasure)\b/i, tools: ['get_inventory', 'add_item', 'add_coin', 'move_item', 'list_transfers', 'generate_items', 'generate_coins', 'list_my_trades'] },
   { re: /\b(date|time|day|days|week|month|calendar|clock|long rest|short rest|rest|dawn|dusk|midnight|holiday|festival|deadline)\b/i, tools: ['get_world_date', 'advance_world_time', 'list_world_events', 'add_world_event'] },
-  { re: /\b(broker|offer|offers|information for sale|rumou?rs?)\b/i, tools: ['list_broker_requests', 'list_broker_offers', 'ask_broker_quote', 'send_broker_offer', 'add_broker_note', 'broker_answer'] },
-  { re: /\b(requests?|approve|approvals?|change request|reject)\b/i, tools: ['list_requests', 'decide_request'] },
+  { re: /\b(broker|offer|offers|information for sale|rumou?rs?)\b/i, tools: ['list_broker_requests', 'list_broker_offers', 'ask_broker_quote', 'send_broker_offer', 'add_broker_note', 'broker_answer', 'broker_deliver', 'broker_refuse'] },
   { re: /\b(game night|schedule|rsvp|next game|real[- ]life)\b/i, tools: ['list_calendar', 'schedule_session'] },
-  { re: /\b(quick event|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['send_quick_event'] },
+  { re: /\b(quick event|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['send_quick_event', 'list_quick_events', 'resolve_quick_event', 'cancel_quick_event'] },
+  { re: /\b(stage|spotlight|handout|show (it |this |that |the )?(to |on )?(the )?(table|players|screen|party)|put (it |this |that )?on (the )?(stage|screen|board))\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card', 'sculpt', 'speak'] },
+  { re: /\b(sculpt|set the scene|describe (the|a) (scene|room|place|tavern|shop)|read[- ]aloud|boxed text|npc for|tavern|template)\b/i, tools: ['sculpt', 'send_scene', 'sculpt_templates', 'speak', 'show_on_stage', 'send_table_chat'] },
+  { re: /\b(generate|random(ly)?|names?|hoard|loot|treasure)\b/i, tools: ['generate_names', 'generate_items', 'generate_coins'] },
+  { re: /\b(music|ambience|ambient|soundtrack|sound ?board|sound effects?|sfx|play (some |the )?(music|sound|rain|thunder)|thunder|rain|creak)\b/i, tools: ['play_music', 'play_ambience', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes', 'get_sound_now'] },
+  { re: /\b(speak|say (it )?aloud|voice|narrat\w*|read aloud|aloud)\b/i, tools: ['speak', 'list_voice_presets'] },
+  { re: /\b(chat|tell the (table|players|party)|message the (table|players|party)|announce|post to)\b/i, tools: ['send_table_chat', 'read_table_chat', 'read_party_chat', 'get_game_session'] },
+  { re: /\b(record(ing)?|start (the |a )?(session|game|game night)|end (the |a )?(session|game|game night)|open the table|close the table|game session)\b/i, tools: ['start_recording', 'stop_recording', 'recording_status', 'start_game_session', 'end_game_session', 'get_game_session'] },
+  { re: /\b(map|pins?|marks?|markers?|route|waypoints?)\b/i, tools: ['list_map_marks', 'add_map_mark', 'hide_map_mark', 'delete_map_mark'] },
+  { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
+  { re: /\b(find|search|look up|where)\b/i, tools: ['search_world', 'world_info'] },
   { re: /\b(who is in|players|party members|character|characters|members)\b/i, tools: ['list_members', 'get_live'] },
 ];
 const DEFAULTS = ['search_transcript', 'list_pages', 'lookup_rule', 'get_world_date', 'list_people', 'get_live'];
+
+/** Every tool name some message can get offered (the categories, the defaults and the two always on). */
+export const offerableTools = (): Set<string> => new Set([...CORE_TOOLS, ...DEFAULTS, ...CATEGORIES.flatMap((c) => c.tools)]);
 
 /**
  * At most MAX_TOOLS tool names for this message, from the ones a harness may use
