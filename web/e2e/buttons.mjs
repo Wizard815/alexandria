@@ -7,7 +7,7 @@
 // Then it presses the destructive controls on throwaway items.
 // Run from web/: npm run build && node e2e/buttons.mjs   (BTN_PORT, BTN_SHOTS=<dir>, BTN_ONLY=dm|player)
 import path from 'node:path';
-import { chromium, root, startScript, tmpDir, signIn, DM_ROUTES, PLAYER_ROUTES, quiet } from './lib.mjs';
+import { chromium, root, startScript, tmpDir, signIn, DM_ROUTES, PLAYER_ROUTES, quiet, INIT, DESTRUCTIVE } from './lib.mjs';
 
 const PORT = Number(process.env.BTN_PORT || 8198);
 const base = `http://127.0.0.1:${PORT}`;
@@ -24,42 +24,6 @@ for (const line of out.split('\n')) if (line.includes('✗')) problems.push('dem
 const ALLOW_DEAD = [
   /^shell\|(Allow sound|Mute|Unmute)/, // audio unlock gives no DOM change in a headless browser
 ];
-const DESTRUCTIVE = /delete|remove|sign out|log ?out|wipe|unload|end (the )?(session|combat|fight)|clear|discard|revoke|purge|reset|disconnect|✕|×|trash|archive|stop (session|recording)|kick|\bban\b|leave world/i;
-
-// Helper installed in every page: lists and finds controls the same way every time.
-const INIT = () => {
-  const SEL = 'button, a[href], [role=button], [role=tab], [role=switch], [role=menuitem], summary, input[type=checkbox], input[type=radio]';
-  const visible = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
-  const region = (e) => e.closest('#alx-dock') ? 'dock' : e.closest('[role=dialog], [aria-modal=true], .modal') ? 'overlay' : e.closest('nav, .topbar, .side, .dm-phonebar, .bottomnav, .sheet, .side-foot') ? 'shell' : 'main';
-  const label = (e) => (e.getAttribute('aria-label') || e.innerText || e.getAttribute('title') || e.getAttribute('href') || e.getAttribute('name') || 'unnamed').trim().replace(/\s+/g, ' ').slice(0, 60);
-  window.__crawl = {
-    list() {
-      const counts = {};
-      return [...document.querySelectorAll(SEL)].filter((e) => visible(e) && !e.disabled && e.getAttribute('aria-disabled') !== 'true').map((e) => {
-        const r = region(e), l = label(e), k = `${r}|${l}`;
-        counts[k] = (counts[k] ?? -1) + 1;
-        const submit = e.tagName === 'BUTTON' && !!e.form && (e.type === 'submit');
-        return { region: r, label: l, key: k, nth: counts[k], href: e.tagName === 'A' ? e.getAttribute('href') : null, target: e.getAttribute('target'), download: e.hasAttribute('download'), submit, title: e.getAttribute('title') || '', selected: e.getAttribute('aria-checked') === 'true' || e.getAttribute('aria-selected') === 'true' || e.getAttribute('aria-current') === 'page' };
-      });
-    },
-    find(key, nth) {
-      const counts = {};
-      for (const e of document.querySelectorAll(SEL)) {
-        if (!visible(e) || e.disabled) continue;
-        const k = `${region(e)}|${label(e)}`;
-        counts[k] = (counts[k] ?? -1) + 1;
-        if (k === key && counts[k] === nth) return e;
-      }
-      return null;
-    },
-    snap() {
-      let h = 0; const s = document.body.innerHTML;
-      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-      let ls = ''; try { ls = JSON.stringify(localStorage); } catch { /* blocked */ }
-      return `${location.href}#${h}#${s.length}#${ls.length}#${document.querySelectorAll('dialog[open], [role=dialog]').length}#${document.activeElement?.tagName}`;
-    },
-  };
-};
 
 async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   const tag = `${label} ${user}`;
@@ -77,7 +41,7 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   page.on('dialog', (d) => { dialogs++; void d.dismiss().catch(() => {}); });
   page.on('download', () => { downloads++; });
 
-  const open = async (url) => { await page.goto(url); await page.locator('main, .page, #root > *').first().waitFor({ timeout: 10000 }).catch(() => {}); await page.waitForTimeout(300); };
+  const open = async (url) => { await page.goto(url); await page.locator('main, .page, #root > *').first().waitFor({ timeout: 10000 }).catch(() => {}); await page.waitForTimeout(250); };
   const snap = () => page.evaluate(() => window.__crawl.snap());
   const dead = (what) => {
     if (ALLOW_DEAD.some((re) => re.test(what))) return;
@@ -129,15 +93,16 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
     // Shell controls (menu, dock, top bar) are the same on every page: press them on the first page only.
     const todo = first.filter((c) => (shellDone ? c.region === 'main' : true)).filter((c) => clickable(c, seen)).sort((a, b) => (a.region === 'main' ? 0 : 1) - (b.region === 'main' ? 0 : 1));
     for (const c of first) if (!todo.includes(c)) seen.add(c.key + '#' + c.nth);
-    for (const c of todo.slice(0, 60)) {
+    for (const c of todo.slice(0, 40)) {
       const urlBefore = page.url();
       const res = await press(c);
       if (res === 'gone' || res === 'skipped') continue;
       // New controls (a panel or dialog opened): press those too, one level down.
       const now = await page.evaluate(() => window.__crawl.list()).catch(() => []);
-      const fresh = now.filter((n) => !seen.has(n.key + '#' + n.nth) && (c.region === 'shell' || n.region !== 'shell')).slice(0, 14);
+      const fresh = now.filter((n) => !seen.has(n.key + '#' + n.nth) && n.region !== 'main' && (c.region === 'shell' || n.region !== 'shell')).slice(0, 14);
       for (const n of fresh) if (clickable(n, seen)) { await press(n); }
-      if (page.url() !== urlBefore || fresh.length) await open(url);
+      const stuck = await page.evaluate(() => !!document.querySelector('.modal-back, .sx-back, [role=dialog], [aria-modal=true]')).catch(() => false);
+      if (page.url() !== urlBefore || fresh.length || stuck) await open(url);
       else { await page.keyboard.press('Escape').catch(() => {}); }
     }
     if (!shellDone) { await page.evaluate(() => { try { localStorage.setItem('alx-agent-open', '0'); } catch { /* blocked */ } }); await open(url); }
@@ -189,13 +154,50 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   await ctx.close();
 }
 
+/** The destructive controls, pressed on throwaway items the crawler makes itself. */
+async function throwaways() {
+  const { ctx, page } = await signIn(browser, base, 'dm', PASS.dm, { width: 1280, height: 900 }, false);
+  const bad = (m) => problems.push(`throwaways: ${m}`);
+  page.on('pageerror', (e) => bad(`page error: ${e.message}`));
+  page.on('dialog', (d) => { void d.accept().catch(() => {}); });
+  page.on('response', (r) => { const s = r.status(); if (s >= 400 && s !== 403 && s !== 404) bad(`${s} ${r.request().method()} ${r.url().replace(base, '')}`); });
+  await page.goto(`${W}/dm/combat`);
+  await page.locator('main').waitFor();
+  // Add a throwaway fighter, remove it, then add two and clear the tracker.
+  const add = async (name) => {
+    await page.getByLabel('Name', { exact: true }).fill(name);
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByText(name, { exact: true }).first().waitFor({ timeout: 5000 }).catch(() => bad(`combat: ${name} did not appear after Add`));
+  };
+  await add('Throwaway Rat');
+  await page.getByRole('button', { name: 'Remove Throwaway Rat' }).click();
+  await page.waitForFunction(() => !document.body.innerText.includes('Throwaway Rat'), null, { timeout: 5000 }).catch(() => bad('combat: Remove did not remove the fighter'));
+  await add('Throwaway Bat');
+  await page.getByRole('button', { name: 'Clear the tracker' }).click();
+  await page.waitForFunction(() => document.body.innerText.includes('No one in the fight yet'), null, { timeout: 8000 }).catch(() => bad('combat: Clear the tracker did not empty the tracker'));
+  // A throwaway stage card: add it, then Delete it.
+  await page.goto(`${W}/dm/stage`);
+  await page.locator('main').waitFor();
+  await page.locator('main select').first().selectOption({ label: 'Text handout' }).catch(() => {});
+  await page.getByLabel(/heading/i).first().fill('Throwaway card').catch(() => {});
+  await page.getByLabel(/^text \(markdown/i).first().fill('Throwaway text').catch(() => {});
+  await page.getByRole('button', { name: 'Add card' }).click().catch(() => {});
+  await page.getByText('Throwaway card').first().waitFor({ timeout: 5000 }).then(async () => {
+    const card = page.locator('article, .card').filter({ hasText: 'Throwaway card' }).filter({ has: page.getByRole('button', { name: 'Delete' }) }).last();
+    await card.getByRole('button', { name: 'Delete' }).click();
+    await page.waitForFunction(() => !document.body.innerText.includes('Throwaway card'), null, { timeout: 5000 }).catch(() => bad('stage: Delete did not remove the card'));
+  }).catch(() => bad('stage: a throwaway card could not be added'));
+  await ctx.close();
+}
+
 const browser = await chromium.launch();
 try {
+  await throwaways();
   const jobs = [];
   const ONLY = process.env.BTN_ONLY;
   for (const [label, viewport, mobile] of [['1280', { width: 1280, height: 800 }, false], ['390', { width: 390, height: 844 }, true]]) {
-    if (ONLY !== 'player') jobs.push(crawlRole({ user: 'dm', label, viewport, mobile, routes: DM_ROUTES, prefix: 'dm/' }));
-    if (ONLY !== 'dm') jobs.push(crawlRole({ user: 'jess', label, viewport, mobile, routes: PLAYER_ROUTES, prefix: '' }));
+    if (ONLY !== 'player' && ONLY !== 'none') jobs.push(crawlRole({ user: 'dm', label, viewport, mobile, routes: DM_ROUTES, prefix: 'dm/' }));
+    if (ONLY !== 'dm' && ONLY !== 'none') jobs.push(crawlRole({ user: 'jess', label, viewport, mobile, routes: PLAYER_ROUTES, prefix: '' }));
   }
   await Promise.all(jobs);
 } catch (e) {

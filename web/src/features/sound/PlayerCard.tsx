@@ -16,8 +16,8 @@ export default function SoundCard() {
   const s = useSwitches();
   useEffect(() => { if (!s.loaded) void loadSwitches(w); }, [w, s.loaded]);
   return (
-    <section className="card" aria-labelledby="sound-card-h">
-      <div className="card-head"><h3 id="sound-card-h" style={{ margin: 0 }}><i className="fa-solid fa-volume-high" aria-hidden="true" /> Sound</h3></div>
+    <details className="card" aria-labelledby="sound-card-h">
+      <summary style={{ cursor: 'pointer', minHeight: 32 }}><h3 id="sound-card-h" style={{ margin: 0, display: 'inline' }}><i className="fa-solid fa-volume-high" aria-hidden="true" /> Sound settings</h3> <span className="tiny muted">{s.music || s.ambience || s.sfx ? 'on' : 'all off'}</span></summary>
       <p className="tiny muted" style={{ margin: 0 }}>All off by default, and only for this device. At the table you probably want them off and to hear the room speakers.</p>
       {ROWS.map(([k, label, help]) => (
         <div key={k} className="stack tight">
@@ -33,6 +33,6 @@ export default function SoundCard() {
           )}
         </div>
       ))}
-    </section>
+    </details>
   );
 }
