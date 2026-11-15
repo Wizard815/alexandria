@@ -46,7 +46,7 @@ test('TestConnectorsDocs_LegendKeeperBlockKindsFromSpec', () => {
     { kind: 'map', resourceId: 'm', documentId: 'd' },
     { kind: 'unsupported', id: 'u1' },
   ]);
-  assert.deepEqual(b.map((x) => x.kind), ['paragraph', 'secret', 'bulletList', 'callout', 'divider', 'codeBlock', 'blockquote', 'toggle', 'paragraph', 'infobox', 'infobox', 'heading', 'bulletList', 'heading', 'paragraph', 'paragraph', 'unsupported', 'unsupported']);
+  assert.deepEqual(b.map((x) => x.kind), ['paragraph', 'secret', 'bulletList', 'callout', 'divider', 'codeBlock', 'blockquote', 'toggle', 'paragraph', 'infobox', 'infobox', 'heading', 'bulletList', 'heading', 'paragraph', 'paragraph', 'paragraph', 'unsupported']); // the map block is a link to the map page
   assert.equal((b[2] as any).children[0].checked, true);
   assert.equal((b[2] as any).children[0].children[0].content[0].text, 'Done it', 'taskItem runs are kept');
   assert.equal((b[3] as any).variant, 'warning', 'callout tone is read');
