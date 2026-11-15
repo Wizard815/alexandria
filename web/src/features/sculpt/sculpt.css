@@ -1,0 +1,20 @@
+/* Sculpting: the DM-only preview, the output checklist, the template library and the side sheet. */
+.sculpt-dm { border-left: 3px solid var(--danger); background: var(--panel-2); padding: 2px 10px; border-radius: 4px; }
+.sculpt-count { width: 3.2em; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; text-align: center; }
+.sculpt-outs { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sculpt-out { align-items: baseline; flex-wrap: wrap; }
+.sculpt-lib-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sculpt-lib-tools input[type="search"] { flex: 1 1 180px; min-width: 0; }
+.sculpt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.sculpt-card { position: relative; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sculpt-star { position: absolute; top: 6px; right: 6px; }
+.sculpt-sheet-back { position: fixed; inset: 0; z-index: 960; background: rgba(0, 0, 0, 0.4); display: flex; justify-content: flex-end; }
+.sculpt-sheet { width: min(760px, 100%); height: 100%; overflow-y: auto; background: var(--bg); color: var(--text); border-left: 1px solid var(--line-strong); padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 10px; box-shadow: -12px 0 40px rgba(0, 0, 0, 0.4); }
+.sculpt-sheet .cols { display: flex; flex-direction: column; gap: 12px; }
+.sculpt-import { display: flex; flex-direction: column; gap: 8px; }
+.sculpt-import textarea { font-family: monospace; font-size: 12px; }
+@media (max-width: 640px) {
+  .sculpt-sheet { width: 100%; padding: 10px 12px 24px; }
+}
+.sculpt-card .sculpt-open { white-space: normal !important; text-align: left; padding: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; white-space: normal; width: 100%; min-width: 0; height: auto; }
+.sculpt-card .sculpt-open > * { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }

@@ -27,7 +27,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(game night|schedule|rsvp|next game|real[- ]life)\b/i, tools: ['list_calendar', 'schedule_session'] },
   { re: /\b(quick event|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['send_quick_event', 'list_quick_events', 'resolve_quick_event', 'cancel_quick_event'] },
   { re: /\b(stage|spotlight|handout|show (it |this |that |the )?(to |on )?(the )?(table|players|screen|party)|put (it |this |that )?on (the )?(stage|screen|board))\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card', 'sculpt', 'speak'] },
-  { re: /\b(sculpt|set the scene|describe (the|a) (scene|room|place|tavern|shop)|read[- ]aloud|boxed text|npc for|tavern|template)\b/i, tools: ['sculpt', 'send_scene', 'sculpt_templates', 'speak', 'show_on_stage', 'send_table_chat'] },
+  { re: /\b(sculpt|set the scene|describe (the|a) (scene|room|place|tavern|shop)|read[- ]aloud|boxed text|npc for|tavern|template|rumou?rs? table|travel event|riddle|monologue|prep checklist|loot hoard|handout)\b/i, tools: ['sculpt', 'send_scene', 'sculpt_templates', 'list_templates', 'speak', 'show_on_stage', 'send_table_chat'] },
   { re: /\b(generate|random(ly)?|names?|hoard|loot|treasure)\b/i, tools: ['generate_names', 'generate_items', 'generate_coins'] },
   { re: /\b(music|ambience|ambient|soundtrack|sound ?board|sound effects?|sfx|play (some |the )?(music|sound|rain|thunder)|thunder|rain|creak)\b/i, tools: ['play_music', 'play_ambience', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes', 'get_sound_now'] },
   { re: /\b(speak|say (it )?aloud|voice|narrat\w*|read aloud|aloud)\b/i, tools: ['speak', 'list_voice_presets'] },
