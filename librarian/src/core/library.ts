@@ -212,18 +212,18 @@ export class Library {
     const fmLevel = normLevel((fm as any).visibility);
     const vis: Level = pageLevel({ visibility: normLevel(e.visibility), tags: e.tags, frontmatter: fm, level: maxLevel(e.level, fmLevel === 'broker' || fmLevel === 'classified' ? fmLevel : null) });
     const vals = [title, vis, JSON.stringify(fm), body, JSON.stringify(blocks), isMd ? 'markdown' : 'blocks', e.parentExternalId ?? null, JSON.stringify(e.folder ?? []),
-      JSON.stringify(e.aliases ?? []), JSON.stringify(e.tags ?? []), e.type ?? 'page', e.icon ? JSON.stringify(e.icon) : null, e.banner ?? null, e.url ?? null,
-      e.knowledge ?? null, JSON.stringify(e.properties ?? []), e.updatedAt || now(), by];
+      JSON.stringify(e.aliases ?? []), JSON.stringify(e.tags ?? []), e.type ?? 'page', e.icon ? JSON.stringify(e.icon) : null, e.banner ?? null, safeSourceUrl(e.url),
+      e.knowledge ?? null, JSON.stringify(e.properties ?? []), Number.isFinite(e.position) ? e.position : null, e.updatedAt || now(), by];
     let pid: string;
     tx(this.db, () => {
       if (existing) {
         pid = existing.id;
         run(this.db, `UPDATE pages SET title = ?, visibility = ?, frontmatter = ?, body = ?, blocks = ?, origin = ?, parent_external = ?, folder = ?, aliases = ?, tags = ?, kind = ?, icon = ?, banner = ?, url = ?,
-          knowledge = ?, properties = ?, updated_at = ?, updated_by = ?, ${CLEAR_COPIES} WHERE id = ?`, ...vals, pid);
+          knowledge = ?, properties = ?, position = ?, updated_at = ?, updated_by = ?, ${CLEAR_COPIES} WHERE id = ?`, ...vals, pid);
       } else {
         pid = id('pg_');
-        run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, updated_at, updated_by, id, world_id, path, source_id, external_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
+        run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, id, world_id, path, source_id, external_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
       this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
@@ -348,21 +348,41 @@ export class Library {
       || Object.keys(frontmatterFor(fm, 'ai')).length !== Object.keys(fm).filter((k) => k !== 'visibility').length;
   }
 
-  /** Resolve mentions in a world: by source ref first, then by title or alias. */
+  /**
+   * Resolve mentions in a world: by source ref first, then by title, alias,
+   * file name or path (Obsidian links by file name). A ref "resource#document"
+   * that is not stored falls back to the resource's first page.
+   */
   private resolver(worldId: string) {
-    const rows = all<any>(this.db, 'SELECT id, title, aliases, visibility, source_id, external_id FROM pages WHERE world_id = ?', worldId);
+    const rows = all<any>(this.db, 'SELECT id, title, aliases, visibility, source_id, external_id, path, origin FROM pages WHERE world_id = ?', worldId);
     const byRef = new Map<string, any>();
-    const byName = new Map<string, any>();
+    const byName = new Map<string, { r: any; weak: boolean }>();
+    const put = (n: string, r: any, weak: boolean) => {
+      const k = String(n).toLowerCase();
+      const prev = byName.get(k);
+      // A title always wins over a file name. Among equals, prefer the more shared page so a hidden twin can't hide it, and vice versa can't leak.
+      if (!prev || (prev.weak && !weak) || (prev.weak === weak && RANK[normLevel(r.visibility)] < RANK[normLevel(prev.r.visibility)])) byName.set(k, { r, weak });
+    };
     for (const r of rows) {
       if (r.external_id) byRef.set(`${r.source_id}|${r.external_id}`, r);
-      for (const n of [r.title, ...JSON.parse(r.aliases || '[]')]) {
-        const k = String(n).toLowerCase();
-        const prev = byName.get(k);
-        // When names repeat, prefer the more shared page so a hidden twin can't hide it, and vice versa can't leak.
-        if (!prev || RANK[normLevel(r.visibility)] < RANK[normLevel(prev.visibility)]) byName.set(k, r);
-      }
+      for (const n of [r.title, ...JSON.parse(r.aliases || '[]')]) put(n, r, false);
     }
-    const find = (m: Mention, sourceId: string | null) => (m.ref ? byRef.get(`${sourceId}|${m.ref}`) : m.name ? byName.get(m.name.toLowerCase()) : undefined);
+    for (const r of rows) {
+      if (!/\.md$/i.test(r.path)) continue;
+      const noExt = String(r.path).replace(/\.md$/i, '');
+      put(noExt.split('/').pop()!, r, true);
+      put(noExt, r, true);
+    }
+    const find = (m: Mention, sourceId: string | null) => {
+      if (m.ref) {
+        const hit = byRef.get(`${sourceId}|${m.ref}`);
+        if (hit || !m.ref.includes('#')) return hit;
+        return byRef.get(`${sourceId}|${m.ref.split('#')[0]}`);
+      }
+      if (!m.name) return undefined;
+      const k = m.name.trim().toLowerCase();
+      return (byName.get(k) ?? (k.includes('/') ? byName.get(k.split('/').pop()!.replace(/\.md$/, '')) : undefined))?.r;
+    };
     return { find, rows };
   }
 
@@ -468,12 +488,12 @@ export class Library {
    */
   list(worldId: string, viewer: Viewer) {
     const aud = audienceOf(viewer);
-    const cols = 'p.id, p.path, p.title, p.kind, p.tags, p.folder, p.icon, p.source_id, p.external_id, p.parent_external, p.updated_at, p.visibility, s.name AS source_name';
+    const cols = 'p.id, p.path, p.title, p.kind, p.tags, p.folder, p.icon, p.source_id, p.external_id, p.parent_external, p.position, p.updated_at, p.visibility, s.name AS source_name';
     const rows = all<any>(this.db, `SELECT ${cols} FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? ${scopeGuard(scopeOf(aud), 'p')} ORDER BY p.path`, worldId);
     const shown = new Set(rows.map((r) => `${r.source_id}|${r.external_id}`));
     return rows.map((r) => {
       const parent = r.parent_external && shown.has(`${r.source_id}|${r.parent_external}`) ? rows.find((x) => x.source_id === r.source_id && x.external_id === r.parent_external)?.id ?? null : null;
-      const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, updated_at: r.updated_at };
+      const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, position: r.position ?? null, updated_at: r.updated_at };
       if (aud !== 'player') out.visibility = r.visibility;
       return out;
     });
@@ -486,7 +506,7 @@ export class Library {
    * (only pages this viewer may open). Anything the viewer has no copy of is a 404.
    */
   get(worldId: string, pageId: string, viewer: Viewer) {
-    const pg = one<any>(this.db, 'SELECT p.*, s.name AS source_name FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? AND (p.id = ? OR p.path = ?)', worldId, pageId, pageId);
+    const pg = one<any>(this.db, 'SELECT p.*, s.name AS source_name, s.kind AS source_kind, s.config AS source_config, s.last_sync_at AS source_synced_at FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? AND (p.id = ? OR p.path = ?)', worldId, pageId, pageId);
     if (!pg) throw new HttpError(404, 'Page not found');
     const aud = audienceOf(viewer);
     const level = normLevel(pg.visibility);
@@ -495,19 +515,28 @@ export class Library {
     const { blocks, properties } = copy;
     const R = this.resolver(worldId);
     const links: Record<string, string> = {};
+    // The current title of each linked page, for links the source gave no words for.
+    const linkTitles: Record<string, string> = {};
     for (const m of mentionsIn(blocks, properties)) {
       const t = R.find(m, pg.source_id);
-      if (t && canSeeLevel(normLevel(t.visibility), aud)) links[m.ref ? `ref:${m.ref}` : `name:${String(m.name).toLowerCase()}`] = t.id;
+      if (t && canSeeLevel(normLevel(t.visibility), aud)) {
+        const key = m.ref ? `ref:${m.ref}` : `name:${String(m.name).toLowerCase()}`;
+        links[key] = t.id;
+        linkTitles[key] = t.title;
+      }
     }
-    const children = all<any>(this.db, `SELECT id, title, icon FROM pages WHERE world_id = ? AND source_id IS ? AND parent_external = ? ${scopeGuard(scopeOf(aud), '')} ORDER BY title`, worldId, pg.source_id, pg.external_id ?? '\u0000')
+    const children = all<any>(this.db, `SELECT id, title, icon FROM pages WHERE world_id = ? AND source_id IS ? AND parent_external = ? ${scopeGuard(scopeOf(aud), '')} ORDER BY position IS NULL, position, title COLLATE NOCASE`, worldId, pg.source_id, pg.external_id ?? '\u0000')
       .map((c) => ({ id: c.id, title: c.title, icon: c.icon ? JSON.parse(c.icon) : null }));
     const base = {
       id: pg.id, path: pg.path, title: pg.title, kind: pg.kind, tags: JSON.parse(pg.tags || '[]'), aliases: JSON.parse(pg.aliases || '[]'),
       icon: pg.icon ? JSON.parse(pg.icon) : null, banner: pg.banner, folder: JSON.parse(pg.folder || '[]'), source: pg.source_name ?? null,
-      blocks, properties, links, children, updated_at: pg.updated_at,
+      blocks, properties, links, linkTitles, children, position: pg.position ?? null, updated_at: pg.updated_at,
+      // Where the page came from and when it was last read from there.
+      ...(pg.source_id ? { source_app: sourceApp(pg.source_kind), synced_at: pg.source_synced_at ?? null } : {}),
     };
-    if (aud === 'dm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, frontmatter: copy.frontmatter, body: pg.body };
-    if (aud === 'player') return { ...base, frontmatter: copy.frontmatter, body: copy.markdown };
+    if (aud === 'dm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, position: pg.position ?? null, frontmatter: copy.frontmatter, body: pg.body };
+    // The source's own copy may hold more than the player copy, so players get the link only when the DM turned it on for the source.
+    if (aud === 'player') return { ...base, ...(pg.url && playersMayOpen(pg.source_config) ? { url: pg.url } : {}), frontmatter: copy.frontmatter, body: copy.markdown };
     return { ...base, visibility: pg.visibility, level, frontmatter: copy.frontmatter, body: copy.markdown };
   }
 
@@ -592,6 +621,26 @@ export class Library {
       fs.rmSync(path.join(dir, '_api', p.replace(/\.md$/i, '.json')), { force: true });
     }
   }
+}
+
+/** Which app a source is, for the "Open in ..." button. */
+export function sourceApp(kind: string | null): string {
+  const k = String(kind ?? '');
+  if (k.startsWith('legendkeeper') || k === 'mcp:legendkeeper') return 'legendkeeper';
+  if (k.startsWith('kanka') || k === 'mcp:kanka') return 'kanka';
+  if (['markdown-folder', 'vault', 'git', 'mcp-files'].includes(k)) return 'markdown';
+  return 'other';
+}
+
+/** The DM's per-source setting "players may open source pages". Off unless it is exactly true. */
+function playersMayOpen(config: string | null): boolean {
+  try { return JSON.parse(config || '{}')?.playersMayOpen === true; } catch { return false; }
+}
+
+/** A link back to a page in its own app: http, https or obsidian: only, never javascript: or data:. */
+export function safeSourceUrl(u: unknown): string | null {
+  const t = String(u ?? '').trim();
+  return /^(https?|obsidian):\/\/\S+$/i.test(t) && t.length <= 2048 ? t : null;
 }
 
 function slugPart(s: string) {
