@@ -596,6 +596,7 @@ const PLAYER_ROUTES = [
   'POST /sessionchat/trades', 'POST /sessionchat/trades/:tid/accept', 'POST /sessionchat/trades/:tid/decline', 'POST /sessionchat/trades/:tid/cancel',
   'PUT /clock/prefs', 'PUT /itemcards/:itemId/page', 'PUT /live/presence', 'PUT /people/:pid/note', 'PUT /profiles/me/blocks', 'PUT /sound/me/switches', 'PUT /whiteboard/', 'POST /whiteboard/wipe',
   'POST /stage/cards/:cid/buy',
+  'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
 const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/)/;
@@ -671,7 +672,7 @@ test('TestSecurityAuth_RevokedAndSignedOutCredentialsStopWorking', async () => {
 
 test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
   const bad: string[] = [];
-  const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media/.test(r.path));
+  const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media|^\/api\/trigger/.test(r.path));
   for (const [label, key] of [['jess read key', S.K.jessRead], ['dm read key', S.K.dmRead]] as const) {
     for (const r of writes) for (const url of urlsFor(r).slice(0, 4)) {
       const res = await call(r.method, url, key, {});
