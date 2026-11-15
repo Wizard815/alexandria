@@ -57,7 +57,7 @@ export default function Calendar() {
               const today = d.toDateString() === new Date().toDateString();
               const s = list[0];
               return (
-                <button key={d.toISOString()} type="button" role="gridcell"
+                <button key={d.toISOString()} type="button" role="gridcell" disabled={!s && !isDM}
                   onClick={() => (s ? setSel(s.id) : isDM ? setAdding(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 19)) : undefined)}
                   aria-label={`${d.toDateString()}${s ? `: ${s.title} at ${timeShort(s.starts_at)}` : ''}`}
                   style={{ minHeight: 64, padding: 4, borderRadius: 6, textAlign: 'left', font: 'inherit', cursor: s || isDM ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', gap: 3, color: inMonth ? 'var(--text)' : 'var(--faint)', background: 'var(--side)', border: `1px solid ${s && s.id === cur?.id ? 'var(--accent)' : today ? 'var(--teal)' : 'var(--line)'}` }}>
