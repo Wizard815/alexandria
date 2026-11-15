@@ -69,7 +69,9 @@ Each connector declares what it provides in `capabilities`: `pages`,
 `librarian/src/intake/model.ts` defines it. An entry has:
 - `externalId`: stable within the source. Never the title, because
   titles repeat.
-- `parentExternalId`, `folder`: the tree in the Library.
+- `parentExternalId`, `folder`: the tree in the Library. `position`: where
+  the source puts the page among its siblings (see "Order" below). `url`:
+  the page in the source's own app.
 - `title`, `aliases`, `tags`, `type`, `icon` (Font Awesome glyph and
   colour), `banner`.
 - `properties`: sidebar fact groups. Each row is a key with rich text.
@@ -111,9 +113,10 @@ Each connector declares what it provides in `capabilities`: `pages`,
 3. After a **complete** listing, pages the source no longer has are
    removed. A failed or stopped sync removes nothing.
 4. Mentions are resolved:
-   - by the source's own ids first, then by title or alias
-   - a link to a DM-only page, or to a page that wasn't imported, becomes
-     "(hidden)" in the player copy
+   - by the source's own ids first, then by title, alias or file name (see
+     "Links" below)
+   - a link to a DM-only page, or by id to a page that wasn't imported,
+     becomes "(hidden)" in the player copy
 5. Player copies are rebuilt:
    - `secret` blocks, DM/GM callouts, DM headings with their sections, DM
      fact rows and every block kind the guard doesn't know are dropped
@@ -121,6 +124,84 @@ Each connector declares what it provides in `capabilities`: `pages`,
      from the player blocks and redacted a second time
 
 Sources can sync on a schedule (`schedule_minutes`).
+
+## Order in the Library tree
+
+The tree shows pages in the order their source shows them. Each entry has
+a `position` (stored in `pages.position`; lower first). Siblings are
+compared by it, a folder sits where its first page sits, and pages with no
+position follow, A to Z. "A–Z" and "Recent" in the Library are flat lists
+and ignore it.
+
+| Source | Where the order comes from |
+|---|---|
+| LegendKeeper | `rank` of each resource, compared as plain strings (the SDK guide says not to use a locale comparison). Resources with no rank come last, then by name. The position is the place in a depth-first walk of the tree. Extra tabs (documents) of a resource follow it, in the order of their own `rank`. |
+| Kanka | Kanka lists by name within a module, and its menu runs characters, locations, organisations, families, items, notes, journals, quests, races, creatures, events, abilities, timelines, maps, calendars, tags. Position is the place in that list (names compared without case, numbers naturally). |
+| Markdown | Like Obsidian's file list: folders first, then files, names in natural order (`a9` before `a10`). A number in the frontmatter `order` (or `position`) puts a file before the files with none, by that number. Disk order never matters. |
+| Push / API | `position` in the pushed entry (a number); without it, A to Z. |
+
+Positions come only from the source, so a second sync of an unchanged
+source gives the same numbers. Moving a page in the source moves it in the
+next sync.
+
+## Links
+
+- **Inside a page.** A mention opens the page it points at when that page
+  was imported and the viewer may read it. Resolution order: the source's
+  own id (`ref`), then title or alias, then the file name or path (Obsidian
+  links by file name). A ref `resource#document` that is not stored falls
+  back to the resource's first page. LegendKeeper `lk://resources/<id>`
+  link marks and map blocks become mentions too; Markdown
+  `[text](Other Note.md)` links become links to that page.
+- **Hidden.** For players, a mention of a page above their level shows
+  "(hidden)", or the words the author wrote if there were any. So does a
+  mention by id that matches nothing imported, because it may be a page the
+  API key was not allowed to read. A `[[name]]` that matches no page stays
+  plain text.
+- **Not imported.** For the DM an unresolved mention is plain text. It is
+  never a link, so it never opens a 404.
+- **Outside.** Only `http:`, `https:` and `mailto:` links are kept, in the
+  import and again when the page is drawn. They open in a new tab with
+  `rel="noopener noreferrer"`. `javascript:`, `data:` and anything else
+  show as plain text.
+
+## Open the page in its own app
+
+Each page can carry a link back to the page in its source's web app (the
+`url` of the entry, stored in `pages.url`; only `http`, `https` and
+`obsidian` links are stored). The Library shows it as "Open in
+LegendKeeper", "Open in Kanka" or "Open file", with the source name and
+when it was last synced beside it.
+
+The link is for the DM. Players get it only when the source setting
+**Players may open source pages** (`playersMayOpen`, off by default) is on,
+because the page in the source can hold more than the player copy. A
+model and the broker never get it. The list endpoint never carries it.
+
+| Source | Link | How sure |
+|---|---|---|
+| Kanka | `https://app.kanka.io/w/<campaign id>/entities/<entity id>`. The API's own `urls.view` is used when it sends one; a self-hosted Kanka uses its own host. | Documented in the API (`urls.view`). |
+| LegendKeeper | `https://www.legendkeeper.com/app/project/{project}/resource/{id}`, from the project id and the resource id. The project id is read from the API URL, or set as **Project id** for the MCP connector. | Not documented: LegendKeeper's API docs give no app address. Treat the default as a best guess and set **Page address in the LegendKeeper app** (`webUrl`, with `{project}`, `{id}`, `{doc}`) if it does not open the page. |
+| Markdown, Obsidian | `obsidian://open?vault=<vault name>&file=<path without .md>` when **Obsidian vault name** is set; no button otherwise. Git sources have none. | Obsidian URI documentation. It opens the note in Obsidian on the computer where the browser runs. |
+
+## What each source keeps
+
+LegendKeeper keeps titles, aliases, tags, icon and colour, banner, tree
+and tab order, sidebar facts, infoboxes (a portrait image becomes an image
+block, DM-only when the property is hidden), callouts, toggles, tables,
+tasks, columns (flattened), mentions, `lk://` links, hidden pages and
+documents, map pins and timelines. Kanka keeps names, type, tags,
+image, nesting, facts, attributes, posts (as sections; secret unless
+shared), mentions, relations, timelines, calendars and map markers.
+Markdown keeps frontmatter as facts, tags (also `#tags`), aliases,
+wiki and relative links, callouts, tables, lists, secrets and levels.
+
+Still lossy: LegendKeeper columns become one column; `collection` blocks
+list all child pages whatever their filter says; sidebar embeds, map and
+collection properties, text colour and highlight, and map vector shapes
+are not imported; Markdown images and embedded files that are not an
+`http(s)` address are dropped; Kanka entity icons and tag colours are not
+imported.
 
 ## Records
 

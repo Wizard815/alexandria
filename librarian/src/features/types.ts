@@ -25,6 +25,8 @@ export interface McpTool {
   write?: boolean;
   /** Only listed for a player's key (never a DM's, read or write). */
   playerOnly?: boolean;
+  /** Only listed for the DM (any key): a DM-only read players would only get 403 from. */
+  dmOnly?: boolean;
   props: Record<string, any>;
   required?: string[];
   /** The world API request to make; the path is relative to /api/worlds/:world. */

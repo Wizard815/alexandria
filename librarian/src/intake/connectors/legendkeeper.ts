@@ -63,9 +63,12 @@ export function restTransport(ctx: ConnectorContext, base: string, key: string):
   };
 }
 
+/** A mention's ref: the resource id, plus the document id when the mention names one (the library falls back to the resource's first page). */
+const mentionRef = (resourceId: unknown, documentId?: unknown) => (documentId ? `${resourceId}#${documentId}` : String(resourceId ?? ''));
+
 function inline(c: any[] = []): Inline[] {
   return (Array.isArray(c) ? c : []).map((x): Inline => {
-    if (x?.mention) return { mention: { ref: String(x.mention.resourceId ?? ''), ...(x.mention.name ? { name: String(x.mention.name) } : {}), ...(x.mention.text ? { text: String(x.mention.text) } : {}) } };
+    if (x?.mention) return { mention: { ref: mentionRef(x.mention.resourceId, x.mention.documentId), ...(x.mention.name ? { name: String(x.mention.name) } : {}), ...(x.mention.text ? { text: String(x.mention.text) } : {}) } };
     if (x?.break === true) return { text: '\n' };
     // Icon runs ({ icon }) carry no text.
     const o: Inline = { text: String(x?.text ?? '') };
@@ -74,10 +77,32 @@ function inline(c: any[] = []): Inline[] {
     if (x?.code) o.code = true;
     if (x?.strike || x?.strikethrough) o.strike = true;
     if (x?.underline) o.underline = true;
-    if (typeof x?.link === 'string') o.link = x.link;
-    else if (typeof x?.href === 'string') o.link = x.href;
+    const href = typeof x?.link === 'string' ? x.link : typeof x?.href === 'string' ? x.href : null;
+    if (href) {
+      // A link mark to another LegendKeeper page (lk://resources/<id>) is a mention; other links must be http, https or mailto.
+      const ref = lkLinkRef(href);
+      if (ref) return { mention: { ref, ...(o.text ? { text: o.text } : {}) } };
+      if (/^(https?:|mailto:)/i.test(href.trim())) o.link = href.trim();
+    }
     return o;
   }).filter((x) => x.mention || x.text);
+}
+
+/** lk://resources/<id>[/docs/<doc>] as a mention ref, or null. */
+function lkLinkRef(uri: string): string | null {
+  const m = /^lk:\/\/resources\/([^/?#]+)(?:\/docs\/([^/?#]+))?/i.exec(uri.trim());
+  return m ? mentionRef(m[1], m[2]) : null;
+}
+
+/** Image properties (a portrait in the sidebar or an infobox) as image blocks; a hidden one is wrapped as a DM-only secret. */
+export function lkImageBlocks(props: any[] = []): Block[] {
+  const out: Block[] = [];
+  for (const g of Array.isArray(props) ? props : []) {
+    if (g?.kind !== 'image' || typeof g.url !== 'string' || !/^https?:/i.test(g.url)) continue;
+    const img: Block = { kind: 'image', url: g.url, ...(g.alt ? { alt: String(g.alt) } : {}), ...(titleOf(g) ? { caption: [{ text: titleOf(g)! }] } : {}) };
+    out.push(g.isHidden !== false ? { kind: 'secret', children: [img] } : img);
+  }
+  return out;
 }
 
 const mentionList = (items: any[] = []): Inline[] => (Array.isArray(items) ? items : []).filter((i) => i?.resourceId)
@@ -206,7 +231,7 @@ export function lkBlocks(bs: any[] = []): Block[] {
         return [typeof url === 'string' && /^https?:/i.test(url) ? { kind: 'image', url, ...(b.alt ? { alt: String(b.alt) } : {}), ...(b.width ? { width: Number(b.width) } : {}), ...(b.caption ? { caption: inline(b.caption) } : titleOf(b) ? { caption: [{ text: titleOf(b)! }] } : {}) } : { kind: 'unsupported', sourceKind: 'image (no url)' }];
       }
       case 'embed': return typeof b.url === 'string' && /^https?:/i.test(b.url) ? [{ kind: 'paragraph', content: [{ text: titleOf(b) ?? `${b.provider ?? 'Embed'}`, link: b.url }] }] : [];
-      case 'infobox': return [{ kind: 'infobox', layout: b.layout ?? 'wrapRight', width: Number(b.width) || 40, groups: lkGroups(b.rows) }];
+      case 'infobox': return [...lkImageBlocks(b.rows), { kind: 'infobox', layout: b.layout ?? 'wrapRight', width: Number(b.width) || 40, groups: lkGroups(b.rows) }];
       case 'keyValue': return [{ kind: 'infobox', layout: b.layout ?? 'default', width: Number(b.width) || 100, groups: [{ title: String(b.title ?? 'Stats'), rows: propertyRows({ kind: 'keyValue', rows: b.rows }) }] }];
       case 'meter': {
         const rows = propertyRows(b);
@@ -220,13 +245,58 @@ export function lkBlocks(bs: any[] = []): Block[] {
         ] : [];
       }
       case 'resourceCollection': return [{ kind: 'collection', title: b.isTitleHidden ? undefined : b.title, filter: b.filter }];
-      // map blocks inside a page (a link to a map document) and unsupported (opaque) stay unknown.
+      // A map block inside a page is a link to a map document: kept as a link to that page.
+      case 'map': return b.resourceId ? [{ kind: 'paragraph', content: [{ mention: { ref: mentionRef(b.resourceId, b.documentId), text: typeof b.title === 'string' && b.title ? b.title : 'Map' } }] }] : [];
+      // Unsupported (opaque) blocks stay unknown.
       default: return [{ kind: 'unsupported', sourceKind: String(b?.kind ?? 'unknown') }];
     }
   }).filter((b) => !(b.kind === 'paragraph' && !b.content.length));
 }
 
-async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncItem> {
+/**
+ * Tree order of every resource, as LegendKeeper shows it: siblings by `rank`
+ * compared as plain strings (the docs say not to use a locale comparison),
+ * resources with no rank last, then by name. The position is the place in a
+ * depth-first walk, so siblings keep their relative order and it does not
+ * change when something unrelated is edited.
+ */
+export function lkPositions(all: any[]): Map<string, number> {
+  const ids = new Set(all.map((r) => String(r.id)));
+  const kids = new Map<string, any[]>();
+  for (const r of all) {
+    const parent = r.parentId && ids.has(String(r.parentId)) && String(r.parentId) !== String(r.id) ? String(r.parentId) : '';
+    (kids.get(parent) ?? kids.set(parent, []).get(parent)!).push(r);
+  }
+  const cmp = (a: any, b: any) => {
+    const ra = typeof a.rank === 'string' && a.rank ? a.rank : null;
+    const rb = typeof b.rank === 'string' && b.rank ? b.rank : null;
+    if (ra !== rb) return ra === null ? 1 : rb === null ? -1 : ra < rb ? -1 : 1;
+    return String(a.name ?? '').localeCompare(String(b.name ?? '')) || String(a.id).localeCompare(String(b.id));
+  };
+  const pos = new Map<string, number>();
+  let n = 0;
+  const walk = (parent: string, depth: number) => {
+    for (const r of (kids.get(parent) ?? []).sort(cmp)) {
+      if (pos.has(String(r.id)) || depth > 64) continue;
+      pos.set(String(r.id), n++);
+      walk(String(r.id), depth + 1);
+    }
+  };
+  walk('', 0);
+  return pos;
+}
+
+/** The page's address in the LegendKeeper app: the source's template ({project}, {id}, {doc}), or the default one. */
+export function lkUrl(cfg: Record<string, any>, resourceId: string, docId?: string): string | null {
+  const project = String(cfg.projectId || /\/projects\/([^/?#]+)/.exec(String(cfg.apiUrl ?? ''))?.[1] || '').trim();
+  const tpl = String(cfg.webUrl || LK_WEB_URL).trim();
+  if (!project && tpl.includes('{project}')) return null;
+  const out = tpl.replace(/\{project\}/g, encodeURIComponent(project)).replace(/\{id\}/g, encodeURIComponent(resourceId)).replace(/\{doc\}/g, encodeURIComponent(docId ?? ''));
+  return /^https?:\/\/\S+$/i.test(out) ? out : null;
+}
+export const LK_WEB_URL = 'https://www.legendkeeper.com/app/project/{project}/resource/{id}';
+
+async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, any> = {}): AsyncIterable<SyncItem> {
   // 1. Every resource, by cursor.
   const all: any[] = [];
   let cursor: string | undefined;
@@ -240,6 +310,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncI
   }
   ctx.log(`Listed ${all.length} resources`);
   const byId = new Map<string, any>(all.map((r) => [String(r.id), r]));
+  const positions = lkPositions(all);
   const memo = new Map<string, boolean>();
   const hidden = (rid: string, depth = 0): boolean => {
     if (memo.has(rid)) return memo.get(rid)!;
@@ -289,6 +360,10 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncI
     const restricted = hidden(String(r.id)) || await deniesPlayers(String(r.id));
     const folder = (detail.ancestors ?? []).map((a: any) => String(a.name));
     const props = lkGroups(detail.properties);
+    const sideImages = lkImageBlocks(detail.properties);
+    // Extra tabs follow their page, in the order LegendKeeper ranks the tabs.
+    const tabRank = (id: string) => String((detail.documents ?? []).find((x: any) => x.id === id)?.rank ?? '');
+    const tabOrder = pages.map((d: any) => String(d.id)).sort((a: string, b: string) => (tabRank(a) < tabRank(b) ? -1 : tabRank(a) > tabRank(b) ? 1 : 0));
     for (const d of pages) {
       const dd = (detail.documents ?? []).find((x: any) => x.id === d.id) ?? d;
       const multi = pages.length > 1;
@@ -310,6 +385,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncI
           continue;
         }
         blocks = lkBlocks(Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : []);
+        if (d === pages[0] && sideImages.length) blocks = [...sideImages, ...blocks];
       }
       yield {
         externalId: multi && d !== pages[0] ? `${r.id}#${d.id}` : String(r.id),
@@ -323,6 +399,8 @@ async function* lkSync(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncI
         banner: typeof detail.banner?.url === 'string' && detail.banner.enabled !== false ? detail.banner.url : typeof detail.bannerUrl === 'string' ? detail.bannerUrl : null,
         properties: d === pages[0] ? props : [],
         blocks,
+        position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (d === pages[0] ? 0 : (1 + tabOrder.indexOf(String(d.id))) / (pages.length + 1)) : null,
+        url: lkUrl(cfg, String(r.id), String(d.id)),
         visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm',
         updatedAt: dd.updatedAt ?? r.updatedAt ?? null,
       };
@@ -425,6 +503,9 @@ async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean,
 const lkFields = [
   { key: 'project', label: 'Project (world) name', type: 'text' as const, help: 'Only if the server has more than one project.' },
 ];
+const lkLinkFields = [
+  { key: 'webUrl', label: 'Page address in the LegendKeeper app', type: 'text' as const, placeholder: LK_WEB_URL, help: 'Where the "Open in LegendKeeper" button goes. {project}, {id} and {doc} are replaced. Change it if the default does not open the page.' },
+];
 
 export const legendkeeperMcp: Connector = {
   id: 'legendkeeper-mcp',
@@ -438,8 +519,11 @@ export const legendkeeperMcp: Connector = {
     { key: 'token', label: 'MCP token', type: 'password', secret: true, showIf: { transport: 'http' } },
     { key: 'server', label: 'Local server name', type: 'text', showIf: { transport: 'stdio' } },
     ...lkFields,
+    { key: 'projectId', label: 'Project id', type: 'text', help: 'The id in the LegendKeeper address of your world; only used for the "Open in LegendKeeper" button.' },
+    ...lkLinkFields,
   ],
   validate(cfg) {
+    if (cfg.webUrl && !/^https?:\/\/\S+$/.test(String(cfg.webUrl))) throw new ConfigError('Page address must start with http:// or https://');
     if (cfg.transport === 'stdio') { if (!/^[\w-]{1,40}$/.test(String(cfg.server ?? ''))) throw new ConfigError('Pick the local server name from ALX_MCP_STDIO'); }
     else if (!/^https?:\/\/\S+$/.test(String(cfg.url ?? ''))) throw new ConfigError('MCP URL must start with http:// or https://');
   },
@@ -448,7 +532,7 @@ export const legendkeeperMcp: Connector = {
     const j = await t.get('/resources', { limit: 5 });
     return { ok: true, message: `Connected. First resources: ${(j.data ?? []).map((r: any) => r.name).join(', ')}`, sample: (j.data ?? []).map((r: any) => r.name) };
   },
-  sync: (cfg, ctx) => lkSync(mcpTransport(ctx, cfg.project), ctx),
+  sync: (cfg, ctx) => lkSync(mcpTransport(ctx, cfg.project), ctx, cfg),
   readTools: () => ['api_request'],
 };
 
@@ -460,8 +544,10 @@ export const legendkeeperApi: Connector = {
   fields: [
     { key: 'apiUrl', label: 'Project API URL', type: 'url', required: true, placeholder: 'https://www.legendkeeper.com/api/v3/projects/<project id>', help: 'https://www.legendkeeper.com/api/v3/projects/ followed by your project id. Keys need the project owner on a paid plan.' },
     { key: 'apiKey', label: 'API key', type: 'password', secret: true, required: true, help: 'Project Settings → Developers → API Keys. Use an Admin key so hidden pages, secrets and hidden facts arrive marked (a Member key never sees them).' },
+    ...lkLinkFields,
   ],
   validate(cfg) {
+    if (cfg.webUrl && !/^https?:\/\/\S+$/.test(String(cfg.webUrl))) throw new ConfigError('Page address must start with http:// or https://');
     if (!/^https:\/\/\S+$/.test(String(cfg.apiUrl ?? ''))) throw new ConfigError('API URL must start with https://');
     if (String(cfg.apiKey ?? '').length < 10) throw new ConfigError('API key is required');
   },
@@ -469,5 +555,5 @@ export const legendkeeperApi: Connector = {
     const j = await restTransport(ctx, cfg.apiUrl, cfg.apiKey).get('/resources', { limit: 5 });
     return { ok: true, message: `Connected. First resources: ${(j.data ?? []).map((r: any) => r.name).join(', ')}` };
   },
-  sync: (cfg, ctx) => lkSync(restTransport(ctx, cfg.apiUrl, cfg.apiKey), ctx),
+  sync: (cfg, ctx) => lkSync(restTransport(ctx, cfg.apiUrl, cfg.apiKey), ctx, cfg),
 };
