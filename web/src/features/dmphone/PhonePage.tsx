@@ -58,7 +58,7 @@ export default function PhonePage() {
     <div className={`dmp${shape.wide ? ' wide' : ''}`} data-testid="dmphone" data-layout={shape.wide ? 'two-pane' : 'one-pane'}>
       <div className="dmp-col">
         <header className="dmp-top">
-          <Link to={`/w/${info.slug}/dm`} className="b" style={{ minHeight: 40, padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
+          <Link to={`/w/${info.slug}/dm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
           <span className="brand">{info.name}</span>
           <span className="date" data-testid="phone-date"><span className={`live-dot${connected ? '' : ' off'}`} style={{ marginRight: 6 }} />{sum.data?.date.label ?? ''}</span>
         </header>
