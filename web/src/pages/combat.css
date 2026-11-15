@@ -1,0 +1,32 @@
+/* Combat: the DM tracker and the players' turn order. */
+.cb-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; }
+.cb-bar .btn { min-height: 44px; font-size: 16px; }
+.cb-bar .next { flex: 1 1 160px; }
+.cb-row { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel, transparent); }
+.cb-row.current { border-color: var(--accent); background: var(--accent-bg); border-width: 2px; }
+.cb-row.hidden-foe { border-style: dashed; }
+.cb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cb-head .name { font-size: 18px; font-weight: 700; }
+.cb-head .push { margin-left: auto; }
+.cb-hp { display: flex; flex-direction: column; gap: 3px; min-width: 96px; }
+.cb-hp b { font-size: 22px; }
+.cb-hp .bar { height: 5px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.cb-hp .bar > span { display: block; height: 100%; }
+.cb-hit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cb-hit .input { width: 92px; min-height: 44px; font-size: 18px; }
+.cb-hit .btn { min-height: 44px; min-width: 76px; font-size: 16px; }
+.cb-fx { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cb-fx form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cb-fx .x { min-height: 28px; min-width: 28px; padding: 0 6px; }
+.cb-order { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.cb-order li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); min-height: 48px; }
+.cb-order li.current { background: var(--accent-bg); border: 2px solid var(--accent); font-size: 18px; }
+.cb-order li.mine { border-color: var(--line-strong); }
+.cb-order .arrow { width: 18px; color: var(--accent-strong); font-weight: 700; }
+.cb-order .who { flex: 1; min-width: 0; }
+.cb-order .fx { display: block; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) {
+  .cb-bar { position: sticky; top: 44px; z-index: 15; background: var(--bg); border-bottom: 1px solid var(--line); margin: 0 -14px; padding: 8px 14px; }
+  .cb-hit .input { flex: 1 1 90px; }
+  .cb-hit .btn { flex: 1 1 80px; }
+}
