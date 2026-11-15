@@ -1,7 +1,7 @@
 // The DM phone assistant at /w/:world/dm/phone: five tabs, one job each.
 // A near-square screen (a Fold's inner screen) shows two panes: the chosen
 // tab beside Ask, with the tabs as a side rail.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { OfflineBanner } from '../../ui/index.tsx';
@@ -45,6 +45,19 @@ export default function PhonePage() {
     return () => { el.style.overflow = prev; };
   }, []);
 
+  // The assistant covers the whole screen: make everything behind it inert, so
+  // keyboard focus, clicks and screen readers stay inside it. Restored on leave.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const made: Element[] = [];
+    for (let node: Element | null = rootRef.current; node && node !== document.body; node = node.parentElement) {
+      for (const sib of Array.from(node.parentElement?.children ?? [])) {
+        if (sib !== node && !sib.hasAttribute('inert') && !['SCRIPT', 'STYLE'].includes(sib.tagName)) { sib.setAttribute('inert', ''); made.push(sib); }
+      }
+    }
+    return () => { for (const e of made) e.removeAttribute('inert'); };
+  }, []);
+
   const badge = (t: Tab) => (t === 'queue' ? sum.data?.counts.all ?? 0 : 0);
   const body = (k: Tab) => {
     if (!seen.has(k)) return null;
@@ -55,7 +68,7 @@ export default function PhonePage() {
   };
 
   return (
-    <div className={`dmp${shape.wide ? ' wide' : ''}`} data-testid="dmphone" data-layout={shape.wide ? 'two-pane' : 'one-pane'}>
+    <div ref={rootRef} className={`dmp${shape.wide ? ' wide' : ''}`} data-testid="dmphone" data-layout={shape.wide ? 'two-pane' : 'one-pane'}>
       <div className="dmp-col">
         <header className="dmp-top">
           <Link to={`/w/${info.slug}/dm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
