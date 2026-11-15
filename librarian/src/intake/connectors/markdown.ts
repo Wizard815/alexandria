@@ -19,7 +19,7 @@ import { type Level, keyLevel, normLevel } from '../../core/levels.ts';
 import { jsonOf } from '../../core/mcp.ts';
 
 const run = promisify(execFile);
-const RESERVED = new Set(['title', 'visibility', 'tags', 'tag', 'aliases', 'alias', 'knowledge', 'type', 'icon', 'banner', 'cssclass', 'cssclasses', 'publish', 'permalink']);
+const RESERVED = new Set(['title', 'visibility', 'tags', 'tag', 'aliases', 'alias', 'knowledge', 'type', 'icon', 'banner', 'cssclass', 'cssclasses', 'publish', 'permalink', 'order', 'position']);
 const DM_KEY = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
 
 function valueInline(v: FMValue): Inline[] {
@@ -51,7 +51,42 @@ export function frontmatterGroups(fm: FM): PropertyGroup[] {
 
 const list = (v: FMValue | undefined) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' && v ? v.split(/\s*,\s*/) : []).map((x) => x.replace(/^#/, '')).filter(Boolean);
 
-export function markdownEntry(relPath: string, text: string, defaultVisibility: 'dm' | 'party'): Entry {
+/** obsidian://open link for a file of a vault (docs: help.obsidian.md/Extending+Obsidian/Obsidian+URI). Null when the vault has no name. */
+export function obsidianUrl(vault: unknown, relPath: string): string | null {
+  const v = String(vault ?? '').trim();
+  return v ? `obsidian://open?vault=${encodeURIComponent(v)}&file=${encodeURIComponent(relPath.replace(/\.md$/i, ''))}` : null;
+}
+
+/** A number in frontmatter `order` (or `position`), which puts a page before the pages with none. */
+function explicitOrder(fm: Record<string, any>): number | null {
+  const v = fm.order ?? fm.position;
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Give every page its place in the vault, the way Obsidian's file list shows
+ * it: folders before files, names in natural order. Within a folder, pages
+ * with a frontmatter `order` (or `position`) come first, by that number.
+ */
+export function setMarkdownPositions(entries: Entry[]) {
+  const nat = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }) || (a < b ? -1 : a > b ? 1 : 0);
+  const keyed = entries.map((e) => ({ e, parts: e.externalId.split('/'), order: explicitOrder(e.frontmatter ?? {}) }));
+  keyed.sort((a, b) => {
+    for (let i = 0; i < Math.max(a.parts.length, b.parts.length); i++) {
+      const aFile = i === a.parts.length - 1, bFile = i === b.parts.length - 1;
+      if (aFile !== bFile) return aFile ? 1 : -1;
+      if (a.parts[i] === b.parts[i]) continue;
+      if (!aFile) return nat(a.parts[i], b.parts[i]);
+      if (a.order !== b.order) return a.order === null ? 1 : b.order === null ? -1 : a.order - b.order;
+      return nat(a.parts[i], b.parts[i]);
+    }
+    return 0;
+  });
+  keyed.forEach((k, i) => { k.e.position = i; });
+}
+
+export function markdownEntry(relPath: string, text: string, defaultVisibility: 'dm' | 'party', vault?: unknown): Entry {
   const { fm, body } = splitFrontmatter(text);
   const parts = relPath.split('/');
   const file = parts.pop()!.replace(/\.md$/i, '');
@@ -75,6 +110,7 @@ export function markdownEntry(relPath: string, text: string, defaultVisibility: 
     visibility: fm.visibility !== undefined && fm.visibility !== null ? (normVisibility(fm.visibility) === 'party' ? 'party' : 'dm') : defaultVisibility,
     ...(fm.visibility !== undefined && fm.visibility !== null && (named === 'broker' || named === 'classified') ? { level: named } : {}),
     knowledge: k === 'common' || k === 'local' || k === 'deep' ? k : null,
+    url: obsidianUrl(vault, relPath),
   } as Entry;
 }
 
@@ -96,6 +132,7 @@ export function vaultDir(vaultsDir: string | null, folder: string) {
   return full;
 }
 
+const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the DM’s computer. Empty: no button.' };
 const shareField = { key: 'defaultShared', label: 'Pages without a visibility are shared', type: 'boolean' as const, help: 'Off (safer): only pages with visibility: party in their frontmatter are shared.' };
 
 export const markdownFolder: Connector = {
@@ -104,7 +141,7 @@ export const markdownFolder: Connector = {
   description: 'Reads a folder of Markdown notes on the server, read-only. Frontmatter, wiki links, callouts and tags are kept.',
   aliases: ['vault'],
   capabilities: ['pages', 'properties', 'tags', 'relations'],
-  fields: [{ key: 'folder', label: 'Folder', type: 'text', required: true, help: 'Inside ALX_VAULTS_DIR on the server.' }, shareField],
+  fields: [{ key: 'folder', label: 'Folder', type: 'text', required: true, help: 'Inside ALX_VAULTS_DIR on the server.' }, vaultNameField, shareField],
   validate(cfg, ctx) {
     vaultDir(ctx.vaultsDir, String(cfg.folder ?? ''));
   },
@@ -117,7 +154,9 @@ export const markdownFolder: Connector = {
   async *sync(cfg, ctx) {
     const dir = vaultDir(ctx.vaultsDir, cfg.folder);
     if (!fs.existsSync(dir)) throw new Error('Folder not found');
-    for (const rel of walk(dir)) yield markdownEntry(rel, fs.readFileSync(path.join(dir, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm');
+    const entries = [...walk(dir)].map((rel) => markdownEntry(rel, fs.readFileSync(path.join(dir, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm', cfg.vaultName));
+    setMarkdownPositions(entries);
+    yield* entries;
   },
 };
 
@@ -149,7 +188,9 @@ export const gitRepo: Connector = {
     else await run('git', ['clone', '--depth', '1', ...(cfg.branch ? ['--branch', cfg.branch] : []), '--', cfg.url, dir], { timeout: 180_000 });
     const sub = cfg.subdir ? path.resolve(dir, cfg.subdir) : dir;
     if (!sub.startsWith(dir)) throw new Error('Bad subfolder');
-    for (const rel of walk(sub)) yield markdownEntry(rel, fs.readFileSync(path.join(sub, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm');
+    const entries = [...walk(sub)].map((rel) => markdownEntry(rel, fs.readFileSync(path.join(sub, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm'));
+    setMarkdownPositions(entries);
+    yield* entries;
   },
 };
 
@@ -181,6 +222,7 @@ export const mcpFiles: Connector = {
     { key: 'listArgs', label: 'List tool arguments (JSON)', type: 'textarea', showIf: { preset: 'custom' }, placeholder: '{}' },
     { key: 'readTool', label: 'Read tool', type: 'text', showIf: { preset: 'custom' } },
     { key: 'readArg', label: 'Read tool path argument', type: 'text', showIf: { preset: 'custom' }, placeholder: 'path' },
+    vaultNameField,
     shareField,
   ],
   validate(cfg) {
@@ -201,12 +243,15 @@ export const mcpFiles: Connector = {
     const mcp = ctx.mcp();
     const files = pathsFrom(await mcp.call(p.list, p.listArgs));
     ctx.log(`Listed ${files.length} files`);
+    const entries: Entry[] = [];
     for (const f of files) {
       if (ctx.signal.aborted) throw new Error('Sync stopped');
       const res = await mcp.call(p.read, { [p.readArg]: f });
       if (res.isError) { ctx.log(`Skipped ${f}: ${res.text.slice(0, 120)}`); continue; }
-      yield markdownEntry(f.replace(/^\.?\//, ''), res.text, cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm');
+      entries.push(markdownEntry(f.replace(/^\.?\//, ''), res.text, cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm', cfg.vaultName));
     }
+    setMarkdownPositions(entries);
+    yield* entries;
   },
   readTools: (cfg) => { const p = preset(cfg); return [p.list, p.read]; },
 };

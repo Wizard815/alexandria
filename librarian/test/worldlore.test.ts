@@ -286,10 +286,12 @@ test('TestWorldLore_PlayersCannotUseLoreTools', async () => {
       assert.equal(r.status, 403, `${m} ${sub}`);
       assert.ok(!JSON.stringify(r.body).includes('zxqv'));
     }
-    // Through MCP with the player's own key: read tools are listed but the call is refused.
+    // Through MCP with the player's own key: the lore tools are DM-only, so not even listed, and a call is refused.
     const k = await e.ok('POST', '/api/keys', e.T.jess, { scope: 'scribe', worldId: e.W, label: 'ai', access: 'read' });
+    const listed = (await e.call('POST', '/mcp', k.key ?? k.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).body.result.tools.map((t: any) => t.name);
+    assert.ok(!listed.includes('lore_list') && !listed.includes('lore_read'));
     const out = await e.call('POST', '/mcp', k.key ?? k.token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lore_list', arguments: {} } });
-    assert.equal(out.body.result.isError, true);
+    assert.ok(out.body.error || out.body.result?.isError, 'refused');
     assert.ok(!JSON.stringify(out.body).includes('Hidden Lore'));
     assert.ok(!JSON.stringify((await e.call('GET', `/api/worlds/${e.W}/library/pages`, e.T.jess)).body).includes('Hidden Lore'));
     assert.equal((await e.call('PUT', `/api/worlds/${e.W}/worldlore/config`, e.T.jess, { kind: 'library', root: 'WorldLore', defaultLevel: 'party' })).status, 403);
