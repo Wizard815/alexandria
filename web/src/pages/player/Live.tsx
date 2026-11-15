@@ -1,5 +1,6 @@
 // The live session for a player: who is here, the party pouch, my coin,
 // and combat as the DM lets me see it. No health numbers, ever.
+import '../combat.css';
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins } from '../../lib/format.ts';
@@ -110,25 +111,22 @@ export function CombatPanel({ c, compact = false }: { c: CombatView; compact?: b
   if (!c.active) {
     return compact ? null : <section className="card"><h2>No fight right now</h2><p className="muted">When the DM starts combat, the turn order shows here.</p></section>;
   }
-  return (
-    <section className="card gold" aria-labelledby="combat-h">
-      <div className="card-head"><h2 id="combat-h">Combat</h2><span className="muted small">Round {c.round}</span></div>
+  const body = (
+    <>
+      <span className="muted small">Round {c.round}</span>
       {c.myTurn && (
-        <div role="status" className="row" style={{ padding: '12px 14px', borderRadius: 8, background: 'var(--accent-bg)', border: '1px solid var(--accent)' }}>
-          <strong style={{ fontFamily: 'var(--font-head)', fontSize: 20, color: 'var(--accent-strong)' }}>Your turn</strong>
+        <div role="status" className="row" style={{ padding: '12px 14px', borderRadius: 8, background: 'var(--accent-bg)', border: '2px solid var(--accent)' }}>
+          <strong style={{ fontFamily: 'var(--font-head)', fontSize: 22, color: 'var(--accent-strong)' }}>Your turn</strong>
         </div>
       )}
       {c.combatants ? (
         c.combatants.length ? (
-          <ol className="stack tight" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          <ol className="cb-order">
             {c.combatants.map((x) => (
-              <li key={x.id} aria-current={x.id === c.currentId ? 'step' : undefined} className="row" style={{
-                gap: 8, padding: '9px 12px', borderRadius: 6,
-                background: x.id === c.currentId ? 'var(--accent-bg)' : 'var(--bg)',
-                border: `1px solid ${x.id === c.currentId ? 'var(--accent)' : x.mine ? 'var(--line-strong)' : 'var(--line)'}`,
-              }}>
-                <span className="grow"><strong>{x.name}</strong>{x.mine && <span className="faint"> (you)</span>}
-                  {x.effects.length > 0 && <span className="muted small"> · {x.effects.map((e) => e.rounds ? `${e.name} (${e.rounds})` : e.name).join(', ')}</span>}
+              <li key={x.id} aria-current={x.id === c.currentId ? 'step' : undefined} className={`${x.id === c.currentId ? 'current' : ''} ${x.mine ? 'mine' : ''}`}>
+                <span className="arrow" aria-hidden="true">{x.id === c.currentId ? '▶' : ''}</span>
+                <span className="who"><strong>{x.name}</strong>{x.mine && <span className="faint"> (you)</span>}
+                  {x.effects.length > 0 && <span className="fx">{x.effects.map((e) => e.rounds ? `${e.name} (${e.rounds})` : e.name).join(', ')}</span>}
                 </span>
                 {x.health && <span className="small muted">{/^\d+$/.test(x.health) ? <HealthBar pct={Number(x.health)} /> : x.health}</span>}
               </li>
@@ -136,7 +134,15 @@ export function CombatPanel({ c, compact = false }: { c: CombatView; compact?: b
           </ol>
         ) : <Empty>No one in the turn order yet.</Empty>
       ) : <p className="muted small">The DM keeps the turn order hidden in this world. You'll see “Your turn” when it's yours.</p>}
-      {!compact && <span className="tiny faint">You see the turn order, effects, and how hurt foes look, as far as the DM allows. Your HP stays in your sheet.</span>}
+      {!compact && <span className="tiny faint">You see the turn order, conditions, and how hurt foes look, as far as the DM allows. Your HP stays in your sheet.</span>}
+    </>
+  );
+  // On the stage the card already has a title and frame.
+  if (compact) return <div className="stack tight">{body}</div>;
+  return (
+    <section className="card gold" aria-labelledby="combat-h">
+      <div className="card-head"><h2 id="combat-h">Combat</h2></div>
+      {body}
     </section>
   );
 }
