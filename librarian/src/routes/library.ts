@@ -11,15 +11,21 @@ import { joinFrontmatter } from '../core/frontmatter.ts';
 import { ctx, me } from './_shared.ts';
 import { hybridPages } from '../features/search/embeddings.ts';
 import { scopeFor } from '../features/search/global.ts';
+import { readOnOpen, readSearchHits } from '../features/connections/ondemand.ts';
 
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const L = d.library;
 
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
-  r.get('/pages/:id', (req, res) => res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer)));
+  // A page held only at index depth (a tiered crawl) is read from its source first, then served.
+  r.get('/pages/:id', async (req, res) => {
+    await readOnOpen(d, ctx(res).world.id, String(req.params.id));
+    res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer));
+  });
   // The viewer's own copy as a Markdown file (players: the player copy only).
-  r.get('/pages/:id/markdown', (req, res) => {
+  r.get('/pages/:id/markdown', async (req, res) => {
+    await readOnOpen(d, ctx(res).world.id, String(req.params.id));
     const pg: any = L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer);
     const fm: Record<string, any> = { title: pg.title };
     if (pg.tags?.length) fm.tags = pg.tags;
@@ -49,7 +55,10 @@ export default function libraryRoutes(d: Deps) {
     const c = ctx(res);
     const q = str(req.query.q, 'q', { max: 200 });
     if (req.query.semantic === '1') return void res.json(await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20));
-    res.json(L.search(c.world.id, q, c.viewer));
+    let hits = L.search(c.world.id, q, c.viewer);
+    // The DM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
+    if (c.viewer.role === 'dm' && await readSearchHits(d, c.world.id, hits)) hits = L.search(c.world.id, q, c.viewer);
+    res.json(hits);
   });
   // DM: shared pages that look like they contain DM notes written as prose.
   r.get('/lint', requireDM, (_req, res) => res.json(L.lint(ctx(res).world.id)));

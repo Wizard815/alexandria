@@ -2,9 +2,9 @@
 // Pages keep their LegendKeeper layout: the document blocks map one to one
 // onto Alexandria blocks, sidebar properties become the property bar, and
 // mentions stay links. Hidden is inherited from hidden folders and documents.
-import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, TimelineGroup } from '../connector.ts';
-import { ConfigError } from '../connector.ts';
-import type { Block, Entry, Inline, PropertyGroup } from '../model.ts';
+import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, Tiered, TimelineGroup } from '../connector.ts';
+import { ConfigError, isRecord } from '../connector.ts';
+import { type Block, type Entry, type Inline, type PropertyGroup, indexBlocks } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
 import { levelOfWord } from '../../core/levels.ts';
 
@@ -14,6 +14,7 @@ export function mcpTransport(ctx: ConnectorContext, project?: string): Transport
   const mcp = ctx.mcp();
   return {
     async get(path, query) {
+      await ctx.calls?.take();
       const res = await mcp.call('api_request', { method: 'GET', path, ...(query ? { query } : {}), ...(project ? { project } : {}) });
       const j = jsonOf(res);
       if (res.isError || j === null) throw new Error(`LegendKeeper ${path}: ${res.text.slice(0, 160)}`);
@@ -48,6 +49,7 @@ export function restTransport(ctx: ConnectorContext, base: string, key: string):
     async get(path, query) {
       const qs = query ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(query).map(([k, v]) => [k, String(v)]))).toString() : '';
       for (let attempt = 0; ; attempt++) {
+        await ctx.calls?.take();
         const r = await ctx.fetch(root + path + qs, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: ctx.signal });
         if (r.status === 429 || r.status === 503) {
           const wait = retryAfterMs(r.headers.get('retry-after')) ?? 2000 * 2 ** attempt;
@@ -296,8 +298,8 @@ export function lkUrl(cfg: Record<string, any>, resourceId: string, docId?: stri
 }
 export const LK_WEB_URL = 'https://www.legendkeeper.com/app/project/{project}/resource/{id}';
 
-async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, any> = {}): AsyncIterable<SyncItem> {
-  // 1. Every resource, by cursor.
+/** Every resource of the project, by cursor (100 a call). */
+async function lkListResources(t: Transport, ctx: ConnectorContext): Promise<any[]> {
   const all: any[] = [];
   let cursor: string | undefined;
   for (let i = 0; i < 1000; i++) {
@@ -309,8 +311,41 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
     cursor = String(j.nextCursor);
   }
   ctx.log(`Listed ${all.length} resources`);
-  const byId = new Map<string, any>(all.map((r) => [String(r.id), r]));
-  const positions = lkPositions(all);
+  return all;
+}
+
+const LK_TYPE_TAGS = ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'];
+const lkType = (r: any, d: any) => (d.type === 'map' ? 'map' : (r.tags ?? []).find((x: string) => LK_TYPE_TAGS.includes(x)) ?? 'page');
+
+/** A page's external id, title and parent: the same from a list item and from a detail. */
+function lkIdentity(r: any, pages: any[], d: any) {
+  const multi = pages.length > 1;
+  const first = d === pages[0];
+  return {
+    externalId: multi && !first ? `${r.id}#${d.id}` : String(r.id),
+    parentExternalId: multi && !first ? String(r.id) : r.parentId ? String(r.parentId) : null,
+    title: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name),
+    first, multi,
+  };
+}
+
+/** What is kept between listings: each resource's parent, hidden flag and tree position, so one page can be read alone later. */
+const lkCache = (all: any[], positions: Map<string, number>) => ({ res: Object.fromEntries(all.map((r) => [String(r.id), [r.parentId ? String(r.parentId) : '', r.isHidden === false ? 0 : 1, positions.get(String(r.id)) ?? -1]])) });
+const lkFromCache = (cache: Record<string, any> | null | undefined) => {
+  const byId = new Map<string, any>();
+  const positions = new Map<string, number>();
+  for (const [id, v] of Object.entries((cache?.res ?? {}) as Record<string, [string, number, number]>)) {
+    byId.set(id, { id, parentId: v[0] || null, isHidden: v[1] === 0 ? false : true });
+    if (v[2] >= 0) positions.set(id, v[2]);
+  }
+  return { byId, positions };
+};
+
+/**
+ * Everything that reads one resource: its hidden state, its permissions, and its pages and timelines as entries.
+ * `byId` holds the list items (or what the last listing left in the cache) for the hidden-folder rule.
+ */
+function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>, byId: Map<string, any>, positions: Map<string, number>) {
   const memo = new Map<string, boolean>();
   const hidden = (rid: string, depth = 0): boolean => {
     if (memo.has(rid)) return memo.get(rid)!;
@@ -342,21 +377,22 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
         if (who === 'ADMIN' || who === 'OWNER') continue;
         if (![1, 2, 3, 4, 5].includes(level as number)) return true;
       }
-      const parent = byId.get(rid)?.parentId;
+      const parent = byId.get(rid)?.parentId ?? d?.parentId;
       return parent ? deniesPlayers(String(parent), depth + 1) : false;
     })());
     return denied.get(rid)!;
   };
 
-  for (const r of all) {
+  /** Pages, maps and timelines of one resource. `r` is a list item or a resource detail. */
+  async function* entriesFor(r: any): AsyncIterable<SyncItem> {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
-    if (r.isTemplate === true) continue;
+    if (r.isTemplate === true) return;
     // Pages and maps become pages of their own; timelines become records.
     const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
     const timelines = (r.documents ?? []).filter((d: any) => d.type === 'time');
-    if (!pages.length && !timelines.length) continue;
+    if (!pages.length && !timelines.length) return;
     const detail = await detailOf(String(r.id));
-    if (!detail) { ctx.log(`Skipped ${r.name}`); continue; }
+    if (!detail) { ctx.log(`Skipped ${r.name}`); return; }
     const restricted = hidden(String(r.id)) || await deniesPlayers(String(r.id));
     const folder = (detail.ancestors ?? []).map((a: any) => String(a.name));
     const props = lkGroups(detail.properties);
@@ -366,7 +402,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
     const tabOrder = pages.map((d: any) => String(d.id)).sort((a: string, b: string) => (tabRank(a) < tabRank(b) ? -1 : tabRank(a) > tabRank(b) ? 1 : 0));
     for (const d of pages) {
       const dd = (detail.documents ?? []).find((x: any) => x.id === d.id) ?? d;
-      const multi = pages.length > 1;
+      const idn = lkIdentity(r, pages, d);
       const isHidden = restricted || dd.isHidden !== false;
       let blocks: Block[];
       if (d.type === 'map') {
@@ -388,21 +424,23 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
         if (d === pages[0] && sideImages.length) blocks = [...sideImages, ...blocks];
       }
       yield {
-        externalId: multi && d !== pages[0] ? `${r.id}#${d.id}` : String(r.id),
-        parentExternalId: multi && d !== pages[0] ? String(r.id) : r.parentId ? String(r.parentId) : null,
+        externalId: idn.externalId,
+        parentExternalId: idn.parentExternalId,
         folder,
-        title: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name),
+        title: idn.title,
         aliases: (r.aliases ?? []).map(String),
         tags: (r.tags ?? []).map(String),
-        type: d.type === 'map' ? 'map' : (r.tags ?? []).find((x: string) => ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'].includes(x)) ?? 'page',
+        type: lkType(r, d),
         icon: r.iconGlyph ? { glyph: String(r.iconGlyph), color: r.iconColor ? String(r.iconColor) : undefined } : null,
         banner: typeof detail.banner?.url === 'string' && detail.banner.enabled !== false ? detail.banner.url : typeof detail.bannerUrl === 'string' ? detail.bannerUrl : null,
-        properties: d === pages[0] ? props : [],
+        properties: idn.first ? props : [],
         blocks,
-        position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (d === pages[0] ? 0 : (1 + tabOrder.indexOf(String(d.id))) / (pages.length + 1)) : null,
+        position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (idn.first ? 0 : (1 + tabOrder.indexOf(String(d.id))) / (pages.length + 1)) : null,
         url: lkUrl(cfg, String(r.id), String(d.id)),
         visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm',
         updatedAt: dd.updatedAt ?? r.updatedAt ?? null,
+        sourceUpdatedAt: r.updatedAt ?? detail.updatedAt ?? null,
+        depth: 'full',
       };
     }
     for (const d of timelines) {
@@ -417,7 +455,10 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
       }
     }
   }
+  return { hidden, detailOf, entriesFor, seed: (rid: string, d: any) => details.set(rid, Promise.resolve(d)) };
+}
 
+async function* lkCalendars(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncItem> {
   // Calendars belong to the project. LegendKeeper has no hidden flag for them, so they stay DM-only.
   try {
     const j = await t.get('/calendars');
@@ -429,6 +470,91 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
     if (ctx.signal.aborted) throw err;
     ctx.log(`Could not read calendars: ${err.message}`);
     ctx.incomplete?.add('calendar');
+  }
+}
+
+/** The eager sync: everything, details included. Used when the whole project is wanted at once. */
+async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, any> = {}): AsyncIterable<SyncItem> {
+  const all = await lkListResources(t, ctx);
+  const byId = new Map<string, any>(all.map((r) => [String(r.id), r]));
+  const session = lkSession(t, ctx, cfg, byId, lkPositions(all));
+  for (const r of all) yield* session.entriesFor(r);
+  yield* lkCalendars(t, ctx);
+}
+
+/**
+ * Tier 1: the resource list (100 a call), the calendars, and the timelines.
+ * Every page of the tree exists at once with its title, type, tags, parent,
+ * folder path and updated time. Permissions are in the resource detail only,
+ * so a page at index depth is DM-only until its details are read (fail closed).
+ */
+async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string, any> = {}): AsyncIterable<SyncItem> {
+  const all = await lkListResources(t, ctx);
+  const byId = new Map<string, any>(all.map((r) => [String(r.id), r]));
+  const positions = lkPositions(all);
+  const session = lkSession(t, ctx, cfg, byId, positions);
+  const prevCache = ctx.tier?.cache ?? null;
+  if (ctx.tier) { ctx.tier.complete = true; ctx.tier.next = { token: null, cache: lkCache(all, positions) }; }
+  const chain = (rid: string): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (let p = byId.get(rid)?.parentId; p && byId.has(String(p)) && !seen.has(String(p)) && out.length < 64; p = byId.get(String(p))?.parentId) { seen.add(String(p)); out.unshift(String(byId.get(String(p)).name ?? '')); }
+    return out;
+  };
+  for (const r of all) {
+    if (ctx.signal.aborted) throw new Error('Sync stopped');
+    if (r.isTemplate === true) continue;
+    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
+    const restricted = session.hidden(String(r.id));
+    for (const d of pages) {
+      const idn = lkIdentity(r, pages, d);
+      const folder = chain(String(r.id));
+      const tags = (r.tags ?? []).map(String);
+      const type = lkType(r, d);
+      yield {
+        externalId: idn.externalId, parentExternalId: idn.parentExternalId, folder, title: idn.title,
+        aliases: (r.aliases ?? []).map(String), tags, type,
+        icon: r.iconGlyph ? { glyph: String(r.iconGlyph), color: r.iconColor ? String(r.iconColor) : undefined } : null,
+        blocks: indexBlocks({ title: idn.title, type, tags, folder }),
+        position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (idn.first ? 0 : 0.5) : null,
+        url: lkUrl(cfg, String(r.id), String(d.id)),
+        // Who may read it is in the detail (permissions): until it is read, DM only.
+        visibility: 'dm', restricted,
+        updatedAt: r.updatedAt ?? null, sourceUpdatedAt: r.updatedAt ?? null, depth: 'index',
+      };
+    }
+  }
+  // Timelines: lane and event lists are list calls too, read when the resource changed (or was never read).
+  const seenTl = (prevCache?.tl ?? {}) as Record<string, string>;
+  const nextTl: Record<string, string> = {};
+  let skipped = false;
+  for (const r of all) {
+    if (r.isTemplate === true) continue;
+    const timelines = (r.documents ?? []).filter((d: any) => d.type === 'time');
+    if (!timelines.length) continue;
+    const stamp = String(r.updatedAt ?? '');
+    if (stamp && seenTl[r.id] === stamp) { nextTl[r.id] = stamp; skipped = true; continue; }
+    const before = ctx.incomplete.has('timeline');
+    for await (const x of session.entriesFor({ ...r, documents: timelines })) { if (!isRecord(x)) continue; yield x; }
+    if (!before && !ctx.incomplete.has('timeline')) nextTl[r.id] = stamp;
+  }
+  if (skipped) ctx.incomplete.add('timeline');
+  if (ctx.tier) ctx.tier.next.cache = { ...(ctx.tier.next.cache ?? {}), tl: nextTl };
+  yield* lkCalendars(t, ctx);
+}
+
+/** Tier 3: whole pages for these ids (resource ids, or `resource#document`). One detail call per resource, one blocks call per document. */
+async function* lkDetail(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>, ids: string[]): AsyncIterable<SyncItem> {
+  const { byId, positions } = lkFromCache(ctx.tier?.cache);
+  const session = lkSession(t, ctx, cfg, byId, positions);
+  for (const rid of [...new Set(ids.map((x) => x.split('#')[0]))]) {
+    if (ctx.signal.aborted) throw new Error('Sync stopped');
+    let detail: any;
+    try { detail = await t.get(`/resources/${rid}`); } catch (err: any) { if (/answered 404/.test(String(err.message))) continue; throw err; }
+    // The detail is the resource itself: its own hidden flag and parent are fresher than the cache.
+    byId.set(rid, { ...(byId.get(rid) ?? {}), id: rid, parentId: detail.parentId ?? null, isHidden: detail.isHidden });
+    session.seed(rid, detail);
+    for await (const x of session.entriesFor(detail)) { if (isRecord(x)) continue; yield x; }
   }
 }
 
@@ -500,6 +626,13 @@ async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean,
   return { kind: 'timeline', externalId: `${r.id}#${d.id}`, name: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name), visibility: shared ? 'party' : 'dm', groups };
 }
 
+// LegendKeeper allows 300 calls a minute per key and 6,000 an hour (12,000 an hour per project across keys). 60 a minute leaves room for the people using the app.
+const LK_TIERED = (transport: (cfg: Record<string, any>, ctx: ConnectorContext) => Transport) => (): Tiered => ({
+  budgetPerMinute: 60,
+  index: (cfg, ctx) => lkIndex(transport(cfg, ctx), ctx, cfg),
+  detail: (cfg, ctx, ids) => lkDetail(transport(cfg, ctx), ctx, cfg, ids),
+});
+
 const lkFields = [
   { key: 'project', label: 'Project (world) name', type: 'text' as const, help: 'Only if the server has more than one project.' },
 ];
@@ -533,6 +666,7 @@ export const legendkeeperMcp: Connector = {
     return { ok: true, message: `Connected. First resources: ${(j.data ?? []).map((r: any) => r.name).join(', ')}`, sample: (j.data ?? []).map((r: any) => r.name) };
   },
   sync: (cfg, ctx) => lkSync(mcpTransport(ctx, cfg.project), ctx, cfg),
+  tiered: LK_TIERED((cfg, ctx) => mcpTransport(ctx, cfg.project)),
   readTools: () => ['api_request'],
 };
 
@@ -556,4 +690,5 @@ export const legendkeeperApi: Connector = {
     return { ok: true, message: `Connected. First resources: ${(j.data ?? []).map((r: any) => r.name).join(', ')}` };
   },
   sync: (cfg, ctx) => lkSync(restTransport(ctx, cfg.apiUrl, cfg.apiKey), ctx, cfg),
+  tiered: LK_TIERED((cfg, ctx) => restTransport(ctx, cfg.apiUrl, cfg.apiKey)),
 };
