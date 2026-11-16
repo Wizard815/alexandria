@@ -198,7 +198,7 @@ async function* apiIndex(raw: any, ctx: ConnectorContext): AsyncIterable<SyncIte
   if (tier) {
     // A listing of only what changed cannot say what was removed.
     tier.complete = !partial;
-    tier.next = { token: eps.some((e) => e.sinceParam) ? startedAt : null, cache: { calls: 0 } };
+    tier.next = { token: eps.some((e) => e.sinceParam) ? startedAt : null, cache: { tags: Object.fromEntries(tagNames) } };
   }
 }
 
@@ -207,7 +207,8 @@ async function* apiDetail(raw: any, ctx: ConnectorContext, ids: string[]): Async
   const all = activeEndpoints(cfg);
   const eps = pageEndpoints(all);
   if (cfg.transport === 'mcp') return;
-  const tagNames = await tagNameMap(cfg, ctx, all);
+  // Tag names come from the last listing, so a page read alone costs one call.
+  const tagNames = new Map<string, string>(Object.entries((ctx.tier?.cache?.tags ?? {}) as Record<string, string>));
   for (const ext of ids) {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     const ep = eps.length > 1 ? eps.find((e) => ext.startsWith(`${e.key}:`)) : eps[0];

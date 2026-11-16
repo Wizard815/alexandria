@@ -120,9 +120,9 @@ indexed and pending, and the model that does it), **Sync now** and **Re-index**.
 The setup flow is: create a world → pick or create a connection → the
 world-specific settings → audience → **Connect and crawl**.
 
-The crawl (`POST /api/admin/worlds/:id/crawl`) is the first full sync of every
-source followed by embeddings for every page. Progress (pages fetched, saved,
-levels found, chunks embedded, errors) is in `GET /api/admin/worlds/:id/overview`,
+The crawl (`POST /api/admin/worlds/:id/crawl`) lists every source (see "Tiered
+crawl" below), then embeds whatever text each page has. Progress (pages listed,
+saved, list calls, levels found, chunks embedded, errors) is in `GET /api/admin/worlds/:id/overview`,
 in the run log (`GET /api/admin/crawls/:id`) and in `crawl` live events sent to
 the DM only. `POST /api/admin/worlds/:id/crawl/stop` cancels it; the world, its
 sources and whatever was fetched stay. With no embeddings model set, the
@@ -314,6 +314,112 @@ Each connector declares what it provides in `capabilities`: `pages`,
 - Markdown sources set `markdown` and `frontmatter` instead of `blocks`.
   The library then runs the Markdown leak guard before parsing.
 
+## Tiered crawl: the fewest calls for a broad picture
+
+LegendKeeper, Kanka and the generic API crawl in tiers. A crawl makes **list
+calls only**; whole pages are read later, on demand and in the background
+within a call budget. After the crawl every page is already in the Library
+with its title, type, tags, parent and folder, and some text to search and
+embed.
+
+| Tier | What | Calls |
+| --- | --- | --- |
+| 1 Index | the paged list endpoints and the LegendKeeper resource tree | about pages / page size |
+| 2 Summary | an opening excerpt, where a list gives one (a mapped `summary` field) | none extra |
+| 3 Detail | the whole page | one or a few per page, on demand or in the background |
+
+Each page records `depth` (`index`, `summary`, `full`), `fetched_at`,
+`source_updated_at` (what the list last said) and `held_updated_at` (the
+source time of what the library holds). A page whose source time moved on is
+**stale** and is read again.
+
+- **LegendKeeper**: `GET /resources` at 100 a call (plus the calendars, and
+  the timelines, which are lane and event lists). Documents and permissions
+  need detail calls, so pages stay at index depth. Detail is one call for the
+  resource, one for each document and one for each ancestor whose permissions
+  are not known yet. The published limit is 300 calls a minute per key (6,000
+  an hour; 12,000 an hour per project): the crawl stays at 60 a minute and
+  the background budget defaults to 30.
+- **Kanka**: the module lists already carry `entry`, posts and attributes
+  (`related=1`), so a listing reaches full depth with about pages / 45 calls
+  per module (up to 100 a page for subscribers). Later listings send
+  `lastSync` and read only what changed. The default limit is 30 calls a
+  minute for a user (90 for subscribers; all tokens share it): the crawl stays
+  at 24 a minute and the background budget defaults to 12. Raise it on the
+  world page if you are a subscriber.
+- **Generic API**: the endpoint list (below). A record with a body in the list
+  is full; with only a summary, `summary`; otherwise `index`. An endpoint with
+  a `detailPath` (`/articles/{id}`) gives whole pages later. `sinceParam`
+  (`updated_since`, `lastSync`) makes later listings incremental.
+- Markdown folders, git, MCP files and push sources have nothing to list
+  separately and are read whole, as before.
+
+**Leak guard at every depth.** A page at index depth with no visibility
+information is DM-only until it is known (fail closed): LegendKeeper keeps
+permissions in the resource detail, so its listed pages are DM-only until read.
+Levels, markers and the source's audience are applied as content arrives, and
+the player copy is rebuilt before the page is served. A re-crawl whose list says
+a page is now hidden takes its player copy away at once, without waiting for
+the details.
+
+**Reading pages (tier 3)**
+
+1. *On demand*: opening a page (`GET /library/pages/:id`, for a DM or a player),
+   the agent reading it, or a DM's search hitting it (the best three) reads it
+   from its source first, then serves it. Opening pages is limited to 30 a
+   minute per source.
+2. *In the background*: a worker spends each source's **budget** (calls a
+   minute, a token bucket) on the pages most worth reading: those people opened
+   or searched for, then those linked to by pages already read, then ones that
+   changed at the source, then tree order. Without "fetch everything" only
+   pages with a reason are read.
+3. Per source, on the world page: the budget, **Fetch everything now** (reads
+   every page at the budget; can take hours; switches itself off when done) and
+   **Pause**. `PATCH /api/admin/connections/tiers/:source` with
+   `{budget, paused, fetchAll}`; `GET /api/admin/connections/tiers/world/:world`.
+   The DM's Library page shows a badge on pages not yet read in full
+   (`GET /api/worlds/:world/world-sources/depths`).
+
+**Incremental re-crawls.** LegendKeeper re-lists everything (it has no
+`since`), notes each page's `updatedAt`, and only the changed pages become
+stale. Kanka and generic endpoints with a `sinceParam` list only what changed.
+Pages are removed **only after a complete listing**: a listing of changes, or
+one that failed part way, removes nothing; a complete one runs on the first
+crawl, every sixth, once a day, and on `POST .../sources/:id/sync` with
+`{"full": true}`.
+
+**Call accounting.** Every request to a source is counted by tier: the sync
+stats have `indexCalls` and `detailCalls`, and the crawl progress shows
+"Index: 14 calls, 2,031 pages · Details: 120 of 2,031 · Budget 30/min".
+
+### Generic API: automatic setup
+
+On Admin → Connections, a generic API connection has **Find endpoints**
+(`POST /api/admin/connections/api-discover`, `{baseUrl, connectionId?, listUrls?}`):
+
+1. looks for an OpenAPI or Swagger JSON spec at `/openapi.json`, `/swagger.json`,
+   `/v1/openapi.json`, `/api-docs` and `/.well-known/openapi` (under the base
+   URL and its host; at most ten lookups)
+2. with a spec: takes its GET list endpoints, guesses each one's **role**
+   (pages, people, places, items, organisations, events, calendars, tags,
+   images, or not sure) from the words of the path and the spec's tags, and
+   guesses the **mapping** (id, title, body, summary, parent, tags, updated,
+   type, visibility and which values mean shared, paging style, a "changed
+   since" parameter, and the detail endpoint) from the response schemas; one
+   sample call (at most eight) only for a list whose schema says too little
+3. without a spec: one sample call to the base URL and one to each of up to two
+   list URLs given, guessed from the JSON; endpoints named on the base URL are
+   listed but not called
+
+The DM gets a table (endpoint, role, mapping, confidence) to accept, change or
+mark unused. **Not sure endpoints stay blank and unused until assigned, and
+endpoints not marked used are never called.** Calendars and images are
+recognised but not imported yet; tags endpoints give tag names to records that
+list tag ids. The result is saved on the connection (`PUT
+/api/admin/connections/:id/endpoints`, setting `endpoints` as JSON) and can be
+saved as a preset, which carries the endpoint list and base URL (no token) to
+other worlds. A mapping with no visibility field leaves every record DM-only.
+
 ## How a sync runs
 
 `librarian/src/intake/sync.ts`:
@@ -335,7 +441,10 @@ Each connector declares what it provides in `capabilities`: `pages`,
    - the Markdown copy (used for search, AI context and downloads) is made
      from the player blocks and redacted a second time
 
-Sources can sync on a schedule (`schedule_minutes`).
+Sources can sync on a schedule (`schedule_minutes`). The crawl, the schedule
+and the admin panel's Sync now run in tiers where the connector supports it;
+`runSync(deps, id, by)` without `{ tiered: true }` reads everything with the
+connector's own `sync`.
 
 ## Order in the Library tree
 

@@ -141,7 +141,7 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
     if (!t) return null;
     const st = getState(d.db, s.id);
     const c = depthCounts(d.db, s.id);
-    return { sourceId: s.id, name: s.name, pages: c.total, read: c.full + c.summary, indexCalls, budget: budgetOf(st, t), paused: st.paused, fetchAll: st.fetchAll };
+    return { sourceId: s.id, name: s.name, pages: c.total, read: c.full, indexCalls, budget: budgetOf(st, t), paused: st.paused, fetchAll: st.fetchAll };
   };
   const setTier = (s: any, indexCalls: number) => {
     const line = tierLine(s, indexCalls);
@@ -189,7 +189,7 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
         if (out.status === 'ok') {
           succeeded++;
           const t = P.tiers.find((x) => x.sourceId === s.id);
-          log(t ? `${s.name}: index done, ${out.stats.indexCalls ?? 0} calls, ${t.pages} pages. ${t.read} read in full; the rest are read on demand and in the background (${t.budget} calls a minute).` : `${s.name}: ${out.stats.pages ?? 0} pages saved`);
+          log(t ? `${s.name}: ${out.stats.pages ?? 0} pages saved. Index: ${out.stats.indexCalls ?? 0} calls, ${t.pages} pages; ${t.read} read in full; the rest are read on demand and in the background (${t.budget} calls a minute).` : `${s.name}: ${out.stats.pages ?? 0} pages saved`);
         }
         else if (out.status === 'stopped') log(`${s.name}: stopped`);
         else { failure(`${s.name}: ${out.error ?? out.status}`); log(`${s.name}: failed (${out.error ?? out.status})`); }

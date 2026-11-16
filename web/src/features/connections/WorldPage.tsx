@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
+import { TierPanel } from './Tiers.tsx';
 import { SourceFields, newDraft, problem, saveDraft, type Draft } from './SourceForm.tsx';
 import {
   AudienceChip, AudiencePicker, ConfigFields, SCHEDULES, pickConfig, scheduleLabel,
@@ -82,6 +83,7 @@ export default function WorldPage() {
           {!syncable.length && <span className="small muted">Add a source to crawl.</span>}
         </div>
         {d.crawl && <CrawlPanel crawl={d.crawl} onLog={() => void showLog(d.crawl!)} />}
+        <TierPanel worldId={id} active={busy} />
       </div>
 
       <h2 style={{ margin: '8px 0 0' }}>Sources</h2>
@@ -136,9 +138,11 @@ function CrawlPanel({ crawl, onLog }: { crawl: Crawl; onLog: () => void }) {
           <div className="small">Sources {p.sources.done}/{p.sources.total}{p.sources.current ? ` · reading ${p.sources.current}` : ''}</div>
           <Bar value={p.sources.done} max={p.sources.total} label="Sources done" />
           <div className="row wrap small" style={{ gap: 12 }}>
-            <span><strong>{p.fetched}</strong> fetched</span><span><strong>{p.saved}</strong> saved</span>
+            <span><strong>{p.fetched}</strong> listed</span><span><strong>{p.saved}</strong> saved</span>
+            {p.calls && <span><strong>{p.calls.index.toLocaleString()}</strong> list calls{p.calls.detail ? <>, {p.calls.detail.toLocaleString()} detail calls</> : null}</span>}
             {!!p.skipped && <span className="muted">{p.skipped} skipped</span>}{!!p.removed && <span className="muted">{p.removed} removed</span>}
           </div>
+          {(p.tiers ?? []).map((t) => <div key={t.sourceId} className="small">{t.name}: Index: {t.indexCalls.toLocaleString()} calls, {t.pages.toLocaleString()} pages · Details: {t.read.toLocaleString()} of {t.pages.toLocaleString()} · Budget {t.paused ? 'paused' : `${t.budget}/min`}</div>)}
           <div className="row wrap">{LEVELS.map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: {p.levels[k]}</span>)}</div>
         </>
       )}

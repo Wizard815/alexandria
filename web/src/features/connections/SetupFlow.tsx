@@ -47,7 +47,7 @@ export default function SetupFlow() {
 
   return (
     <div className="page">
-      <PageHead title="Set up a world" lead="Make a world, connect it to where its lore lives, and read it all in. You can cancel the crawl at any point; the world and its source stay.">
+      <PageHead title="Set up a world" lead="Make a world, connect it to where its lore lives, and list everything in it (a few calls). Pages are read in full as they are opened and in the background; the world page shows the progress and the budget. You can cancel the crawl at any point; the world and its source stay.">
         <Link className="btn" to="/admin/worlds">Back to worlds</Link>
       </PageHead>
       <ol className="row wrap" aria-label="Steps" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 6 }}>
@@ -72,7 +72,7 @@ export default function SetupFlow() {
               <li>{c?.label}: <strong>{draft.name || 'unnamed source'}</strong>{c?.hasConnection ? <> using {draft.connectionId ? <strong>{connections.data.find((x) => x.id === draft.connectionId)?.name}</strong> : <>a new connection <strong>{draft.newName}</strong></>}</> : null}</li>
               <li>Audience: <strong>{AUDIENCES.find((x) => x.id === draft.audience)?.label}</strong>{!c?.push && <> · {scheduleLabel(draft.schedule ? Number(draft.schedule) : null)}</>}</li>
             </ul>
-            <p className="small muted" style={{ margin: 0 }}>{c?.push ? 'A push source has nothing to crawl: your tool sends its entries.' : 'The crawl reads every page, then embeds them for semantic search. If no embeddings model is set, it says so and finishes with the library.'}</p>
+            <p className="small muted" style={{ margin: 0 }}>{c?.push ? 'A push source has nothing to crawl: your tool sends its entries.' : 'The crawl lists every page with the fewest calls, then embeds what text there is for semantic search. Pages are read in full later, within a call budget you can change on the world page. If no embeddings model is set, it says so and finishes with the library.'}</p>
             {issue && <p className="error-box">{issue}</p>}
           </div>
         )}
