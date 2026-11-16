@@ -28,7 +28,8 @@ import { getClock } from '../clock/api.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { worldModules } from '../modules/store.ts';
 import { fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
-import { BLOCKED_REPLY, SentenceGate, leakChecker } from './leak.ts';
+import { BLOCKED_REPLY, SentenceGate, leakChecker, treeText } from './leak.ts';
+import { LOOKING } from '../sourcekeys/escalation.ts';
 import { clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
 import { sourceSummary } from '../connections/summary.ts';
@@ -85,6 +86,21 @@ export function describeCall(tool: string, a: any): string {
     case 'advance_world_time': return `Advance the world clock: ${JSON.stringify(a)}`;
     default: return `Run ${tool} ${JSON.stringify(a ?? {}).slice(0, 200)}`;
   }
+}
+
+/**
+ * Text of the pages this player may read only through their own key, a DM grant or a share (their player copy): it is theirs, so the leak check must not count it as DM-only.
+ * Only this player's pages: nothing of anyone else's key.
+ */
+function liftedTexts(d: Deps, c: Caller): string[] {
+  const out: string[] = [];
+  for (const pid of d.library.liftedPages(c.worldId, c.accountId)) {
+    try {
+      const pg: any = d.library.get(c.worldId, pid, { accountId: c.accountId, role: 'player' });
+      out.push(String(pg.body ?? ''), treeText(pg.blocks ?? []).join(' '), treeText(pg.properties ?? []).join(' '));
+    } catch { /* no longer theirs */ }
+  }
+  return out;
 }
 
 export interface ToolRun { ok: boolean; status: number; text: string }
@@ -430,11 +446,13 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const chatTools = tools.filter((t) => picked.has(t.name)).map(asChatTool);
     T.toolsOffered = chatTools.length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
-    const check = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
+    const check = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
     const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary) }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';
     let done = false;
+    // A source lookup that needed the DM (a blanket key's results, or pages above this player's view) is escalated by the tool: the reply says so and nothing more.
+    let escalated = false;
     for (let round = 0; round < MAX_TOOL_ROUNDS + 1 && !done; round++) {
       const last = round === MAX_TOOL_ROUNDS;
       if (last) messages.push({ role: 'user', content: 'You have used all your tool calls. Give your final answer now from what you have.' });
@@ -456,6 +474,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       const results = await Promise.all(r.toolCalls.map((tc) => execCall(d, c, input.chatId, byName, auto, tc.function?.name ?? '', parseJson<any>(tc.function?.arguments, {}))));
       T.toolMs += ms(tt);
       T.toolCalls += r.toolCalls.length;
+      r.toolCalls.forEach((tc, i) => { if (c.harness === 'player' && tc.function?.name === 'source_lookup' && parseJson<any>(results[i].content, null)?.escalated === true) escalated = true; });
       r.toolCalls.forEach((tc, i) => { messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function?.name ?? '', content: results[i].content }); addCites(results[i].cites); });
     }
     reply = reply.trim() || 'I have nothing to add.';
@@ -473,6 +492,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       } else gate?.end();
     }
     live.flush();
+    if (escalated && !blocked && !reply.includes(LOOKING)) { reply = `${reply}\n\n${LOOKING}`; live.replace(reply); }
     if (!blocked) addCites(citedHits(reply, hits));
     finish(reply, 'done', blocked);
   } catch (err: any) {

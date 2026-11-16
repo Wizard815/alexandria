@@ -1,7 +1,8 @@
 // The world the leak crawler runs against: one marker at every secret spot.
 // To cover a new feature, add its secret to seedContent() with mark(...).
 // See docs/SECURITY.md.
-import { run } from '../src/core/db.ts';
+import { one, run } from '../src/core/db.ts';
+import { CAMPAIGN, KANKA_API, TOKENS, type FakeEntity } from './sourcekeys-fake.ts';
 import { mark, markNum, tok, type Who } from './security-kit.ts';
 
 export interface H {
@@ -298,6 +299,33 @@ export async function seedContent(h: H, S: Seed) {
   run(db, 'INSERT INTO agent_messages (id, chat_id, role, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', 'agm_seed', chat.id, 'user', mark('agent_msg_dm', ['dm'], 'a message in the DM agent chat'), 'done', new Date().toISOString());
   run(db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 'aga_seed', W, chat.id, ID.dm, 'add_person', JSON.stringify({ name: 'x' }), mark('agent_action', ['dm'], 'a pending agent action'), 'pending', new Date().toISOString());
 
+  // ---- source keys: a per-user key's page, a blanket key's page, the keys' own secrets ---------------------------------------------
+  // jess's key sees her own private page; tom's sees his; a blanket key (tom's, claimed so) sees everything, and nothing it returns may reach a player.
+  const jessKey = mark('key_secret_jess', [], "the secret of jess's source key (never returned to anyone)");
+  const tomKey = mark('key_secret_tom', [], "the secret of tom's source key");
+  const blanketKey = mark('key_secret_blanket', [], 'the secret of a blanket source key');
+  KANKA_WORLD.entities.push(
+    { id: 1, name: 'Harbour Guild', entry: `The guild meets at dawn. ${mark('key_public', ['dm', 'jess', 'tom'], 'a public page of the Kanka source (control)')}`, priv: false },
+    { id: 2, name: 'Jessamine Backstory', entry: `Jessamine grew up in the salt flats. ${mark('key_page_jess', ['dm', 'jess'], "a page only jess's per-user key sees")}`, priv: true,
+      posts: [{ name: 'Dark truth', entry: mark('key_page_jess_secret', ['dm'], "a secret post on jess's key page"), visibility_id: 2 }] },
+    { id: 3, name: 'Tomas Backstory', entry: `Tomas served the red fleet. ${mark('key_page_tom', ['dm', 'tom'], "a page only tom's per-user key sees")}`, priv: true },
+    { id: 4, name: 'Blanket Only', entry: `The duke is a puppet. ${mark('blanket_page', ['dm'], 'a page only a blanket key reaches')}`, priv: true },
+  );
+  Object.assign(KANKA_WORLD.sees, { [jessKey]: [1, 2], [tomKey]: [1, 3], [blanketKey]: 'all' });
+  const kankaSrc = (await h.ok('POST', `/api/admin/worlds/${W}/sources`, T.ads, { kind: 'kanka-api', name: 'Kanka', config: { campaignId: CAMPAIGN, token: TOKENS.dm, apiUrl: KANKA_API }, defaultVisibility: 'party' })).id;
+  await h.ok('POST', `/api/admin/sources/${kankaSrc}/sync?wait=1`, T.ads);
+  for (const [who, secret] of [['jess', jessKey], ['tom', tomKey]] as const) {
+    const k = await h.ok('POST', `/api/worlds/${W}/source-keys`, T[who], { sourceId: kankaSrc, secret, label: `${who} Kanka`, trust: 'per-user' });
+    await dm('PATCH', `/source-keys/${k.id}`, { trust: 'per-user' });
+    await h.ok('POST', `/api/worlds/${W}/source-keys/${k.id}/refresh`, T[who]);
+  }
+  await h.ok('POST', `/api/worlds/${W}/source-keys`, T.tom, { sourceId: kankaSrc, secret: blanketKey, label: 'Shared key', trust: 'blanket' });
+  // tom's agent asks for the blanket page: it is escalated, and the DM's queue holds what it found.
+  await h.ok('GET', `/api/worlds/${W}/source-keys/lookup?q=Blanket&question=${encodeURIComponent('What does the duke hide?')}`, T.tom);
+  const ext = (n: number) => ({ id: one<any>(h.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', W, `kanka:${n}`).id as string, path: '' });
+  S.pages.keyJess = ext(2);
+  S.pages.keyTom = ext(3);
+
   // ---- another world: nothing of it reaches this one ---------------------------------------------------------------------
   const dm2 = (m: string, u: string, b?: unknown) => h.ok(m, `/api/worlds/${S.W2}${u}`, T.dm2, b);
   await dm2('PUT', '/library/pages', { path: 'w2/Other Secret.md', visibility: 'dm', body: `# Other\n${mark('w2_dm_page', ['dm2'], 'a DM page of another world')}\n` });
@@ -305,4 +333,6 @@ export async function seedContent(h: H, S: Seed) {
   await dm2('PUT', '/library/pages', { path: 'w2/Other Public.md', visibility: 'party', body: `# Other public\n${mark('w2_public', ['dm2'], 'a shared page of another world')}\n` });
 }
 
+/** The fake Kanka the crawl's sources read (see sourcekeys-fake.ts): filled in by seedContent. */
+export const KANKA_WORLD = { entities: [] as FakeEntity[], sees: { [TOKENS.dm]: 'all' } as Record<string, number[] | 'all'> };
 export type { Who };
