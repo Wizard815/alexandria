@@ -31,6 +31,7 @@ import { fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } fro
 import { BLOCKED_REPLY, SentenceGate, leakChecker } from './leak.ts';
 import { clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
+import { sourceSummary } from '../connections/summary.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 export { HISTORY_WINDOW };
@@ -227,6 +228,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   if (clock) L.push(`World date: ${clock}.`);
   const mods = worldModules(d.db, c.worldId).enabled.map((m) => m.name).join(', ');
   if (mods) L.push(`Game modules: ${mods}.`);
+  if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
   const cb = dm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
   if (hits.length) {
