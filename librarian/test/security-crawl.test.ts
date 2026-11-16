@@ -16,13 +16,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../src/app.ts';
-import { all } from '../src/core/db.ts';
+import { all, one } from '../src/core/db.ts';
 import { toolsFor } from '../src/routes/mcpServer.ts';
 import {
   EventTap, MODEL_ENV, MODEL_HOST, baseOf, hay, noteRead, readBy, classifiedIn, client, fakeModels, leaksFor, listRoutes, markers, recordMounts, tok, txt,
   type Marker, type RouteDef, type Who,
 } from './security-kit.ts';
-import { makeAccounts, seedContent, type Seed } from './security-world.ts';
+import { KANKA_WORLD, makeAccounts, seedContent, type Seed } from './security-world.ts';
+import { fakeKanka } from './sourcekeys-fake.ts';
 
 recordMounts();
 
@@ -33,13 +34,14 @@ let S: Seed;
 let routes: RouteDef[] = [];
 const taps: Record<string, EventTap> = {};
 const models = fakeModels(fetch);
+const kanka = fakeKanka(models.fetch, KANKA_WORLD);
 const http = client(() => baseOf(server));
 const { call } = http;
 const CALLER_MODEL = { 'X-Alexandria-Caller': 'model' };
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-sec-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: models.fetch, env: { ...MODEL_ENV, ALX_RATE_LIMIT: '0' } });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: kanka.fetch, env: { ...MODEL_ENV, ALX_RATE_LIMIT: '0' } });
   deps = made.deps;
   routes = listRoutes(made.app);
   server = made.app.listen(0);
@@ -97,6 +99,8 @@ const SPEC: Record<string, string> = {
   'sessionchat:tid': 'SELECT id FROM sessionchat_trades WHERE world_id = ?',
   'sessionlog:id': 'SELECT id FROM sessionlog_drafts WHERE world_id = ? UNION SELECT id FROM sessionlog_entries WHERE world_id = ?',
   'sound:id': 'SELECT id FROM sound_scenes WHERE world_id = ? UNION SELECT id FROM sound_pads WHERE world_id = ?',
+  'source-keys:id': 'SELECT id FROM sourcekeys_keys WHERE world_id = ?',
+  'source-keys:eid': 'SELECT id FROM sourcekeys_escalations WHERE world_id = ?',
   'stage:cid': 'SELECT id FROM stage_cards WHERE world_id = ?',
   'stage:uid': 'SELECT id FROM stage_images WHERE world_id = ?',
   'voice:id': 'SELECT id FROM voice_presets WHERE world_id = ?',
@@ -129,6 +133,7 @@ function queries(p: string): string[] {
   if (/\/sessionchat\/chat\/:channel$/.test(p)) return all<any>(deps.db, 'SELECT id FROM sessionchat_sessions WHERE world_id = ?', S.W).map((x) => `?session=${x.id}`);
   if (/\/agent\/transcript$/.test(p)) return [...words.map((w) => `?q=${w}`), '?session=ses_crawl'];
   if (/\/audio\/sessions\/:sid\/lines$/.test(p)) return ['?since=1970-01-01'];
+  if (/\/source-keys\/lookup$/.test(p)) return ['?q=Backstory', '?q=Blanket', '?q=Harbour', '?q=ZQX'];
   if (/\/quickgen\/items$/.test(p)) return ['?rarity=rare&count=30', '?type=weapon&count=30'];
   return [];
 }
@@ -596,6 +601,7 @@ const PLAYER_ROUTES = [
   'POST /sessionchat/trades', 'POST /sessionchat/trades/:tid/accept', 'POST /sessionchat/trades/:tid/decline', 'POST /sessionchat/trades/:tid/cancel',
   'PUT /clock/prefs', 'PUT /itemcards/:itemId/page', 'PUT /live/presence', 'PUT /people/:pid/note', 'PUT /profiles/me/blocks', 'PUT /sound/me/switches', 'PUT /whiteboard/', 'POST /whiteboard/wipe',
   'POST /stage/cards/:cid/buy',
+  'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
@@ -775,7 +781,7 @@ test('TestSecurityCrawl_PlayersStillGetNothingAfterEverythingElseHasRun', async 
 });
 
 /** Seeded secrets that no HTTP response carries to anyone (bytes of a picture), so they are checked another way. */
-const NOT_IN_JSON = new Set(['stage_image', 'item_image', 'audit_path']);
+const NOT_IN_JSON = new Set(['stage_image', 'item_image', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
 
 test('TestSecurityCrawl_EverySeededSecretCanBeReadByWhoOwnsIt', () => {
   // A crawl that never saw a secret proves nothing about it. Every marker was read, in some response or stream,
@@ -799,4 +805,43 @@ test('TestSecurityCrawl_TheCrawlerCatchesALeakWhenOneIsMade', async () => {
   assert.equal((await call('PUT', `${W}/library/pages/${S.pages.classified.id}/level`, S.T.dm, { level: 'classified' })).status, 200);
   const again = await crawlGets({ who: 'dm', token: S.T.dm, label: 'dm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
   assert.deepEqual(again.leaks, []);
+});
+
+// ---- source keys: the per-account view, sharing, blanket keys ------------------------------------------------------------------
+
+test('TestSecurityCrawl_KeyPagesAreOnlyForTheKeyHolderUntilShared', async () => {
+  const W = `/api/worlds/${S.W}`;
+  const page = (id: string, token: string) => call('GET', `${W}/library/pages/${id}`, token);
+  // A's per-user key sees a page the source marks private: A reads only its player copy (no secret post); B, C and the guest cannot open it.
+  const a = await page(S.pages.keyJess.id, S.T.jess);
+  assert.equal(a.status, 200);
+  assert.ok(a.text.includes(tok('key_page_jess')) && !a.text.includes(tok('key_page_jess_secret')));
+  for (const [who, t] of [['tom', S.T.tom], ['guest', S.T.guest]] as const) assert.equal((await page(S.pages.keyJess.id, t)).status, 404, who);
+  // A blanket key's page: no player opens it, and the escalation holds it for the DM alone.
+  const blanket = one<any>(deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', S.W, 'kanka:4').id;
+  for (const t of [S.T.jess, S.T.tom, S.T.guest]) assert.equal((await page(blanket, t)).status, 404);
+  const q = (await call('GET', `${W}/source-keys/escalations`, S.T.dm)).text;
+  assert.ok(q.includes(tok('blanket_page')), 'the DM queue has the hidden context');
+  for (const [who, t] of [['jess', S.T.jess], ['tom', S.T.tom]] as const) {
+    const look = await call('GET', `${W}/source-keys/lookup?q=Blanket`, t);
+    assert.ok(!leaksFor(who, look.text).length, `${who}'s lookup`);
+    assert.ok(!(await call('GET', `${W}/source-keys/escalations`, t)).text.includes(tok('blanket_page')));
+  }
+  // A shares it with B: B reads the same player copy; the guest does not; the secret post is still cut.
+  assert.equal((await call('POST', `${W}/library/pages/${S.pages.keyJess.id}/share`, S.T.jess, { to: [S.ID.tom] })).status, 201);
+  const b = await page(S.pages.keyJess.id, S.T.tom);
+  assert.equal(b.status, 200);
+  assert.deepEqual(JSON.parse(b.text).body, JSON.parse(a.text).body);
+  assert.ok(!b.text.includes(tok('key_page_jess_secret')));
+  assert.equal((await page(S.pages.keyJess.id, S.T.guest)).status, 404);
+  assert.ok((await call('GET', `${W}/library/search?q=Jessamine`, S.T.tom)).text.includes(S.pages.keyJess.id));
+  // After the unshare, B no longer sees it (page, search or bulk).
+  assert.equal((await call('DELETE', `${W}/library/pages/${S.pages.keyJess.id}/share?to=${S.ID.tom}`, S.T.jess)).status, 200);
+  assert.equal((await page(S.pages.keyJess.id, S.T.tom)).status, 404);
+  assert.ok(!(await call('GET', `${W}/library/search?q=Jessamine`, S.T.tom)).text.includes(S.pages.keyJess.id));
+  assert.ok(!(await call('POST', `${W}/library/pages/bulk`, S.T.tom, { ids: [S.pages.keyJess.id] })).text.includes(tok('key_page_jess')));
+  // And the crawl as every player is still clean.
+  const leaks: string[] = [];
+  for (const v of viewers()) leaks.push(...(await crawlGets(v)).leaks);
+  report(leaks);
 });
