@@ -19,6 +19,7 @@ import { safeImageUrl, sourceLink } from './links.ts';
 import { Editor, SecretHint } from './Editor.tsx';
 import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Levels.tsx';
 import { AskModal } from './AskModal.tsx';
+import { DepthBadge } from '../../features/connections/Tiers.tsx';
 import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
@@ -332,6 +333,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
         {pg.aliases?.length > 0 && <div className="small muted">Also called {pg.aliases.join(', ')}</div>}
         <div className="row wrap lib-meta">
           {isDM && pg.visibility && <LevelChip level={pg.visibility} all />}
+          {isDM && pg.source && <DepthBadge pageId={pg.id} />}
           {editable && !offlineAt && <select aria-label="Level" value={levelOf(pg.visibility)} onChange={(e) => void setLevel(e.target.value)} disabled={act.busy}>{LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}</select>}
           {pg.tags?.map((t: string) => <span key={t} className="chip"><i className="fa-solid fa-tag" aria-hidden="true" /> {t}</span>)}
           {pg.updated_at && <span className="tiny faint">Updated {when(pg.updated_at)}</span>}

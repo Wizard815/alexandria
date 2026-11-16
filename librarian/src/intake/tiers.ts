@@ -270,7 +270,7 @@ export function detailQueue(db: DB, sourceId: string, opts: { all: boolean; limi
   ensureTierSchema(db);
   const rows = all<any>(db, `SELECT id, external_id, depth, wanted, position,
       (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale
-    FROM pages WHERE source_id = ? AND external_id IS NOT NULL AND (depth = 'index' OR (source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')))`, sourceId);
+    FROM pages WHERE source_id = ? AND external_id IS NOT NULL AND (depth <> 'full' OR (source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')))`, sourceId);
   if (!rows.length) return [];
   const inbound = inboundLinks(db, sourceId, opts.at);
   const items = rows.map((r): QueueItem & { pos: number } => {

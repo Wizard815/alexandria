@@ -38,7 +38,7 @@ const SPEC = {
   },
   paths: {
     '/characters': { get: { tags: ['Characters'], parameters: [{ name: 'page', in: 'query' }, { name: 'limit', in: 'query' }, { name: 'lastSync', in: 'query' }], responses: { 200: { content: { 'application/json': { schema: ref('CharacterList') } } } } } },
-    '/characters/{id}': { get: { tags: ['Characters'], parameters: [{ name: 'id', in: 'path', required: true }], responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { data: ref('Character') } } } } } } } },
+    '/characters/{id}': { get: { tags: ['Characters'], parameters: [{ name: 'id', in: 'path', required: true }], responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, entry: { type: 'string' } } } } } } } } } } },
     '/locations': { get: { tags: ['Locations'], responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'array', items: ref('Place') } } } } } } } } },
     '/tags': { get: { tags: ['Tags'], responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'array', items: ref('Tag') } } } } } } } } },
     '/images': { get: { tags: ['Media'], responses: { 200: { content: { 'application/json': { schema: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, filename: { type: 'string' } } } } } } } } } },
