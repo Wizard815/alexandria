@@ -12,11 +12,13 @@ import { ctx, me } from './_shared.ts';
 import { hybridPages } from '../features/search/embeddings.ts';
 import { scopeFor } from '../features/search/global.ts';
 import { readOnOpen, readSearchHits } from '../features/connections/ondemand.ts';
+import { shareRoutes } from '../features/sourcekeys/share.ts';
 
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const L = d.library;
 
+  r.use('/pages/:id/share', shareRoutes(d));
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   // A page held only at index depth (a tiered crawl) is read from its source first, then served.
   r.get('/pages/:id', async (req, res) => {
