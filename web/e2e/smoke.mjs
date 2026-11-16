@@ -54,7 +54,7 @@ try {
   note('setup ok');
 
   // 2. Make a world in Library admin, the admin is its DM.
-  await dm.getByRole('button', { name: 'New world' }).click();
+  await dm.getByRole('button', { name: 'New empty world' }).click(); // the guided setup is the other button
   await dm.getByLabel('Name', { exact: true }).fill('BloodEarth');
   await dm.getByRole('button', { name: 'Create world' }).click();
   await dm.getByRole('link', { name: 'Open' }).click();
