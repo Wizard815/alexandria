@@ -30,6 +30,137 @@ is the same for every source:
 Older source kinds (`vault`, `kanka`, `mcp` + `profile`) still work; they
 map to the connectors above.
 
+## Connections, sources and audiences
+
+A **connection** is the account-level half of a source, kept once at the
+gateway (Admin → Connections) and not tied to a world:
+
+`{ id, name, connector, the connector's account settings and secrets, notes }`
+
+- Kanka: the API token (and a self-hosted API URL).
+- LegendKeeper: the API key, or the MCP URL, token or local server.
+- MCP file servers: the server and its tools.
+- Generic API: the whole mapping: URL pattern, auth, paging, field names.
+
+Secrets are shown as `••••`, never returned by any endpoint, and kept when the
+panel sends the mask back. Connections have a **Test**, which asks for a small
+sample of the world-specific settings (a campaign id, a project) when the
+connector needs one to read anything.
+
+A **source** is `connection + world settings + schedule + audience`. The world
+settings are the Kanka campaign id, the LegendKeeper project or a root, a
+folder, or (generic API) the values for the `{world}`-style placeholders in the
+URL or tool arguments. Each connector field has a `scope`: `connection` or
+`source` (`GET /api/admin/connectors`). Markdown folders, git and push sources
+have nothing at connection level and stay plain sources.
+
+- **Many worlds can use one connection**, and a world can have many sources
+  (from the same or different connections). Deleting a connection that
+  sources still use is refused.
+- **Existing sources migrate on start**: one connection per connector and
+  distinct set of account settings, and the sources point at it. Older kind
+  names become the connector id. The old source API still works: a source
+  made with everything in `config` gets an identical connection reused or
+  made. Changing a connection field through an old `PATCH /sources/:id` is
+  refused (409): change it on the connection, which other sources use too.
+
+### Audience of a source
+
+| Audience | Label | Meaning |
+|---|---|---|
+| `auto` (default) | Follows the source | What the source's own flags and levels say, as before. |
+| `dm` | DM only | Everything from this source is DM-only, whatever the source says. Its relations, timelines, calendars and map markers too. |
+| `party` | Shared with players | Everything from this source may be shown to players. For a connection that already uses a player-level key (a Kanka member token that only sees public entries). |
+
+- `party` never un-hides what is marked secret: `secret` blocks and callouts,
+  DM headings, `broker` and `classified` tags or levels, hidden facts and
+  frontmatter keys, and unknown blocks are still cut from the player copy. It
+  lifts the *source's own* flag (private, hidden, "No visibility") and nothing else.
+- `party` needs explicit confirmation (`confirmParty: true`) when it is set,
+  and the change is recorded in the audit log (`source.audience`). `dm` and
+  `auto` do not need it, but are logged too.
+- Implementation: `Library.saveEntry` stores `pages.source_level` (what the
+  source said) and `pages.marker_level` (what marks the page secret on its
+  own) and sets `visibility` with `levelForAudience()` (`core/library.ts`):
+  `dm` = at least `dm`, never lower than the source; `party` = the marker level;
+  `auto` = the source level. Switching the audience (`PATCH /sources/:id
+  {audience}`) works every page's level out again and rebuilds all copies, so
+  player pages, search and embeddings follow at once. Records are forced
+  DM-only at once by `dm`; `party` and `auto` change them at the next sync.
+- A page saved before audiences existed has its marker level read again from
+  its tags, and any `broker` or `classified` level it had is kept.
+
+### Presets for the generic API
+
+A preset is a saved, reusable field mapping for the `api` connector (paging,
+where the list is, the id, title, body, parent, tags and visibility fields,
+the shared values, and a URL pattern with placeholders such as `{world}`). It
+holds no secret and nothing world-specific (a token, `world` and `params` are
+dropped when saving or importing).
+
+- `GET /api/admin/connections/presets`, `POST .../presets` (`{name, config}` or
+  `{connectionId, name}`), `GET .../presets/:id/export`, `POST .../presets/import`
+  (`{preset}` or `{json}`), `DELETE .../presets/:id`.
+- Make a connection from one with `presetId`; apply one to an existing generic
+  connection with `POST /api/admin/connections/:id/preset`.
+- Export format: `{ "format": "alexandria-api-preset", "version": 1, "name", "description", "config" }`.
+- Built in, as examples, **community and unverified** (field names were not
+  checked against the live apps): Generic REST list + detail, Generic MCP tool,
+  Kanka via generic API, LegendKeeper via generic API. The last two only show how
+  a mapping reads an API; the dedicated Kanka and LegendKeeper connectors are
+  richer (relations, timelines, maps, hidden content) and are recommended.
+- The connector picker lists the dedicated connectors (LegendKeeper, Kanka,
+  Markdown/Obsidian, git, MCP files, push) and then "Any JSON API" with its presets.
+
+### World setup, crawl and the agent
+
+Admin → Worlds has a page per world: its sources (connection, audience,
+schedule, last sync), page counts by level, embedding coverage (chunks
+indexed and pending, and the model that does it), **Sync now** and **Re-index**.
+The setup flow is: create a world → pick or create a connection → the
+world-specific settings → audience → **Connect and crawl**.
+
+The crawl (`POST /api/admin/worlds/:id/crawl`) is the first full sync of every
+source followed by embeddings for every page. Progress (pages fetched, saved,
+levels found, chunks embedded, errors) is in `GET /api/admin/worlds/:id/overview`,
+in the run log (`GET /api/admin/crawls/:id`) and in `crawl` live events sent to
+the DM only. `POST /api/admin/worlds/:id/crawl/stop` cancels it; the world, its
+sources and whatever was fetched stay. With no embeddings model set, the
+library part finishes and the log says so. `POST .../reindex` embeds every page again.
+
+The agent knows what is connected: the DM's harness context has a one-line
+source summary, and the read tool `world_sources` (DM only) lists each source
+with its audience, schedule and last sync. Players get nothing from
+`GET /api/worlds/:world/world-sources`.
+
+## Step 2 (planned): per-account keys
+
+Not built. The idea: today a source is read with one key (usually the DM's or
+an admin's), and the audience says how much of it players may see. In step 2
+each player could link **their own key** for a connection (for example their
+own Kanka member token or LegendKeeper member key), so their agent and their
+Library view match exactly what that key can see in the source, no more and
+no less.
+
+- A player adds their key for a connection in their profile. It is stored
+  encrypted for that account, never shown again, and only ever sent to the
+  connection's host. The DM can see that a key is linked, not the key.
+- A sync with the player's key reads the source as that player and stores the
+  result as a **per-account overlay** for the pages it can see: the page ids
+  and levels that key reaches, and their text. Nothing the key cannot see is
+  fetched.
+- The player's Library list, search, agent harness and tools read the
+  overlay: the pages the player's own key sees, merged with the world's
+  player copies. A page the key sees that the shared player copy does not
+  (or the other way round) follows the key. Secret, broker and classified
+  markers inside a page still apply, as with `party`.
+- The audience stays the per-source default for players without a key. `dm`
+  still means DM-only for everyone, keys included.
+- Revoking or rotating a key drops that account's overlay and its embeddings
+  at once; the audit log records links and unlinks.
+- Open questions: how often to refresh (on login, on demand, on a schedule),
+  per-account embeddings cost, and what to show when a key is expired.
+
 ## Secrecy levels: marking content in every source
 
 Every page and block has one of four levels (`librarian/src/core/levels.ts`). The most secret level wins, and anything unknown or unparseable is `dm`.

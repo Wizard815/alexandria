@@ -1,0 +1,285 @@
+// Connections: the account-level half of a world source (a Kanka token, a
+// LegendKeeper API key, an MCP URL, a generic API's auth and field mapping),
+// kept once and shared by every world that uses it. A source is then a
+// connection plus what is specific to one world, a schedule and an audience
+// (see docs/CONNECTORS.md).
+//
+//   GET/POST          /api/admin/connections
+//   GET/PATCH/DELETE  /api/admin/connections/:id
+//   POST              /api/admin/connections/test | /:id/test
+//   GET/POST/DELETE   /api/admin/connections/presets ... (generic API presets, import, export)
+//   GET               /api/worlds/:world/world-sources   (DM: the sources; players: nothing)
+//   MCP               world_sources
+//
+// The world pages (overview, crawl, re-index) are in routes/sources.ts.
+// Secrets are never returned: the panel gets "••••" and sends it back to keep one.
+import { Router } from 'express';
+import type { Deps } from '../../app.ts';
+import type { Feature } from '../types.ts';
+import { all, one, run } from '../../core/db.ts';
+import type { Auth } from '../../core/auth.ts';
+import { HttpError, id, now, str } from '../../core/util.ts';
+import { ctx, isDM } from '../../routes/_shared.ts';
+import { pageLevel } from '../../core/levels.ts';
+import { ConfigError, type Connector } from '../../intake/connector.ts';
+import { CONNECTORS, connectorFor } from '../../intake/registry.ts';
+import { AUDIENCE_LABEL, connectionKeys, createConnection, getConnection, hasConnection, keepSecrets, maskedConfig, migrateSources, normAudience, splitConfig, type ConnectionRow } from '../../intake/connections.ts';
+import { BUILTIN_PRESETS, cleanPresetConfig, cleanPresetName, exportPreset, parsePresetImport, type Preset } from '../../intake/presets.ts';
+import { connectorContext } from '../../intake/sync.ts';
+import { CRAWL_SCHEMA } from './crawl.ts';
+import { sourceSummary } from './summary.ts';
+
+const schema = `
+-- A connection: one connector's account-level settings and secrets, used by any number of sources in any number of worlds.
+CREATE TABLE IF NOT EXISTS connections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  config TEXT NOT NULL DEFAULT '{}',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+-- Saved field mappings for the generic API connector. Not tied to a world and holding no secret.
+CREATE TABLE IF NOT EXISTS connection_presets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  config TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+${CRAWL_SCHEMA}
+`;
+
+const audit = (d: Deps, res: any, action: string, detail: string, worldId: string | null = null) =>
+  run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, (res.locals.auth as Auth)?.account?.id ?? null, action, detail.slice(0, 500), now());
+
+const parse = (s: string | null | undefined): Record<string, any> => { try { return JSON.parse(s || '{}'); } catch { return {}; } };
+const defaultOf = (c: Connector, k: string) => c.fields.find((f) => f.key === k)?.default;
+const visible = (c: Connector, f: Connector['fields'][number], cfg: Record<string, any>) => !f.showIf || Object.entries(f.showIf).every(([k, v]) => (cfg[k] ?? defaultOf(c, k)) === v);
+
+/** The connection part of settings: only known connection keys, plain values, required ones present. */
+function connectionConfig(c: Connector, input: unknown, prev: Record<string, any> = {}): Record<string, any> {
+  if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input))) throw new HttpError(400, 'config must be an object');
+  const keys = connectionKeys(c);
+  const kept = keepSecrets(c, (input ?? {}) as Record<string, any>, prev);
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(kept)) {
+    if (!keys.has(k) || v === undefined || v === null || v === '') continue;
+    out[k] = typeof v === 'number' || typeof v === 'boolean' ? v : String(v).slice(0, 4000);
+  }
+  for (const f of c.fields) if (f.scope === 'connection' && f.required && visible(c, f, out) && (out[f.key] === undefined || out[f.key] === '')) throw new HttpError(400, `${f.label} is required`);
+  return out;
+}
+
+/** Sources by world for a connection (names only: this is the admin panel). */
+const usage = (d: Deps, cid: string) => all<any>(d.db, 'SELECT s.id AS source_id, s.name AS source_name, s.world_id, w.name AS world_name FROM sources s JOIN worlds w ON w.id = s.world_id WHERE s.connection_id = ? ORDER BY w.name, s.name', cid);
+
+function shapeConnection(d: Deps, r: ConnectionRow, withUsage = false) {
+  const c = connectorFor(r.kind);
+  const uses = usage(d, r.id);
+  return {
+    id: r.id, name: r.name, kind: c?.id ?? r.kind, connector: c ? { id: c.id, label: c.label } : null,
+    config: maskedConfig(c, parse(r.config)), notes: r.notes, sources: uses.length, worlds: new Set(uses.map((u) => u.world_id)).size,
+    created_at: r.created_at, updated_at: r.updated_at, ...(withUsage ? { usage: uses } : {}),
+  };
+}
+
+const presetRow = (r: any): Preset => ({ id: r.id, name: r.name, description: r.description, config: parse(r.config), builtin: false, unverified: false });
+const allPresets = (d: Deps): Preset[] => [...BUILTIN_PRESETS, ...all<any>(d.db, 'SELECT * FROM connection_presets ORDER BY name').map(presetRow)];
+const findPreset = (d: Deps, pid: string) => BUILTIN_PRESETS.find((p) => p.id === pid) ?? (() => { const r = one<any>(d.db, 'SELECT * FROM connection_presets WHERE id = ?', pid); return r ? presetRow(r) : null; })();
+
+/**
+ * Try a connection. A connector needs a campaign or a project to read anything,
+ * so the test takes a `sample` of the world-specific settings; without one it
+ * says what is missing instead of guessing.
+ */
+async function testConnection(d: Deps, c: Connector, connection: Record<string, any>, sample: unknown) {
+  const own = sample && typeof sample === 'object' && !Array.isArray(sample) ? splitConfig(c, sample as Record<string, any>).source : {};
+  const cfg = { ...own, ...connection };
+  const missing = c.fields.filter((f) => f.scope !== 'connection' && f.required && visible(c, f, cfg) && (cfg[f.key] === undefined || cfg[f.key] === '')).map((f) => f.label);
+  if (missing.length) return { ok: false, message: `To try this connection, add a sample of: ${missing.join(', ')}.` };
+  try { c.validate(cfg, { vaultsDir: d.vaultsDir, env: d.env }); } catch (err: any) { return { ok: false, message: err.message }; }
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30_000);
+  const made = connectorContext({ db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp }, { id: 'test', kind: c.id, default_visibility: 'dm', audience: 'dm' }, cfg, ctl.signal, () => {});
+  try { return await c.test(cfg, made.ctx); } catch (err: any) {
+    return { ok: false, message: err instanceof ConfigError ? err.message : `Could not connect: ${String(err.message).slice(0, 200)}` };
+  } finally { clearTimeout(timer); made.close(); }
+}
+
+const feature: Feature = {
+  id: 'connections',
+  schema,
+  migrate(db) {
+    // Pages saved before audiences: what the source said is what they are, and what marks them on their own is read from their tags.
+    for (const p of all<any>(db, `SELECT id, visibility, tags, frontmatter FROM pages WHERE source_id IS NOT NULL AND source_level IS NULL`)) {
+      let tags: unknown = []; let fm: any = {};
+      try { tags = JSON.parse(p.tags || '[]'); fm = JSON.parse(p.frontmatter || '{}'); } catch { /* no tags */ }
+      const m = pageLevel({ visibility: 'party', tags, frontmatter: fm });
+      run(db, 'UPDATE pages SET source_level = ?, marker_level = ? WHERE id = ?', p.visibility, p.visibility === 'broker' || p.visibility === 'classified' ? p.visibility : m, p.id);
+    }
+    // A crawl the server stopped under is not running any more.
+    run(db, `UPDATE connections_crawls SET status = 'stopped', finished_at = ? WHERE status = 'running'`, now());
+    migrateSources(db);
+  },
+
+  adminMount: 'connections',
+  adminRoutes: (d: Deps) => {
+    const r = Router();
+
+    r.get('/', (_req, res) => res.json(all<ConnectionRow>(d.db, 'SELECT * FROM connections ORDER BY name').map((x) => shapeConnection(d, x))));
+
+    r.post('/', (req, res) => {
+      const c = connectorFor(str(req.body?.kind, 'kind', { max: 40 }));
+      if (!c) throw new HttpError(400, 'Unknown kind of connection');
+      if (!hasConnection(c)) throw new HttpError(400, `${c.label} has no account settings to keep: add it as a source of a world and give it its folder or address there`);
+      let base: Record<string, any> = {};
+      if (req.body?.presetId !== undefined) {
+        if (c.id !== 'api') throw new HttpError(400, 'Presets are for the generic API connector');
+        const p = findPreset(d, String(req.body.presetId));
+        if (!p) throw new HttpError(404, 'Preset not found');
+        base = { ...p.config };
+      }
+      const incoming = req.body?.config && typeof req.body.config === 'object' ? req.body.config : {};
+      const cfg = connectionConfig(c, { ...base, ...incoming });
+      const row = createConnection(d.db, { name: str(req.body?.name, 'name', { max: 80 }), kind: c.id, config: cfg, notes: str(req.body?.notes, 'notes', { max: 1000, optional: true }) ?? '' });
+      audit(d, res, 'connection.create', `${c.id} ${row.id}`);
+      res.status(201).json(shapeConnection(d, row, true));
+    });
+
+    // ---- presets (before /:cid) ----------------------------------------------
+    r.get('/presets', (_req, res) => res.json(allPresets(d)));
+
+    r.post('/presets', (req, res) => {
+      let config: unknown = req.body?.config;
+      if (req.body?.connectionId) {
+        const conn = getConnection(d.db, String(req.body.connectionId));
+        if (!conn || conn.kind !== 'api') throw new HttpError(404, 'Pick a generic API connection to save as a preset');
+        config = parse(conn.config);
+      }
+      let clean: Record<string, any>;
+      try { clean = cleanPresetConfig(config); } catch (e: any) { throw new HttpError(400, e.message); }
+      let name: string;
+      try { name = cleanPresetName(req.body?.name); } catch (e: any) { throw new HttpError(400, e.message); }
+      const pid = id('pre_');
+      run(d.db, 'INSERT INTO connection_presets (id, name, description, config, created_at) VALUES (?, ?, ?, ?, ?)', pid, name, String(req.body?.description ?? '').slice(0, 500), JSON.stringify(clean), now());
+      audit(d, res, 'connection.preset.save', pid);
+      res.status(201).json(presetRow(one<any>(d.db, 'SELECT * FROM connection_presets WHERE id = ?', pid)));
+    });
+
+    r.post('/presets/import', (req, res) => {
+      let p: ReturnType<typeof parsePresetImport>;
+      try { p = parsePresetImport(req.body?.preset ?? req.body?.json ?? req.body); } catch (e: any) { throw new HttpError(400, e.message); }
+      const pid = id('pre_');
+      run(d.db, 'INSERT INTO connection_presets (id, name, description, config, created_at) VALUES (?, ?, ?, ?, ?)', pid, p.name, p.description, JSON.stringify(p.config), now());
+      audit(d, res, 'connection.preset.import', pid);
+      res.status(201).json(presetRow(one<any>(d.db, 'SELECT * FROM connection_presets WHERE id = ?', pid)));
+    });
+
+    r.get('/presets/:pid/export', (req, res) => {
+      const p = findPreset(d, String(req.params.pid));
+      if (!p) throw new HttpError(404, 'Preset not found');
+      res.json(exportPreset(p));
+    });
+
+    r.delete('/presets/:pid', (req, res) => {
+      if (BUILTIN_PRESETS.some((p) => p.id === req.params.pid)) throw new HttpError(400, 'Built-in presets cannot be deleted');
+      if (!run(d.db, 'DELETE FROM connection_presets WHERE id = ?', String(req.params.pid))) throw new HttpError(404, 'Preset not found');
+      audit(d, res, 'connection.preset.delete', String(req.params.pid));
+      res.json({ ok: true });
+    });
+
+    // ---- test -------------------------------------------------------------------
+    r.post('/test', async (req, res) => {
+      const c = connectorFor(str(req.body?.kind, 'kind', { max: 40 }));
+      if (!c) throw new HttpError(400, 'Unknown kind of connection');
+      const prev = req.body?.connectionId ? parse(getConnection(d.db, String(req.body.connectionId))?.config) : {};
+      res.json(await testConnection(d, c, connectionConfig(c, req.body?.config ?? {}, prev), req.body?.sample));
+    });
+
+    r.get('/:cid', (req, res) => {
+      const row = getConnection(d.db, String(req.params.cid));
+      if (!row) throw new HttpError(404, 'Connection not found');
+      res.json(shapeConnection(d, row, true));
+    });
+
+    r.patch('/:cid', (req, res) => {
+      const row = getConnection(d.db, String(req.params.cid));
+      if (!row) throw new HttpError(404, 'Connection not found');
+      const c = connectorFor(row.kind);
+      if (!c) throw new HttpError(409, 'This connection is of a kind the librarian no longer knows');
+      const b = req.body ?? {};
+      // Settings sent now are laid over the saved ones; an empty value clears one, the mask keeps a secret.
+      const cfg = b.config !== undefined ? connectionConfig(c, { ...parse(row.config), ...b.config }, parse(row.config)) : parse(row.config);
+      run(d.db, 'UPDATE connections SET name = ?, config = ?, notes = ?, updated_at = ? WHERE id = ?',
+        b.name !== undefined ? str(b.name, 'name', { max: 80 }) : row.name, JSON.stringify(Object.fromEntries(Object.entries(cfg).sort(([x], [y]) => (x < y ? -1 : 1)))),
+        b.notes !== undefined ? str(b.notes, 'notes', { max: 1000, optional: true }) ?? '' : row.notes, now(), row.id);
+      audit(d, res, 'connection.update', row.id);
+      res.json(shapeConnection(d, getConnection(d.db, row.id)!, true));
+    });
+
+    r.delete('/:cid', (req, res) => {
+      const row = getConnection(d.db, String(req.params.cid));
+      if (!row) throw new HttpError(404, 'Connection not found');
+      const uses = usage(d, row.id);
+      if (uses.length) throw new HttpError(409, `${uses.length} source${uses.length === 1 ? ' still uses' : 's still use'} this connection (${uses.slice(0, 3).map((u) => `${u.source_name} in ${u.world_name}`).join(', ')}). Remove or move them first.`);
+      run(d.db, 'DELETE FROM connections WHERE id = ?', row.id);
+      audit(d, res, 'connection.delete', row.id);
+      res.json({ ok: true });
+    });
+
+    r.post('/:cid/test', async (req, res) => {
+      const row = getConnection(d.db, String(req.params.cid));
+      if (!row) throw new HttpError(404, 'Connection not found');
+      const c = connectorFor(row.kind);
+      if (!c) throw new HttpError(409, 'This connection is of a kind the librarian no longer knows');
+      res.json(await testConnection(d, c, parse(row.config), req.body?.sample));
+    });
+
+    // Fill a generic API connection from a preset (replaces its mapping; keeps its token and notes).
+    r.post('/:cid/preset', (req, res) => {
+      const row = getConnection(d.db, String(req.params.cid));
+      if (!row || row.kind !== 'api') throw new HttpError(404, 'Generic API connection not found');
+      const p = findPreset(d, str(req.body?.presetId, 'presetId', { max: 80 }));
+      if (!p) throw new HttpError(404, 'Preset not found');
+      const c = connectorFor('api')!;
+      const prev = parse(row.config);
+      const secretKeys = c.fields.filter((f) => f.secret).map((f) => f.key);
+      const next = { ...p.config, ...Object.fromEntries(secretKeys.filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]])) };
+      run(d.db, 'UPDATE connections SET config = ?, updated_at = ? WHERE id = ?', JSON.stringify(connectionConfig(c, next, prev)), now(), row.id);
+      audit(d, res, 'connection.preset.apply', `${row.id} ${p.id}`);
+      res.json(shapeConnection(d, getConnection(d.db, row.id)!, true));
+    });
+
+    return r;
+  },
+
+  worldMount: 'world-sources',
+  worldRoutes: (d: Deps) => {
+    const r = Router({ mergeParams: true });
+    // What this world's sources are and who each one is shared with. Players get nothing from here.
+    r.get('/', (_req, res) => {
+      if (!isDM(res)) return res.json({ sources: [] });
+      const w = ctx(res).world.id;
+      const rows = all<any>(d.db, 'SELECT s.*, c.name AS connection_name, (SELECT COUNT(*) FROM pages p WHERE p.source_id = s.id) AS pages FROM sources s LEFT JOIN connections c ON c.id = s.connection_id WHERE s.world_id = ? ORDER BY s.name', w);
+      res.json({
+        summary: sourceSummary(d, w),
+        sources: rows.map((s) => {
+          const a = normAudience(s.audience);
+          return { id: s.id, name: s.name, kind: connectorFor(s.kind)?.label ?? s.kind, connection: s.connection_name ?? null, audience: a, audience_label: AUDIENCE_LABEL[a], enabled: !!s.enabled, schedule_minutes: s.schedule_minutes, last_sync_at: s.last_sync_at, last_status: s.last_status, pages: s.pages };
+        }),
+      });
+    });
+    return r;
+  },
+
+  mcpTools: [
+    {
+      name: 'world_sources', dmOnly: true,
+      description: "DM: where this world's library comes from: each source (name, kind of app, connection), its audience (DM only, shared with players, or following the source's own flags), the schedule and when it last synced.",
+      props: {}, call: () => ({ method: 'GET', path: '/world-sources' }),
+    },
+  ],
+};
+export default feature;
