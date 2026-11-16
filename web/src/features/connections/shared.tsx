@@ -29,6 +29,8 @@ export interface Source {
 }
 export interface Progress {
   phase: 'sync' | 'embed' | 'done'; sources: { total: number; done: number; current: string | null }; fetched: number; saved: number; skipped: number; removed: number;
+  calls?: { index: number; detail: number }; depth?: { index: number; summary: number; full: number };
+  tiers?: { sourceId: string; name: string; pages: number; read: number; indexCalls: number; budget: number; paused: boolean; fetchAll: boolean }[];
   errors: number; errorSamples: string[]; levels: { party: number; broker: number; dm: number; classified: number };
   embedding: { state: 'waiting' | 'running' | 'done' | 'no-model' | 'error' | 'cancelled'; model: string | null; pagesTotal: number; pagesDone: number; chunks: number };
 }

@@ -9,6 +9,7 @@
 // are the recommended way in; those two presets only show what a mapping looks like.
 import { ConfigError } from './connector.ts';
 import { genericApi } from './connectors/api.ts';
+import { cleanEndpoints } from './connectors/apiEndpoints.ts';
 import './registry.ts'; // sets each field's scope
 
 export interface Preset {
@@ -64,7 +65,11 @@ export function cleanPresetConfig(cfg: unknown): Record<string, string | number 
   const out: Record<string, string | number | boolean> = {};
   for (const [k, v] of Object.entries(cfg as Record<string, unknown>)) {
     if (!ok.has(k)) continue; // secrets, per-world values and unknown keys are dropped, never saved
-    if (typeof v === 'string') out[k] = v.slice(0, 2000);
+    if (k === 'endpoints') {
+      // The reviewed endpoint list (roles and mappings): cleaned, never anything but plain mapping values.
+      const eps = cleanEndpoints(v);
+      if (eps.length) out[k] = JSON.stringify(eps);
+    } else if (typeof v === 'string') out[k] = v.slice(0, 2000);
     else if (typeof v === 'number' || typeof v === 'boolean') out[k] = v;
   }
   if (out.transport !== undefined && out.transport !== 'http' && out.transport !== 'mcp') throw new ConfigError('transport must be http or mcp');

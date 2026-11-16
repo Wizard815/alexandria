@@ -1,7 +1,14 @@
-// The crawl: the first full sync of a world's sources, then embeddings for
-// every page, with live progress (pages fetched, saved, levels found, chunks
-// embedded, errors). It can be cancelled; the world and its sources are
-// saved either way, and whatever was fetched stays in the library.
+// The crawl: the first sync of a world's sources, then embeddings for every
+// page, with live progress (pages listed, saved, levels found, chunks
+// embedded, errors, and the calls made to each source). It can be cancelled;
+// the world and its sources are saved either way, and whatever was fetched
+// stays in the library.
+//
+// A source that crawls in tiers (LegendKeeper, Kanka, a generic API with
+// mapped endpoints) is only listed here: the fewest calls that put every page
+// in the library with its title, type, tags and parent. The pages themselves
+// are read afterwards, on demand and in the background within the source's
+// call budget (intake/detail.ts); the progress shows both.
 //
 // Progress is kept in connections_crawls (so the page can be reloaded) and
 // sent to the DM's live stream as a `crawl` event. Never to players.
@@ -12,6 +19,7 @@ import { HttpError, id, now } from '../../core/util.ts';
 import { connectorFor } from '../../intake/registry.ts';
 import { effectiveConfig } from '../../intake/connections.ts';
 import { runSync, stopSync } from '../../intake/sync.ts';
+import { budgetOf, depthCounts, getState, tieredOf } from '../../intake/tiers.ts';
 import { embeddingCoverage, pruneChunks, syncEmbeddings } from '../search/embeddings.ts';
 
 export const CRAWL_SCHEMA = `
@@ -41,8 +49,16 @@ export interface Progress {
   errors: number;
   errorSamples: string[];
   levels: { party: number; broker: number; dm: number; classified: number };
+  /** Calls made to the sources by this crawl, by tier. */
+  calls: { index: number; detail: number };
+  /** Pages by how much of them is held. */
+  depth: { index: number; summary: number; full: number };
+  /** One line per tiered source: what the world page shows ("Index: 14 calls, 2,031 pages · Details: 120 of 2,031 · Budget 30/min"). */
+  tiers: TierLine[];
   embedding: { state: 'waiting' | 'running' | 'done' | 'no-model' | 'error' | 'cancelled'; model: string | null; pagesTotal: number; pagesDone: number; chunks: number };
 }
+
+export interface TierLine { sourceId: string; name: string; pages: number; read: number; indexCalls: number; budget: number; paused: boolean; fetchAll: boolean }
 
 const active = new Map<string, { id: string; ctl: AbortController; current: string | null }>();
 export const crawlRunning = (worldId: string) => active.has(worldId);
@@ -69,8 +85,15 @@ export function levelCounts(d: Deps, worldId: string): Progress['levels'] {
   return out;
 }
 
-/** Start a crawl (a full sync of the world's sources, then embeddings) or a re-index (embeddings only, from scratch). Returns at once; the work runs in the background. */
-export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'reindex'; sourceIds?: string[]; by: string | null }) {
+/** Page counts by depth for a world (pages not from a tiered source count as full). */
+export function depthTotals(d: Deps, worldId: string): Progress['depth'] {
+  const out = { index: 0, summary: 0, full: 0 };
+  try { for (const r of all<any>(d.db, 'SELECT depth, COUNT(*) AS n FROM pages WHERE world_id = ? GROUP BY depth', worldId)) if (r.depth in out) (out as any)[r.depth] = r.n; } catch { /* the depth column is made by the first tiered sync */ }
+  return out;
+}
+
+/** Start a crawl (the sources are listed, then embeddings) or a re-index (embeddings only, from scratch). Returns at once; the work runs in the background. */
+export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'reindex'; sourceIds?: string[]; by: string | null; full?: boolean }) {
   if (!one(d.db, 'SELECT 1 FROM worlds WHERE id = ?', worldId)) throw new HttpError(404, 'World not found');
   if (active.has(worldId)) throw new HttpError(409, 'This world is already being crawled');
   const mode = opts.mode ?? 'crawl';
@@ -85,17 +108,17 @@ export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'r
   const ctl = new AbortController();
   active.set(worldId, { id: cid, ctl, current: null });
   run(d.db, 'INSERT INTO connections_crawls (id, world_id, mode, status, started_by, started_at) VALUES (?, ?, ?, ?, ?, ?)', cid, worldId, mode, 'running', opts.by, now());
-  void work(d, worldId, cid, mode, sources, ctl).catch(() => {});
+  void work(d, worldId, cid, mode, sources, ctl, !!opts.full).catch(() => {});
   return { id: cid };
 }
 
-async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'reindex', sources: any[], ctl: AbortController) {
+async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'reindex', sources: any[], ctl: AbortController, full: boolean) {
   const slot = active.get(worldId)!;
   const lines: string[] = [];
   const log = (m: string) => { lines.push(`${new Date().toISOString().slice(11, 19)} ${m}`); if (lines.length > 500) lines.splice(0, lines.length - 500); };
   const P: Progress = {
     phase: 'sync', sources: { total: sources.length, done: 0, current: null }, fetched: 0, saved: 0, skipped: 0, removed: 0, errors: 0, errorSamples: [],
-    levels: levelCounts(d, worldId), embedding: { state: 'waiting', model: null, pagesTotal: 0, pagesDone: 0, chunks: 0 },
+    levels: levelCounts(d, worldId), calls: { index: 0, detail: 0 }, depth: depthTotals(d, worldId), tiers: [], embedding: { state: 'waiting', model: null, pagesTotal: 0, pagesDone: 0, chunks: 0 },
   };
   let status: CrawlStatus = 'running';
   let error: string | null = null;
@@ -108,8 +131,23 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
     if (trailing) { clearTimeout(trailing); trailing = null; }
     lastSave = t;
     P.levels = levelCounts(d, worldId);
+    P.depth = depthTotals(d, worldId);
     run(d.db, 'UPDATE connections_crawls SET progress = ?, log = ?, status = ? WHERE id = ?', JSON.stringify(P), lines.join('\n'), status, cid);
     d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, dmOnly);
+  };
+  const tierLine = (s: any, indexCalls: number): TierLine | null => {
+    const cfg = effectiveConfig(d.db, s);
+    const t = tieredOf(s.kind, cfg);
+    if (!t) return null;
+    const st = getState(d.db, s.id);
+    const c = depthCounts(d.db, s.id);
+    return { sourceId: s.id, name: s.name, pages: c.total, read: c.full, indexCalls, budget: budgetOf(st, t), paused: st.paused, fetchAll: st.fetchAll };
+  };
+  const setTier = (s: any, indexCalls: number) => {
+    const line = tierLine(s, indexCalls);
+    if (!line) return;
+    const i = P.tiers.findIndex((x) => x.sourceId === s.id);
+    if (i >= 0) P.tiers[i] = line; else P.tiers.push(line);
   };
   const failure = (m: string) => { P.errors++; if (P.errorSamples.length < 5) P.errorSamples.push(m.slice(0, 200)); };
   try {
@@ -125,6 +163,8 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
       const baseFetched = P.fetched;
       const baseSaved = P.saved;
       const baseSkipped = P.skipped;
+      const baseIndexCalls = P.calls.index;
+      const baseDetailCalls = P.calls.detail;
       try {
         const out = await runSync({
           db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp,
@@ -133,15 +173,24 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
             P.saved = baseSaved + (st.pages ?? 0);
             P.skipped = baseSkipped + (st.skipped ?? 0);
             P.fetched = baseFetched + (st.pages ?? 0) + (st.skipped ?? 0);
+            P.calls.index = baseIndexCalls + (st.indexCalls ?? 0);
+            P.calls.detail = baseDetailCalls + (st.detailCalls ?? 0);
             publish();
           },
-        }, s.id, null);
+        }, s.id, null, { tiered: true, full });
+        P.calls.index = baseIndexCalls + (out.stats.indexCalls ?? 0);
+        P.calls.detail = baseDetailCalls + (out.stats.detailCalls ?? 0);
+        setTier(s, out.stats.indexCalls ?? 0);
         P.saved = baseSaved + (out.stats.pages ?? 0);
         P.skipped = baseSkipped + (out.stats.skipped ?? 0);
         P.fetched = baseFetched + (out.stats.pages ?? 0) + (out.stats.skipped ?? 0);
         P.removed += out.stats.removed ?? 0;
         for (const l of String(out.log ?? '').split('\n')) if (/ Skipped .+: /.test(l)) failure(l.replace(/^\S+ /, ''));
-        if (out.status === 'ok') { succeeded++; log(`${s.name}: ${out.stats.pages ?? 0} pages saved`); }
+        if (out.status === 'ok') {
+          succeeded++;
+          const t = P.tiers.find((x) => x.sourceId === s.id);
+          log(t ? `${s.name}: ${out.stats.pages ?? 0} pages saved. Index: ${out.stats.indexCalls ?? 0} calls, ${t.pages} pages; ${t.read} read in full; the rest are read on demand and in the background (${t.budget} calls a minute).` : `${s.name}: ${out.stats.pages ?? 0} pages saved`);
+        }
         else if (out.status === 'stopped') log(`${s.name}: stopped`);
         else { failure(`${s.name}: ${out.error ?? out.status}`); log(`${s.name}: failed (${out.error ?? out.status})`); }
       } catch (err: any) {
@@ -196,6 +245,7 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
     P.phase = 'done';
     active.delete(worldId);
     P.levels = levelCounts(d, worldId);
+    P.depth = depthTotals(d, worldId);
     run(d.db, 'UPDATE connections_crawls SET progress = ?, log = ?, status = ?, error = ?, finished_at = ? WHERE id = ?', JSON.stringify(P), lines.join('\n'), status, error, now(), cid);
     d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, dmOnly);
   }

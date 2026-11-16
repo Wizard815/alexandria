@@ -43,6 +43,55 @@ export interface ConnectorContext {
   shareVisible: boolean;
   /** Record kinds whose listing could not be read this time. Their stored records are kept, not removed. */
   incomplete: Set<SyncRecord['kind']>;
+  /** Calls made to the source, by tier: transports add to the one for the current phase. */
+  calls?: CallCounter;
+  /** Tiered crawl state (see Tiered): what the last listing left, and what this one leaves. */
+  tier?: TierState;
+}
+
+/** Calls made to a source in this run, by phase. A transport awaits `take()` before every request it sends: it waits for the source's rate limit, then counts the call. */
+export class CallCounter {
+  index = 0;
+  detail = 0;
+  phase: 'index' | 'detail' = 'index';
+  /** Waits until another call is allowed (the source's rate limit). */
+  gate?: () => Promise<void>;
+  /** Called after each counted call (the crawl uses it to refresh its numbers). */
+  onHit?: () => void;
+  async take() {
+    if (this.gate) await this.gate();
+    this[this.phase]++;
+    this.onHit?.();
+  }
+}
+
+/** What a tiered connector keeps between listings. `cache` is the connector's own JSON (small). */
+export interface TierState {
+  /** The last listing's token (Kanka `sync`), or null. */
+  token: string | null;
+  cache: Record<string, any> | null;
+  /** The caller asks for a complete listing (the first one, or the periodic one). */
+  full: boolean;
+  /** Set by the connector: false when only changed items were listed (nothing may be removed). */
+  complete: boolean;
+  /** Set by the connector: the token and cache to keep for next time. */
+  next: { token: string | null; cache: Record<string, any> | null };
+}
+
+/**
+ * A tiered connector lists first and fetches page details later. Tier 1
+ * (`index`) uses list calls only and yields every page with what the list
+ * gives (depth `index`, `summary` or, where the list has the whole body,
+ * `full`). Tier 3 (`detail`) fetches whole pages for the ids it is given.
+ * `sync` (the old, eager sync) stays the way to read everything in one go.
+ */
+export interface Tiered {
+  /** Detail calls a minute that stay inside the source's published rate limit, with room for other users of the same key. */
+  budgetPerMinute: number;
+  /** Tier 1. Only list calls. */
+  index(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<SyncItem>;
+  /** Tier 3. Whole pages for these external ids (ones the source no longer has are left out). */
+  detail(cfg: Record<string, any>, ctx: ConnectorContext, ids: string[]): AsyncIterable<SyncItem>;
 }
 
 /** What a connector can provide. Screens use only what the world's sources have. */
@@ -131,6 +180,8 @@ export interface Connector {
   test(cfg: Record<string, any>, ctx: ConnectorContext): Promise<TestResult>;
   /** Every entry the source has, plus records (relations, timelines, calendars, markers). A full listing: anything not yielded is removed. */
   sync(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<SyncItem>;
+  /** Tiered crawling (list first, details later). Sources without it are read whole by `sync`. */
+  tiered?: (cfg: Record<string, any>) => Tiered | null;
   /** The MCP tools this connector may call with these settings (read tools only). */
   readTools?: (cfg: Record<string, any>) => string[];
   /** Write-back for the WorldLore workspace. Sources without it stay read-only. */
