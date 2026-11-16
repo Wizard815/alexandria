@@ -46,7 +46,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
       if (ctl.signal.aborted || (opts.maxCalls !== undefined && counter.detail >= opts.maxCalls)) break;
       // Already read in full by an earlier page of the same resource (LegendKeeper tabs): nothing to fetch.
       const now = one<any>(d.db, `SELECT depth, visibility, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE id = ?`, p.id);
-      if (!now || (now.depth !== 'index' && !now.stale)) continue;
+      if (!now || (now.depth === 'full' && !now.stale)) continue;
       try {
         for await (const e of tier.detail(cfg, made.ctx, [p.external_id])) {
           if ((e as any).kind) continue; // records come with the listing
@@ -90,7 +90,7 @@ export async function ensureFull(d: SyncDeps, worldId: string, pageRef: string, 
   const row = one<any>(d.db, `SELECT id, external_id, source_id, depth, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE world_id = ? AND (id = ? OR path = ?)`, worldId, pageRef, pageRef);
   if (!row?.source_id || !row.external_id) return 'ready';
   if (opts.wanted !== false) markWanted(d.db, [row.id]);
-  if (row.depth !== 'index' && !row.stale) return 'ready';
+  if (row.depth === 'full' && !row.stale) return 'ready';
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', row.source_id);
   if (!src?.enabled || !tieredOf(src.kind, effectiveConfig(d.db, src))) return 'ready';
   let pending = inflight.get(row.id);
@@ -180,7 +180,7 @@ export function tierSummary(d: Pick<SyncDeps, 'db'>, src: any) {
   return {
     tiered: true, connector: c?.label ?? src.kind,
     pages: counts.total, depth: { index: counts.index, summary: counts.summary, full: counts.full, stale: counts.stale },
-    read: counts.full + counts.summary,
+    read: counts.full,
     calls: { index: lastStats.indexCalls ?? 0, indexTotal: st.indexCalls, detailTotal: st.detailCalls },
     budget: budgetOf(st, tier), budgetDefault: Math.max(1, Math.floor(tier.budgetPerMinute / 2)), rateLimit: tier.budgetPerMinute,
     paused: st.paused, fetchAll: st.fetchAll, waiting: queueLength(d.db, src.id, st.fetchAll), waitingAll: queueLength(d.db, src.id, true),
