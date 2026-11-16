@@ -8,10 +8,11 @@ import { one, all, run } from '../core/db.ts';
 import type { Library } from '../core/library.ts';
 import type { McpClient } from '../core/mcp.ts';
 import { HttpError, id, now } from '../core/util.ts';
-import { isRecord, type ConnectorContext, type SyncRecord } from './connector.ts';
+import { CallCounter, isRecord, type ConnectorContext, type SyncRecord, type TierState } from './connector.ts';
 import { connectorFor, makeMcpFactory } from './registry.ts';
 import { RECORD_CAPABILITY, saveRecords } from './records.ts';
 import { effectiveConfig, normAudience } from './connections.ts';
+import { depthCounts, getState, needsFullListing, rateGate, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -43,6 +44,16 @@ export function prefixFor(kind: string, name: string): string | null {
   return String(name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) || kind;
 }
 
+export interface RunOptions {
+  /**
+   * Crawl in tiers: list calls only (the index), pages read later (intake/detail.ts). Without it the connector's own `sync` reads everything
+   * in one go, details included. The crawl, the schedule and the admin panel's sync use tiers.
+   */
+  tiered?: boolean;
+  /** Ask for a complete listing, so pages the source dropped are removed and records are read again. */
+  full?: boolean;
+}
+
 /** Make the context a connector runs with. */
 export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortSignal, log: (m: string) => void) {
   const c = connectorFor(src.kind, cfg);
@@ -56,7 +67,7 @@ export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortS
 }
 
 /** Sync one source. Resolves with the finished run. */
-export async function runSync(d: SyncDeps, sourceId: string, by: string | null): Promise<any> {
+export async function runSync(d: SyncDeps, sourceId: string, by: string | null, opts: RunOptions = {}): Promise<any> {
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', sourceId);
   if (!src) throw new HttpError(404, 'Source not found');
   if (running.has(sourceId)) throw new HttpError(409, 'This source is already syncing');
@@ -65,7 +76,7 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
   const runId = id('run_');
   const lines: string[] = [];
   const log = (m: string) => { lines.push(`${new Date().toISOString().slice(11, 19)} ${m}`); if (lines.length > 500) lines.splice(0, lines.length - 500); };
-  const stats = { pages: 0, shared: 0, dmOnly: 0, removed: 0, skipped: 0, records: 0 };
+  const stats = { pages: 0, shared: 0, dmOnly: 0, removed: 0, skipped: 0, records: 0, indexCalls: 0, detailCalls: 0, indexed: 0, kept: 0 };
   const records: SyncRecord[] = [];
   const ctl = new AbortController();
   running.set(sourceId, ctl);
@@ -80,7 +91,24 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
     log(`Started ${made.c.label}`);
     const seen = new Set<string>();
     const prefix = prefixFor(made.c.id, src.name);
-    for await (const e of made.c.sync(cfg, made.ctx)) {
+    // A tiered connector lists first (tier 1) and reads the pages later; without `tiered` the connector's own sync reads everything.
+    const tier = opts.tiered ? tieredOf(src.kind, cfg) : null;
+    const state = getState(d.db, sourceId);
+    let ts: TierState | undefined;
+    const counter = new CallCounter();
+    if (connectorFor(src.kind, cfg)?.tiered) {
+      // Tiered runs stay under the source's published rate limit; a whole-source `sync` keeps its own rate-limit handling.
+      if (tier) counter.gate = rateGate(sourceId, tier.budgetPerMinute, d.env, ctl.signal);
+      counter.onHit = () => { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; d.onEntry?.(stats); };
+      made.ctx.calls = counter;
+    }
+    if (tier) {
+      ts = { token: state.token, cache: state.cache, full: needsFullListing(state, opts.full), complete: true, next: { token: state.token, cache: state.cache } };
+      made.ctx.tier = ts;
+      log(ts.full ? 'Listing everything (tier 1: list calls only)' : 'Listing what changed since the last crawl (tier 1)');
+    }
+    const demoted: string[] = [];
+    for await (const e of tier ? tier.index(cfg, made.ctx) : made.c.sync(cfg, made.ctx)) {
       if (ctl.signal.aborted) throw new Error('Sync stopped');
       if (isRecord(e)) {
         // Records are kept only for what the connector says it provides.
@@ -90,9 +118,13 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
       if (!e?.externalId || seen.has(e.externalId)) { stats.skipped++; continue; }
       seen.add(e.externalId);
       try {
-        d.library.saveEntry(src.world_id, src.id, prefix, e, by);
-        stats.pages++;
-        if (e.visibility === 'party') stats.shared++; else stats.dmOnly++;
+        const out = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e, by);
+        if (out.how === 'demote') demoted.push(out.id!);
+        if (out.how === 'saved') {
+          stats.pages++;
+          if (e.depth === 'index') stats.indexed++;
+          if (e.visibility === 'party') stats.shared++; else stats.dmOnly++;
+        } else { stats.pages++; stats.kept++; }
       } catch (err: any) {
         stats.skipped++;
         log(`Skipped ${e.title}: ${err.message}`);
@@ -100,8 +132,14 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
       d.onEntry?.(stats);
       if (stats.pages % 50 === 0) { save('running'); d.onProgress?.(runId, stats); }
     }
-    // Only a complete listing may delete.
-    stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
+    stats.indexCalls = counter.index;
+    stats.detailCalls = counter.detail;
+    // A page the list says is hidden loses its player copy now, not when its details are next read.
+    if (demoted.length) { d.library.applyAudience(src.world_id, src.id); log(`${demoted.length} pages are hidden at the source: made DM-only`); }
+    // Only a complete listing may delete. A listing of what changed lists nothing else.
+    if (!ts || ts.complete) stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
+    else log('Only changed pages were listed, so nothing is removed this time');
+    if (ts) saveIndexState(d.db, sourceId, { token: ts.next.token, cache: ts.next.cache, complete: ts.complete, calls: counter.index });
     // The source's audience decides what its records are: DM only, or shared (a reader still needs the pages they point at shared).
     const audience = normAudience(src.audience);
     if (audience !== 'auto') {
@@ -114,6 +152,10 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
     stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers;
     if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers`);
     log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} DM-only), removed ${stats.removed}`);
+    if (tier) {
+      const dc = depthCounts(d.db, sourceId);
+      log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}`);
+    }
     save('ok');
     run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${stats.pages} pages`, sourceId);
   } catch (err: any) {
@@ -146,7 +188,7 @@ export function startScheduler(d: SyncDeps) {
     const due = all<any>(d.db, `SELECT id, last_sync_at, schedule_minutes FROM sources WHERE enabled = 1 AND kind <> 'push' AND schedule_minutes IS NOT NULL AND schedule_minutes > 0`);
     for (const s of due) {
       const last = s.last_sync_at ? Date.parse(s.last_sync_at) : 0;
-      if (Date.now() - last >= s.schedule_minutes * 60_000 && !running.has(s.id)) runSync(d, s.id, null).catch(() => {});
+      if (Date.now() - last >= s.schedule_minutes * 60_000 && !running.has(s.id)) runSync(d, s.id, null, { tiered: true }).catch(() => {});
     }
   }, 60_000);
   t.unref();
