@@ -5,6 +5,8 @@ export interface PageRow {
   icon: { glyph?: string; color?: string } | null; parentId: string | null; source: string | null; updated_at: string; visibility?: string;
   /** Place in the source's own order (lower first). Null: the source gave none. */
   position?: number | null;
+  /** A page opened through a share or a DM grant (not through a key of your own). */
+  sharedWithMe?: boolean;
 }
 
 export interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number; pos: number | null }
