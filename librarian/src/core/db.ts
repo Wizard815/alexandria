@@ -520,10 +520,18 @@ function migrate(db: DB) {
     db.exec('PRAGMA foreign_keys = ON');
   }
 
+  // Sources: the connection they use (features/connections) and who their pages are for (auto, dm or party).
+  const sc = cols('sources');
+  if (!sc.includes('connection_id')) db.exec('ALTER TABLE sources ADD COLUMN connection_id TEXT');
+  if (!sc.includes('audience')) db.exec("ALTER TABLE sources ADD COLUMN audience TEXT NOT NULL DEFAULT 'auto'");
+
   // Structured pages: blocks, sidebar facts, tree and source ids.
   const pc = cols('pages');
   const add = (c: string, def: string) => { if (!pc.includes(c)) db.exec(`ALTER TABLE pages ADD COLUMN ${c} ${def}`); };
   add('origin', "TEXT NOT NULL DEFAULT 'markdown'");
+  // Source audience (features/connections): the level the source itself gave a page, and what marks it on its own.
+  add('source_level', 'TEXT');
+  add('marker_level', 'TEXT');
   add('external_id', 'TEXT');
   add('parent_external', 'TEXT');
   add('folder', "TEXT NOT NULL DEFAULT '[]'");
