@@ -884,6 +884,66 @@ and the installed app both use them, and so can any device on the network:
 - **Performance:** a rate limit and debounce, so lights never lag the table.
   Off by default.
 
+## 17. Source keys for each player and each world
+
+Builds on step 1 (connections, sources, audience per source).
+
+### 17.1 Keys
+- **Players import their own key** for a world's source, e.g. their own
+  Kanka API token. The gateway checks it belongs to **the same world**
+  before saving it: the Kanka campaign id matches, the LegendKeeper project
+  matches, or the generic API's world parameter matches. A key for another
+  world is refused.
+- **The DM imports any number of keys** into a world and sets permissions
+  on each:
+  - who may use it: one player, several, or the DM only
+  - what it may be used for: library view, agent lookups, broker
+  - its trust level (17.2)
+- **Storage:** keys are secrets, stored server-side, never shown again, and
+  revocable. Every use is audited.
+
+### 17.2 What the source does with a key
+When a key is added, the gateway asks one question, and shows what it
+found when it tested the key:
+
+> Does this source give each key only what that user may see (per-user
+> permissions), or does every key see everything (a blanket key)?
+
+- **Per-user permissions** (e.g. a Kanka member's token):
+  - What the key returns is that player's view, and it can feed their
+    library and their agent.
+  - The usual safety still applies on top: secret, broker and classified
+    markers stay hidden.
+- **Blanket key** (sees everything, e.g. most API keys):
+  - The key is treated as DM-level. Nothing it returns is shown to the
+    player directly.
+- **Unsure:** the gateway treats the key as a blanket key until the DM
+  confirms otherwise. It fails closed.
+
+### 17.3 Escalation instead of leaks
+When a player's question can only be answered from content their own view
+doesn't have (DM-only, broker or classified, or anything that came through
+a blanket key):
+- The question is **escalated**, never answered directly. Depending on the
+  world's settings it becomes:
+  - **a DM-only question:** the DM answers, rewrites or refuses it
+  - **a high-level broker deal:** priced by the DM, with a wait measured in
+    game time or sessions (e.g. 2 sessions), and delivered only after the DM
+    approves
+- The player only sees "the broker will look into it" (or the DM's
+  answer). No text from the hidden source reaches them before approval.
+- The audit model (§10) decides "answerable from your view" vs "needs
+  escalation". When it's unsure, it escalates.
+
+### 17.4 The agent
+- **A player's agent uses only that player's keys** for live lookups (their
+  own key, or one the DM assigned to them), never the DM's.
+- **Blanket-key results** go to the escalation path above, not into the
+  player's answer.
+- **The DM agent** may use any key the DM allows it.
+- **Testing:** the leak crawler gets new markers for per-key content and
+  blanket-key content.
+
 ## Decisions
 
 1. **Live transcript for players:** yes, with key-word cards. It's built from
