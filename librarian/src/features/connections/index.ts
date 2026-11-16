@@ -8,7 +8,12 @@
 //   GET/PATCH/DELETE  /api/admin/connections/:id
 //   POST              /api/admin/connections/test | /:id/test
 //   GET/POST/DELETE   /api/admin/connections/presets ... (generic API presets, import, export)
+//   POST              /api/admin/connections/api-discover (generic API: find the spec, guess the endpoints)
+//   PUT               /api/admin/connections/:id/endpoints (the reviewed endpoint list)
+//   GET               /api/admin/connections/tiers/world/:world (each source's tiers: index, details, budget)
+//   PATCH             /api/admin/connections/tiers/:source (background budget, pause, fetch everything)
 //   GET               /api/worlds/:world/world-sources   (DM: the sources; players: nothing)
+//   GET               /api/worlds/:world/world-sources/depths (DM: pages not yet read in full)
 //   MCP               world_sources
 //
 // The world pages (overview, crawl, re-index) are in routes/sources.ts.
@@ -23,9 +28,14 @@ import { ctx, isDM } from '../../routes/_shared.ts';
 import { pageLevel } from '../../core/levels.ts';
 import { ConfigError, type Connector } from '../../intake/connector.ts';
 import { CONNECTORS, connectorFor } from '../../intake/registry.ts';
-import { AUDIENCE_LABEL, connectionKeys, createConnection, getConnection, hasConnection, keepSecrets, maskedConfig, migrateSources, normAudience, splitConfig, type ConnectionRow } from '../../intake/connections.ts';
+import { AUDIENCE_LABEL, SECRET_MASK, connectionKeys, createConnection, getConnection, hasConnection, keepSecrets, maskedConfig, migrateSources, normAudience, splitConfig, type ConnectionRow } from '../../intake/connections.ts';
 import { BUILTIN_PRESETS, cleanPresetConfig, cleanPresetName, exportPreset, parsePresetImport, type Preset } from '../../intake/presets.ts';
 import { connectorContext } from '../../intake/sync.ts';
+import { dmOnly } from '../../core/events.ts';
+import { cleanEndpoints } from '../../intake/connectors/apiEndpoints.ts';
+import { discoverApi } from '../../intake/connectors/apiSetup.ts';
+import { startDetailWorker, tierSummary } from '../../intake/detail.ts';
+import { TIER_SCHEMA, depthsOf, ensureTierSchema, setSettings } from '../../intake/tiers.ts';
 import { CRAWL_SCHEMA } from './crawl.ts';
 import { sourceSummary } from './summary.ts';
 
@@ -49,6 +59,7 @@ CREATE TABLE IF NOT EXISTS connection_presets (
   created_at TEXT NOT NULL
 );
 ${CRAWL_SCHEMA}
+${TIER_SCHEMA}
 `;
 
 const audit = (d: Deps, res: any, action: string, detail: string, worldId: string | null = null) =>
@@ -66,7 +77,7 @@ function connectionConfig(c: Connector, input: unknown, prev: Record<string, any
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(kept)) {
     if (!keys.has(k) || v === undefined || v === null || v === '') continue;
-    out[k] = typeof v === 'number' || typeof v === 'boolean' ? v : String(v).slice(0, 4000);
+    out[k] = typeof v === 'number' || typeof v === 'boolean' ? v : String(v).slice(0, k === 'endpoints' ? 60_000 : 4000);
   }
   for (const f of c.fields) if (f.scope === 'connection' && f.required && visible(c, f, out) && (out[f.key] === undefined || out[f.key] === '')) throw new HttpError(400, `${f.label} is required`);
   return out;
@@ -119,6 +130,8 @@ const feature: Feature = {
       const m = pageLevel({ visibility: 'party', tags, frontmatter: fm });
       run(db, 'UPDATE pages SET source_level = ?, marker_level = ? WHERE id = ?', p.visibility, p.visibility === 'broker' || p.visibility === 'classified' ? p.visibility : m, p.id);
     }
+    // Depth columns on pages (index, summary, full) for the tiered crawl.
+    ensureTierSchema(db);
     // A crawl the server stopped under is not running any more.
     run(db, `UPDATE connections_crawls SET status = 'stopped', finished_at = ? WHERE status = 'running'`, now());
     migrateSources(db);
@@ -146,6 +159,72 @@ const feature: Feature = {
       const row = createConnection(d.db, { name: str(req.body?.name, 'name', { max: 80 }), kind: c.id, config: cfg, notes: str(req.body?.notes, 'notes', { max: 1000, optional: true }) ?? '' });
       audit(d, res, 'connection.create', `${c.id} ${row.id}`);
       res.status(201).json(shapeConnection(d, row, true));
+    });
+
+
+    // ---- generic API: find the endpoints and guess the fields -------------------------------------
+    // Looks for an OpenAPI or Swagger spec; without one, one sample call to the base URL and to each list URL given.
+    // Nothing is saved: the answer is a table of endpoints (role, mapping, confidence) for the DM to review.
+    r.post('/api-discover', async (req, res) => {
+      const b = req.body ?? {};
+      let token = typeof b.token === 'string' && b.token !== SECRET_MASK ? b.token : undefined;
+      let authHeader = typeof b.authHeader === 'string' && b.authHeader ? b.authHeader : undefined;
+      if (b.connectionId) {
+        const conn = getConnection(d.db, String(b.connectionId));
+        if (!conn || conn.kind !== 'api') throw new HttpError(404, 'Generic API connection not found');
+        const cc = parse(conn.config);
+        if (token === undefined) token = cc.token;
+        if (authHeader === undefined) authHeader = cc.authHeader;
+        if (!b.baseUrl) b.baseUrl = cc.baseUrl;
+      }
+      const baseUrl = str(b.baseUrl, 'baseUrl', { max: 500 });
+      const listUrls = Array.isArray(b.listUrls) ? b.listUrls.map((x: unknown) => String(x).slice(0, 500)).filter(Boolean).slice(0, 2) : [];
+      try {
+        const out = await discoverApi(d.fetch, { baseUrl, token, authHeader, listUrls });
+        audit(d, res, 'connection.discover', `${out.source} ${out.calls} calls ${out.endpoints.length} endpoints`);
+        res.json(out);
+      } catch (e: any) { throw new HttpError(400, e.message); }
+    });
+
+    // The DM's reviewed list: each endpoint's role and mapping, or "unused". Saved on the connection; a preset can be made from it.
+    r.put('/:cid/endpoints', (req, res) => {
+      const row = getConnection(d.db, String(req.params.cid));
+      if (!row || row.kind !== 'api') throw new HttpError(404, 'Generic API connection not found');
+      let eps;
+      try { eps = cleanEndpoints(req.body?.endpoints); } catch (e: any) { throw new HttpError(400, e.message); }
+      const cfg = parse(row.config);
+      if (typeof req.body?.baseUrl === 'string') { if (req.body.baseUrl) cfg.baseUrl = req.body.baseUrl.slice(0, 500); else delete cfg.baseUrl; }
+      // Only an endpoint marked used (with a role that gives pages) is ever called; unused ones are kept so the review can be reopened.
+      cfg.endpoints = JSON.stringify(eps);
+      const c = connectorFor('api')!;
+      try { c.validate({ ...cfg, ...(req.body?.sample && typeof req.body.sample === 'object' ? req.body.sample : {}) }, { vaultsDir: d.vaultsDir, env: d.env }); } catch (e: any) { throw new HttpError(400, e.message); }
+      run(d.db, 'UPDATE connections SET config = ?, updated_at = ? WHERE id = ?', JSON.stringify(Object.fromEntries(Object.entries(cfg).sort(([x], [y]) => (x < y ? -1 : 1)))), now(), row.id);
+      audit(d, res, 'connection.endpoints', `${row.id} ${eps.filter((e) => e.use).length} used of ${eps.length}`);
+      res.json(shapeConnection(d, getConnection(d.db, row.id)!, true));
+    });
+
+    // ---- tiers: what is listed, what is read, the budget ---------------------------------------------------
+    r.get('/tiers/world/:wid', (req, res) => {
+      const rows = all<any>(d.db, 'SELECT * FROM sources WHERE world_id = ? ORDER BY name', String(req.params.wid));
+      res.json(rows.map((s) => ({ id: s.id, name: s.name, ...tierSummary(d, s) })));
+    });
+    r.patch('/tiers/:sid', (req, res) => {
+      const s = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));
+      if (!s) throw new HttpError(404, 'Source not found');
+      const b = req.body ?? {};
+      const upd: { budget?: number | null; paused?: boolean; fetchAll?: boolean } = {};
+      if (b.budget !== undefined) {
+        if (b.budget === null || b.budget === '') upd.budget = null;
+        else { const n = Number(b.budget); if (!Number.isInteger(n) || n < 0 || n > 600) throw new HttpError(400, 'budget is calls a minute, 0 to 600'); upd.budget = n; }
+      }
+      if (b.paused !== undefined) upd.paused = b.paused === true;
+      if (b.fetchAll !== undefined) upd.fetchAll = b.fetchAll === true;
+      if (!tierSummary(d, s).tiered) throw new HttpError(400, 'This source is read whole; it has no tiers to set');
+      setSettings(d.db, s.id, upd);
+      audit(d, res, 'source.tiers', `${s.id} ${JSON.stringify(upd)}`, s.world_id);
+      const out = { id: s.id, name: s.name, ...tierSummary(d, s) };
+      d.hub.emit(s.world_id, 'tiers', { sources: [out] }, dmOnly);
+      res.json(out);
     });
 
     // ---- presets (before /:cid) ----------------------------------------------
@@ -271,8 +350,24 @@ const feature: Feature = {
         }),
       });
     });
+    // Pages not yet read in full: for the DM's depth badge.
+    r.get('/depths', (_req, res) => {
+      if (!isDM(res)) return res.json({ depths: {} });
+      res.json({ depths: depthsOf(d.db, ctx(res).world.id) });
+    });
     return r;
   },
+
+  // The background reader: a few calls a minute, the pages people open or link to first. Not started in tests.
+  start: (d: Deps) => startDetailWorker(
+    { db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp },
+    (results) => {
+      for (const t of results) {
+        const s = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', t.sourceId);
+        if (s) d.hub.emit(s.world_id, 'tiers', { sources: [{ id: s.id, name: s.name, ...tierSummary(d, s) }] }, dmOnly);
+      }
+    },
+  ),
 
   mcpTools: [
     {

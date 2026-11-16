@@ -32,6 +32,7 @@ import { BLOCKED_REPLY, SentenceGate, leakChecker } from './leak.ts';
 import { clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
 import { sourceSummary } from '../connections/summary.ts';
+import { readOnOpen, readSearchHits } from '../connections/ondemand.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 export { HISTORY_WINDOW };
@@ -232,6 +233,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const cb = dm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
   if (hits.length) {
+    // Pages only held at index depth (a tiered crawl) are read from their source before the agent is handed them.
+    if (dm && hits.length) await readSearchHits(d, c.worldId, hits.slice(0, 2), 2);
     const top = hits.slice(0, 2).map((h) => {
       try { const pg: any = d.library.get(c.worldId, h.id, forModel(c.viewer)); return String(pg.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 500); } catch { return ''; }
     });
@@ -246,6 +249,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     if (notes.length) L.push(`This player's notes on people: ${notes.join('; ').slice(0, 1500)}`);
   }
   if (ctxIn.page) {
+    await readOnOpen(d, c.worldId, ctxIn.page);
     try {
       const pg: any = d.library.get(c.worldId, ctxIn.page, forModel(c.viewer));
       L.push(`The user is looking at the library page [${pg.title}] (${pg.id}):\n${String(pg.body ?? '').slice(0, 5000)}`);
