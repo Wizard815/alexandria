@@ -11,6 +11,7 @@ import { HttpError, id, now } from '../core/util.ts';
 import { isRecord, type ConnectorContext, type SyncRecord } from './connector.ts';
 import { connectorFor, makeMcpFactory } from './registry.ts';
 import { RECORD_CAPABILITY, saveRecords } from './records.ts';
+import { effectiveConfig, normAudience } from './connections.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -23,6 +24,8 @@ export interface SyncDeps {
   mcp?: McpClient;
   /** Called on progress so the admin panel can update live. */
   onProgress?: (runId: string, stats: Record<string, number>) => void;
+  /** Called after every page, with the running numbers (a crawl shows them live). */
+  onEntry?: (stats: Record<string, number>) => void;
 }
 
 const running = new Map<string, AbortController>();
@@ -57,7 +60,7 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', sourceId);
   if (!src) throw new HttpError(404, 'Source not found');
   if (running.has(sourceId)) throw new HttpError(409, 'This source is already syncing');
-  const cfg = JSON.parse(src.config || '{}');
+  const cfg = effectiveConfig(d.db, src);
   if (connectorFor(src.kind, cfg)?.push) throw new HttpError(400, 'A push source receives entries from your tool; there is nothing to sync');
   const runId = id('run_');
   const lines: string[] = [];
@@ -94,10 +97,19 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null):
         stats.skipped++;
         log(`Skipped ${e.title}: ${err.message}`);
       }
+      d.onEntry?.(stats);
       if (stats.pages % 50 === 0) { save('running'); d.onProgress?.(runId, stats); }
     }
     // Only a complete listing may delete.
     stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
+    // The source's audience decides what its records are: DM only, or shared (a reader still needs the pages they point at shared).
+    const audience = normAudience(src.audience);
+    if (audience !== 'auto') {
+      for (const r of records as any[]) {
+        r.visibility = audience;
+        for (const g of r.groups ?? []) for (const ev of g.events ?? []) ev.visibility = audience;
+      }
+    }
     const saved = saveRecords(d.db, src.world_id, src.id, records, made.ctx.incomplete);
     stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers;
     if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers`);
