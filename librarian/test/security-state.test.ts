@@ -10,7 +10,8 @@ import path from 'node:path';
 import { createApp } from '../src/app.ts';
 import { all, one } from '../src/core/db.ts';
 import { baseOf, client, leaksFor, mark, markers, recordMounts, tok, type Marker } from './security-kit.ts';
-import { makeAccounts, seedContent, type Seed } from './security-world.ts';
+import { KANKA_WORLD, makeAccounts, seedContent, type Seed } from './security-world.ts';
+import { fakeKanka } from './sourcekeys-fake.ts';
 
 recordMounts();
 
@@ -25,7 +26,7 @@ const { call } = http;
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-secstate-'));
   dataDir = path.join(tmp, 'data');
-  const made = createApp({ noScheduler: true, dataDir, vaultsDir: path.join(tmp, 'vaults'), env: { ALX_RATE_LIMIT: '0' } });
+  const made = createApp({ noScheduler: true, dataDir, vaultsDir: path.join(tmp, 'vaults'), fetch: fakeKanka(fetch, KANKA_WORLD).fetch, env: { ALX_RATE_LIMIT: '0' } });
   deps = made.deps;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));

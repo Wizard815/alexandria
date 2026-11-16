@@ -133,33 +133,114 @@ source summary, and the read tool `world_sources` (DM only) lists each source
 with its audience, schedule and last sync. Players get nothing from
 `GET /api/worlds/:world/world-sources`.
 
-## Step 2 (planned): per-account keys
+## Source keys: each player's own key
 
-Not built. The idea: today a source is read with one key (usually the DM's or
-an admin's), and the audience says how much of it players may see. In step 2
-each player could link **their own key** for a connection (for example their
-own Kanka member token or LegendKeeper member key), so their agent and their
-Library view match exactly what that key can see in the source, no more and
-no less.
+A source is read with the DM's connection. A **source key** adds a second way
+in: a player (or the DM) gives the gateway a key for one world's source. Keys
+work with **Kanka (API)**, **LegendKeeper (API key)** and a **generic HTTP
+API**. Code is in `librarian/src/features/sourcekeys/`.
 
-- A player adds their key for a connection in their profile. It is stored
-  encrypted for that account, never shown again, and only ever sent to the
-  connection's host. The DM can see that a key is linked, not the key.
-- A sync with the player's key reads the source as that player and stores the
-  result as a **per-account overlay** for the pages it can see: the page ids
-  and levels that key reaches, and their text. Nothing the key cannot see is
-  fetched.
-- The player's Library list, search, agent harness and tools read the
-  overlay: the pages the player's own key sees, merged with the world's
-  player copies. A page the key sees that the shared player copy does not
-  (or the other way round) follows the key. Secret, broker and classified
-  markers inside a page still apply, as with `party`.
-- The audience stays the per-source default for players without a key. `dm`
-  still means DM-only for everyone, keys included.
-- Revoking or rotating a key drops that account's overlay and its embeddings
-  at once; the audit log records links and unlinks.
-- Open questions: how often to refresh (on login, on demand, on a schedule),
-  per-account embeddings cost, and what to show when a key is expired.
+### Adding a key
+
+- **Players** add their own: World → My keys, or `POST /api/worlds/:w/source-keys`
+  with `{ sourceId, secret, label?, trust? }`. The DM can switch this off with the
+  world setting `sourceKeysPlayers`.
+- **The DM** adds any number of keys, and sets `users` (who may use it), `uses`
+  (`library`, `agent`, `broker`) and `trust`. The DM can change them later with
+  `PATCH /source-keys/:id` and revoke any key.
+- **Verified before it is saved.** A key for another world is refused (400, with a
+  reason) and nothing is stored:
+  - Kanka: the key can read the source's campaign (`GET /campaigns/{id}`).
+  - LegendKeeper: the key can read the source's project (`GET /resources`, then one resource).
+  - Generic API: one list call with the source's world settings works.
+- **Secrets never come back.** The API shows a mask. The secret is stored on the
+  server, only sent to the host the DM set up for the source, and wiped when the key is
+  revoked. Every use is in the audit log (`sourcekeys.use`: key id, account, use).
+  Secrets are stored like connection secrets are (not encrypted in the database).
+- Players see and revoke only their own keys. The DM sees all of them.
+
+### Trust: per-user or blanket
+
+When a key is added the gateway asks: *does this source give each key only what that
+user may see (per-user), or does every key see everything (blanket)?* It also runs a
+probe where it can and shows the result to the DM. For Kanka it compares the number of
+entities the key lists with the number the DM's connection lists. The probe only informs;
+it never changes trust.
+
+| Trust | Meaning |
+|---|---|
+| `per-user` | The key shows its user only what they may see. Only the **DM** can set this. |
+| `blanket` | The key sees everything: treated as DM-level. |
+| `unsure` | Not known. **Treated as blanket** (fails closed). A player's own key starts here. |
+
+### The per-account view (per-user keys with the `library` use)
+
+"Refresh my view" (`POST /source-keys/:id/refresh`, rate limited to one per key every
+5 minutes; the DM may force it) reads what the key can see and stores the page ids:
+`sourcekeys_access` (world, page, account, key). It stores ids only, never text.
+
+A player may then open the **player copy** of a page that is DM-only only because the
+**source** marks it private, when their own key sees it (their character's own backstory,
+for example):
+
+- It lifts `source_level` for that account only (`levelForAccountKey` in `core/levels.ts`,
+  `Library.liftedInfo` in `core/library.ts`). It never lifts `marker_level`: a page the
+  source marks broker or classified stays out of reach. Secret blocks, DM fact groups and
+  private posts are cut from the copy as for any player. A source whose audience is
+  `dm` is not lifted either.
+- The copy is built when it is asked for and never stored. It shows in the Library list,
+  the page, search, offline bulk, MCP and the agent, for that account only.
+- Blanket and unsure keys never feed anyone's view. Revoking a key, changing its trust,
+  users or uses, or removing the player takes effect at once (it is read live).
+
+### Sharing pages
+
+What a player sees through their own key is theirs alone until they share it.
+`POST /api/worlds/:w/library/pages/:id/share` with `{ to: "party" | [accountId, ...] }`,
+`DELETE ...?to=party|accountId` to unshare, and `GET` for who it is shared with
+(Library → Share…, and a "Shared with me" filter).
+
+- A player can share only a page they can open. The recipient gets the **same player
+  copy**; sharing never lifts a page above what the sharer could see, and a share ends when
+  the sharer loses sight of the page (their key is revoked).
+- The DM can share any page except broker and classified ones, with the party or chosen
+  players. It is a grant (`sourcekeys_shares`, kind `dm`); the page's own level is unchanged.
+- Unsharing is immediate everywhere the page shows.
+
+### The agent and live lookups
+
+The `source_lookup` tool (MCP and the agent) searches the source live through the
+caller's **own** keys with the `agent` use: their own, or one the DM assigned to them. A
+player's lookup never uses another person's key or the DM's.
+
+- Per-user key: the source is asked which pages the key sees; what the player gets is the
+  **stored player copy** of each page they may open, never text the source sent now.
+- Blanket or unsure key, a page the library does not have yet, or a page above the
+  player's view: nothing of it is returned. The lookup is **escalated** and the reply says
+  "The broker will look into it."
+- The DM agent may use any key whose `users` include the DM and whose `uses` include `agent`.
+- A reply that is blocked by the leak check is unchanged (it is not escalated).
+
+### Escalation
+
+When a question needs more than the asker's own view, it is not answered. World setting
+`escalation`:
+
+- `dm-question`: a DM-only question in the queue (World settings → Source keys → Escalated
+  questions). The DM answers or refuses.
+- `broker-deal` (default): a broker request the DM prices (`POST /source-keys/escalations/:id/price`
+  with a cost, the answer and the wait in sessions, default `escalationSessions` 2).
+  The player accepts and pays in the Broker; it is delivered only after the wait and the
+  DM's approval. The wait is until the end of the Nth scheduled game session, or a week
+  per session if fewer are scheduled. A world with the broker closed asks the DM instead.
+
+The player sees only "The broker will look into it", and later the DM's own answer. The
+hidden context (what the blanket key found, the DM-side evidence) is in the DM queue only.
+A player can also ask directly (`POST /source-keys/escalations`): the audit model labels
+the question; off-topic is turned away, rules and item questions are answered without
+secrets, and everything else, and anything it is unsure about, is escalated. A broker
+question that goes to the DM to price is in the queue too. Keys with the `broker` use (DM
+keys only) add what the source knows to the DM's context.
 
 ## Secrecy levels: marking content in every source
 

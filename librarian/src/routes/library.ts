@@ -11,11 +11,13 @@ import { joinFrontmatter } from '../core/frontmatter.ts';
 import { ctx, me } from './_shared.ts';
 import { hybridPages } from '../features/search/embeddings.ts';
 import { scopeFor } from '../features/search/global.ts';
+import { shareRoutes } from '../features/sourcekeys/share.ts';
 
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const L = d.library;
 
+  r.use('/pages/:id/share', shareRoutes(d));
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   r.get('/pages/:id', (req, res) => res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer)));
   // The viewer's own copy as a Markdown file (players: the player copy only).
