@@ -10,7 +10,7 @@ import { audienceOf, copyOfMarkdown, frontmatterFor, redactMarkdown, scrubHidden
 import { importedRelations } from '../intake/records.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
 import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts';
-import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
+import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelForAccountKey, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
 import { createHash } from 'node:crypto';
 import { HttpError, id, now } from './util.ts';
 import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
@@ -542,11 +542,21 @@ export class Library {
     const aud = audienceOf(viewer);
     const cols = 'p.id, p.path, p.title, p.kind, p.tags, p.folder, p.icon, p.source_id, p.external_id, p.parent_external, p.position, p.updated_at, p.visibility, s.name AS source_name';
     const rows = all<any>(this.db, `SELECT ${cols} FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? ${scopeGuard(scopeOf(aud), 'p')} ORDER BY p.path`, worldId);
+    // A player also lists the pages their own per-user source key sees, and the ones shared with them (see liftedInfo).
+    let lifted = new Map<string, string>();
+    if (aud === 'player' && viewer.accountId) {
+      lifted = this.liftedInfo(worldId, viewer.accountId);
+      if (lifted.size) {
+        const have = new Set(rows.map((r) => r.id));
+        rows.push(...all<any>(this.db, `SELECT ${cols} FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? AND p.id IN (${[...lifted.keys()].map(() => '?').join(',')}) ORDER BY p.path`, worldId, ...lifted.keys()).filter((r) => !have.has(r.id)));
+      }
+    }
     const shown = new Set(rows.map((r) => `${r.source_id}|${r.external_id}`));
     return rows.map((r) => {
       const parent = r.parent_external && shown.has(`${r.source_id}|${r.parent_external}`) ? rows.find((x) => x.source_id === r.source_id && x.external_id === r.parent_external)?.id ?? null : null;
       const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, position: r.position ?? null, updated_at: r.updated_at };
       if (aud !== 'player') out.visibility = r.visibility;
+      else if (lifted.has(r.id)) { out.via = lifted.get(r.id); out.sharedWithMe = lifted.get(r.id) !== 'key'; }
       return out;
     });
   }
@@ -562,7 +572,14 @@ export class Library {
     if (!pg) throw new HttpError(404, 'Page not found');
     const aud = audienceOf(viewer);
     const level = normLevel(pg.visibility);
-    const copy = canSeeLevel(level, aud) ? copyFor(pg, aud) : null;
+    let copy = canSeeLevel(level, aud) ? copyFor(pg, aud) : null;
+    // A page the source marks private, that this player's own per-user key sees: their player copy, built now and never stored.
+    let fromKey = false;
+    let via = '';
+    if (!copy && aud === 'player' && viewer.accountId && (via = this.liftedInfo(worldId, viewer.accountId, pg.id).get(pg.id) ?? '')) {
+      const built = this.buildCopy({ ...pg, visibility: 'party' }, JSON.parse(pg.frontmatter || '{}'), 'player', this.resolver(worldId), this.hiddenTitles(worldId, 'player'));
+      if (built) { copy = { audience: 'player', blocks: built.blocks, markdown: built.body, properties: built.properties, frontmatter: built.fm }; fromKey = true; }
+    }
     if (!copy) throw new HttpError(404, 'Page not found');
     const { blocks, properties } = copy;
     const R = this.resolver(worldId);
@@ -588,8 +605,58 @@ export class Library {
     };
     if (aud === 'dm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, position: pg.position ?? null, frontmatter: copy.frontmatter, body: pg.body };
     // The source's own copy may hold more than the player copy, so players get the link only when the DM turned it on for the source.
-    if (aud === 'player') return { ...base, ...(pg.url && playersMayOpen(pg.source_config) ? { url: pg.url } : {}), frontmatter: copy.frontmatter, body: copy.markdown };
+    if (aud === 'player') return { ...base, ...(pg.url && playersMayOpen(pg.source_config) && !fromKey ? { url: pg.url } : {}), ...(fromKey ? { fromKey: true, via } : {}), frontmatter: copy.frontmatter, body: copy.markdown };
     return { ...base, visibility: pg.visibility, level, frontmatter: copy.frontmatter, body: copy.markdown };
+  }
+
+  /**
+   * Ids of pages this account may open as a player although their source
+   * marks them DM-only: the account holds a live, verified, per-user key with
+   * the `library` use that sees the page (features/sourcekeys keeps the access
+   * sets). `levelForAccountKey` decides: it lifts the source's own marking and
+   * never a broker or classified marker. A missing table, a revoked key, a key
+   * that is not `per-user` (blanket and unsure keys never count) or an account
+   * that is no longer a player gives nothing. `only` limits the check to one page.
+   */
+  liftedInfo(worldId: string, accountId: string, only?: string, depth = 0): Map<string, 'key' | 'dm' | 'share'> {
+    const out = new Map<string, 'key' | 'dm' | 'share'>();
+    let rows: any[];
+    try {
+      rows = all<any>(this.db, `SELECT DISTINCT p.id, p.visibility, p.source_level, p.marker_level, s.audience
+        FROM sourcekeys_access a
+        JOIN sourcekeys_keys k ON k.id = a.key_id
+        JOIN pages p ON p.id = a.page_id AND p.world_id = a.world_id
+        JOIN sources s ON s.id = p.source_id AND s.id = k.source_id
+        JOIN members m ON m.world_id = a.world_id AND m.account_id = a.account_id AND m.role = 'player'
+        WHERE a.world_id = ? AND a.account_id = ? ${only ? 'AND p.id = ?' : ''} AND k.world_id = a.world_id AND k.revoked = 0 AND k.verified = 1 AND k.trust = 'per-user'
+          AND EXISTS (SELECT 1 FROM json_each(k.uses) WHERE value = 'library')
+          AND EXISTS (SELECT 1 FROM json_each(k.users) WHERE value = a.account_id)`, worldId, accountId, ...(only ? [only] : []));
+    } catch { return out; }
+    for (const r of rows) {
+      const level = levelForAccountKey({ visibility: r.visibility, sourceLevel: r.source_level, markerLevel: r.marker_level, audience: r.audience ?? 'auto' }, true);
+      if (normLevel(r.visibility) !== 'party' && canSeeLevel(level, 'player')) out.set(r.id, 'key');
+    }
+    // Pages the DM granted to this account (or the party), and pages another player shared with them. A grant is the same player copy:
+    // only a page whose own marking is DM-only or none is eligible (never broker or classified), and a share is live only while the sharer can still see the page.
+    let grants: any[] = [];
+    try {
+      grants = all<any>(this.db, `SELECT s.page_id, s.from_id, s.kind, p.visibility, p.marker_level FROM sourcekeys_shares s
+        JOIN pages p ON p.id = s.page_id AND p.world_id = s.world_id
+        JOIN members m ON m.world_id = s.world_id AND m.account_id = ? AND m.role = 'player'
+        WHERE s.world_id = ? ${only ? 'AND s.page_id = ?' : ''} AND (s.to_id = ? OR s.to_id = '*')`, accountId, worldId, ...(only ? [only] : []), accountId);
+    } catch { return out; }
+    for (const g of grants) {
+      if (out.has(g.page_id) || normLevel(g.visibility) !== 'dm' || (g.marker_level != null && g.marker_level !== 'party')) continue;
+      if (g.kind === 'dm') {
+        if (one(this.db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", worldId, g.from_id)) out.set(g.page_id, 'dm');
+      } else if (g.from_id !== accountId && depth < 3 && this.liftedInfo(worldId, g.from_id, g.page_id, depth + 1).has(g.page_id)) out.set(g.page_id, 'share');
+    }
+    return out;
+  }
+
+  /** The ids of liftedInfo. */
+  liftedPages(worldId: string, accountId: string, only?: string): Set<string> {
+    return new Set(this.liftedInfo(worldId, accountId, only).keys());
   }
 
   /**
@@ -600,7 +667,32 @@ export class Library {
    * <mark>), titleHtml, score and matchedOn.
    */
   search(worldId: string, q: string, viewer: Viewer, limit = 20): PageHit[] {
-    return searchPages(this.db, worldId, q, scopeOf(audienceOf(viewer)), limit);
+    const hits = searchPages(this.db, worldId, q, scopeOf(audienceOf(viewer)), limit);
+    if (audienceOf(viewer) !== 'player' || !viewer.accountId) return hits;
+    const extra = this.liftedHits(worldId, q, viewer.accountId).filter((h) => !hits.some((x) => x.id === h.id));
+    return [...hits, ...extra].slice(0, Math.max(1, Math.min(limit, 200)));
+  }
+
+  /** Search the pages lifted for one account (their key, a DM grant or a share) in their player copy, which is built now: they are in no index. */
+  private liftedHits(worldId: string, q: string, accountId: string): PageHit[] {
+    const info = this.liftedInfo(worldId, accountId);
+    if (!info.size) return [];
+    const want = (q.toLowerCase().match(/[\p{L}\p{N}']{2,}/gu) ?? []).slice(0, 8);
+    if (!want.length) return [];
+    const R = this.resolver(worldId);
+    const hidden = this.hiddenTitles(worldId, 'player');
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const out: PageHit[] = [];
+    for (const pg of all<any>(this.db, `SELECT * FROM pages WHERE world_id = ? AND id IN (${[...info.keys()].map(() => '?').join(',')})`, worldId, ...info.keys())) {
+      const c = this.buildCopy({ ...pg, visibility: 'party' }, JSON.parse(pg.frontmatter || '{}'), 'player', R, hidden);
+      if (!c) continue;
+      const hay = `${pg.title} ${c.body}`.toLowerCase();
+      if (!want.every((w) => hay.includes(w))) continue;
+      const at = Math.max(0, c.body.toLowerCase().indexOf(want[0]));
+      const snippet = c.body.slice(Math.max(0, at - 40), at + 160).replace(/\s+/g, ' ').trim();
+      out.push({ id: pg.id, path: pg.path, title: pg.title, snippet, snippetHtml: esc(snippet), score: 1, titleHtml: esc(pg.title), matchedOn: 'text', tier: 0, relevance: 1 });
+    }
+    return out;
   }
 
   relations(worldId: string, viewer: Viewer) {
