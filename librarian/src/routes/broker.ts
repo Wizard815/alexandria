@@ -28,6 +28,7 @@ import { migrateBrokerClock, moveClockTo } from '../features/broker2/clock.ts';
 import { leaks } from '../features/broker2/guard.ts';
 import { itemAnswer, rulesAnswer, visibleItems, type OtherAnswer } from '../features/broker2/other.ts';
 import { LOW_CONFIDENCE, routeQuestion, type Labels } from '../features/broker2/routing.ts';
+import { escalateFromBroker } from '../features/sourcekeys/hook.ts';
 import { balance, money } from '../core/coin.ts';
 import { ctx, isDM, me, memberIds, names, settings } from './_shared.ts';
 
@@ -339,6 +340,8 @@ export default function brokerRoutes(d: Deps) {
     } else if (q.cost === null) {
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, ?, ?, 'pricing', ?, ?)`, rid, w, me(res), q.question, q.length, q.tier, now(), cls);
       audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost ?? 'priced by DM'}`);
+      // The DM queue of escalated questions (features/sourcekeys) shows it too, with what the DM side holds.
+      escalateFromBroker(d, { worldId: w, accountId: me(res), question: q.question, brokerRequestId: rid, reason: String(q.classification?.reason ?? ''), evidence: JSON.parse(cls).dmEvidence ?? [], routing: q.classification?.routing ?? null });
     } else {
       tx(db, () => {
         const { payer, ledgerId } = charge(res, me(res), q.cost, q.question);

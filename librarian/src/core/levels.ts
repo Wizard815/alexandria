@@ -48,6 +48,22 @@ export function normLevel(v: unknown): Level {
   return 'dm';
 }
 
+/**
+ * The level a page has for ONE account whose own per-user source key sees it
+ * (features/sourcekeys). A source that marks a page private says `dm`; an
+ * account whose verified per-user key can read that page may open its player
+ * copy. Only the source's own marking is lifted: `markerLevel` (broker and
+ * classified tags and levels; secret blocks and DM fact groups are cut from
+ * the copy anyway) is never lowered, a source set to `dm` or `party` is not
+ * touched, and anything unknown stays as stored. Fails closed.
+ */
+export function levelForAccountKey(p: { visibility?: unknown; sourceLevel?: unknown; markerLevel?: unknown; audience?: unknown }, keySees: boolean): Level {
+  const stored = normLevel(p.visibility);
+  if (!keySees || p.audience !== 'auto' || stored !== 'dm') return stored;
+  if (p.sourceLevel !== 'dm' || !isLevel(p.markerLevel)) return stored;
+  return RANK[p.markerLevel] < RANK[stored] ? p.markerLevel : stored;
+}
+
 const tagName = (t: unknown) => String(t ?? '').trim().replace(/^#/, '').trim().toLowerCase();
 
 /** The level named by tags: `classified` beats `broker`. */
