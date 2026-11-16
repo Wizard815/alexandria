@@ -1,0 +1,189 @@
+// Tier 3 of the crawl: reading whole pages after the index exists.
+//
+//   ensureFull   a page was opened, found by a search or asked about: read it now, then serve it
+//   detailTick   the background: a few calls a minute (the source's budget), the pages people
+//                opened or link to first; every page only when "fetch everything" is on
+//
+// The index (intake/sync.ts) already put every page in the library, DM-only.
+// Whatever arrives here goes through the same save as a sync: levels, markers
+// and audience are applied as the content arrives, and the player copy is
+// rebuilt before anyone is served it.
+import { all, one } from '../core/db.ts';
+import { effectiveConfig } from './connections.ts';
+import { CallCounter, type TierState } from './connector.ts';
+import { connectorFor } from './registry.ts';
+import { connectorContext, isRunning, prefixFor, type SyncDeps } from './sync.ts';
+import { Bucket, addDetailCalls, budgetBucket, budgetOf, depthCounts, detailQueue, ensureTierSchema, getState, markWanted, queueLength, rateGate, setSettings, storeEntry, tieredOf } from './tiers.ts';
+
+const busy = new Set<string>();
+const inflight = new Map<string, Promise<ReadOutcome>>();
+const onDemand = new Map<string, Bucket>();
+
+export interface ReadOutcome { read: number; calls: number; failed: number; error?: string }
+
+/** Read these pages of one source in full and save them. `maxCalls` stops between pages once that many calls were made. */
+export async function readPages(d: SyncDeps, src: any, pages: { id: string; external_id: string }[], opts: { signal?: AbortSignal; maxCalls?: number } = {}): Promise<ReadOutcome> {
+  ensureTierSchema(d.db);
+  const cfg = effectiveConfig(d.db, src);
+  const tier = tieredOf(src.kind, cfg);
+  const out: ReadOutcome = { read: 0, calls: 0, failed: 0 };
+  if (!tier || !pages.length) return out;
+  const ctl = new AbortController();
+  opts.signal?.addEventListener('abort', () => ctl.abort(), { once: true });
+  const made = connectorContext(d, src, cfg, ctl.signal, () => {});
+  const state = getState(d.db, src.id);
+  const counter = new CallCounter();
+  counter.phase = 'detail';
+  counter.gate = rateGate(src.id, tier.budgetPerMinute, d.env, ctl.signal);
+  made.ctx.calls = counter;
+  const ts: TierState = { token: state.token, cache: state.cache, full: false, complete: false, next: { token: state.token, cache: state.cache } };
+  made.ctx.tier = ts;
+  const prefix = prefixFor(made.c.id, src.name);
+  const levelBefore = new Map<string, string>();
+  const readIds: string[] = [];
+  try {
+    for (const p of pages) {
+      if (ctl.signal.aborted || (opts.maxCalls !== undefined && counter.detail >= opts.maxCalls)) break;
+      // Already read in full by an earlier page of the same resource (LegendKeeper tabs): nothing to fetch.
+      const now = one<any>(d.db, `SELECT depth, visibility, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE id = ?`, p.id);
+      if (!now || (now.depth !== 'index' && !now.stale)) continue;
+      try {
+        for await (const e of tier.detail(cfg, made.ctx, [p.external_id])) {
+          if ((e as any).kind) continue; // records come with the listing
+          const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
+          if (before) levelBefore.set(before.id, before.visibility);
+          const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
+          if (r.id) { readIds.push(r.id); out.read++; }
+        }
+      } catch (err: any) {
+        if (ctl.signal.aborted) break;
+        out.failed++;
+        out.error = String(err?.message ?? err).slice(0, 200);
+        // A rate limit that did not clear: stop for now, the next tick tries again.
+        if (/rate limit|rate-limit/i.test(out.error)) break;
+      }
+    }
+  } finally {
+    out.calls = counter.detail;
+    made.close();
+    addDetailCalls(d.db, src.id, counter.detail);
+  }
+  if (readIds.length) {
+    // A page whose level changed changes what other pages may say about it: rebuild the world. Otherwise only the pages that were read.
+    const changed = readIds.some((id) => (one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ?', id)?.visibility ?? '') !== levelBefore.get(id));
+    d.library.rebuildPlayerCopies(src.world_id, changed ? undefined : readIds);
+  }
+  return out;
+}
+
+export type EnsureResult = 'ready' | 'fetched' | 'unavailable';
+
+/**
+ * A page is being opened (by a DM or a player), read by the agent or found by
+ * a search: if it is only held at index depth (or changed at the source),
+ * read it now. Safe to call for any page: one that is not from a tiered
+ * source, or is already read, answers `ready` at once. The page is served
+ * only after this returns, so levels and markers are already applied.
+ */
+export async function ensureFull(d: SyncDeps, worldId: string, pageRef: string, opts: { timeoutMs?: number; wanted?: boolean } = {}): Promise<EnsureResult> {
+  ensureTierSchema(d.db);
+  const row = one<any>(d.db, `SELECT id, external_id, source_id, depth, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE world_id = ? AND (id = ? OR path = ?)`, worldId, pageRef, pageRef);
+  if (!row?.source_id || !row.external_id) return 'ready';
+  if (opts.wanted !== false) markWanted(d.db, [row.id]);
+  if (row.depth !== 'index' && !row.stale) return 'ready';
+  const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', row.source_id);
+  if (!src?.enabled || !tieredOf(src.kind, effectiveConfig(d.db, src))) return 'ready';
+  let pending = inflight.get(row.id);
+  if (!pending) {
+    // A page nobody has a reason to open is not worth a call: opening pages is limited to 30 a minute for each source.
+    const b = onDemand.get(src.id) ?? onDemand.set(src.id, new Bucket(30, 10, Date.now())).get(src.id)!;
+    if (b.waitMs(Date.now()) > 0) return 'unavailable';
+    b.spend(1, Date.now());
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), opts.timeoutMs ?? 20_000);
+    pending = readPages(d, src, [{ id: row.id, external_id: row.external_id }], { signal: ctl.signal }).finally(() => { clearTimeout(timer); inflight.delete(row.id); });
+    inflight.set(row.id, pending);
+  }
+  const r = await pending;
+  return r.read ? 'fetched' : 'unavailable';
+}
+
+/** The first few pages of a search, or a page the agent was handed, read now (at most `max`). */
+export async function ensureMany(d: SyncDeps, worldId: string, ids: string[], max = 3, opts: { timeoutMs?: number } = {}): Promise<number> {
+  let n = 0;
+  for (const id of ids.slice(0, max)) if ((await ensureFull(d, worldId, id, opts).catch(() => 'unavailable')) === 'fetched') n++;
+  return n;
+}
+
+export interface TickResult { sourceId: string; calls: number; read: number; waiting: number }
+
+/**
+ * One turn of the background reader. Each source that is tiered, not paused
+ * and not syncing may spend its budget (calls a minute, as a token bucket) on
+ * the pages most worth reading. `at` is the clock (tests move it).
+ */
+export async function detailTick(d: SyncDeps, opts: { at?: number } = {}): Promise<TickResult[]> {
+  ensureTierSchema(d.db);
+  const at = opts.at ?? Date.now();
+  const out: TickResult[] = [];
+  for (const src of all<any>(d.db, `SELECT * FROM sources WHERE enabled = 1 AND kind <> 'push'`)) {
+    if (busy.has(src.id) || isRunning(src.id)) continue;
+    const cfg = effectiveConfig(d.db, src);
+    const tier = tieredOf(src.kind, cfg);
+    if (!tier) continue;
+    const st = getState(d.db, src.id);
+    if (st.paused) continue;
+    const bucket = budgetBucket(src.id, budgetOf(st, tier), at);
+    bucket.refill(at);
+    const allowed = Math.floor(bucket.tokens);
+    if (allowed < 1) continue;
+    const queue = detailQueue(d.db, src.id, { all: st.fetchAll, limit: allowed * 3, at });
+    if (!queue.length) {
+      // "Fetch everything" is done when nothing is left to read.
+      if (st.fetchAll) setSettings(d.db, src.id, { fetchAll: false });
+      continue;
+    }
+    busy.add(src.id);
+    try {
+      const r = await readPages(d, src, queue.map((q) => ({ id: q.id, external_id: q.external_id })), { maxCalls: allowed });
+      bucket.spend(Math.max(r.calls, r.read ? 0 : 1), at);
+      out.push({ sourceId: src.id, calls: r.calls, read: r.read, waiting: queueLength(d.db, src.id, st.fetchAll) });
+    } finally { busy.delete(src.id); }
+  }
+  return out;
+}
+
+/** Runs detailTick every few seconds. Not started in tests. Returns the stop function. */
+export function startDetailWorker(d: SyncDeps, onTick?: (r: TickResult[]) => void) {
+  let running = false;
+  const t = setInterval(() => {
+    if (running) return;
+    running = true;
+    detailTick(d).then((r) => { if (r.length) onTick?.(r); }).catch(() => {}).finally(() => { running = false; });
+  }, 5000);
+  t.unref();
+  return () => clearInterval(t);
+}
+
+/** What the world page shows about one source's tiers. */
+export function tierSummary(d: Pick<SyncDeps, 'db'>, src: any) {
+  ensureTierSchema(d.db);
+  const cfg = effectiveConfig(d.db, src);
+  const c = connectorFor(src.kind, cfg);
+  const tier = tieredOf(src.kind, cfg);
+  if (!tier) return { tiered: false };
+  const st = getState(d.db, src.id);
+  const counts = depthCounts(d.db, src.id);
+  const last = one<any>(d.db, 'SELECT stats FROM sync_runs WHERE source_id = ? ORDER BY started_at DESC LIMIT 1', src.id);
+  let lastStats: any = {};
+  try { lastStats = JSON.parse(last?.stats || '{}'); } catch { /* none */ }
+  return {
+    tiered: true, connector: c?.label ?? src.kind,
+    pages: counts.total, depth: { index: counts.index, summary: counts.summary, full: counts.full, stale: counts.stale },
+    read: counts.full + counts.summary,
+    calls: { index: lastStats.indexCalls ?? 0, indexTotal: st.indexCalls, detailTotal: st.detailCalls },
+    budget: budgetOf(st, tier), budgetDefault: Math.max(1, Math.floor(tier.budgetPerMinute / 2)), rateLimit: tier.budgetPerMinute,
+    paused: st.paused, fetchAll: st.fetchAll, waiting: queueLength(d.db, src.id, st.fetchAll), waitingAll: queueLength(d.db, src.id, true),
+    indexAt: st.indexAt, lastDetailAt: st.lastDetailAt, running: busy.has(src.id),
+  };
+}
