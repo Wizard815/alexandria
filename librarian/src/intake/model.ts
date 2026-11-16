@@ -80,6 +80,15 @@ export interface Entry {
   /** Where the source puts this page among everything it holds (lower first). Siblings are shown in this order. */
   position?: number | null;
   updatedAt?: string | null;
+  /**
+   * How much of the page this entry holds (tiered crawl): `index` is what a list call gives (title, type, tags, parent, updated time),
+   * `summary` adds an opening excerpt, `full` is the whole page. Missing means `full`.
+   */
+  depth?: 'index' | 'summary' | 'full';
+  /** What the source's list says about when this changed (it can differ from `updatedAt`, which may come from a detail). Change detection compares it. Defaults to `updatedAt`. */
+  sourceUpdatedAt?: string | null;
+  /** The list itself says this page is not for players (a hidden page or folder). A page already held at a deeper depth is made DM-only at once, without waiting for its details. */
+  restricted?: boolean;
   /** Markdown sources: the original body. The library runs the Markdown leak
    *  guard on it before parsing, and keeps it for the on-disk mirror. */
   markdown?: string;
@@ -315,4 +324,14 @@ export function mentionsIn(blocks: Block[], props: PropertyGroup[] = []): Mentio
 /** Plain text of blocks, for search snippets. */
 export function blocksText(blocks: Block[]): string {
   return blocksToMarkdown(blocks, (m) => m.text ?? m.name ?? '').replace(/[*_`>#|[\]]/g, ' ').replace(/[ \t]+/g, ' ');
+}
+
+/** The one line a page at index depth has for a body: what the list gave, so search, the agent and embeddings have something to work with. DM-only until the page is read. */
+export function indexBlocks(e: { title: string; type?: string | null; tags?: string[]; folder?: string[]; summary?: string | null }): Block[] {
+  const where = (e.folder ?? []).filter(Boolean);
+  const bits = [`${e.title}${e.type && e.type !== 'page' ? ` (${e.type})` : ''}${where.length ? `, in ${where.join(' / ')}` : ''}.`];
+  if (e.tags?.length) bits.push(`Tags: ${e.tags.slice(0, 12).join(', ')}.`);
+  const out: Block[] = [{ kind: 'paragraph', content: [{ text: bits.join(' ') }] }];
+  if (e.summary && e.summary.trim()) out.push({ kind: 'paragraph', content: [{ text: e.summary.trim().slice(0, 600) }] });
+  return out;
 }
