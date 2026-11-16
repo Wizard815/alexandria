@@ -20,10 +20,31 @@ kankaMcp.write = kankaMcpWrite;
 
 export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, markdownFolder, gitRepo, mcpFiles, genericApi, pushSource];
 
+/**
+ * Which settings belong to the connection (the account: tokens, URLs of the
+ * server) rather than to one world's source (campaign, project, folder).
+ * Everything not listed is a source setting. The generic API keeps its whole
+ * mapping on the connection, so it can be saved as a preset; only the values
+ * for its {placeholders} are per world.
+ */
+const SOURCE_ONLY = new Set(['world', 'params']);
+const CONNECTION_FIELDS: Record<string, string[] | 'all-but-source'> = {
+  'legendkeeper-mcp': ['transport', 'url', 'token', 'server'],
+  'legendkeeper-api': ['apiKey'],
+  'kanka-api': ['token', 'apiUrl'],
+  'kanka-mcp': ['transport', 'server', 'url', 'token', 'appUrl', 'trustPostVisibility'],
+  'mcp-files': ['transport', 'server', 'url', 'token', 'preset', 'listTool', 'listArgs', 'readTool', 'readArg'],
+  api: 'all-but-source',
+};
+for (const c of CONNECTORS) {
+  const keys = CONNECTION_FIELDS[c.id];
+  for (const f of c.fields) f.scope = keys === 'all-but-source' ? (SOURCE_ONLY.has(f.key) ? 'source' : 'connection') : keys?.includes(f.key) ? 'connection' : 'source';
+}
+
 // Every source that has a page to open in its own app also has this setting. Off: players never get the link (the source may show more than their copy).
 for (const c of CONNECTORS) {
   if (c.push || c.id === 'git' || c.id === 'api') continue;
-  c.fields.push({ key: 'playersMayOpen', label: 'Players may open source pages', type: 'boolean', default: false, help: 'Off (safer): only you see the "Open in ..." button. The source page can show more than the player copy does, so turn this on only if your players have access to the source themselves.' });
+  c.fields.push({ key: 'playersMayOpen', label: 'Players may open source pages', type: 'boolean', scope: 'source', default: false, help: 'Off (safer): only you see the "Open in ..." button. The source page can show more than the player copy does, so turn this on only if your players have access to the source themselves.' });
 }
 
 /** The union of what these sources provide. */

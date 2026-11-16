@@ -36,6 +36,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(macros?|hotkeys?|shortcuts?|trigger)\b/i, tools: ['list_macros', 'run_macro'] },
   { re: /\b(map|pins?|marks?|markers?|route|waypoints?)\b/i, tools: ['list_map_marks', 'add_map_mark', 'hide_map_mark', 'delete_map_mark'] },
   { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
+  { re: /\b(sources?|connections?|connected|sync(ed|s)?|imported|where (does|did) .*(library|lore|pages?) come from)\b/i, tools: ['world_sources'] },
   { re: /\b(find|search|look up|where)\b/i, tools: ['search_world', 'world_info'] },
   { re: /\b(who is in|players|party members|character|characters|members)\b/i, tools: ['list_members', 'get_live'] },
 ];
