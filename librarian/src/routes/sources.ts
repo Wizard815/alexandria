@@ -205,7 +205,7 @@ export default function sourceRoutes(d: Deps) {
     if (!s) throw new HttpError(404, 'Source not found');
     if (connectorFor(s.kind, parse(s.config))?.push) throw new HttpError(400, 'A push source receives entries from your tool; there is nothing to sync');
     audit(db, s.world_id, me(res), 'source.sync', s.id);
-    const p = runSync(deps(), s.id, me(res));
+    const p = runSync(deps(), s.id, me(res), { tiered: true, full: req.body?.full === true });
     if (req.query.wait) {
       const out = await p;
       if (out.status !== 'ok') throw new HttpError(502, `Sync failed: ${out.error ?? out.status}`);
@@ -260,7 +260,7 @@ export default function sourceRoutes(d: Deps) {
   r.post('/worlds/:id/crawl', (req, res) => {
     const w = world(req);
     const ids = Array.isArray(req.body?.sourceIds) ? req.body.sourceIds.map(String) : undefined;
-    const out = startCrawl(d, w.id, { mode: 'crawl', sourceIds: ids, by: me(res) });
+    const out = startCrawl(d, w.id, { mode: 'crawl', sourceIds: ids, by: me(res), full: req.body?.full === true });
     audit(db, w.id, me(res), 'world.crawl', out.id);
     res.status(202).json({ started: true, ...out });
   });

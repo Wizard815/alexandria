@@ -185,9 +185,10 @@ export const kankaBase = (cfg: { apiUrl?: unknown }) => String(cfg.apiUrl || 'ht
  * returned for the caller to judge. `url` is absolute (it must start with the
  * API base, so a token is never sent elsewhere).
  */
-export async function kankaHttp(ctx: Pick<ConnectorContext, 'fetch' | 'signal'>, cfg: { token?: unknown; apiUrl?: unknown }, method: string, url: string, body?: unknown): Promise<{ status: number; body: any }> {
+export async function kankaHttp(ctx: Pick<ConnectorContext, 'fetch' | 'signal'> & Partial<Pick<ConnectorContext, 'calls'>>, cfg: { token?: unknown; apiUrl?: unknown }, method: string, url: string, body?: unknown): Promise<{ status: number; body: any }> {
   if (!url.startsWith(kankaBase(cfg) + '/')) throw new Error('Refusing a Kanka request outside the API URL');
   for (let attempt = 0; attempt < 4; attempt++) {
+    await ctx.calls?.take();
     const r = await ctx.fetch(url, {
       method,
       headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
@@ -206,8 +207,72 @@ export async function kankaHttp(ctx: Pick<ConnectorContext, 'fetch' | 'signal'>,
   throw new Error('Kanka kept rate-limiting; try again later');
 }
 
-async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<SyncItem> {
+/** What a tiered Kanka crawl keeps between listings, so a changed entity can be read alone. */
+interface KankaCache {
+  /** `module:id` to entity id. */
+  m: Record<string, string>;
+  /** entity id to [module, name] (templates left out). */
+  e: Record<string, [string, string]>;
+  /** tag id to [name, shown to players (1) or not (0)]. */
+  t: Record<string, [string, number]>;
+}
+
+/** Lookups over a cache: the same maps the eager sync builds from its rows. */
+function kankaLookups(cache: KankaCache) {
+  const typeOf = new Map(TYPES.map(([m, t, f]) => [m, { type: t, parentField: f }]));
+  const lookup = (mod: string, id: unknown) => (id == null ? undefined : cache.m[`${mod}:${id}`]);
+  const entityIds = new Set(Object.entries(cache.e).map(([id, [mod]]) => `${typeOf.get(mod)?.type}:${id}`));
+  const tagName = new Map<string, string>(Object.entries(cache.t).filter(([, v]) => v[1] === 1).map(([id, v]) => [id, v[0]]));
+  const anyTagName = new Map<string, string>(Object.entries(cache.t).map(([id, v]) => [id, v[0]]));
+  const tagOf = (t: unknown): string | undefined => (typeof t === 'object' && t ? ((t as any).name ? esc((t as any).name) : anyTagName.get(String((t as any).id ?? (t as any).tag_id))) : anyTagName.get(String(t)));
+  const levelTags = (tags: unknown): string[] => (Array.isArray(tags) ? tags : []).map(tagOf).filter((n): n is string => !!n && tagLevel([n]) !== 'party');
+  const positions = kankaPositions(Object.entries(cache.e), ([, v]) => v[0], ([, v]) => v[1], ([id]) => id);
+  return { typeOf, lookup, entityIds, tagName, anyTagName, tagOf, levelTags, positions };
+}
+
+/** One Kanka list row (with related=1) as an entry. */
+function kankaEntryOf(cfg: any, ctx: ConnectorContext, kc: ReturnType<typeof kankaLookups>, mod: string, e: any): Entry {
+  const { type, parentField } = kc.typeOf.get(mod)!;
+  const entityId = String(e.entity_id ?? e.id);
+  const pid = e.parent_id != null && kc.entityIds.has(`${type}:${e.parent_id}`) ? String(e.parent_id)
+    : parentField && e[parentField] != null ? kc.lookup(mod, e[parentField]) : undefined;
+  const tags = (Array.isArray(e.tags) ? e.tags : []).map((t: any) => kc.tagName.get(String(typeof t === 'object' && t ? t.id ?? t.tag_id : t))).filter((t: any): t is string => !!t);
+  return {
+    externalId: `kanka:${entityId}`,
+    parentExternalId: pid ? `kanka:${pid}` : null,
+    folder: [type[0].toUpperCase() + type.slice(1) + 's'],
+    title: esc(e.name),
+    tags: [...tags, ...kc.levelTags(e.tags).filter((t) => !tags.includes(t))],
+    type,
+    icon: null,
+    banner: typeof e.image_full === 'string' && /^https?:/.test(e.image_full) && e.has_custom_image !== false && !/default/.test(e.image_full) ? e.image_full : null,
+    properties: kankaProperties(e, type, kc.lookup),
+    blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared, (p) => postLevel(p, kc.tagOf))],
+    // Kanka's own private flag always wins; a missing flag counts as private.
+    visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm',
+    url: (typeof e.urls?.view === 'string' && /^https?:\/\//i.test(e.urls.view) ? e.urls.view : null) ?? kankaEntityUrl(cfg, entityId),
+    position: kc.positions.get(entityId) ?? null,
+    updatedAt: e.updated_at ?? null,
+    sourceUpdatedAt: e.updated_at ?? null,
+    // The list already carries the whole entry, posts and attributes: nothing more to fetch.
+    depth: 'full',
+  };
+}
+
+/**
+ * Kanka lists include `entry`, posts and attributes (related=1), so a listing
+ * is the whole library: about pages / 45 calls per module (up to 100 a page
+ * for subscribers). With `ctx.tier` (the tiered crawl) later listings send
+ * `lastSync` and read only what changed; a full listing runs when the caller
+ * asks for one (`tier.full`), because only a complete one may remove pages and
+ * refresh relations, timelines, calendars and map markers.
+ */
+async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): AsyncIterable<SyncItem> {
   const base = String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
+  const tier = tiered ? ctx.tier : undefined;
+  const prev = (tier?.cache ?? null) as KankaCache | null;
+  const incr = !!tier && !tier.full && !!tier.token && !!prev?.m;
+  const syncs: string[] = [];
   // 30 requests a minute (90 for subscribers) per user; 429 when spent. Wait
   // for Retry-After when sent, else back off 15 s, 30 s, 45 s.
   const get = async (url: string) => {
@@ -220,8 +285,9 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
   // URL is built here rather than followed (and never leaves the API host).
   const pages = async function* (path: string) {
     for (let page = 1; page <= 500; page++) {
-      const j: any = await get(`${base}${path}${path.includes('?') ? '&' : '?'}page=${page}`);
+      const j: any = await get(`${base}${path}${path.includes('?') ? '&' : '?'}page=${page}${incr ? `&lastSync=${encodeURIComponent(String(tier!.token))}` : ''}`);
       if (!j) return;
+      if (typeof j.sync === 'string') syncs.push(j.sync);
       yield (Array.isArray(j.data) ? j.data : []) as any[];
       const last = Number(j.meta?.last_page);
       if (!j.links?.next || (Number.isFinite(last) && last > 0 && page >= last)) return;
@@ -232,17 +298,16 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
   for (const [mod, type, parentField] of TYPES) {
     for await (const data of pages(`${camp}/${mod}?related=1`)) for (const e of data) rows.push({ mod, type, parentField, e });
   }
-  ctx.log(`Listed ${rows.length} entities`);
-  // Module id -> entity id, and which entity ids exist per type.
-  const byModule = new Map<string, string>(rows.map(({ mod, e }) => [`${mod}:${e.id}`, String(e.entity_id ?? e.id)]));
-  const entityIds = new Set(rows.map(({ type, e }) => `${type}:${e.entity_id}`));
-  const lookup = (mod: string, id: unknown) => (id == null ? undefined : byModule.get(`${mod}:${id}`));
-  // Tag names, only for tags players can see (not private, not hidden).
-  const tagName = new Map<string, string>(rows.filter(({ mod, e }) => mod === 'tags' && e.is_private === false && e.is_hidden !== true).map(({ e }) => [String(e.id), esc(e.name)]));
-  // Every tag's name, private or not, only to find the broker and classified tags (they raise a page or post's level and are never shown).
-  const anyTagName = new Map<string, string>(rows.filter(({ mod }) => mod === 'tags').map(({ e }) => [String(e.id), esc(e.name)]));
-  const tagOf = (t: unknown): string | undefined => (typeof t === 'object' && t ? ((t as any).name ? esc((t as any).name) : anyTagName.get(String((t as any).id ?? (t as any).tag_id))) : anyTagName.get(String(t)));
-  const levelTags = (tags: unknown): string[] => (Array.isArray(tags) ? tags : []).map(tagOf).filter((n): n is string => !!n && tagLevel([n]) !== 'party');
+  ctx.log(incr ? `Listed ${rows.length} changed entities` : `Listed ${rows.length} entities`);
+  // The lookups: from this listing, or (a listing of what changed) from the last listing's cache laid under it.
+  const cache: KankaCache = incr ? { m: { ...prev!.m }, e: { ...prev!.e }, t: { ...prev!.t } } : { m: {}, e: {}, t: {} };
+  for (const { mod, e } of rows) {
+    const eid = String(e.entity_id ?? e.id);
+    cache.m[`${mod}:${e.id}`] = eid;
+    if (e.is_template !== true) cache.e[eid] = [mod, esc(e.name)];
+    else delete cache.e[eid];
+    if (mod === 'tags') cache.t[String(e.id)] = [esc(e.name), e.is_private === false && e.is_hidden !== true ? 1 : 0];
+  }
   // is_attributes_private is documented on /entities; fill it in from there when the module list leaves it out.
   if (rows.some(({ e }) => typeof e.is_attributes_private !== 'boolean' && Array.isArray(e.attributes) && e.attributes.length)) {
     const flags = new Map<string, boolean>();
@@ -251,30 +316,20 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
     } catch (err: any) { ctx.log(`Could not read attribute privacy: ${err.message}. Attributes stay DM-only.`); }
     for (const { e } of rows) if (typeof e.is_attributes_private !== 'boolean' && flags.has(String(e.entity_id))) e.is_attributes_private = flags.get(String(e.entity_id));
   }
-  const positions = kankaPositions(rows.filter(({ e }) => e.is_template !== true), (r) => r.mod, (r) => esc(r.e.name), (r) => String(r.e.entity_id ?? r.e.id));
-  for (const { mod, type, parentField, e } of rows) {
+  const kc = kankaLookups(cache);
+  if (tier) {
+    tier.complete = !incr;
+    // The earliest server time any list reported: nothing changed during the listing is missed next time.
+    tier.next = { token: syncs.length ? syncs.slice().sort()[0] : new Date().toISOString(), cache: cache as unknown as Record<string, any> };
+  }
+  for (const { mod, e } of rows) {
     if (e.is_template === true) continue;
-    const entityId = String(e.entity_id ?? e.id);
-    const pid = e.parent_id != null && entityIds.has(`${type}:${e.parent_id}`) ? String(e.parent_id)
-      : parentField && e[parentField] != null ? lookup(mod, e[parentField]) : undefined;
-    const tags = (Array.isArray(e.tags) ? e.tags : []).map((t: any) => tagName.get(String(typeof t === 'object' && t ? t.id ?? t.tag_id : t))).filter((t: any): t is string => !!t);
-    yield {
-      externalId: `kanka:${entityId}`,
-      parentExternalId: pid ? `kanka:${pid}` : null,
-      folder: [type[0].toUpperCase() + type.slice(1) + 's'],
-      title: esc(e.name),
-      tags: [...tags, ...levelTags(e.tags).filter((t) => !tags.includes(t))],
-      type,
-      icon: null,
-      banner: typeof e.image_full === 'string' && /^https?:/.test(e.image_full) && e.has_custom_image !== false && !/default/.test(e.image_full) ? e.image_full : null,
-      properties: kankaProperties(e, type, lookup),
-      blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared, (p) => postLevel(p, tagOf))],
-      // Kanka's own private flag always wins; a missing flag counts as private.
-      visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm',
-      url: (typeof e.urls?.view === 'string' && /^https?:\/\//i.test(e.urls.view) ? e.urls.view : null) ?? kankaEntityUrl(cfg, entityId),
-      position: positions.get(entityId) ?? null,
-      updatedAt: e.updated_at ?? null,
-    };
+    yield kankaEntryOf(cfg, ctx, kc, mod, e);
+  }
+  if (incr) {
+    // Relations, timelines, calendars and map markers are read again by the next complete listing.
+    for (const k of ['relation', 'timeline', 'calendar', 'mapMarker'] as const) ctx.incomplete?.add(k);
+    return;
   }
 
   // ---- Relations, timelines, calendars and map markers ----
@@ -360,6 +415,27 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Syn
   }
 }
 
+/** Tier 3: one entity, alone (`kanka:<entity id>`). Needs the lookups the last listing left. */
+async function* kankaDetail(cfg: any, ctx: ConnectorContext, ids: string[]): AsyncIterable<SyncItem> {
+  const cache = ctx.tier?.cache as KankaCache | null | undefined;
+  if (!cache?.m) return;
+  const kc = kankaLookups(cache);
+  const base = String(cfg.apiUrl || 'https://api.kanka.io/1.0').replace(/\/$/, '');
+  const moduleOf = new Map<string, [string, string]>();
+  for (const [k, eid] of Object.entries(cache.m)) { const i = k.indexOf(':'); moduleOf.set(eid, [k.slice(0, i), k.slice(i + 1)]); }
+  for (const ext of ids) {
+    if (ctx.signal.aborted) throw new Error('Sync stopped');
+    const hit = moduleOf.get(ext.replace(/^kanka:/, ''));
+    if (!hit) continue;
+    const r = await kankaHttp(ctx, cfg, 'GET', `${base}/campaigns/${cfg.campaignId}/${hit[0]}/${hit[1]}?related=1`);
+    if (r.status === 404) continue;
+    if (r.status < 200 || r.status >= 300) throw new Error(`Kanka answered ${r.status} for /${hit[0]}/${hit[1]}`);
+    const e = r.body?.data;
+    if (!e || e.is_template === true) continue;
+    yield kankaEntryOf(cfg, ctx, kc, hit[0], e);
+  }
+}
+
 /** Kanka's "year-month-day" current date, or null. */
 export function kankaDate(v: unknown): { year: number; month: number; day: number } | null {
   const m = /^(-?\d+)-(\d+)-(\d+)$/.exec(String(v ?? '').trim());
@@ -401,7 +477,9 @@ export const kankaApi: Connector = {
     const j: any = await r.json();
     return { ok: true, message: `Connected. ${j.meta?.total ?? (j.data ?? []).length} characters.`, sample: (j.data ?? []).slice(0, 5).map((e: any) => e.name) };
   },
-  sync: kankaApiSync,
+  sync: (cfg, ctx) => kankaApiSync(cfg, ctx),
+  // 30 requests a minute (90 for subscribers) per user, shared by every token: stay well under it.
+  tiered: () => ({ budgetPerMinute: 24, index: (cfg, ctx) => kankaApiSync(cfg, ctx, true), detail: kankaDetail }),
 };
 
 // ---------- MCP (mcp-kanka) ----------
