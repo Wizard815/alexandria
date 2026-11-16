@@ -15,7 +15,8 @@ export default function AdminWorlds() {
   return (
     <div className="page">
       <PageHead title="Worlds" lead="Each world has its own library, sources, table and settings. Make one, then pick its DM. The DM invites players from inside the world.">
-        <button type="button" className="btn primary" onClick={() => setCreating(true)}>New world</button>
+        <Link className="btn primary" to="/admin/worlds/setup">Set up a world</Link>
+        <button type="button" className="btn" onClick={() => setCreating(true)}>New empty world</button>
       </PageHead>
       <ErrorBox error={worlds.error} />
       <div className="cols">
@@ -83,7 +84,10 @@ function WorldMembers({ world, accounts, onChange }: { world: any; accounts: any
     <div className="card">
       <div className="card-head">
         <h2>{world.name}</h2>
-        {iAmIn && <Link className="btn small" to={iAmIn.role === 'dm' ? `/w/${world.slug}/dm` : `/w/${world.slug}`}>Open</Link>}
+        <span className="row">
+          <Link className="btn small" to={`/admin/worlds/${world.id}`}>Sources, crawl and index</Link>
+          {iAmIn && <Link className="btn small" to={iAmIn.role === 'dm' ? `/w/${world.slug}/dm` : `/w/${world.slug}`}>Open</Link>}
+        </span>
       </div>
       <ErrorBox error={a.error || members.error} />
       <div className="scroll-x"><table className="table">
@@ -105,7 +109,7 @@ function WorldMembers({ world, accounts, onChange }: { world: any; accounts: any
         </div>
       )}
       <hr />
-      <div className="row between"><span className="small muted">Sources for this world are on the <Link to="/admin/sources">World sources</Link> page.</span><button type="button" className="btn small danger" onClick={del}>Delete world</button></div>
+      <div className="row between"><span className="small muted">This world's sources, audience and crawl are on <Link to={`/admin/worlds/${world.id}`}>its page</Link>; the accounts they use are in <Link to="/admin/connections">Connections</Link>.</span><button type="button" className="btn small danger" onClick={del}>Delete world</button></div>
     </div>
   );
 }
