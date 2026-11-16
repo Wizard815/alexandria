@@ -22,7 +22,7 @@ export async function readSearchHits(d: Deps, worldId: string, hits: { id: strin
     const ids = hits.slice(0, 10).map((h) => h.id);
     // Whatever was found is worth reading soon, even past the first few.
     markWanted(d.db, ids);
-    const shallow = ids.filter((id) => one<any>(d.db, `SELECT 1 AS x FROM pages WHERE id = ? AND depth = 'index' AND source_id IS NOT NULL`, id));
+    const shallow = ids.filter((id) => one<any>(d.db, `SELECT 1 AS x FROM pages WHERE id = ? AND depth <> 'full' AND source_id IS NOT NULL`, id));
     return shallow.length ? await ensureMany(syncDeps(d), worldId, shallow, max) : 0;
   } catch { return 0; }
 }

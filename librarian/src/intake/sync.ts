@@ -97,7 +97,8 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
     let ts: TierState | undefined;
     const counter = new CallCounter();
     if (connectorFor(src.kind, cfg)?.tiered) {
-      counter.gate = rateGate(sourceId, tier?.budgetPerMinute ?? connectorFor(src.kind, cfg)!.tiered!(cfg)?.budgetPerMinute ?? 0, d.env, ctl.signal);
+      // Tiered runs stay under the source's published rate limit; a whole-source `sync` keeps its own rate-limit handling.
+      if (tier) counter.gate = rateGate(sourceId, tier.budgetPerMinute, d.env, ctl.signal);
       counter.onHit = () => { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; d.onEntry?.(stats); };
       made.ctx.calls = counter;
     }
@@ -153,7 +154,7 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
     log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} DM-only), removed ${stats.removed}`);
     if (tier) {
       const dc = depthCounts(d.db, sourceId);
-      log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full + dc.summary} of ${dc.total}`);
+      log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}`);
     }
     save('ok');
     run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${stats.pages} pages`, sourceId);
