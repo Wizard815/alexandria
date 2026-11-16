@@ -3,6 +3,7 @@
 // servers, any JSON API) describes its own settings, and the forms here are
 // built from that description. Imports are read-only.
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
@@ -18,7 +19,7 @@ interface PushKey { id: string; label: string; prefix: string; created_at: strin
 interface Run { id: string; status: 'running' | 'ok' | 'error' | 'stopped'; started_at: string; finished_at: string | null; stats: Stats; error: string | null; log?: string }
 interface Source {
   id: string; world_id: string; kind: string; connector: { id: string; label: string } | null; name: string; config: Record<string, any>;
-  default_visibility: 'dm' | 'party'; schedule_minutes: number | null; enabled: boolean; running: boolean;
+  default_visibility: 'dm' | 'party'; audience?: 'auto' | 'dm' | 'party'; connection?: { id: string; name: string } | null; schedule_minutes: number | null; enabled: boolean; running: boolean;
   last_sync_at: string | null; last_status: string | null; last_run: Run | null; pages: number;
 }
 
@@ -56,6 +57,7 @@ export default function AdminSources() {
       <PageHead title="World sources" lead="Where a world's library comes from. The librarian only reads from a source; nothing is ever written back. Anything hidden there stays DM-only here, and anything without a clear mark is DM-only too.">
         {!!worlds.data?.length && <button type="button" className="btn primary" onClick={() => setEditing('new')}>Add a source</button>}
       </PageHead>
+      <div className="note">Tokens, keys and addresses now live in <Link to="/admin/connections">Connections</Link>, and each world has its own page with its sources, audience and crawl under <Link to="/admin/worlds">Worlds</Link>. This page keeps working.</div>
       <ErrorBox error={worlds.error || sources.error || connectors.error} />
       {worlds.loading && !worlds.data ? <Loading /> : !worlds.data?.length ? <div className="card"><p className="muted">Make a world first.</p></div> : (
         <>
@@ -131,7 +133,8 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
       ) : null}
       {!s.running && last?.status === 'error' && <ErrorBox error={last.error} />}
       <div className="row small muted wrap">
-        <span>Players see: {s.default_visibility === 'party' ? 'what the source shows its players' : 'nothing until a page is marked shared (DM-only)'}</span>
+        <span>Players see: {s.audience === 'dm' ? 'nothing (DM only)' : s.audience === 'party' ? 'everything from it (shared with players)' : s.default_visibility === 'party' ? 'what the source shows its players (follows the source)' : 'nothing until a page is marked shared (follows the source)'}</span>
+        {s.connection && <span>· Connection: {s.connection.name}</span>}
         {connector?.fields.some((f) => f.key === 'trustPostVisibility') && <span>· Posts: {s.config.trustPostVisibility ? 'Kanka visibility' : 'all DM-only'}</span>}
       </div>
       <div className="row wrap">
