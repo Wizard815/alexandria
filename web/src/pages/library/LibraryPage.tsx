@@ -19,6 +19,7 @@ import { safeImageUrl, sourceLink } from './links.ts';
 import { Editor, SecretHint } from './Editor.tsx';
 import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Levels.tsx';
 import { AskModal } from './AskModal.tsx';
+import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
 
@@ -37,6 +38,7 @@ export default function LibraryPage() {
   const [kind, setKind] = useState('');
   const [vis, setVis] = useState<'all' | 'party' | 'broker' | 'dm' | 'classified'>('all');
   const [savedOnly, setSavedOnly] = useState(false);
+  const [sharedOnly, setSharedOnly] = useState(false);
   const [sort, setSort] = useState<Sort>('tree');
   const [side, setSide] = useState<Side>('pages');
   const [busy, setBusy] = useState<string | null>(null);
@@ -76,15 +78,15 @@ export default function LibraryPage() {
   const kinds = useMemo(() => [...new Set(rows.map((r) => r.kind).filter(Boolean))].sort(), [rows]);
   const needle = q.trim().toLowerCase();
   const list = useMemo(() => rows.filter((r) =>
-    (!tag || r.tags?.includes(tag)) && (!kind || r.kind === kind) && (!savedOnly || savedIds.has(r.id)) &&
+    (!tag || r.tags?.includes(tag)) && (!kind || r.kind === kind) && (!savedOnly || savedIds.has(r.id)) && (!sharedOnly || r.sharedWithMe) &&
     (vis === 'all' || levelOf(r.visibility) === vis) &&
-    (!needle || r.title.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle))), [rows, tag, kind, savedOnly, savedIds, vis, needle]);
+    (!needle || r.title.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle))), [rows, tag, kind, savedOnly, sharedOnly, savedIds, vis, needle]);
   const flat = useMemo(() => (sort === 'tree' && !needle ? null : [...list].sort((a, b) => (sort === 'recent' ? b.updated_at.localeCompare(a.updated_at) : a.title.localeCompare(b.title, undefined, { numeric: true })))), [list, sort, needle]);
 
   const selected = params.get('page');
   const creating = isDM ? params.get('new') : null;
   const open = useCallback((id: string) => setParams({ page: id }), [setParams]);
-  const filtered = !!(tag || kind || savedOnly || vis !== 'all');
+  const filtered = !!(tag || kind || savedOnly || sharedOnly || vis !== 'all');
 
   /** Fetch pages by id (100 at a time) and save them for offline. */
   const saveMany = async (ids: string[], label: string) => {
@@ -151,7 +153,8 @@ export default function LibraryPage() {
                 {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="dm">DM only</option><option value="classified">Classified</option></select>}
                 <select aria-label="Order" value={sort} onChange={(e) => setSort(e.target.value as Sort)}><option value="tree">Source order</option><option value="recent">Recent</option><option value="title">A–Z</option></select>
                 <label className="lib-check"><input type="checkbox" checked={savedOnly} onChange={(e) => setSavedOnly(e.target.checked)} /> Saved for offline</label>
-                {filtered && <button type="button" className="btn small" onClick={() => { setTag(''); setKind(''); setVis('all'); setSavedOnly(false); }}>Clear</button>}
+                {rows.some((r) => r.sharedWithMe) && <label className="lib-check"><input type="checkbox" checked={sharedOnly} onChange={(e) => setSharedOnly(e.target.checked)} /> Shared with me</label>}
+                {filtered && <button type="button" className="btn small" onClick={() => { setTag(''); setKind(''); setVis('all'); setSavedOnly(false); setSharedOnly(false); }}>Clear</button>}
               </div>
               {pages.loading && !rows.length && <Loading what="pages" />}
               {hits && (
@@ -339,6 +342,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
           </button>
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
+          {!offlineAt && <ShareButton pageId={pg.id} />}
           {isDM && !offlineAt && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {isDM && !offlineAt && <button type="button" className="btn small danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>}
