@@ -19,6 +19,13 @@ export interface ConfigField {
   default?: unknown;
   /** Only show when another field has this value, e.g. { transport: 'http' }. */
   showIf?: Record<string, unknown>;
+  /**
+   * Where the setting lives. `connection`: the account-level settings and
+   * secrets (a token, an MCP URL), set once in Admin > Connections and shared
+   * by every world that uses the connection. `source`: specific to one world
+   * (a campaign id, a project, a folder). Set by the registry; no scope means source.
+   */
+  scope?: 'connection' | 'source';
 }
 
 export interface ConnectorContext {

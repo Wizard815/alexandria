@@ -15,6 +15,7 @@ import { HttpError, now, parseJson } from '../../core/util.ts';
 import type { Connector, ConnectorContext, WriteLevel } from '../../intake/connector.ts';
 import { WriteRefused } from '../../intake/connector.ts';
 import { connectorFor, workspaceMcpFactory } from '../../intake/registry.ts';
+import { effectiveConfig } from '../../intake/connections.ts';
 import { prefixFor, runSync } from '../../intake/sync.ts';
 
 export const SCHEMA = `
@@ -122,7 +123,7 @@ export function workspace(d: Deps, worldId: string): Workspace {
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', cfg.sourceId, worldId);
   if (!src) throw new HttpError(409, 'The WorldLore source is gone. Pick another in World settings.');
   if (!src.enabled) throw new HttpError(409, 'The WorldLore source is switched off');
-  const srcCfg = parseJson<Record<string, any>>(src.config, {});
+  const srcCfg = effectiveConfig(d.db, src);
   const connector = connectorFor(src.kind, srcCfg);
   if (!connector?.write) throw new HttpError(409, 'The WorldLore source cannot be written to');
   const mcp = workspaceMcpFactory(connector, srcCfg, d.env, d.fetch, d.testMcp);
@@ -404,7 +405,7 @@ function finish(d: Deps, worldId: string, who: string | null, by: string, action
 export async function options(d: Deps, worldId: string) {
   const out: any[] = [];
   for (const src of all<any>(d.db, 'SELECT * FROM sources WHERE world_id = ? ORDER BY name', worldId)) {
-    const cfg = parseJson<Record<string, any>>(src.config, {});
+    const cfg = effectiveConfig(d.db, src);
     const c = connectorFor(src.kind, cfg);
     if (!c?.write) continue;
     const mcp = workspaceMcpFactory(c, cfg, d.env, d.fetch, d.testMcp);
@@ -422,7 +423,7 @@ export async function options(d: Deps, worldId: string) {
 export async function searchOptions(d: Deps, worldId: string, sourceId: string, q: string) {
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', sourceId, worldId);
   if (!src) throw new HttpError(404, 'Source not found in this world');
-  const cfg = parseJson<Record<string, any>>(src.config, {});
+  const cfg = effectiveConfig(d.db, src);
   const c = connectorFor(src.kind, cfg);
   if (!c?.write?.search) return { roots: [] };
   const mcp = workspaceMcpFactory(c, cfg, d.env, d.fetch, d.testMcp);
@@ -435,9 +436,9 @@ export function links(d: Deps, worldId: string) {
   const cfg = configOf(worldSettings(d, worldId));
   if (!cfg) return null;
   if (cfg.kind === 'library') return { source: null, sourceName: 'Library', url: null, guess: false, libraryFolder: LIBRARY_ROOT };
-  const src = one<any>(d.db, 'SELECT name, kind, config FROM sources WHERE id = ? AND world_id = ?', cfg.sourceId, worldId);
+  const src = one<any>(d.db, 'SELECT name, kind, config, connection_id FROM sources WHERE id = ? AND world_id = ?', cfg.sourceId, worldId);
   if (!src) return { source: cfg.sourceId, sourceName: null, url: null, guess: false, libraryFolder: null };
-  const sc = parseJson<Record<string, any>>(src.config, {});
+  const sc = effectiveConfig(d.db, src);
   let url: string | null = cfg.url ?? null;
   let guess = false;
   if (!url && (src.kind.startsWith('legendkeeper') || src.kind === 'mcp')) {

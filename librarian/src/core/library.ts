@@ -18,6 +18,19 @@ import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAl
 const CLEAR_COPIES = ['player', 'broker', 'ai'].flatMap((p) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${p}_${c} = NULL`)).join(', ');
 const ALL_SCOPES: Scope[] = ['dm', 'party', 'broker', 'ai'];
 
+/**
+ * The level a page of a source gets. `auto`: what the source said. `dm`:
+ * never lower than dm, whatever the source says. `party`: the page is
+ * shareable unless it carries a broker or classified marker of its own
+ * (secret blocks, broker and classified parts inside a page are still cut
+ * from the player copy by the copy builders, so `party` never shows them).
+ */
+export function levelForAudience(audience: 'auto' | 'dm' | 'party', sourceLevel: Level, markerLevel: Level): Level {
+  if (audience === 'dm') return maxLevel(sourceLevel, 'dm');
+  if (audience === 'party') return markerLevel;
+  return sourceLevel;
+}
+
 export interface PageInput {
   path: string;
   title?: string;
@@ -210,26 +223,65 @@ export class Library {
     const fm = e.frontmatter ?? {};
     // A source says party or dm; a broker or classified tag (or level) raises it. The most secret wins.
     const fmLevel = normLevel((fm as any).visibility);
-    const vis: Level = pageLevel({ visibility: normLevel(e.visibility), tags: e.tags, frontmatter: fm, level: maxLevel(e.level, fmLevel === 'broker' || fmLevel === 'classified' ? fmLevel : null) });
+    const marker = (l: unknown): Level | null => (l === 'broker' || l === 'classified' ? l : null);
+    const sourceLevel: Level = pageLevel({ visibility: normLevel(e.visibility), tags: e.tags, frontmatter: fm, level: maxLevel(e.level, marker(fmLevel)) });
+    // Only what marks a page secret on its own (broker and classified tags or levels), not the source's party-or-dm flag.
+    const markerLevel: Level = pageLevel({ visibility: 'party', tags: e.tags, frontmatter: fm, level: maxLevel(marker(e.level), marker(fmLevel)) });
+    const vis = levelForAudience(this.audienceOf(sourceId), sourceLevel, markerLevel);
     const vals = [title, vis, JSON.stringify(fm), body, JSON.stringify(blocks), isMd ? 'markdown' : 'blocks', e.parentExternalId ?? null, JSON.stringify(e.folder ?? []),
       JSON.stringify(e.aliases ?? []), JSON.stringify(e.tags ?? []), e.type ?? 'page', e.icon ? JSON.stringify(e.icon) : null, e.banner ?? null, safeSourceUrl(e.url),
-      e.knowledge ?? null, JSON.stringify(e.properties ?? []), Number.isFinite(e.position) ? e.position : null, e.updatedAt || now(), by];
+      e.knowledge ?? null, JSON.stringify(e.properties ?? []), Number.isFinite(e.position) ? e.position : null, e.updatedAt || now(), by, sourceLevel, markerLevel];
     let pid: string;
     tx(this.db, () => {
       if (existing) {
         pid = existing.id;
         run(this.db, `UPDATE pages SET title = ?, visibility = ?, frontmatter = ?, body = ?, blocks = ?, origin = ?, parent_external = ?, folder = ?, aliases = ?, tags = ?, kind = ?, icon = ?, banner = ?, url = ?,
-          knowledge = ?, properties = ?, position = ?, updated_at = ?, updated_by = ?, ${CLEAR_COPIES} WHERE id = ?`, ...vals, pid);
+          knowledge = ?, properties = ?, position = ?, updated_at = ?, updated_by = ?, source_level = ?, marker_level = ?, ${CLEAR_COPIES} WHERE id = ?`, ...vals, pid);
       } else {
         pid = id('pg_');
-        run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, id, world_id, path, source_id, external_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
+        run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, source_level, marker_level, id, world_id, path, source_id, external_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
       this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
     this.touchClassified();
     return { id: pid!, path: p };
+  }
+
+  /** The audience a source is set to (auto when it has none, or its column is not there yet). */
+  private audienceOf(sourceId: string): 'auto' | 'dm' | 'party' {
+    try {
+      const a = one<any>(this.db, 'SELECT audience FROM sources WHERE id = ?', sourceId)?.audience;
+      return a === 'dm' || a === 'party' ? a : 'auto';
+    } catch { return 'auto'; }
+  }
+
+  /**
+   * A source's audience changed: work every page's level out again from what
+   * the source said (source_level) and what marks the page secret on its own
+   * (marker_level), then rebuild the copies. `dm` lifts everything to at
+   * least dm; `party` takes the page to party unless it carries a broker or
+   * classified marker; `auto` goes back to the source's own level.
+   */
+  applyAudience(worldId: string, sourceId: string): { pages: number; changed: number } {
+    const aud = this.audienceOf(sourceId);
+    const rows = all<any>(this.db, 'SELECT id, title, visibility, source_level, marker_level, tags, frontmatter FROM pages WHERE world_id = ? AND source_id = ?', worldId, sourceId);
+    let changed = 0;
+    tx(this.db, () => {
+      for (const r of rows) {
+        const fm = JSON.parse(r.frontmatter || '{}');
+        const base: Level = isLevel(r.source_level) ? r.source_level : normLevel(r.visibility);
+        // A page saved before audiences: what marks it on its own is read again from its tags and frontmatter, and any secret level it has stays.
+        const markers: Level = isLevel(r.marker_level) ? r.marker_level : maxLevel(pageLevel({ visibility: 'party', tags: JSON.parse(r.tags || '[]'), frontmatter: fm }), r.visibility === 'broker' || r.visibility === 'classified' ? r.visibility : null);
+        const vis = levelForAudience(aud, base, markers);
+        if (vis === r.visibility && isLevel(r.source_level) && isLevel(r.marker_level)) continue;
+        run(this.db, `UPDATE pages SET visibility = ?, source_level = ?, marker_level = ?, ${CLEAR_COPIES} WHERE id = ?`, vis, base, markers, r.id);
+        if (vis !== r.visibility) { changed++; this.saveRelations(worldId, r.id, r.title, fm as FM, vis); }
+      }
+    });
+    this.rebuildPlayerCopies(worldId);
+    return { pages: rows.length, changed };
   }
 
   /** After a full listing: remove this source's pages that the source no longer has. */

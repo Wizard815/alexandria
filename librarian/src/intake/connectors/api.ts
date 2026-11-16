@@ -29,6 +29,25 @@ function headers(cfg: any): Record<string, string> {
   return h;
 }
 
+/** `{world}`, `{project}`... in the list URL and tool arguments. The values come from the source: `world` and a JSON map in `params`. */
+export function placeholderValues(cfg: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (cfg.params) { try { const p = typeof cfg.params === 'string' ? JSON.parse(cfg.params) : cfg.params; if (p && typeof p === 'object') for (const [k, v] of Object.entries(p)) if (/^\w{1,40}$/.test(k)) out[k] = String(v); } catch { /* validate() reports it */ } }
+  if (cfg.world !== undefined && cfg.world !== '') out.world = String(cfg.world);
+  return out;
+}
+const PLACEHOLDER = /\{(\w{1,40})\}/g;
+export const placeholdersIn = (s: unknown): string[] => [...new Set([...String(s ?? '').matchAll(PLACEHOLDER)].map((m) => m[1]))];
+/** Fill the placeholders. `url`: values are URL-encoded; otherwise JSON-escaped, for tool arguments. A missing value is left as it is. */
+export function fillPlaceholders(text: string, values: Record<string, string>, as: 'url' | 'json' = 'url'): string {
+  return String(text).replace(PLACEHOLDER, (m, k) => (k in values ? (as === 'url' ? encodeURIComponent(values[k]) : JSON.stringify(values[k]).slice(1, -1)) : m));
+}
+/** The settings with placeholders filled in. */
+export function resolved(cfg: any): any {
+  const v = placeholderValues(cfg);
+  return { ...cfg, ...(cfg.url ? { url: fillPlaceholders(cfg.url, v, 'url') } : {}), ...(cfg.toolArgs ? { toolArgs: fillPlaceholders(cfg.toolArgs, v, 'json') } : {}) };
+}
+
 async function* pages(cfg: any, ctx: ConnectorContext): AsyncIterable<any[]> {
   const pageParam = cfg.pageParam || 'page';
   if (cfg.transport === 'mcp') {
@@ -119,8 +138,14 @@ export const genericApi: Connector = {
     { key: 'urlField', label: 'Link-back field', type: 'text' },
     { key: 'visibilityField', label: 'Visibility field', type: 'text', placeholder: 'is_private', help: 'Records are DM-only unless this field holds a shared value.' },
     { key: 'sharedValues', label: 'Values that mean shared', type: 'text', placeholder: 'false, public, players' },
+    { key: 'world', label: 'Value for {world}', type: 'text', help: 'If the list URL or the tool arguments contain {world}, this world\'s value goes there (a campaign or project id, for example).' },
+    { key: 'params', label: 'Other placeholder values (JSON)', type: 'textarea', placeholder: '{"project": "42"}', help: 'Values for any other {name} in the URL or tool arguments.' },
   ],
-  validate(cfg) {
+  validate(raw) {
+    if (raw.params) { try { const p = typeof raw.params === 'string' ? JSON.parse(raw.params) : raw.params; if (!p || typeof p !== 'object' || Array.isArray(p)) throw 0; } catch { throw new ConfigError('Other placeholder values must be a JSON object'); } }
+    const missing = [...new Set([...placeholdersIn(raw.url), ...placeholdersIn(raw.toolArgs)])].filter((k) => !(k in placeholderValues(raw)));
+    if (missing.length) throw new ConfigError(`Give a value for ${missing.map((k) => `{${k}}`).join(', ')}`);
+    const cfg = resolved(raw);
     if ((cfg.transport ?? 'http') === 'http') { if (!/^https?:\/\/\S+$/.test(String(cfg.url ?? ''))) throw new ConfigError('List URL must start with http:// or https://'); }
     else {
       if (!/^[\w.-]{1,80}$/.test(String(cfg.tool ?? ''))) throw new ConfigError('Name the list tool');
@@ -130,14 +155,16 @@ export const genericApi: Connector = {
     if (cfg.paging && !['none', 'page', 'link', 'cursor'].includes(cfg.paging)) throw new ConfigError('Unknown paging');
     if ((cfg.paging === 'link' || cfg.paging === 'cursor') && !cfg.nextPath) throw new ConfigError('Say where the next link or cursor is');
   },
-  async test(cfg, ctx) {
+  async test(raw, ctx) {
+    const cfg = resolved(raw);
     for await (const items of pages({ ...cfg, paging: 'none' }, ctx)) {
       const sample = items.slice(0, 3).map((i) => toEntry(cfg, i, ctx)).filter(Boolean).map((e) => ({ id: e!.externalId, title: e!.title, visibility: e!.visibility, blocks: e!.blocks.length }));
       return { ok: true, message: `Got ${items.length} records on the first page.`, sample };
     }
     return { ok: false, message: 'No records' };
   },
-  async *sync(cfg, ctx) {
+  async *sync(raw, ctx) {
+    const cfg = resolved(raw);
     for await (const items of pages(cfg, ctx)) for (const it of items) { const e = toEntry(cfg, it, ctx); if (e) yield e; }
   },
   readTools: (cfg) => (cfg.tool ? [String(cfg.tool)] : []),

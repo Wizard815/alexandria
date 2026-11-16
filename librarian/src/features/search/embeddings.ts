@@ -93,14 +93,14 @@ interface Stale { id: string; world_id: string; title: string; updated_at: strin
 /** Text and facts of one copy; chunked on paragraphs, then each chunk is turned into plain reading text. */
 const copyChunks = (r: Stale) => chunkText(`${r.text}\n\n${factsText(r.props).replace(/\n/g, '\n\n')}`).map((c) => plainText(c)).filter(Boolean);
 
-function stalePages(db: DB, scope: Scope, model: string, limit: number): Stale[] {
+function stalePages(db: DB, scope: Scope, model: string, limit: number, worldId?: string): Stale[] {
   const body = scope === 'dm' ? 'p.ai_body' : 'p.player_body';
   const props = scope === 'dm' ? 'p.ai_properties' : 'p.player_properties';
   const guard = scope === 'dm' ? `AND p.ai_body IS NOT NULL AND p.visibility <> 'classified'` : 'AND p.player_body IS NOT NULL AND p.visibility = \'party\'';
   return all<Stale>(db, `SELECT p.id, p.world_id, p.title, p.updated_at, ${body} AS text, ${props} AS props FROM pages p
     LEFT JOIN search_chunk_state s ON s.page_id = p.id AND s.scope = ?
-    WHERE 1 = 1 ${guard} AND (s.page_id IS NULL OR s.updated_at <> p.updated_at OR s.model <> ? OR s.sig <> length(${body}) + length(coalesce(${props}, '')))
-    ORDER BY p.updated_at DESC LIMIT ?`, scope, model, limit);
+    WHERE 1 = 1 ${guard} ${worldId ? 'AND p.world_id = ?' : ''} AND (s.page_id IS NULL OR s.updated_at <> p.updated_at OR s.model <> ? OR s.sig <> length(${body}) + length(coalesce(${props}, '')))
+    ORDER BY p.updated_at DESC LIMIT ?`, scope, ...(worldId ? [worldId] : []), model, limit);
 }
 
 /** Remove chunks of pages that are gone, or (party scope) no longer shared. */
@@ -121,7 +121,7 @@ export interface SyncResult { embedded: number; pages: number; remaining: boolea
  * Embed pages whose chunks are missing or out of date. Safe to call again at
  * any time; stops quietly when no embeddings model answers.
  */
-export async function syncEmbeddings(d: Deps, opts: { maxPages?: number } = {}): Promise<SyncResult> {
+export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number }) => void } = {}): Promise<SyncResult> {
   const res: SyncResult = { embedded: 0, pages: 0, remaining: false };
   const cfg = jobConfig(d, 'extra');
   if (!cfg) return res;
@@ -129,15 +129,16 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number } = {}):
   let budget = opts.maxPages ?? 25;
   try {
     for (const scope of ['party', 'dm'] as Scope[]) {
-      while (budget > 0) {
-        const rows = stalePages(d.db, scope, tagged(cfg.model), Math.min(budget, 10));
+      while (budget > 0 && !opts.signal?.aborted) {
+        const rows = stalePages(d.db, scope, tagged(cfg.model), Math.min(budget, 10), opts.worldId);
         if (!rows.length) break;
         for (const r of rows) {
+          if (opts.signal?.aborted) break;
           const chunks = copyChunks(r);
           const vecs: Float32Array[] = [];
           for (let i = 0; i < chunks.length; i += BATCH) {
             const part = chunks.slice(i, i + BATCH);
-            const got = await embed(d, part.map((c) => `${r.title}\n${c}`));
+            const got = await embed(d, part.map((c) => `${r.title}\n${c}`), opts.signal);
             if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
             for (const v of got) vecs.push(normalize(v));
           }
@@ -152,15 +153,31 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number } = {}):
           res.embedded += chunks.length;
           res.pages++;
           budget--;
+          opts.onPage?.({ pages: res.pages, embedded: res.embedded });
         }
       }
     }
-    res.remaining = (['party', 'dm'] as Scope[]).some((s) => stalePages(d.db, s, tagged(cfg.model), 1).length > 0);
+    res.remaining = (['party', 'dm'] as Scope[]).some((s) => stalePages(d.db, s, tagged(cfg.model), 1, opts.worldId).length > 0);
   } catch (e: any) {
     res.error = String(e?.message ?? e).slice(0, 200);
     res.remaining = true;
   }
   return res;
+}
+
+/** How much of a world's library the embeddings model has read: pages with chunks, pages still waiting, and the chunks (DM-side and player-side). */
+export function embeddingCoverage(d: Deps, worldId: string) {
+  const cfg = jobConfig(d, 'extra');
+  const stats = embeddingStats(d.db, worldId);
+  const out = { configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, pages: { eligible: 0, indexed: 0, pending: 0 }, chunks: stats.dmChunks + stats.partyChunks };
+  if (!cfg) return out;
+  const eligible = (scope: Scope) => Number(one<any>(d.db, scope === 'dm'
+    ? `SELECT count(*) AS n FROM pages WHERE world_id = ? AND ai_body IS NOT NULL AND visibility <> 'classified'`
+    : `SELECT count(*) AS n FROM pages WHERE world_id = ? AND player_body IS NOT NULL AND visibility = 'party'`, worldId)?.n ?? 0);
+  const pending = (scope: Scope) => stalePages(d.db, scope, tagged(cfg.model), 1_000_000, worldId).length;
+  out.pages = { eligible: eligible('dm') + eligible('party'), pending: pending('dm') + pending('party'), indexed: 0 };
+  out.pages.indexed = Math.max(0, out.pages.eligible - out.pages.pending);
+  return out;
 }
 
 export function embeddingStats(db: DB, worldId: string) {
