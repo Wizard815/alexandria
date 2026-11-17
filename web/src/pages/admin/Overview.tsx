@@ -7,7 +7,7 @@ import { useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
 import { tierLine, type TierInfo } from '../../features/connections/Tiers.tsx';
-import { Pill, Section, Tile } from './kit.tsx';
+import { Callout, Pill, Section, Tile } from './kit.tsx';
 
 const RUN: Record<string, 'ok' | 'bad' | 'teal' | ''> = { ok: 'ok', error: 'bad', stopped: '', running: 'teal' };
 const MODEL_NAMES: Record<string, string> = { chat: 'Chat (DM and players)', audit: 'Audit (decisions)', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank' };
@@ -15,7 +15,8 @@ const SEEN: Record<string, [string, 'ok' | 'warn' | 'bad' | '']> = { loaded: ['W
 
 interface Gw {
   waiting: { questions: number; brokerDeals: number }; roles: Record<string, number>;
-  guard: { blocked7d: number; last: string | null }; devices: { lights: number; macros: number; triggers: number; mics: number };
+  guard: { blocked7d: number; last: string | null }; devices: { lights: number; macros: number; triggers: number; mics: number; speakers: number; speakersConnected: number };
+  security: { defaultAdminPassword: boolean }; leak: { at: string | null; leaks: number; status: string; pages: number; viewers: number; error: string | null } | null;
   activity: { id: number; at: string; world: string | null; what: string }[];
 }
 
@@ -52,6 +53,17 @@ export default function AdminOverview() {
         <button type="button" className="btn" onClick={download} disabled={backup.busy}>{backup.busy && !backup.offline ? 'Preparing…' : 'Download backup'}</button>
       </PageHead>
       <ErrorBox error={o.error || backup.error || gw.error} />
+      {g?.leak && g.leak.leaks > 0 && (
+        <Callout tone="bad">
+          <strong>The leak check found {g.leak.leaks} place{g.leak.leaks === 1 ? '' : 's'} where hidden text reached a player view.</strong> {when(g.leak.at)}. <Link to="/admin/permissions">See where</Link>. Nothing is shown here but the pages and kinds of read involved.
+        </Callout>
+      )}
+      {g?.leak?.status === 'error' && <Callout tone="warn">The last leak check did not finish{g.leak.error ? `: ${g.leak.error}` : ''}. <Link to="/admin/permissions">Run it again</Link>.</Callout>}
+      {g?.security.defaultAdminPassword && (
+        <Callout tone="bad">
+          <strong>An admin account still uses a default or easy-to-guess password.</strong> Change it now: anyone who guesses it can reach every world's settings and keys. <Link to="/admin/accounts">Accounts</Link>
+        </Callout>
+      )}
       {o.loading && !d ? <Loading /> : d && (
         <>
           <div className="tiles">
@@ -100,6 +112,7 @@ export default function AdminOverview() {
                 <dl className="adm-kv">
                   <dt>Lights</dt><dd>{g.devices.lights ? `${g.devices.lights} configured` : <span className="muted">none set up</span>}</dd>
                   <dt>Microphones</dt><dd>{g.devices.mics ? `${g.devices.mics} registered` : <span className="muted">none registered</span>}</dd>
+                  <dt>Speakers</dt><dd>{g.devices.speakers ? `${g.devices.speakers} joined · ${g.devices.speakersConnected} seen today` : <span className="muted">none yet</span>}</dd>
                   <dt>Macros</dt><dd>{g.devices.macros ? `${g.devices.macros} · ${g.devices.triggers} trigger URL${g.devices.triggers === 1 ? '' : 's'}` : <span className="muted">none</span>}</dd>
                 </dl>
               ) : <Loading />}
