@@ -184,6 +184,8 @@ const feature: Feature = {
   id: 'agent',
   schema: SCHEMA,
   migrate(db) {
+    // An action approved just before the server stopped never finished: say so instead of showing it as running forever.
+    try { db.prepare(`UPDATE agent_actions SET status = 'failed', result = ? WHERE status = 'running'`).run(JSON.stringify({ error: 'The server restarted before this finished. Check whether it happened, then ask again.' })); } catch { /* table not made yet */ }
     // The combat tracker keeps each creature's armor class and the statblock page it came from (DM view only).
     const cols = (db.prepare('PRAGMA table_info(combatants)').all() as any[]).map((c) => c.name);
     if (!cols.includes('ac')) db.exec('ALTER TABLE combatants ADD COLUMN ac INTEGER');

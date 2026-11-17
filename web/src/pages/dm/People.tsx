@@ -32,7 +32,7 @@ export default function DMPeople() {
           <Tabs label="Filter" value={filter} onChange={setFilter} items={[['all', 'All'], ['ally', 'Allies'], ['neutral', 'Neutral'], ['rival', 'Rivals'], ['dm', 'Hidden']]} />
           <div className="list" style={{ margin: '0 -18px' }}>
             {people.loading ? <div style={{ padding: 14 }}><Loading /></div> : rows.length ? rows.map((p) => (
-              <button key={p.id} type="button" className={`list-item${sel === p.id ? ' active' : ''}`} onClick={() => { setSel(p.id); setAdding(false); }}>
+              <button key={p.id} type="button" className={`list-item${sel === p.id ? ' active' : ''}`} aria-current={(sel === p.id) || undefined} onClick={() => { setSel(p.id); setAdding(false); }}>
                 <span className="stack tight grow"><strong>{p.name}</strong><span className="tiny muted">{[p.role, p.attitude].filter(Boolean).join(' · ') || '—'}</span></span>
                 <VisChip v={p.visibility} />
               </button>

@@ -37,7 +37,7 @@ export default function PlayerPeople() {
           <div className="col-1 card flush" role="list" aria-label="People">
             <div className="list">
               {shown.map((p) => (
-                <button key={p.id} type="button" role="listitem" className={`list-item${cur?.id === p.id ? ' active' : ''}`} onClick={() => setSel(p.id)}>
+                <button key={p.id} type="button" role="listitem" className={`list-item${cur?.id === p.id ? ' active' : ''}`} aria-current={cur?.id === p.id || undefined} onClick={() => setSel(p.id)}>
                   <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: '50%', flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--panel-2)', border: '1px solid var(--line-strong)', fontFamily: 'var(--font-head)', color: 'var(--accent-strong)' }}>
                     {initial(p.name)}
                   </span>
