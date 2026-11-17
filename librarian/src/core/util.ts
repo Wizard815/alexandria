@@ -29,6 +29,7 @@ export function int(v: unknown, field: string, opts: { min?: number; max?: numbe
     if (opts.optional) return null;
     throw new HttpError(400, `${field} is required`);
   }
+  if (typeof v !== 'number' && typeof v !== 'string') throw new HttpError(400, `${field} must be a whole number`);
   const n = typeof v === 'number' ? v : Number(v);
   if (!Number.isInteger(n)) throw new HttpError(400, `${field} must be a whole number`);
   if (opts.min !== undefined && n < opts.min) throw new HttpError(400, `${field} must be at least ${opts.min}`);
