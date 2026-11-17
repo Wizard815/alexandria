@@ -10,7 +10,17 @@ import * as F from '../features/registry.ts';
 import AdminLogin from '../features/adminauth/Login.tsx';
 import { setAdminToken, useAdminToken } from '../features/adminauth/session.ts';
 
-const LINKS: [string, string][] = [['', 'Overview'], ['accounts', 'Accounts'], ['worlds', 'Worlds'], ['sources', 'World sources'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ...F.adminNav.map((n) => [n.to, n.label] as [string, string])];
+import '../admin.css';
+import { Icon } from '../pages/admin/kit.tsx';
+
+// The sidebar's three groups. A feature that adds an admin page without a place here lands under Gateway.
+const GROUPS: { label: string; links: [string, string][] }[] = [
+  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds']] },
+  { label: 'Sources', links: [['connections', 'Connections'], ['sources', 'World sources'], ['source-keys', 'Source keys']] },
+  { label: 'Gateway', links: [['accounts', 'Accounts'], ['permissions', 'Permissions'], ['models', 'Models'], ['integrations', 'Integrations'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ['security', 'Security']] },
+];
+const KNOWN = new Set(GROUPS.flatMap((g) => g.links.map(([to]) => to)));
+const EXTRA: [string, string][] = F.adminNav.filter((n) => !KNOWN.has(n.to)).map((n) => [n.to, n.label]);
 
 type Mode = { kind: 'admin' | 'table'; me: Me };
 
@@ -21,6 +31,7 @@ export function AdminLayout() {
   const nav = useNavigate();
   const adminClient = useMemo(() => new AlexandriaClient({ baseUrl: window.location.origin, token }), [token]);
   const [mode, setMode] = useState<Mode | null | undefined>(undefined); // undefined: checking
+  const [menu, setMenu] = useState(false); // the phone menu
 
   const check = useCallback(async () => {
     const asMe = (r: any): Me => ({ account: { ...r.account, is_admin: true }, theme: null, worlds: [] });
@@ -53,17 +64,27 @@ export function AdminLayout() {
   if (!table.ready || mode === undefined) return <div className="t-admin"><div className="page"><p className="muted">Opening the library admin…</p></div></div>;
   if (!mode) return <Navigate to="/admin/login" replace />;
 
+  const groups = EXTRA.length ? GROUPS.map((g) => (g.label === 'Gateway' ? { ...g, links: [...g.links, ...EXTRA] } : g)) : GROUPS;
   const body = (
-    <div className="t-admin shell">
-      <nav className="side" aria-label="Admin">
-        <div className="stack tight"><span className="brand">Alexandria</span><span className="sub">Library admin</span></div>
-        <div className="nav-group">
-          {LINKS.map(([to, label]) => <NavLink key={to} to={`/admin/${to}`} end={to === ''} className="nav-link">{label}</NavLink>)}
+    <div className="t-admin shell adm">
+      <nav className={`side${menu ? ' open' : ''}`} aria-label="Admin">
+        <div className="adm-brand">
+          <Icon name="brand" size={28} color="#7FD1C7" />
+          <div className="adm-brand-text"><span className="name">Alexandria</span><span className="sub">Gateway{window.location.port ? ` · :${window.location.port}` : ''}</span></div>
+          <button type="button" className="adm-menu-btn" aria-expanded={menu} aria-controls="adm-nav" onClick={() => setMenu(!menu)}>{menu ? 'Close' : 'Menu'}</button>
         </div>
-        <div className="side-foot">
-          <NavLink to="/" className="nav-link">← Your worlds</NavLink>
-          <span className="tiny" style={{ color: '#93A3AD' }}>Signed in as {mode.me.account.username}{mode.kind === 'admin' ? ' (admin session)' : ''}</span>
-          <button type="button" className="btn small" onClick={() => void (mode.kind === 'admin' ? signOutAdmin() : table.signOut())}>{mode.kind === 'admin' ? 'Sign out of admin' : 'Sign out'}</button>
+        <div className="adm-nav" id="adm-nav">
+          {groups.map((g) => (
+            <div className="nav-group" key={g.label}>
+              <span className="nav-label">{g.label}</span>
+              {g.links.map(([to, label]) => <NavLink key={to} to={`/admin/${to}`} end={to === ''} className="nav-link" onClick={() => setMenu(false)}><Icon name={to || 'overview'} />{label}</NavLink>)}
+            </div>
+          ))}
+          <div className="side-foot">
+            <NavLink to="/" className="nav-link"><Icon name="back" />Your worlds</NavLink>
+            <span className="tiny adm-who">Signed in as {mode.me.account.username}{mode.kind === 'admin' ? ' (admin session)' : ''}</span>
+            <button type="button" className="btn small" onClick={() => void (mode.kind === 'admin' ? signOutAdmin() : table.signOut())}>{mode.kind === 'admin' ? 'Sign out of admin' : 'Sign out'}</button>
+          </div>
         </div>
       </nav>
       <main className="main"><OfflineBanner /><Outlet /></main>
