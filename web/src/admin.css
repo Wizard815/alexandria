@@ -76,7 +76,7 @@
 
 /* lists inside cards */
 .adm-kv { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 8px 16px; font-size: 14px; }
-.adm-kv dt { color: var(--muted); } .adm-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.adm-kv dt { color: var(--muted); } .adm-kv dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
 .adm-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .adm-feed li { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .adm-feed li:first-child { border-top: 0; }
@@ -102,3 +102,6 @@
   .adm-kv { grid-template-columns: 1fr; gap: 2px 0; } .adm-kv dd { margin-bottom: 8px; }
   .adm-feed time { width: 70px; }
 }
+
+/* Narrow cards: never squeeze a value into a sliver; keep form controls readable in tables. */
+.t-admin .table select.input { min-width: 9ch; }
