@@ -44,7 +44,7 @@ function WorldMirror({ w, onChanged, toast }: { w: MirrorWorld; onChanged: () =>
   const a = useAction();
   const rewrite = () => void a.run(async () => {
     const r = await client.request<{ world: MirrorWorld }>('POST', `/api/admin/gwstatus/mirror/${w.id}/rewrite`);
-    toast(r.world.failures ? `Rewrote ${w.name}; ${plural(r.world.failures, 'copy')} still could not be written` : `Rewrote ${w.name}`);
+    toast(r.world.failures ? `Rewrote ${w.name}; ${r.world.failures} still could not be written` : `Rewrote ${w.name}`);
     onChanged();
   });
   const rows: { key: 'vault' | 'party' | 'api'; name: string; what: string; expect: number }[] = [
@@ -54,7 +54,7 @@ function WorldMirror({ w, onChanged, toast }: { w: MirrorWorld; onChanged: () =>
   ];
   return (
     <Section
-      title={<span className="row wrap" style={{ gap: 10 }}>{w.name} <Pill tone={w.failures ? 'bad' : w.exists ? 'ok' : 'warn'}>{!w.exists ? 'No folder yet' : w.failures ? `${plural(w.failures, 'failed copy')}`.replace('copys', 'copies') : 'Complete'}</Pill></span>}
+      title={<span className="row wrap" style={{ gap: 10 }}>{w.name} <Pill tone={w.failures ? 'bad' : w.exists ? 'ok' : 'warn'}>{!w.exists ? 'No folder yet' : w.failures ? `${w.failures} failed cop${w.failures === 1 ? 'y' : 'ies'}` : 'Complete'}</Pill></span>}
       lead={<><span className="mono">{w.folder ?? 'no data folder'}</span> · {w.exists ? `last written ${ago(w.lastWrittenAt)}` : 'nothing written'} · {w.view === 'dm' ? 'you are its DM' : 'counts only: you are not its DM'}</>}
       actions={<button type="button" className="btn small" disabled={a.busy} onClick={rewrite}>{a.busy && !a.offline ? 'Rewriting…' : 'Rewrite mirror'}</button>}
     >
@@ -84,7 +84,7 @@ function WorldMirror({ w, onChanged, toast }: { w: MirrorWorld; onChanged: () =>
           </table></div></div>
           <p className="tiny muted">The page itself is saved. Usually a page path needs a name as both a file and a folder (a/Dup.md and a/Dup.md/Child.md). Rename one of them in the library, then rewrite.</p>
         </div>
-      ) : <p className="small muted">{plural(w.failures, 'copy')} could not be written. The page paths are shown only to this world's DM.</p>)}
+      ) : <p className="small muted">{w.failures} cop{w.failures === 1 ? 'y' : 'ies'} could not be written. The page paths are shown only to this world's DM.</p>)}
     </Section>
   );
 }
