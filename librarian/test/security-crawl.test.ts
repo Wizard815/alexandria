@@ -18,6 +18,7 @@ import path from 'node:path';
 import { createApp } from '../src/app.ts';
 import { all, one } from '../src/core/db.ts';
 import { toolsFor } from '../src/routes/mcpServer.ts';
+import { mintTicket } from '../src/features/sound/ticket.ts';
 import {
   EventTap, MODEL_ENV, MODEL_HOST, baseOf, hay, noteRead, readBy, classifiedIn, client, fakeModels, leaksFor, listRoutes, markers, recordMounts, tok, txt,
   type Marker, type RouteDef, type Who,
@@ -164,7 +165,7 @@ const viewers = (): Who2[] => [
   { who: 'guest', token: S.K.guestRead, label: 'guest read key' },
 ];
 
-const ticketsIn = (text: string): string[] => [...text.matchAll(/\/api\/media\/(?:stage|sound|voice)\/([\w.-]+)/g)].map((m) => m[1]);
+const ticketsIn = (text: string): string[] => [...text.matchAll(/\/api\/media\/(?:stage|sound|voice|intake)\/([\w.-]+)/g)].map((m) => m[1]);
 const ticketOwner = (t: string): string | null => { try { return JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString()).a ?? null; } catch { return null; } };
 
 interface CrawlResult { leaks: string[]; requests: number; reached: Set<string> }
@@ -364,6 +365,38 @@ test('TestSecurityCrawl_PlayersOfflinePrefetchLeaksNothing', async () => {
     for (const m of leaksFor(v.who, bulk.text)) leaks.push(`${v.label}: prefetch bulk leaked "${m.id}"`);
   }
   report(leaks);
+});
+
+test('TestSecurityCrawl_ImportedPicturesFollowTheirPageAndNeverReachAPlayerWithoutIt', async () => {
+  const W = `/api/worlds/${S.W}`;
+  const pageOf = (ext: string) => one<any>(deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', S.W, ext).id as string;
+  const bytes = async (url: string) => { const r = await fetch(baseOf(server) + url); return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString('latin1') }; };
+  // The DM's view of a shared page has its picture, through a ticket made for the DM.
+  const hall = (await call('GET', `${W}/library/pages/${pageOf('imp-hall')}`, S.T.dm)).json;
+  assert.match(hall.banner, /^\/api\/media\/intake\//);
+  assert.equal(ticketOwner(hall.banner.split('/').pop()), S.ID.dm);
+  assert.ok((await bytes(hall.banner)).text.includes(tok('import_image_party')));
+  // A player gets the shared picture of a shared page, with a ticket made for them, and only that one.
+  for (const who of ['jess', 'tom', 'guest'] as const) {
+    const pg = (await call('GET', `${W}/library/pages/${pageOf('imp-hall')}`, S.T[who])).json;
+    assert.match(pg.banner, /^\/api\/media\/intake\//, who);
+    assert.equal(ticketOwner(pg.banner.split('/').pop()), S.ID[who]);
+    const got = await bytes(pg.banner);
+    assert.equal(got.status, 200);
+    assert.ok(got.text.includes(tok('import_image_party')) && !got.text.includes(tok('import_image_dm')) && !got.text.includes(tok('import_image_dmpage')));
+    // A DM-only picture, or one of a DM-only page, is not served even on a ticket made for this very player.
+    for (const iid of S.ids.intakeimage.filter((x) => !x.endsWith('img-a-party'))) {
+      const r = await bytes(`/api/media/intake/${mintTicket({ w: S.W, k: 'intake', f: iid, a: S.ID[who] })}`);
+      assert.equal(r.status, 404, `${who} ${iid}`);
+      for (const m of ['import_image_dm', 'import_image_dmpage']) assert.ok(!r.text.includes(tok(m)));
+    }
+    assert.equal((await call('GET', `${W}/library/pages/${pageOf('imp-dm')}`, S.T[who])).status, 404);
+  }
+  // A ticket for a member of another world gets nothing.
+  assert.equal((await bytes(`/api/media/intake/${mintTicket({ w: S.W, k: 'intake', f: S.ids.intakeimage[0], a: S.ID.dm2 })}`)).status, 404);
+  // The DM's calendars are not a player's.
+  for (const who of ['jess', 'tom', 'guest'] as const) assert.ok(!(await call('GET', `${W}/intake/calendars`, S.T[who])).text.includes(tok('calendar_dm')), who);
+  assert.ok((await call('GET', `${W}/intake/calendars`, S.T.dm)).text.includes(tok('calendar_dm')));
 });
 
 test('TestSecurityCrawl_PlayersFilesAndMediaLeakNothing', async () => {
@@ -781,7 +814,7 @@ test('TestSecurityCrawl_PlayersStillGetNothingAfterEverythingElseHasRun', async 
 });
 
 /** Seeded secrets that no HTTP response carries to anyone (bytes of a picture), so they are checked another way. */
-const NOT_IN_JSON = new Set(['stage_image', 'item_image', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
+const NOT_IN_JSON = new Set(['stage_image', 'item_image', 'import_image_party', 'import_image_dm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
 
 test('TestSecurityCrawl_EverySeededSecretCanBeReadByWhoOwnsIt', () => {
   // A crawl that never saw a secret proves nothing about it. Every marker was read, in some response or stream,
