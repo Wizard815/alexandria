@@ -326,12 +326,6 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
     if (e.is_template === true) continue;
     yield kankaEntryOf(cfg, ctx, kc, mod, e);
   }
-  if (incr) {
-    // Relations, timelines, calendars and map markers are read again by the next complete listing.
-    for (const k of ['relation', 'timeline', 'calendar', 'mapMarker'] as const) ctx.incomplete?.add(k);
-    return;
-  }
-
   // ---- Relations, timelines, calendars and map markers ----
   // A listing that can't be read is marked incomplete, so what was stored before is kept.
   const share = (shared: boolean) => (shared && ctx.shareVisible ? 'party' : 'dm') as 'dm' | 'party';
@@ -356,21 +350,63 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
       return null;
     }
   };
-  const rels = await listStrict(`${camp}/relations`);
-  if (rels === null) ctx.incomplete?.add('relation');
-  for (const r of rels ?? []) {
-    if (r?.owner_id == null || r?.target_id == null || !r.relation) continue;
-    yield {
-      kind: 'relation', externalId: `kanka:rel:${r.id ?? `${r.owner_id}-${r.target_id}-${r.relation}`}`, from: `kanka:${r.owner_id}`, to: `kanka:${r.target_id}`, label: esc(r.relation),
-      attitude: typeof r.attitude === 'number' ? r.attitude : null,
-      visibility: share(r.is_private !== true && PLAYER_VISIBLE.has(Number(r.visibility_id))),
-    } satisfies SyncRecord;
+  const relationRecord = (r: any): SyncRecord | null => (r?.owner_id == null || r?.target_id == null || !r.relation ? null : {
+    kind: 'relation', externalId: `kanka:rel:${r.id ?? `${r.owner_id}-${r.target_id}-${r.relation}`}`, from: `kanka:${r.owner_id}`, to: `kanka:${r.target_id}`, label: esc(r.relation),
+    attitude: typeof r.attitude === 'number' ? r.attitude : null,
+    visibility: share(r.is_private !== true && PLAYER_VISIBLE.has(Number(r.visibility_id))),
+  });
+  const calendarRecord = (e: any): SyncRecord => ({ kind: 'calendar', externalId: `kanka:${e.entity_id ?? e.id}`, name: esc(e.name), visibility: share(e.is_private === false), definition: kankaCalendar(e), current: kankaDate(e.date) });
+  const SHAPES: Record<number, string> = { 1: 'marker', 2: 'label', 3: 'circle', 4: 'polygon' };
+  /** The markers of one map row; null when they could not be listed (what is stored stays). */
+  const markerRecords = async (e: any): Promise<SyncRecord[] | null> => {
+    const markers = await listStrict(`${camp}/maps/${e.id}/map_markers`);
+    if (markers === null) return null;
+    const out: SyncRecord[] = [];
+    for (const m of markers) {
+      if (m?.id == null || !Number.isFinite(Number(m.latitude)) || !Number.isFinite(Number(m.longitude))) continue;
+      out.push({
+        kind: 'mapMarker', externalId: `kanka:marker:${m.id}`, mapRef: `kanka:${e.entity_id ?? e.id}`,
+        name: esc(m.name) || (m.entity_id != null ? publicName.get(String(m.entity_id)) : undefined) || 'Marker',
+        latitude: Number(m.latitude), longitude: Number(m.longitude), shape: SHAPES[Number(m.shape_id)] ?? 'marker', color: typeof m.colour === 'string' && /^#?[0-9a-f]{3,8}$/i.test(m.colour) ? m.colour : null,
+        ref: m.entity_id != null ? `kanka:${m.entity_id}` : null,
+        visibility: share(e.is_private === false && m.is_private !== true && PLAYER_VISIBLE.has(Number(m.visibility_id))),
+      });
+    }
+    return out;
+  };
+
+  if (incr) {
+    // A listing of what changed: refresh the relations of each changed entity, its map's markers and a changed calendar, and nothing else.
+    // The other kinds (and the other entities' records) are read again by the next complete listing. `refreshed` says which owners and maps were read
+    // in full, so only their records are replaced (an unchanged entity makes no relation call).
+    for (const k of ['relation', 'timeline', 'calendar', 'mapMarker'] as const) ctx.incomplete?.add(k);
+    const owners = new Set<string>();
+    const maps = new Set<string>();
+    ctx.refreshed = { relationOwners: owners, mapRefs: maps };
+    for (const { e } of rows) {
+      if (e.is_template === true) continue;
+      const eid = String(e.entity_id ?? e.id);
+      const rels = await listStrict(`${camp}/entities/${eid}/relations`);
+      if (rels === null) continue;
+      owners.add(`kanka:${eid}`);
+      for (const r of rels) { const rec = relationRecord(r); if (rec) yield rec; }
+    }
+    for (const { mod, e } of rows) if (mod === 'calendars' && e.is_template !== true) yield calendarRecord(e);
+    for (const { mod, e } of rows) {
+      if (mod !== 'maps' || e.is_template === true) continue;
+      const recs = await markerRecords(e);
+      if (recs === null) continue;
+      maps.add(`kanka:${e.entity_id ?? e.id}`);
+      yield* recs;
+    }
+    return;
   }
 
-  for (const { mod, e } of rows) {
-    if (mod !== 'calendars' || e.is_template === true) continue;
-    yield { kind: 'calendar', externalId: `kanka:${e.entity_id ?? e.id}`, name: esc(e.name), visibility: share(e.is_private === false), definition: kankaCalendar(e), current: kankaDate(e.date) } satisfies SyncRecord;
-  }
+  const rels = await listStrict(`${camp}/relations`);
+  if (rels === null) ctx.incomplete?.add('relation');
+  for (const r of rels ?? []) { const rec = relationRecord(r); if (rec) yield rec; }
+
+  for (const { mod, e } of rows) if (mod === 'calendars' && e.is_template !== true) yield calendarRecord(e);
 
   for (const { mod, e } of rows) {
     if (mod !== 'timelines' || e.is_template === true) continue;
@@ -397,21 +433,11 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
     yield { kind: 'timeline', externalId: `kanka:${tl.entity_id ?? tl.id}`, name: esc(tl.name), visibility: share(timelineShared), groups } satisfies SyncRecord;
   }
 
-  const SHAPES: Record<number, string> = { 1: 'marker', 2: 'label', 3: 'circle', 4: 'polygon' };
   for (const { mod, e } of rows) {
     if (mod !== 'maps' || e.is_template === true) continue;
-    const markers = await listStrict(`${camp}/maps/${e.id}/map_markers`);
-    if (markers === null) { ctx.incomplete?.add('mapMarker'); continue; }
-    for (const m of markers) {
-      if (m?.id == null || !Number.isFinite(Number(m.latitude)) || !Number.isFinite(Number(m.longitude))) continue;
-      yield {
-        kind: 'mapMarker', externalId: `kanka:marker:${m.id}`, mapRef: `kanka:${e.entity_id ?? e.id}`,
-        name: esc(m.name) || (m.entity_id != null ? publicName.get(String(m.entity_id)) : undefined) || 'Marker',
-        latitude: Number(m.latitude), longitude: Number(m.longitude), shape: SHAPES[Number(m.shape_id)] ?? 'marker', color: typeof m.colour === 'string' && /^#?[0-9a-f]{3,8}$/i.test(m.colour) ? m.colour : null,
-        ref: m.entity_id != null ? `kanka:${m.entity_id}` : null,
-        visibility: share(e.is_private === false && m.is_private !== true && PLAYER_VISIBLE.has(Number(m.visibility_id))),
-      } satisfies SyncRecord;
-    }
+    const recs = await markerRecords(e);
+    if (recs === null) { ctx.incomplete?.add('mapMarker'); continue; }
+    yield* recs;
   }
 }
 
