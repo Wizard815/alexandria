@@ -630,3 +630,43 @@ test('TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress', async () => {
     } finally { e.close(); }
   }
 });
+
+test('TestWorldLore_KeptBlocksStayWhereTheyWere', async () => {
+  const { placeKept, mdToLkBlocks } = await import('../src/intake/connectors/legendkeeper-write.ts');
+  const h = (text: string) => ({ id: `h_${text}`, kind: 'heading', level: 2, content: [{ text }] });
+  const p = (text: string) => ({ id: `p_${text}`, kind: 'paragraph', content: [{ text }] });
+  const info = { id: 'blk_info', kind: 'infobox' };
+  const img = { id: 'blk_img', kind: 'image', url: 'https://assets.test/a.png' };
+  const table = { id: 'blk_tbl', kind: 'table', children: [] };
+  // Top of page, middle of "Story" after one paragraph, and at the end of "Story".
+  const old = [img, h('Story'), p('one'), info, p('two'), table, h('Allies'), p('x')];
+  const next = mdToLkBlocks('Intro line.\n\n## Story\n\nOne, rewritten.\n\nTwo, rewritten.\n\nThree, new.\n\n## Allies\n\nX again.');
+  const at = Object.fromEntries(placeKept(old, next).map((k: any) => [k.block.id, k.at]));
+  assert.equal(at.blk_img, 0, 'above everything, as before');
+  assert.equal(at.blk_info, 3, 'after the heading and the first paragraph of Story');
+  assert.equal(at.blk_tbl, 4, 'after the second paragraph of Story, not after the new third one');
+  // The heading was renamed: fall back to counting text blocks from the top.
+  const renamed = mdToLkBlocks('## Tale\n\nOne.\n\nTwo.\n\n## Allies\n\nX.');
+  const at2 = Object.fromEntries(placeKept(old, renamed).map((k: any) => [k.block.id, k.at]));
+  assert.equal(at2.blk_info, 2);
+  assert.ok(at2.blk_tbl >= at2.blk_info, 'kept blocks keep their order');
+  // A shorter section never pushes a block into the next one.
+  const short = mdToLkBlocks('## Story\n\nOnly one.\n\n## Allies\n\nX.');
+  const at3 = Object.fromEntries(placeKept(old, short).map((k: any) => [k.block.id, k.at]));
+  assert.equal(at3.blk_tbl, 2, 'stays at the end of Story, before Allies');
+
+  // MCP: the marker lands under the same heading, between the same paragraphs.
+  const lk = new FakeLK();
+  const mcp = fakeMcp(lk);
+  const e = await boot({ testMcp: mcp });
+  try {
+    const src = addSource(e, 'legendkeeper-mcp', { transport: 'http', url: 'http://lk-mcp.test/mcp' }, 'LKMCP');
+    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Placed', markdown: 'x', by: 'agent' });
+    const r = lk.res.get(made.ref)!;
+    r.blocks[r.documents[0].id] = [h('Story'), p('one'), info, p('two')];
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: '## Story\n\nFirst.\n\nSecond.', by: 'agent' });
+    const w = mcp.calls.filter((c) => c.tool === 'write_page').at(-1)!;
+    assert.equal(w.args.markdown, '## Story\n\nFirst.\n\n<!-- lk:keep id="blk_info" kind="infobox" -->\n<!-- /lk:keep -->\n\nSecond.\n');
+  } finally { e.close(); }
+});

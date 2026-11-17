@@ -146,9 +146,13 @@ Notes where the LegendKeeper docs are silent or add a caveat:
   id, including `unsupported` ones the block model cannot express. WorldLore
   replaces the whole page from Markdown, so it first reads the page's blocks and
   sends every block Markdown cannot express (infobox, image, embed, table,
-  collection, unsupported...) back unchanged, by id, after the new text. Over the
-  MCP it adds an `lk:keep` marker per such block, which the MCP's `write_page`
-  preserves. Fixed; tested in `TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress`.
+  collection, unsupported...) back unchanged, by id, in the place it held: under
+  the same heading, after the same number of text blocks (never past the end of
+  that section); if the heading is gone, after the same number of text blocks from
+  the top. Over the MCP it puts an `lk:keep` marker at that place, which the MCP's
+  `write_page` preserves. Fixed; tested in
+  `TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress` and
+  `TestWorldLore_KeptBlocksStayWhereTheyWere`.
 - `GET /search`, `GET /tags` (ADMIN), `GET /projects`, `GET /projects/{id}`, chat
   and member endpoints exist; we do not call them. Key search lists `/resources`
   by name rather than using `/search`.
