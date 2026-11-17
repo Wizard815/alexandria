@@ -12,7 +12,8 @@ import { CallCounter, isRecord, type ConnectorContext, type SyncRecord, type Tie
 import { connectorFor, makeMcpFactory } from './registry.ts';
 import { RECORD_CAPABILITY, heldImages, saveRecords } from './records.ts';
 import { effectiveConfig, normAudience } from './connections.ts';
-import { addDetailCalls, depthCounts, getState, needsFullListing, rateGate, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
+import { addDetailCalls, depthCounts, getState, needsFullListing, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
+import { limiterFor, limitedFetch, limitKeyOf, limitsOf, type Limiter, type Limits } from './ratelimit.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -59,11 +60,25 @@ export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortS
   const c = connectorFor(src.kind, cfg);
   if (!c) throw new HttpError(400, `Unknown source kind: ${src.kind}`);
   const mcp = makeMcpFactory(c, cfg, d.env, d.fetch, d.mcp);
+  // Every call to the source goes through the limiter of its connection (shared by all worlds and keys that use it).
+  const limits = limitsOf(c.id, cfg, d.env, getState(d.db, src.id).spread);
+  const limiter = limiterFor(limitKeyOf(src, d.db), limits);
+  const counter = new CallCounter();
+  counter.gate = (_phase, paceMs) => limiter.acquire(signal, paceMs);
   const ctx: ConnectorContext = {
-    fetch: d.fetch, env: d.env, dataDir: d.dataDir, vaultsDir: d.vaultsDir, signal, log,
-    mcp: mcp.factory, sourceId: src.id, shareVisible: src.default_visibility === 'party', incomplete: new Set(),
+    fetch: limitedFetch(d.fetch, limiter, signal, counter), env: d.env, dataDir: d.dataDir, vaultsDir: d.vaultsDir, signal, log,
+    mcp: mcp.factory, sourceId: src.id, shareVisible: src.default_visibility === 'party', incomplete: new Set(), calls: counter,
   };
-  return { c, ctx, close: mcp.close };
+  return { c, ctx, close: mcp.close, limiter, limits };
+}
+export type { Limiter, Limits };
+
+/** Pictures already held (so they are not downloaded again) and the limits on downloading more. */
+export function prepareImages(d: SyncDeps, ctx: ConnectorContext, c: { capabilities: string[] }, src: { id: string; world_id: string }) {
+  if (!c.capabilities.includes('images')) return;
+  ctx.heldImages = heldImages(d.db, src.world_id, src.id);
+  const num = (v: string | undefined, dflt: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== undefined && v !== '' ? Number(v) : dflt);
+  ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 4 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 500), maxMapBytes: num(d.env.ALX_MAP_MAX_BYTES, 25 * 1024 * 1024) };
 }
 
 /** Sync one source. Resolves with the finished run. */
@@ -95,25 +110,18 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
     const tier = opts.tiered ? tieredOf(src.kind, cfg) : null;
     const state = getState(d.db, sourceId);
     let ts: TierState | undefined;
-    const counter = new CallCounter();
-    if (connectorFor(src.kind, cfg)?.tiered) {
-      // Tiered runs stay under the source's published rate limit; a whole-source `sync` keeps its own rate-limit handling.
-      if (tier) counter.gate = rateGate(sourceId, tier.budgetPerMinute, d.env, ctl.signal);
-      counter.onHit = () => { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; d.onEntry?.(stats); };
-      made.ctx.calls = counter;
-    }
+    const counter = made.ctx.calls!;
+    if (connectorFor(src.kind, cfg)?.tiered) counter.onHit = () => { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; d.onEntry?.(stats); };
     if (tier) {
       ts = { token: state.token, cache: state.cache, full: needsFullListing(state, opts.full), complete: true, next: { token: state.token, cache: state.cache } };
+      // A complete listing is spread over the window the DM chose: the calls of the last one (or 30 when none is known) are paced evenly across it.
+      if (ts.full && made.limits.spreadMinutes > 0) counter.paceMs = Math.floor((made.limits.spreadMinutes * 60_000) / Math.max(1, state.lastIndexCalls || 30));
       made.ctx.tier = ts;
       log(ts.full ? 'Listing everything (tier 1: list calls only)' : 'Listing what changed since the last crawl (tier 1)');
     }
     const demoted: string[] = [];
     // Pictures already held (so they are not downloaded again) and the limits on downloading more.
-    if (made.c.capabilities.includes('images')) {
-      made.ctx.heldImages = heldImages(d.db, src.world_id, sourceId);
-      const num = (v: string | undefined, dflt: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== undefined && v !== '' ? Number(v) : dflt);
-      made.ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 4 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 500) };
-    }
+    prepareImages(d, made.ctx, made.c, src);
     for await (const e of tier ? tier.index(cfg, made.ctx) : made.c.sync(cfg, made.ctx)) {
       if (ctl.signal.aborted) throw new Error('Sync stopped');
       if (isRecord(e)) {
@@ -138,8 +146,7 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
       d.onEntry?.(stats);
       if (stats.pages % 50 === 0) { save('running'); d.onProgress?.(runId, stats); }
     }
-    stats.indexCalls = counter.index;
-    stats.detailCalls = counter.detail;
+    if (tier || connectorFor(src.kind, cfg)?.tiered) { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; }
     // Pictures downloaded by this run are detail calls: they count against the source's totals like pages read later.
     if (counter.detail) addDetailCalls(d.db, sourceId, counter.detail);
     // A page the list says is hidden loses its player copy now, not when its details are next read.

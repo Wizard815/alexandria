@@ -170,7 +170,7 @@ export async function seedContent(h: H, S: Seed) {
   }
 
   // Calendars and pictures a source gave (the generic API's calendars and images). A picture follows its page: it is the DM's alone when the
-  // picture itself is DM-only or its page is.
+  // picture itself is DM-only or its page is. Each picture's name carries its marker, so a page's `pictures` list cannot leak a DM-only second picture.
   const cal = (name: string) => JSON.stringify({ name, epochYear: 0, months: [{ name: 'First', days: 30 }], weekdays: ['Day'] });
   for (const [ext, vis, name] of [['c-dm', 'dm', mark('calendar_dm', ['dm'], 'a DM-only imported calendar')], ['c-party', 'party', 'Harbour calendar']] as const) {
     rec('INSERT INTO intake_calendars (world_id, source_id, external_id, name, definition, visibility, current) VALUES (?, ?, ?, ?, ?, ?, ?)', W, sid, ext, name, cal(name), vis, null);
@@ -182,7 +182,7 @@ export async function seedContent(h: H, S: Seed) {
   ] as const) {
     const bytes = PNG(text);
     const iid = `img_${ext}`;
-    rec('INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_ref, page_external, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', iid, W, sid, ext, ext, ext, 'image/png', bytes.length, bytes, vis, page, page, new Date().toISOString());
+    rec('INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_ref, page_external, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', iid, W, sid, ext, text, ext, 'image/png', bytes.length, bytes, vis, page, page, new Date().toISOString());
     pushId('intakeimage', iid);
   }
 

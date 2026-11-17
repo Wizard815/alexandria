@@ -9,6 +9,7 @@ import { pushSource } from './connectors/push.ts';
 import { lkMcpWrite, lkRestWrite } from './connectors/legendkeeper-write.ts';
 import { markdownWrite } from './connectors/markdown-write.ts';
 import { kankaMcpWrite, kankaRestWrite } from './connectors/kanka-write.ts';
+import { DEFAULT_LIMITS, rateFields } from './ratelimit.ts';
 import { mcpClient, type McpClient } from '../core/mcp.ts';
 
 // Write-back (WorldLore workspace only). Sources without it stay read-only.
@@ -46,6 +47,9 @@ for (const c of CONNECTORS) {
   if (c.push || c.id === 'git' || c.id === 'api') continue;
   c.fields.push({ key: 'playersMayOpen', label: 'Players may open source pages', type: 'boolean', scope: 'source', default: false, help: 'Off (safer): only you see the "Open in ..." button. The source page can show more than the player copy does, so turn this on only if your players have access to the source themselves.' });
 }
+
+// Calls a minute, calls a second and the scan spread: every connector that calls a site over the network keeps them on its connection.
+for (const c of CONNECTORS) if (DEFAULT_LIMITS[c.id]) c.fields.push(...rateFields(c.id));
 
 /** The union of what these sources provide. */
 export function capabilityUnion(sources: { kind: string; config?: string }[]): Capability[] {
