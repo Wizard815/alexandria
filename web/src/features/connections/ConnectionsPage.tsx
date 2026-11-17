@@ -35,30 +35,30 @@ export default function ConnectionsPage() {
       </PageHead>
       <ErrorBox error={conns.error || connectors.error} />
       {conns.loading && !conns.data ? <Loading /> : (
-        <div className="stack">
-          {(conns.data ?? []).map((c) => (
-            <div className="card" key={c.id}>
-              <div className="card-head">
-                <div className="stack tight grow" style={{ minWidth: 0 }}>
-                  <strong style={{ fontSize: 16 }}>{c.name}</strong>
-                  <span className="tiny muted">{c.connector?.label ?? c.kind} · used by {c.sources} source{c.sources === 1 ? '' : 's'} in {c.worlds} world{c.worlds === 1 ? '' : 's'}</span>
-                </div>
-                <span className="chip">{Object.values(c.config).some((v) => v === SECRET) ? 'secret saved' : 'no secret'}</span>
-              </div>
-              {c.notes && <p className="small muted" style={{ margin: 0 }}>{c.notes}</p>}
-              <UsedBy id={c.id} count={c.sources} />
-              <div className="row wrap">
-                <button type="button" className="btn small" onClick={() => setTesting(c)}>Test</button>
-                <button type="button" className="btn small" onClick={() => setEditing(c)}>Edit</button>
-                {c.kind === 'api' && c.config.transport !== 'mcp' && <button type="button" className="btn small" onClick={() => setFinding(c)}>Find endpoints</button>}
-                {c.kind === 'api' && c.config.transport === 'mcp' && <button type="button" className="btn small" onClick={() => setTools(c)}>Find tools</button>}
-                {c.kind === 'api' && <SaveAsPreset connection={c} onDone={(m) => { toast(m); reload(); }} />}
-                <span className="grow" />
-                <button type="button" className="btn small danger" onClick={() => setDel(c)}>Delete</button>
-              </div>
-            </div>
-          ))}
-          {!conns.data?.length && <div className="card"><Empty>No connections yet. Make one, or set up a world and make it there.</Empty></div>}
+        <div className="card flush">
+          {conns.data?.length ? (
+            <div className="scroll-x"><table className="table adm-conns">
+              <thead><tr><th>Connection</th><th>Template</th><th>Secret</th><th>Used by</th><th /></tr></thead>
+              <tbody>{conns.data.map((c) => (
+                <tr key={c.id}>
+                  <td><strong>{c.name}</strong>{c.notes && <span className="tiny muted">{c.notes}</span>}</td>
+                  <td>{c.connector?.label ?? c.kind}</td>
+                  <td>{Object.values(c.config).some((v) => v === SECRET) ? <span className="pill ok">saved</span> : <span className="pill">none</span>}</td>
+                  <td><span className="small">{c.sources} source{c.sources === 1 ? '' : 's'} · {c.worlds} world{c.worlds === 1 ? '' : 's'}</span><UsedBy id={c.id} count={c.sources} /></td>
+                  <td>
+                    <div className="row wrap" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                      <button type="button" className="btn small" onClick={() => setTesting(c)}>Test</button>
+                      <button type="button" className="btn small" onClick={() => setEditing(c)}>Edit</button>
+                      {c.kind === 'api' && c.config.transport !== 'mcp' && <button type="button" className="btn small" onClick={() => setFinding(c)}>Find endpoints</button>}
+                      {c.kind === 'api' && c.config.transport === 'mcp' && <button type="button" className="btn small" onClick={() => setTools(c)}>Find tools</button>}
+                      {c.kind === 'api' && <SaveAsPreset connection={c} onDone={(m) => { toast(m); reload(); }} />}
+                      <button type="button" className="btn small danger" onClick={() => setDel(c)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          ) : <Empty>No connections yet. Make one, or set up a world and make it there.</Empty>}
         </div>
       )}
       <div className="row"><button type="button" className={`btn small${showPresets ? ' on' : ''}`} aria-expanded={showPresets} onClick={() => setShowPresets(!showPresets)}>Generic API presets</button></div>
