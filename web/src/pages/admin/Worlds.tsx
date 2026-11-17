@@ -5,11 +5,14 @@ import { useLoad } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
 import { Pill } from './kit.tsx';
+import { WorldCards, cardLine, type WorldCard } from './WorldCards.tsx';
 
 export default function AdminWorlds() {
   const { client, me, refresh } = useAuth();
   const worlds = useLoad(() => client.request<any[]>('GET', '/api/admin/worlds'), []);
   const accounts = useLoad(() => client.request<any[]>('GET', '/api/admin/accounts'), []);
+  const cards = useLoad(() => client.request<{ worlds: WorldCard[] }>('GET', '/api/admin/gateway/worlds'), []);
+  const card = (id: string) => cards.data?.worlds.find((c) => c.id === id);
   const [sel, setSel] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const cur = (worlds.data ?? []).find((w) => w.id === sel) ?? null;
@@ -28,14 +31,14 @@ export default function AdminWorlds() {
               {(worlds.data ?? []).map((w) => (
                 <button key={w.id} type="button" className={`list-item${w.id === sel ? ' active' : ''}`} onClick={() => setSel(w.id)}>
                   <span className="grow"><strong>{w.name}</strong><br /><span className="tiny muted mono">{w.slug}</span></span>
-                  <span className="tiny muted" style={{ textAlign: 'right' }}>{w.pages.toLocaleString()} pages<br />{w.sources} source{w.sources === 1 ? '' : 's'} · {w.members} people</span>
+                  <span className="tiny muted" style={{ textAlign: 'right' }}>{w.pages.toLocaleString()} pages<br />{w.sources} source{w.sources === 1 ? '' : 's'} · {w.members} people{card(w.id) && <><br />{cardLine(card(w.id))}</>}</span>
                 </button>
               ))}
               {!worlds.data?.length && <Empty>No worlds yet.</Empty>}
             </div>
           )}
         </div>
-        <div className="col-2">{cur ? <WorldMembers world={cur} accounts={accounts.data ?? []} onChange={() => { void worlds.reload(); void refresh(); }} /> : <div className="card"><p className="muted">Pick a world to see its sources and who is in it.</p></div>}</div>
+        <div className="col-2">{cur ? <WorldMembers world={cur} card={card(cur.id)} accounts={accounts.data ?? []} onChange={() => { void worlds.reload(); void cards.reload(); void refresh(); }} /> : <div className="card"><p className="muted">Pick a world to see its sources and who is in it.</p></div>}</div>
       </div>
       {creating && <NewWorld accounts={accounts.data ?? []} meId={me!.account.id} onClose={() => setCreating(false)} onDone={(id) => { setCreating(false); setSel(id); void worlds.reload(); void refresh(); }} />}
     </div>
@@ -65,7 +68,7 @@ function NewWorld({ accounts, meId, onClose, onDone }: { accounts: any[]; meId: 
   );
 }
 
-function WorldMembers({ world, accounts, onChange }: { world: any; accounts: any[]; onChange: () => void }) {
+function WorldMembers({ world, card, accounts, onChange }: { world: any; card?: WorldCard; accounts: any[]; onChange: () => void }) {
   const { client, me } = useAuth();
   const members = useLoad(() => client.request<any[]>('GET', `/api/admin/worlds/${world.id}/members`), [world.id]);
   const [add, setAdd] = useState('');
@@ -93,6 +96,7 @@ function WorldMembers({ world, accounts, onChange }: { world: any; accounts: any
       </div>
       <ErrorBox error={a.error || members.error} />
       <WorldSources world={world} />
+      {card && <WorldCards world={world} card={card} onChange={onChange} />}
       <h3>People</h3>
       <div className="scroll-x"><table className="table">
         <thead><tr><th>Person</th><th>Character</th><th>Role</th><th /></tr></thead>
