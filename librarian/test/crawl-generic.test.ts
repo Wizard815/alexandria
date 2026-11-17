@@ -6,8 +6,11 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
-import { one } from '../src/core/db.ts';
-import { discoverApi, guessRole, mapFields } from '../src/intake/connectors/apiSetup.ts';
+import { all, one, run } from '../src/core/db.ts';
+import { calendarsFor, timelinesFor } from '../src/intake/records.ts';
+import { mintTicket } from '../src/features/sound/ticket.ts';
+import { discoverApi, endpointUsable, guessRole, mapFields, mapRoleFields } from '../src/intake/connectors/apiSetup.ts';
+import { privateHost } from '../src/intake/connectors/api.ts';
 import { cleanEndpoints } from '../src/intake/connectors/apiEndpoints.ts';
 import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
 
@@ -84,15 +87,79 @@ const nospecFetch = (url: string): Response | null => {
   return json({ error: 'not found' }, 404);
 };
 
+// ---- an app with calendars and pictures ------------------------------------------------------------------------------
+
+const MEDIA = 'https://media.example.com/api';
+const CDN = 'https://cdn.example.net';
+const PNG = (tag: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Buffer.from(tag)]);
+const media = {
+  calls: [] as string[],
+  auth: {} as Record<string, string | null>,
+  files: 0,
+  updated: { i1: 'v1' } as Record<string, string>,
+};
+const mediaReset = () => { media.calls = []; media.auth = {}; media.files = 0; media.updated = { i1: 'v1' }; };
+const mediaPages = [
+  { id: 'p1', title: 'Public page', body: 'Seen by all.', is_private: false },
+  { id: 'p2', title: 'Private page', body: 'Only the DM.', is_private: true },
+  { id: 'p3', title: 'Shared page with a private picture', body: 'Shared text.', is_private: false },
+];
+const mediaImages = () => [
+  { id: 'i1', name: 'Portrait', file: '/files/i1.png', page: 'p1', updated: media.updated.i1, is_private: false },
+  { id: 'i2', name: 'Secret map', file: '/files/i2.png', page: 'p2', updated: 'v1', is_private: false },
+  { id: 'i3', name: 'Elsewhere', file: `${CDN}/pics/i3.png`, page: 'p1', updated: 'v1', is_private: false },
+  { id: 'i4', name: 'Huge', file: '/files/huge.png', page: 'p1', updated: 'v1', is_private: false },
+  { id: 'i5', name: 'Vector', file: '/files/vector.svg', page: 'p1', updated: 'v1', is_private: false },
+  { id: 'i6', name: 'Liar', file: '/files/liar.png', page: 'p1', updated: 'v1', is_private: false },
+  { id: 'i7', name: 'Inside', file: 'http://127.0.0.1:9/inside.png', page: 'p1', updated: 'v1', is_private: false },
+  { id: 'i8', name: 'Redirect', file: '/files/redirect.png', page: 'p1', updated: 'v1', is_private: false },
+  { id: 'i9', name: 'Private picture', file: '/files/i9.png', page: 'p3', updated: 'v1', is_private: true },
+];
+const imageHeaders = (len?: number): Record<string, string> => ({ 'Content-Type': 'image/png', ...(len !== undefined ? { 'Content-Length': String(len) } : {}) });
+const mediaFetch = (url: string, init?: any): Response | null => {
+  const u = new URL(url);
+  if (u.origin === CDN) {
+    media.calls.push(`CDN${u.pathname}`);
+    media.auth[`CDN${u.pathname}`] = init?.headers?.Authorization ?? null;
+    return new Response(PNG('cdn'), { status: 200, headers: imageHeaders() });
+  }
+  if (u.origin !== 'https://media.example.com' && !url.startsWith('http://127.0.0.1:9')) return null;
+  if (url.startsWith('http://127.0.0.1:9')) { media.calls.push('PRIVATE'); return new Response(PNG('private'), { status: 200, headers: imageHeaders() }); }
+  const p = u.pathname.startsWith('/api') ? u.pathname.slice('/api'.length) : u.pathname;
+  media.calls.push(p);
+  media.auth[p] = init?.headers?.Authorization ?? null;
+  if (p === '' || p === '/') return json({ version: 1 });
+  if (p === '/pages') return json({ data: mediaPages });
+  if (p === '/calendars') return json({ data: [
+    {
+      id: 'c1', name: 'Harptos', months: [{ name: 'Hammer', days: 30 }, { name: 'Midwinter', days: 1, intercalary: true }, { name: 'Alturiak', days: 30 }], weekdays: ['One', { name: 'Two' }], date: '1492-1-5', suffix: 'DR', epoch: 0, is_private: false,
+      events: [{ id: 'e1', name: 'Festival', date: '1492-1-1', is_private: false }, { id: 'e2', name: 'SECRETEVENT', date: '1492-1-2', is_private: true }, { id: 'e3', name: 'No flag', date: '1492-1-3' }],
+    },
+    { id: 'c2', name: 'Hidden calendar', months: [{ name: 'Shadow', days: 20 }], weekdays: ['Dark'], is_private: true },
+    { id: 'c3', name: 'Broken calendar', is_private: false },
+  ] });
+  if (p === '/images') return json({ data: mediaImages() });
+  if (p === '/unused-images') return json({ data: [{ id: 'u1', name: 'Never', file: '/files/never.png' }] });
+  if (p.startsWith('/files/')) {
+    media.files++;
+    if (p === '/files/huge.png') return new Response(PNG('x'.repeat(5000)), { status: 200, headers: imageHeaders(5000 + 12) });
+    if (p === '/files/vector.svg') return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { status: 200, headers: { 'Content-Type': 'image/svg+xml' } });
+    if (p === '/files/liar.png') return new Response('<html>not a picture</html>', { status: 200, headers: imageHeaders() });
+    if (p === '/files/redirect.png') return new Response(null, { status: 302, headers: { Location: `${CDN}/pics/redirected.png` } });
+    return new Response(PNG(p.slice(7, 9)), { status: 200, headers: imageHeaders() });
+  }
+  return json({ error: 'not found' }, 404);
+};
+
 const fake = (async (url: any, init?: any) => {
-  for (const h of [wikiFetch, nospecFetch]) { const r = h(String(url), init); if (r) return r; }
+  for (const h of [wikiFetch, nospecFetch, mediaFetch]) { const r = h(String(url), init); if (r) return r; }
   return json({ error: 'unexpected ' + url }, 404);
 }) as typeof fetch;
 
-async function boot() {
+async function boot(env: Record<string, string> = {}) {
   resetBuckets();
   wiki.calls = []; wiki.auth = []; nospec.calls = [];
-  const made = createApp({ noScheduler: true, fetch: fake, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0' } });
+  const made = createApp({ noScheduler: true, fetch: fake, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0', ...env } });
   const server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   cleanups.push(() => { server.close(); server.closeAllConnections?.(); });
@@ -112,7 +179,12 @@ async function boot() {
     return r.body;
   };
   const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
-  return { ...made, call, ok, admin, world, accountId: a.account.id as string };
+  const addPlayer = async (wid: string) => {
+    const inv = await ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
+    const j = (await call('POST', '/api/join', null, { code: inv.code, username: 'jess' + Math.random().toString(36).slice(2, 6), password: 'player pass 123', characterName: 'Jess' })).body;
+    return { token: j.token as string, accountId: j.account.id as string };
+  };
+  return { ...made, call, ok, admin, world, addPlayer, base, accountId: a.account.id as string };
 }
 
 // ---- guesses -----------------------------------------------------------------------------------------------------------
@@ -301,4 +373,172 @@ test('CrawlGeneric_AnEndpointWithNoSpecAndNothingUsableStaysBlank', async () => 
   assert.ok(!out.endpoints.some((e: any) => e.use), 'nothing is switched on');
   const direct = await discoverApi(fake, { baseUrl: NOSPEC, listUrls: ['/articles'] });
   assert.ok(direct.calls >= 2);
+});
+
+// ---- calendars and pictures ----------------------------------------------------------------------------------------------
+
+const MEDIA_ENDPOINTS = (over: Record<string, any> = {}) => [
+  { path: '/pages', role: 'pages', use: true, key: 'pages', itemsPath: 'data', idField: 'id', titleField: 'title', bodyField: 'body', visibilityField: 'is_private', sharedValues: 'false' },
+  { path: '/calendars', role: 'calendars', use: true, key: 'calendars', itemsPath: 'data', idField: 'id', titleField: 'name', monthsField: 'months', weekdaysField: 'weekdays', currentDateField: 'date', yearSuffixField: 'suffix', epochYearField: 'epoch', eventsField: 'events', visibilityField: 'is_private', sharedValues: 'false', ...(over.calendars ?? {}) },
+  { path: '/images', role: 'images', use: true, key: 'images', itemsPath: 'data', idField: 'id', titleField: 'name', urlField: 'file', pageField: 'page', updatedField: 'updated', visibilityField: 'is_private', sharedValues: 'false', ...(over.images ?? {}) },
+  { path: '/unused-images', role: 'images', use: false, key: 'unused', itemsPath: 'data', idField: 'id', urlField: 'file' },
+];
+
+async function mediaWorld(t: Awaited<ReturnType<typeof boot>>, opts: { audience?: string; endpoints?: any[] } = {}) {
+  mediaReset();
+  const conn = await t.ok('POST', '/api/admin/connections', { kind: 'api', name: 'Media app', config: { transport: 'http', baseUrl: MEDIA, token: 'media-token-1234567890' } });
+  await t.ok('PUT', `/api/admin/connections/${conn.id}/endpoints`, { endpoints: opts.endpoints ?? MEDIA_ENDPOINTS() });
+  const wid = await t.world('Media World');
+  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { connectionId: conn.id, kind: 'api', name: 'Media', config: {}, defaultVisibility: 'party', ...(opts.audience ? { audience: opts.audience } : {}) });
+  const sync = (body: unknown = {}) => t.ok('POST', `/api/admin/sources/${src.id}/sync?wait=1`, body);
+  return { wid, sid: src.id as string, conn, sync };
+}
+const pageByTitle = (t: Awaited<ReturnType<typeof boot>>, wid: string, title: string) => (t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === title).id as string;
+const getPage = (t: Awaited<ReturnType<typeof boot>>, wid: string, token: string, pid: string) => t.call('GET', `/api/worlds/${wid}/library/pages/${pid}`, token);
+const imageRow = (t: Awaited<ReturnType<typeof boot>>, ext: string) => one<any>(t.deps.db, 'SELECT * FROM intake_images WHERE external_id = ?', `img:images:${ext}`);
+
+test('CrawlGeneric_CalendarsBecomeWorldCalendarsWithMonthsWeekdaysDateAndEvents', async () => {
+  const t = await boot({});
+  const w = await mediaWorld(t);
+  await w.sync();
+  const dm = { role: 'dm' as const };
+  const cals = calendarsFor(t.deps.db, w.wid, dm);
+  assert.deepEqual(cals.map((c) => c.name), ['Harptos', 'Hidden calendar'], 'a calendar with no months is skipped');
+  const h = cals.find((c) => c.name === 'Harptos')!;
+  assert.deepEqual(h.definition.months, [{ name: 'Hammer', days: 30 }, { name: 'Midwinter', days: 1, intercalary: true }, { name: 'Alturiak', days: 30 }]);
+  assert.deepEqual(h.definition.weekdays, ['One', 'Two'], 'weekdays may be names or objects with a name');
+  assert.equal(h.definition.yearSuffix, 'DR');
+  assert.deepEqual(h.current, { year: 1492, month: 1, day: 5 });
+  assert.equal(h.visibility, 'party');
+  // Fail closed: the calendar the app marks private is the DM's, and so is every event with no shared flag of its own.
+  assert.equal(cals.find((c) => c.name === 'Hidden calendar')!.visibility, 'dm');
+  const player = { role: 'player' as const };
+  assert.deepEqual(calendarsFor(t.deps.db, w.wid, player).map((c) => c.name), ['Harptos']);
+  const tlDm = timelinesFor(t.deps.db, w.wid, dm).find((x: any) => x.name === 'Harptos events');
+  assert.deepEqual(tlDm.groups[0].events.map((e: any) => [e.name, e.visibility]), [['Festival', 'party'], ['SECRETEVENT', 'dm'], ['No flag', 'dm']]);
+  const tlPlayer = timelinesFor(t.deps.db, w.wid, player);
+  assert.deepEqual(tlPlayer.flatMap((x: any) => x.groups.flatMap((g: any) => g.events.map((e: any) => e.name))), ['Festival']);
+  assert.ok(!JSON.stringify(tlPlayer).includes('SECRETEVENT'));
+  // The source's audience can keep every calendar DM-only.
+  const t2 = await boot({});
+  const w2 = await mediaWorld(t2, { audience: 'dm' });
+  await w2.sync();
+  assert.deepEqual(calendarsFor(t2.deps.db, w2.wid, player), []);
+});
+
+test('CrawlGeneric_PicturesAreDownloadedWithinTheLimitsAndLinkedToTheirPages', async () => {
+  const t = await boot({ ALX_IMAGE_MAX_BYTES: '2000' });
+  const w = await mediaWorld(t);
+  const out = await w.sync();
+  // Stored: the ones that are PNG, JPEG, GIF or WebP, small enough, and on an allowed host. Refused: too big, SVG, not really a picture, a private address, a redirect to another host.
+  const stored = all<any>(t.deps.db, 'SELECT external_id, mime FROM intake_images ORDER BY external_id').map((r) => r.external_id.replace('img:images:', ''));
+  assert.deepEqual(stored, ['i1', 'i2', 'i3', 'i9']);
+  assert.ok(all<any>(t.deps.db, 'SELECT mime FROM intake_images').every((r) => r.mime === 'image/png'));
+  assert.ok(!media.calls.includes('PRIVATE'), 'a private address is never fetched');
+  assert.ok(!media.calls.includes('CDN/pics/redirected.png'), 'a redirect to another host is not followed');
+  assert.ok(!media.calls.some((c) => c.startsWith('/unused-images') || c.includes('never')), 'an endpoint the DM left unused is never called');
+  // The token goes to the API's own host and nowhere else.
+  assert.equal(media.auth['/files/i1.png'], 'Bearer media-token-1234567890');
+  assert.equal(media.auth['CDN/pics/i3.png'], null, 'an absolute address on another host is fetched without the token');
+  // Calls: three lists (pages, calendars, images) are the index; every download is a detail call.
+  assert.equal(out.stats.indexCalls, 3);
+  assert.equal(out.stats.detailCalls, 8, 'each attempted download is counted');
+  assert.equal(one<any>(t.deps.db, 'SELECT detail_calls AS n FROM connections_source_state WHERE source_id = ?', w.sid).n, 8);
+
+  // The page links to its picture, and the picture is served through a signed address.
+  const p1 = pageByTitle(t, w.wid, 'Public page');
+  const dmPage = (await getPage(t, w.wid, t.admin, p1)).body;
+  assert.match(dmPage.banner, /^\/api\/media\/intake\/[\w.-]+$/);
+  const file = await fetch(t.base + dmPage.banner);
+  assert.equal(file.status, 200);
+  assert.equal(file.headers.get('content-type'), 'image/png');
+  assert.equal(file.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual([...new Uint8Array(await file.arrayBuffer())].slice(0, 4), [0x89, 0x50, 0x4e, 0x47]);
+  assert.equal((await fetch(t.base + '/api/media/intake/garbage.token')).status, 404);
+
+  // A player sees the picture of a shared page...
+  const tok = await t.addPlayer(w.wid);
+  const playerPage = (await getPage(t, w.wid, tok.token, p1)).body;
+  assert.match(playerPage.banner, /^\/api\/media\/intake\//);
+  assert.equal((await fetch(t.base + playerPage.banner)).status, 200);
+  // ...but never the picture of a private page, nor a private picture of a shared page, even with a ticket made for them.
+  const p2 = pageByTitle(t, w.wid, 'Private page');
+  assert.equal((await getPage(t, w.wid, tok.token, p2)).status, 404);
+  assert.match((await getPage(t, w.wid, t.admin, p2)).body.banner, /^\/api\/media\/intake\//, 'the DM has it');
+  const p3 = pageByTitle(t, w.wid, 'Shared page with a private picture');
+  assert.equal((await getPage(t, w.wid, tok.token, p3)).body.banner, null, 'the picture the app marks private is the DM\'s');
+  assert.match((await getPage(t, w.wid, t.admin, p3)).body.banner, /^\/api\/media\/intake\//);
+  for (const ext of ['i2', 'i9']) {
+    const forged = mintTicket({ w: w.wid, k: 'intake', f: imageRow(t, ext).id, a: tok.accountId });
+    assert.equal((await fetch(`${t.base}/api/media/intake/${forged}`)).status, 404, `a player's ticket for ${ext} gets nothing`);
+  }
+  assert.ok(!(JSON.stringify(playerPage)).includes(imageRow(t, 'i2').id), 'no id of a private picture reaches a player');
+
+  // Hiding the page takes the picture away at once: the ticket stays valid but the permission is checked again.
+  run(t.deps.db, `UPDATE pages SET visibility = 'dm', player_body = NULL WHERE id = ?`, p1);
+  assert.equal((await fetch(t.base + playerPage.banner)).status, 404);
+
+  // Nothing is downloaded again when nothing changed, and a refused picture is not asked for again.
+  const files = media.files;
+  const again = await w.sync();
+  assert.equal(media.files, files, 'no picture was fetched again');
+  assert.equal(again.stats.detailCalls, 0);
+  assert.equal(again.stats.indexCalls, 3, 'the lists are read again, nothing else');
+  // A picture that changed at the source is fetched again, alone.
+  media.updated.i1 = 'v2';
+  const third = await w.sync();
+  assert.equal(media.files, files + 1);
+  assert.equal(third.stats.detailCalls, 1);
+  assert.match(imageRow(t, 'i1').marker, /v2$/);
+});
+
+test('CrawlGeneric_PicturesAreDownloadedAFewAtATimeAndAnUnusedEndpointDropsThem', async () => {
+  const t = await boot({ ALX_IMAGES_PER_RUN: '2', ALX_IMAGE_MAX_BYTES: '2000' });
+  const w = await mediaWorld(t);
+  const first = await w.sync();
+  assert.equal(first.stats.detailCalls, 2, 'the run downloads at most its limit');
+  assert.equal(all<any>(t.deps.db, 'SELECT 1 FROM intake_images').length, 2);
+  for (let i = 0; i < 4; i++) await w.sync();
+  assert.deepEqual(all<any>(t.deps.db, 'SELECT external_id FROM intake_images ORDER BY external_id').map((r) => r.external_id.replace('img:images:', '')), ['i1', 'i2', 'i3', 'i9']);
+  // The DM turns the images endpoint off: it is not called again, and its pictures are gone.
+  await t.ok('PUT', `/api/admin/connections/${w.conn.id}/endpoints`, { endpoints: MEDIA_ENDPOINTS({ images: { use: false } }) });
+  media.calls = [];
+  await w.sync();
+  assert.ok(!media.calls.some((c) => c.startsWith('/images') || c.startsWith('/files') || c.startsWith('/unused-images')), `not called: ${media.calls}`);
+  assert.equal(all<any>(t.deps.db, 'SELECT 1 FROM intake_images').length, 0);
+  // A source set to DM-only shows no picture to players at all.
+  const t2 = await boot({ ALX_IMAGE_MAX_BYTES: '2000' });
+  const w2 = await mediaWorld(t2, { audience: 'dm' });
+  await w2.sync();
+  const tok = await t2.addPlayer(w2.wid);
+  assert.equal((t2.deps.library.list(w2.wid, { accountId: 'p', role: 'player' }) as any[]).length, 0);
+  assert.equal((await getPage(t2, w2.wid, tok.token, pageByTitle(t2, w2.wid, 'Public page'))).status, 404);
+  assert.equal(all<any>(t2.deps.db, 'SELECT 1 FROM intake_images').length, 4, 'the DM still has them');
+});
+
+test('CrawlGeneric_CalendarAndPictureEndpointsAreGuessedWithTheirFields', async () => {
+  const found = await discoverApi(fake, { baseUrl: MEDIA, listUrls: ['/calendars', '/images'] });
+  const cal = found.endpoints.find((e) => e.path === '/calendars')!;
+  assert.equal(cal.role, 'calendars');
+  assert.deepEqual([cal.monthsField, cal.weekdaysField, cal.currentDateField, cal.epochYearField, cal.yearSuffixField, cal.eventsField, cal.visibilityField, cal.sharedValues], ['months', 'weekdays', 'date', 'epoch', 'suffix', 'events', 'is_private', 'false']);
+  assert.equal(cal.use, true, 'a calendar with months is switched on');
+  const img = found.endpoints.find((e) => e.path === '/images')!;
+  assert.equal(img.role, 'images');
+  assert.deepEqual([img.urlField, img.pageField, img.updatedField], ['file', 'page', 'updated']);
+  assert.equal(img.use, true);
+  // The earlier test's spec lists images with no address field: recognised, but unusable until the DM maps one.
+  const noUrl = mapRoleFields('images', [{ name: 'id', kind: 'string', samples: ['a'] }, { name: 'filename', kind: 'string', samples: ['a.png'] }], mapFields([{ name: 'id', kind: 'string', samples: ['a'] }, { name: 'filename', kind: 'string', samples: ['a.png'] }]))!;
+  assert.equal(noUrl.fields.urlField, undefined);
+  assert.ok(noUrl.notes.some((n) => /No address field/.test(n)));
+  assert.equal(endpointUsable({ path: '/x', role: 'images', use: false, key: 'x', idField: 'id' }), false);
+  assert.equal(endpointUsable({ path: '/x', role: 'images', use: false, key: 'x', idField: 'id', detailPath: '/x/{id}/download' }), true, 'a download path is enough');
+  assert.equal(endpointUsable({ path: '/x', role: 'calendars', use: false, key: 'x', idField: 'id', titleField: 'name' }), false, 'a calendar needs its months mapped');
+  // The new keys survive the review's save, and nothing unknown does.
+  const eps = cleanEndpoints([{ path: '/c', role: 'calendars', use: true, monthsField: 'months', eventsField: 'events', pageField: 'x', evil: 1 }]);
+  assert.deepEqual([eps[0].monthsField, eps[0].eventsField, eps[0].pageField, (eps[0] as any).evil], ['months', 'events', 'x', undefined]);
+});
+
+test('CrawlGeneric_AddressesOnPrivateHostsAreNeverFetched', () => {
+  for (const h of ['localhost', '127.0.0.1', '10.1.2.3', '192.168.0.5', '172.20.0.1', '169.254.169.254', '[::1]', 'printer.local', 'db.internal', '100.64.0.1']) assert.equal(privateHost(h), true, h);
+  for (const h of ['cdn.example.net', '93.184.216.34', '172.32.0.1']) assert.equal(privateHost(h), false, h);
 });

@@ -47,6 +47,15 @@ export interface ConnectorContext {
   calls?: CallCounter;
   /** Tiered crawl state (see Tiered): what the last listing left, and what this one leaves. */
   tier?: TierState;
+  /**
+   * A listing of changed pages (the connector read only some entities' records): which relation owners and map pages it read in full.
+   * The records of those, and only those, are replaced; every other stored record is kept.
+   */
+  refreshed?: { relationOwners: Set<string>; mapRefs: Set<string> };
+  /** Pictures already stored for this source: externalId to the marker it was stored with (so an unchanged picture is not downloaded again). */
+  heldImages?: Map<string, string>;
+  /** Largest picture to download (bytes) and how many a run may download: the source's limits. */
+  imageLimits?: { maxBytes: number; perRun: number; maxHeld: number };
 }
 
 /** Calls made to a source in this run, by phase. A transport awaits `take()` before every request it sends: it waits for the source's rate limit, then counts the call. */
@@ -107,7 +116,13 @@ export type SyncRecord =
   /** A calendar definition for the world clock (see CalendarDefinition). */
   | { kind: 'calendar'; externalId: string; name: string; visibility: 'dm' | 'party'; definition: CalendarDefinition; current?: { year: number; month: number; day: number } | null }
   /** A pin on a map page (mapRef is the map page's externalId). */
-  | { kind: 'mapMarker'; externalId: string; mapRef: string; name: string; latitude: number; longitude: number; shape?: string; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' };
+  | { kind: 'mapMarker'; externalId: string; mapRef: string; name: string; latitude: number; longitude: number; shape?: string; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
+  /**
+   * A picture of a page (`pageRef`: the source's own id of the page, or of the record the picture belongs to). `data` is the file when it was
+   * downloaded now; without it the picture already stored under `externalId` is kept (and its link refreshed). `marker` says which version of the
+   * picture was stored (its URL and update time). `visibility` `party` means the picture may follow its page; it never makes a DM-only page visible.
+   */
+  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'dm' | 'party' };
 
 export interface TimelineEvent { id: string; name: string; date?: string | null; description?: Block[]; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
 export interface TimelineGroup { name: string; abbreviation?: string | null; description?: Block[]; events: TimelineEvent[] }

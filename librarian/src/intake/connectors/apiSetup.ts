@@ -139,6 +139,55 @@ export function mapFields(props: Prop[]): Mapping {
   const score = (f.idField ? 0.3 : 0) + (f.titleField ? 0.3 : 0) + (f.bodyField || f.summaryField ? 0.25 : 0) + (f.updatedField || f.tagsField || f.parentField ? 0.15 : 0);
   return { fields: f, score, notes };
 }
+// Calendars and pictures have their own fields. Names are guessed from the response schema or a sample; the DM reviews them.
+const CAL = {
+  months: ['months', 'month_list', 'monthnames', 'month_names', 'months_list'],
+  weekdays: ['weekdays', 'week_days', 'days_of_week', 'daysofweek', 'daynames', 'day_names'],
+  current: ['current_date', 'currentdate', 'date', 'today', 'now'],
+  epoch: ['epoch_year', 'epochyear', 'epoch', 'start_year', 'startyear'],
+  suffix: ['year_suffix', 'yearsuffix', 'suffix', 'era_name', 'era'],
+  events: ['events', 'reminders', 'holidays'],
+};
+const IMG = {
+  url: ['url', 'src', 'file_url', 'fileurl', 'download_url', 'downloadurl', 'image_url', 'imageurl', 'image_full', 'href', 'link', 'uri', 'path', 'file', 'full'],
+  page: ['entity_id', 'entityid', 'page_id', 'pageid', 'owner_id', 'ownerid', 'article_id', 'resource_id', 'resourceid', 'character_id', 'location_id', 'parent_id', 'entity', 'owner', 'page'],
+};
+
+/** The extra fields of a calendars or images endpoint, and how complete the guess is (0 to 1). Null for any other role. */
+export function mapRoleFields(role: Role, props: Prop[], base: Mapping): Mapping | null {
+  if (role !== 'calendars' && role !== 'images') return null;
+  const f: Partial<ApiEndpoint> = { ...base.fields };
+  const notes: string[] = [...base.notes.filter((n) => !/visibility/.test(n))];
+  const named = (names: string[], kinds?: Prop['kind'][]) => names.map((n) => props.find((x) => norm(x.name) === n && (!kinds || kinds.includes(x.kind)))).find(Boolean);
+  let score = (f.idField ? 0.3 : 0) + (f.titleField ? 0.2 : 0);
+  if (role === 'calendars') {
+    const months = named(CAL.months, ['array']); if (months) f.monthsField = months.name;
+    const wd = named(CAL.weekdays, ['array']); if (wd) f.weekdaysField = wd.name;
+    const cur = named(CAL.current, ['string', 'object']); if (cur) f.currentDateField = cur.name;
+    const ep = named(CAL.epoch, ['number']); if (ep) f.epochYearField = ep.name;
+    const su = named(CAL.suffix, ['string']); if (su) f.yearSuffixField = su.name;
+    const ev = named(CAL.events, ['array']); if (ev) f.eventsField = ev.name;
+    // The body of a calendar is not a page body.
+    delete f.bodyField; delete f.bodyFormat; delete f.summaryField;
+    if (months) score += 0.5; else notes.push('No months field found: map one before using this calendar.');
+  } else {
+    const url = named(IMG.url, ['string']); if (url) f.urlField = url.name;
+    const pg = named(IMG.page, ['number', 'string', 'object']); if (pg && pg.name !== f.idField) f.pageField = pg.name;
+    delete f.bodyField; delete f.bodyFormat; delete f.summaryField; delete f.parentField;
+    // The `url` guess of mapFields only takes http addresses; a picture's address may be relative.
+    if (url) score += 0.5; else notes.push('No address field found: map one (or a download path) before using these images.');
+    if (!f.pageField) notes.push('No field says which page a picture belongs to: pictures would be stored but shown on no page.');
+  }
+  return { fields: f, score: Math.min(1, score), notes };
+}
+
+/** Can the endpoint be switched on as it stands? Pages and tags need an id and title; calendars months; pictures an address. */
+export function endpointUsable(ep: ApiEndpoint): boolean {
+  if (ep.role === 'calendars') return !!(ep.idField && ep.titleField && ep.monthsField);
+  if (ep.role === 'images') return !!(ep.idField && (ep.urlField || ep.detailPath));
+  return (PAGE_ROLES.includes(ep.role) || ep.role === 'tags') && !!(ep.idField && ep.titleField);
+}
+
 const longest = (p: Prop) => p.samples.reduce<number>((n, s) => Math.max(n, typeof s === 'string' ? s.length : 0), 0);
 
 /** Properties of the records in a sample: each key, its kind, and up to a few values. */
@@ -291,7 +340,8 @@ export function analyzeSpec(spec: Spec, baseUrl: string): { endpoints: ApiEndpoi
     if (!ls && role === 'unknown') continue;
     const world = pathParams[0] ? g.path.replace(pathParams[0], '{world}') : g.path;
     const key = world.split('/').filter((s) => s && !/^\{/.test(s)).pop() ?? 'list';
-    const map = ls ? mapFields(ls.itemProps) : { fields: {}, score: 0, notes: [] as string[] };
+    const map0 = ls ? mapFields(ls.itemProps) : { fields: {}, score: 0, notes: [] as string[] };
+    const map = (ls ? mapRoleFields(role, ls.itemProps, map0) : null) ?? map0;
     const pg = guessPaging(null, g.params.map((p) => String(p.name)));
     // Paging from the response schema: a next link or cursor property.
     const topFlat = Object.fromEntries((ls?.top ?? []).map((p) => [p.name, 1]));
@@ -328,7 +378,7 @@ export function analyzeSpec(spec: Spec, baseUrl: string): { endpoints: ApiEndpoi
     }
   }
   // Role-less lists with no usable mapping are left out of the table's "use" column, never switched on.
-  for (const ep of endpoints) ep.use = PAGE_ROLES.includes(ep.role) || ep.role === 'tags' ? !!(ep.idField && ep.titleField) && (ep.confidence ?? 0) >= 0.5 : false;
+  for (const ep of endpoints) ep.use = endpointUsable(ep) && (ep.confidence ?? 0) >= 0.5;
   return { endpoints: endpoints.slice(0, MAX_ENDPOINTS), needsSample, title: typeof spec.info?.title === 'string' ? spec.info.title : null };
 }
 
@@ -404,9 +454,10 @@ export async function discoverApi(fetchFn: typeof fetch, input: DiscoverInput, s
     const list = findList(r.json);
     if (list && list.items.length && list.items.some((x) => x && typeof x === 'object')) {
       const props = propsOfSample(list.items);
-      const m = mapFields(props);
-      const paging = guessPaging(r.json, endpoints.find((e) => e.path === s.path)?.pageParam ? [] : []);
       const existing = endpoints.find((e) => e.path === s.path);
+      const m0 = mapFields(props);
+      const m = mapRoleFields(existing && existing.role !== 'unknown' ? existing.role : guessRole(s.path || '/', []).role, props, m0) ?? m0;
+      const paging = guessPaging(r.json, endpoints.find((e) => e.path === s.path)?.pageParam ? [] : []);
       const { role, confidence } = guessRole(s.path || '/', []);
       const merged: ApiEndpoint = {
         ...(existing ?? { path: s.path || '/', role, key: (s.path.split('/').filter(Boolean).pop() ?? 'list').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30) || 'list', use: false }),
@@ -415,7 +466,7 @@ export async function discoverApi(fetchFn: typeof fetch, input: DiscoverInput, s
         confidence: Math.round(((existing ? (existing.confidence ?? 0) : confidence * 0.35) * (existing ? 0.5 : 1) + m.score * 0.65) * 100) / 100,
         note: `${existing ? 'schema and ' : ''}one sample call (${list.items.length} records); ${m.notes.join('; ')}`.replace(/; $/, ''),
       };
-      merged.use = (PAGE_ROLES.includes(merged.role) || merged.role === 'tags') && !!(merged.idField && merged.titleField) && (merged.confidence ?? 0) >= 0.5;
+      merged.use = endpointUsable(merged) && (merged.confidence ?? 0) >= 0.5;
       if (existing) Object.assign(existing, merged); else endpoints.push(merged);
     } else if (s.why === 'base' && r.json && typeof r.json === 'object') {
       // A root document that points at its endpoints: noted, never called until the DM assigns a role.
@@ -436,3 +487,46 @@ export async function discoverApi(fetchFn: typeof fetch, input: DiscoverInput, s
 }
 
 export { pick, ROLES };
+
+
+// ---- MCP tools: which tool lists, which one reads one item ------------------------------------------------
+
+export interface McpToolInfo { name: string; description?: string; inputSchema?: any }
+export interface McpGuess {
+  /** The best tool to list records, or null. */
+  listTool: { name: string; confidence: number } | null;
+  /** Tools that read one record from its id (get_*, read_*, fetch_*), best first, with the argument that takes the id. */
+  detailTools: { name: string; idArg: string; idType: 'string' | 'number'; confidence: number }[];
+  notes: string[];
+}
+
+const NOT_READ = /(create|update|delete|write|set_|put|patch|post|append|remove|move|upload|insert|edit|rename|replace|restore|run_|manage|advance|retreat|add_|save|import|send)/i;
+const ID_ARGS = ['id', 'uuid', '_id', 'slug', 'key', 'identifier', 'guid', 'entity_id', 'page_id', 'article_id', 'record_id', 'item_id', 'document_id', 'resource_id'];
+/** The word a tool is about, singular ("list_articles" and "get_article" both: "article"). */
+const stem = (name: string) => name.toLowerCase().replace(/^(list|search|find|query|browse|all|get|read|fetch|retrieve|show|load|open|lookup)[_-]?/, '').replace(/[_-]?(by[_-]?id|detail|details)$/, '').replace(/ies$/, 'y').replace(/s$/, '');
+
+/** Guess the list tool and the per-item read tool of an MCP server from tool names and input schemas. Nothing is called. */
+export function guessMcpTools(tools: McpToolInfo[], listTool?: string): McpGuess {
+  const notes: string[] = [];
+  const reads = tools.filter((t) => t?.name && !NOT_READ.test(t.name));
+  const required = (t: McpToolInfo): string[] => (Array.isArray(t.inputSchema?.required) ? t.inputSchema.required.map(String) : []);
+  const props = (t: McpToolInfo): Record<string, any> => (t.inputSchema?.properties && typeof t.inputSchema.properties === 'object' ? t.inputSchema.properties : {});
+  const listCands = reads.filter((t) => /^(list|search|find|query|browse|all)[_-]|s$/i.test(t.name) && required(t).length === 0)
+    .map((t) => ({ name: t.name, confidence: /^(list|all|browse)[_-]/i.test(t.name) ? 0.8 : 0.6 }));
+  const chosenList = listTool ? { name: listTool, confidence: 1 } : listCands.sort((a, b) => b.confidence - a.confidence)[0] ?? null;
+  const want = chosenList ? stem(chosenList.name) : '';
+  const detail = reads.filter((t) => /^(get|read|fetch|retrieve|show|load|open|lookup)[_-]?/i.test(t.name) && t.name !== chosenList?.name).flatMap((t) => {
+    const ps = props(t);
+    const idArg = ID_ARGS.map((n) => Object.keys(ps).find((k) => k.toLowerCase() === n)).find(Boolean)
+      ?? Object.keys(ps).find((k) => /_?id$/i.test(k) && required(t).includes(k));
+    if (!idArg) return [];
+    // Other required arguments (a world, a project) need values we do not have: allowed, but less sure.
+    const others = required(t).filter((k) => k !== idArg).length;
+    const type = ps[idArg]?.type === 'integer' || ps[idArg]?.type === 'number' ? 'number' as const : 'string' as const;
+    const same = want && stem(t.name) === want;
+    return [{ name: t.name, idArg, idType: type, confidence: Math.round(((same ? 0.9 : 0.5) - Math.min(others, 2) * 0.1) * 100) / 100 }];
+  }).sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name));
+  if (!chosenList) notes.push('No tool that lists records without required arguments was found: name the list tool.');
+  if (!detail.length) notes.push('No tool that reads one record from its id was found: leave the read tool blank (the list is all there is) or name one.');
+  return { listTool: chosenList, detailTools: detail.slice(0, 6), notes };
+}
