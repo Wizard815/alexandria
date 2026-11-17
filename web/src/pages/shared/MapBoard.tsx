@@ -8,6 +8,7 @@ import { when } from '../../lib/format.ts';
 import { PageHead, ErrorBox, Field, VisChip, useAction, useToast } from '../../ui/index.tsx';
 import { ICONS, MarkLayer, RouteLayer, type Mark, type Pt } from '../player/mapParts.tsx';
 
+interface ImportedMap { id: string; name: string; url: string; page: { id: string; title: string } | null }
 type Tool = 'select' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase';
 const TOOLS: [Tool, string, string][] = [
   ['select', '➤', 'Select'], ['pin', '📍', 'Pin'], ['note', '🗒', 'Note'], ['route', '✎', 'Route'],
@@ -36,7 +37,11 @@ export default function MapBoard() {
   const [maps, setMaps] = store<string[]>(`alx.maps.${info.id}`, ['world']);
   const [mapId, setMapId] = store<string>(`alx.map.${info.id}`, maps[0] ?? 'world');
   const [bgs, setBgs] = store<Record<string, string>>(`alx.mapbg.${info.id}`, {});
-  const bg = bgs[mapId] ?? '';
+  // Maps imported from the world's sources (Kanka, LegendKeeper, a JSON API): the list the viewer may open, each with a fresh signed address.
+  const imported = useLoad(() => w.call('GET', '/intake/map-images').catch(() => []) as Promise<ImportedMap[]>, [w]);
+  const [picked, setPicked] = store<Record<string, string>>(`alx.mapimport.${info.id}`, {});
+  const importedMap = (imported.data ?? []).find((m) => m.id === picked[mapId]) ?? null;
+  const bg = importedMap?.url ?? bgs[mapId] ?? '';
   const setBg = (url: string) => setBgs({ ...bgs, [mapId]: url });
   const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed']);
   const [tool, setTool] = useState<Tool>('select');
@@ -199,6 +204,14 @@ export default function MapBoard() {
               <input id="map-new" name="map" className="input grow" placeholder="Another map, e.g. old-kesh" style={{ minHeight: 32 }} />
               <button type="submit" className="btn small">Open</button>
             </form>
+            {(imported.data ?? []).length > 0 && (
+              <Field label="Imported map (this browser only)" help="A map from one of this world's sources. Marks are shared; the choice of picture is not.">
+                <select value={importedMap?.id ?? ''} onChange={(e) => setPicked({ ...picked, [mapId]: e.target.value })}>
+                  <option value="">None</option>
+                  {(imported.data ?? []).map((m) => <option key={m.id} value={m.id}>{m.name || 'Map'}{m.page ? ` (${m.page.title})` : ''}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Map image (this browser only)" help="Paste an image URL to draw over. Marks are shared; the image is not.">
               <input value={bg} onChange={(e) => setBg(e.target.value.trim())} placeholder="https://…/map.jpg" />
             </Field>

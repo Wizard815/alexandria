@@ -7,11 +7,11 @@
 // so a preset carries it to other worlds.
 import { ConfigError } from '../connector.ts';
 
-export const ROLES = ['pages', 'people', 'places', 'items', 'organisations', 'events', 'calendars', 'tags', 'images', 'unknown'] as const;
+export const ROLES = ['pages', 'people', 'places', 'items', 'organisations', 'events', 'calendars', 'tags', 'images', 'map', 'unknown'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABEL: Record<Role, string> = {
   pages: 'Pages / articles', people: 'People / characters', places: 'Places / locations', items: 'Items', organisations: 'Organisations / factions',
-  events: 'Events / timelines', calendars: 'Calendars', tags: 'Tags', images: 'Images / files', unknown: 'Not sure',
+  events: 'Events / timelines', calendars: 'Calendars', tags: 'Tags', images: 'Images / files', map: 'Map images', unknown: 'Not sure',
 };
 /** Roles that become library pages. Tags feed the names of tags; calendars become world calendars and images become the pictures of pages. */
 export const PAGE_ROLES: readonly Role[] = ['pages', 'people', 'places', 'items', 'organisations', 'events'];
@@ -69,7 +69,7 @@ export interface ApiEndpoint {
   yearSuffixField?: string;
   /** An array of dated events (each with id, name or title, date, and optionally description): they become a timeline of the calendar. */
   eventsField?: string;
-  // Images (role `images`): `urlField` holds the picture's address (relative to the base URL, or absolute); without it, `detailPath` is the download path ({id}).
+  // Images (role `images`, or `map` for map files): `urlField` holds the picture's address (relative to the base URL, or absolute); without it, `detailPath` is the download path ({id}).
   /** The field that says which page the picture belongs to (that page's id in its own list). A picture with no page is stored but shown on none. */
   pageField?: string;
   /** How sure the setup guess was, 0 to 1, and a note on how it was guessed. For the review table only. */
@@ -116,10 +116,12 @@ export function endpointsOf(cfg: Record<string, any>): ApiEndpoint[] {
 }
 
 /** The ones that will be called: marked used (the DM accepted them), with a role that gives pages, tag names, calendars or pictures. Anything else is never called. */
-export const usedEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && (PAGE_ROLES.includes(e.role) || e.role === 'tags' || e.role === 'calendars' || e.role === 'images'));
+export const usedEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && (PAGE_ROLES.includes(e.role) || e.role === 'tags' || e.role === 'calendars' || e.role === 'images' || e.role === 'map'));
 export const pageEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && PAGE_ROLES.includes(e.role));
 export const calendarEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && e.role === 'calendars');
 export const imageEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && e.role === 'images');
+/** Endpoints whose records are map images (role `map`): downloaded like pictures, kept as maps, with a larger size cap. */
+export const mapEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && e.role === 'map');
 
 /** Make an absolute URL from the base URL and an endpoint path. A full URL stays as it is. */
 export function endpointUrl(baseUrl: unknown, path: string): string {

@@ -29,7 +29,7 @@ function world(kind: string, config: Record<string, unknown>, vis = 'party') {
   run(db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s', 'w', ?, 'S', ?, ?)`, kind, JSON.stringify(config), vis);
   return { db, lib: new Library(db, null) };
 }
-const sync = (db: any, lib: Library, fetchImpl: typeof fetch, vaultsDir: string | null = null) => runSync({ db, library: lib, dataDir: null, vaultsDir, fetch: fetchImpl, env: {}, mcp: null as any }, 's', 'a');
+const sync = (db: any, lib: Library, fetchImpl: typeof fetch, vaultsDir: string | null = null) => runSync({ db, library: lib, dataDir: null, vaultsDir, fetch: fetchImpl, env: { ALX_CRAWL_RATE: '0' }, mcp: null as any }, 's', 'a');
 const byTitle = (lib: Library, viewer: any, t: string) => (lib.list('w', viewer) as any[]).find((p) => p.title === t);
 
 // ---------- LegendKeeper ----------

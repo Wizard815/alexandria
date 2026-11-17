@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS intake_images (
   page_ref TEXT,
   page_external TEXT,
   at TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'picture',
   UNIQUE (world_id, source_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS intake_images_page ON intake_images (world_id, source_id, page_external);
@@ -79,6 +80,15 @@ CREATE TRIGGER IF NOT EXISTS intake_calendars_source_gone AFTER DELETE ON source
 END;
 `;
 const ready = new WeakSet<object>();
+
+/** The records tables, and the `kind` column of pictures (`picture` or `map`) on databases made before maps were imported. Safe to run again. */
+export function initRecords(db: DB) {
+  if (ready.has(db)) return;
+  db.exec(RECORDS_SCHEMA);
+  const cols = (db.prepare('PRAGMA table_info(intake_images)').all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes('kind')) db.exec("ALTER TABLE intake_images ADD COLUMN kind TEXT NOT NULL DEFAULT 'picture'");
+  ready.add(db);
+}
 
 export interface RecordViewer { role: string; audience?: 'ai' | 'broker' }
 
@@ -94,6 +104,8 @@ export function sniffImage(b: Uint8Array): string | null {
   return null;
 }
 export const MAX_STORED_IMAGE = 8 * 1024 * 1024;
+/** The most a stored map may be, whatever the settings say (the download cap, `ALX_MAP_MAX_BYTES`, is lower by default). */
+export const MAX_STORED_MAP = 64 * 1024 * 1024;
 
 /** The stored page a picture belongs to: the source's id for it, or one that ends in `:<id>` (several endpoints) when only one page does. */
 function pageOf(db: DB, worldId: string, sourceId: string, ref: string | null | undefined): string | null {
@@ -105,14 +117,32 @@ function pageOf(db: DB, worldId: string, sourceId: string, ref: string | null | 
 
 /** What is stored for a source: externalId to marker, so an unchanged picture is not downloaded again. */
 export function heldImages(db: DB, worldId: string, sourceId: string): Map<string, string> {
-  if (!ready.has(db)) { db.exec(RECORDS_SCHEMA); ready.add(db); }
+  initRecords(db);
   return new Map(all<{ external_id: string; marker: string }>(db, 'SELECT external_id, marker FROM intake_images WHERE world_id = ? AND source_id = ?', worldId, sourceId).map((r) => [r.external_id, r.marker]));
 }
 
-/** The stored picture of a page, if it has one: its id (for a media ticket). */
+/** The stored pictures of a page, primary first (pictures before maps, then by the source's id): ids and what is needed to tell who may see each. */
+export function imagesForPage(db: DB, worldId: string, sourceId: string | null, externalId: string | null): { id: string; name: string; kind: string; world_id: string; source_id: string; visibility: string; page_external: string | null }[] {
+  if (!sourceId || !externalId) return [];
+  initRecords(db);
+  try { return all<any>(db, `SELECT id, name, kind, world_id, source_id, visibility, page_external FROM intake_images WHERE world_id = ? AND source_id = ? AND page_external = ? ORDER BY kind = 'map', external_id LIMIT 100`, worldId, sourceId, externalId); } catch { return []; }
+}
+
+/** The first (primary) stored picture of a page, if it has one: its id (for a media ticket). */
 export function imageIdForPage(db: DB, worldId: string, sourceId: string | null, externalId: string | null): string | null {
-  if (!sourceId || !externalId) return null;
-  try { return one<{ id: string }>(db, 'SELECT id FROM intake_images WHERE world_id = ? AND source_id = ? AND page_external = ? ORDER BY external_id LIMIT 1', worldId, sourceId, externalId)?.id ?? null; } catch { return null; }
+  return imagesForPage(db, worldId, sourceId, externalId)[0]?.id ?? null;
+}
+
+/** Imported map images the viewer may open, for the Map page: the DM all, anyone else only maps that pass `imageVisibleTo`. Each has the page it belongs to. */
+export function mapImagesFor(db: DB, worldId: string, role: string): { id: string; name: string; source_id: string; size: number; page: { id: string; title: string } | null }[] {
+  initRecords(db);
+  const out: any[] = [];
+  for (const r of all<any>(db, `SELECT id, name, size, world_id, source_id, visibility, page_external FROM intake_images WHERE world_id = ? AND kind = 'map' ORDER BY name COLLATE NOCASE`, worldId)) {
+    if (!imageVisibleTo(db, r, role)) continue;
+    const pg = r.page_external ? one<any>(db, 'SELECT id, title FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, r.source_id, r.page_external) : null;
+    out.push({ id: r.id, name: r.name, source_id: r.source_id, size: r.size, page: pg ? { id: pg.id, title: pg.title } : null });
+  }
+  return out;
 }
 
 /**
@@ -167,7 +197,7 @@ const cleanGroups = (groups: TimelineGroup[] | undefined): TimelineGroup[] => (A
  * Returns counts per kind.
  */
 export function saveRecords(db: DB, worldId: string, sourceId: string, records: SyncRecord[], incomplete: Set<SyncRecord['kind']> = new Set(), refreshed?: { relationOwners: Set<string>; mapRefs: Set<string> }) {
-  if (!ready.has(db)) { db.exec(RECORDS_SCHEMA); ready.add(db); }
+  initRecords(db);
   const counts = { relations: 0, timelines: 0, calendars: 0, markers: 0, images: 0 };
   const keep = { relation: new Set<string>(), timeline: new Set<string>(), calendar: new Set<string>(), mapMarker: new Set<string>(), image: new Set<string>() };
   tx(db, () => {
@@ -211,12 +241,13 @@ export function saveRecords(db: DB, worldId: string, sourceId: string, records: 
           const link = pageOf(db, worldId, sourceId, r.pageRef);
           const bytes = r.data && r.data.length ? Buffer.from(r.data) : null;
           const mime = bytes ? sniffImage(bytes) : null;
-          if (bytes && (!mime || bytes.length > MAX_STORED_IMAGE)) continue;
+          const isMap = r.map === true;
+          if (bytes && (!mime || bytes.length > (isMap ? MAX_STORED_MAP : MAX_STORED_IMAGE))) continue;
           if (bytes) {
-            run(db, `INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_ref, page_external, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT (world_id, source_id, external_id) DO UPDATE SET name = excluded.name, marker = excluded.marker, mime = excluded.mime, size = excluded.size, data = excluded.data,
+            run(db, `INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_ref, page_external, at, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (world_id, source_id, external_id) DO UPDATE SET kind = excluded.kind, name = excluded.name, marker = excluded.marker, mime = excluded.mime, size = excluded.size, data = excluded.data,
                 visibility = excluded.visibility, page_ref = excluded.page_ref, page_external = excluded.page_external, at = excluded.at`,
-              newId('img_'), worldId, sourceId, ext, text(r.name, 300), text(r.marker, 600), mime, bytes.length, bytes, vis(r.visibility), r.pageRef ? text(r.pageRef, 300) : null, link, now());
+              newId('img_'), worldId, sourceId, ext, text(r.name, 300), text(r.marker, 600), mime, bytes.length, bytes, vis(r.visibility), r.pageRef ? text(r.pageRef, 300) : null, link, now(), isMap ? 'map' : 'picture');
           } else {
             // Kept as it is: only its link and visibility are refreshed (a page may have arrived since).
             const n = run(db, 'UPDATE intake_images SET name = ?, visibility = ?, page_ref = ?, page_external = ? WHERE world_id = ? AND source_id = ? AND external_id = ?',

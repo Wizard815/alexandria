@@ -6,7 +6,11 @@ import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRec
 import { ConfigError, isRecord } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyGroup, indexBlocks } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
+import { pictureRecord } from '../images.ts';
 import { levelOfWord } from '../../core/levels.ts';
+
+/** Where LegendKeeper's own files live: a map picture from here is fetched like any other site (never from a private address). */
+const LK_ORIGIN = 'https://www.legendkeeper.com';
 
 export interface Transport { get(path: string, query?: Record<string, unknown>): Promise<any> }
 
@@ -442,6 +446,12 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
         sourceUpdatedAt: r.updatedAt ?? detail.updatedAt ?? null,
         depth: 'full',
       };
+      // A map document's image is kept as a map of its page (shared only with the page).
+      const mapUrl = d.type === 'map' ? (dd.mapImage?.url ?? d.mapImage?.url) : null;
+      if (typeof mapUrl === 'string' && /^https?:\/\//i.test(mapUrl)) {
+        const rec = await pictureRecord(ctx, { externalId: `${idn.externalId}#mapimg`, pageRef: idn.externalId, name: idn.title, url: mapUrl, updated: dd.updatedAt ?? r.updatedAt ?? null, visible: !isHidden && ctx.shareVisible, map: true, origin: LK_ORIGIN });
+        if (rec) yield rec;
+      }
     }
     for (const d of timelines) {
       const dd = (detail.documents ?? []).find((x: any) => x.id === d.id) ?? d;
@@ -554,7 +564,7 @@ async function* lkDetail(t: Transport, ctx: ConnectorContext, cfg: Record<string
     // The detail is the resource itself: its own hidden flag and parent are fresher than the cache.
     byId.set(rid, { ...(byId.get(rid) ?? {}), id: rid, parentId: detail.parentId ?? null, isHidden: detail.isHidden });
     session.seed(rid, detail);
-    for await (const x of session.entriesFor(detail)) { if (isRecord(x)) continue; yield x; }
+    for await (const x of session.entriesFor(detail)) { if (isRecord(x) && x.kind !== 'image') continue; yield x; }
   }
 }
 

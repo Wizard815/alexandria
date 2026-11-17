@@ -22,12 +22,12 @@ export default function libraryRoutes(d: Deps) {
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   // A page held only at index depth (a tiered crawl) is read from its source first, then served.
   r.get('/pages/:id', async (req, res) => {
-    await readOnOpen(d, ctx(res).world.id, String(req.params.id));
+    await readOnOpen(d, ctx(res).world.id, String(req.params.id), ctx(res).viewer);
     res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer));
   });
   // The viewer's own copy as a Markdown file (players: the player copy only).
   r.get('/pages/:id/markdown', async (req, res) => {
-    await readOnOpen(d, ctx(res).world.id, String(req.params.id));
+    await readOnOpen(d, ctx(res).world.id, String(req.params.id), ctx(res).viewer);
     const pg: any = L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer);
     const fm: Record<string, any> = { title: pg.title };
     if (pg.tags?.length) fm.tags = pg.tags;

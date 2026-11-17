@@ -42,7 +42,7 @@ const CALLER_MODEL = { 'X-Alexandria-Caller': 'model' };
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-sec-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: kanka.fetch, env: { ...MODEL_ENV, ALX_RATE_LIMIT: '0' } });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: kanka.fetch, env: { ...MODEL_ENV, ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0' } });
   deps = made.deps;
   routes = listRoutes(made.app);
   server = made.app.listen(0);
@@ -376,11 +376,15 @@ test('TestSecurityCrawl_ImportedPicturesFollowTheirPageAndNeverReachAPlayerWitho
   assert.match(hall.banner, /^\/api\/media\/intake\//);
   assert.equal(ticketOwner(hall.banner.split('/').pop()), S.ID.dm);
   assert.ok((await bytes(hall.banner)).text.includes(tok('import_image_party')));
+  // The page lists every picture of it to the DM (by name, which carries the marker); the DM-only second picture is the DM's alone.
+  assert.deepEqual(hall.pictures.map((x: any) => x.name).sort(), [tok('import_image_dm'), tok('import_image_party')].sort());
   // A player gets the shared picture of a shared page, with a ticket made for them, and only that one.
   for (const who of ['jess', 'tom', 'guest'] as const) {
     const pg = (await call('GET', `${W}/library/pages/${pageOf('imp-hall')}`, S.T[who])).json;
     assert.match(pg.banner, /^\/api\/media\/intake\//, who);
     assert.equal(ticketOwner(pg.banner.split('/').pop()), S.ID[who]);
+    assert.deepEqual(pg.pictures.map((x: any) => x.name), [tok('import_image_party')], `${who} is listed only the shared picture`);
+    assert.ok(!JSON.stringify(pg).includes(tok('import_image_dm')) && !JSON.stringify(pg).includes(S.ids.intakeimage.find((x: string) => x.endsWith('img-b-dm'))!), `${who}: no name or id of the DM-only second picture`);
     const got = await bytes(pg.banner);
     assert.equal(got.status, 200);
     assert.ok(got.text.includes(tok('import_image_party')) && !got.text.includes(tok('import_image_dm')) && !got.text.includes(tok('import_image_dmpage')));

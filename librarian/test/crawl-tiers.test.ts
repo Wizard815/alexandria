@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all, one, run } from '../src/core/db.ts';
 import { detailTick, ensureFull } from '../src/intake/detail.ts';
+import { mintTicket } from '../src/features/sound/ticket.ts';
 import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
 
 const cleanups: (() => void)[] = [];
@@ -19,7 +20,7 @@ const player = { accountId: 'p', role: 'player' as const };
 
 // ---- a fake LegendKeeper project ---------------------------------------------------------------------------------
 
-interface LkRes { id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[] }
+interface LkRes { id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string }
 const lk = {
   res: [] as LkRes[],
   calls: { list: 0, calendars: 0, detail: 0, blocks: 0, other: 0 },
@@ -35,7 +36,7 @@ const lkReset = (n: number) => {
   lk.detailIds = [];
   lk.failListPage = 0;
 };
-const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: 'page' }], hasChildren: false });
+const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page' }], hasChildren: false });
 const lkFetch = (url: string): Response | null => {
   if (!url.startsWith(LK_BASE)) return null;
   const u = new URL(url);
@@ -50,6 +51,7 @@ const lkFetch = (url: string): Response | null => {
     return json({ data: slice.map(lkListItem), hasMore: more, nextCursor: more ? String(start + 100) : null });
   }
   if (p === '/calendars') { lk.calls.calendars++; return json({ data: [] }); }
+  if (/\/features$/.test(p)) return json({ data: [] });
   let m = /^\/resources\/([^/]+)\/docs\/([^/]+)\/blocks$/.exec(p);
   if (m) {
     lk.calls.blocks++;
@@ -64,7 +66,7 @@ const lkFetch = (url: string): Response | null => {
     lk.detailIds.push(m[1]);
     const r = lk.res.find((x) => x.id === m![1]);
     if (!r) return json({ code: 'NOT_FOUND' }, 404);
-    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: 'page', isHidden: false, rank: 'a' }] });
+    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }] });
   }
   lk.calls.other++;
   return json({ code: 'NOT_FOUND' }, 404);
@@ -111,15 +113,25 @@ const kkFetch = (url: string): Response | null => {
 
 // ---- the app --------------------------------------------------------------------------------------------------------------
 
-let handlers: ((u: string) => Response | null)[] = [lkFetch, kkFetch];
+// Pictures of maps: PNGs of a size the test chooses (the path says how many bytes).
+const imgCalls: string[] = [];
+const PNG_HEAD = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const imgFetch = (url: string): Response | null => {
+  const u = new URL(url);
+  if (u.hostname !== 'images.kanka.io' && u.hostname !== 'cdn.lk.example') return null;
+  imgCalls.push(`${u.hostname}${u.pathname}`);
+  const n = Number(/-(\d+)\.png$/.exec(u.pathname)?.[1] ?? 100);
+  return new Response(new Uint8Array([...PNG_HEAD, ...new Uint8Array(n)]), { status: 200, headers: { 'Content-Type': 'image/png' } });
+};
+let handlers: ((u: string) => Response | null)[] = [lkFetch, kkFetch, imgFetch];
 const fake = (async (url: any) => {
   for (const h of handlers) { const r = h(String(url)); if (r) return r; }
   return json({ error: 'unexpected ' + url }, 500);
 }) as typeof fetch;
 
-async function boot() {
+async function boot(env: Record<string, string> = {}) {
   resetBuckets();
-  const made = createApp({ noScheduler: true, fetch: fake, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0' } });
+  const made = createApp({ noScheduler: true, fetch: fake, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0', ...env } });
   const server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   cleanups.push(() => { server.close(); server.closeAllConnections?.(); });
@@ -138,14 +150,16 @@ async function boot() {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r.body;
   };
+  const accounts = new Map<string, string>();
   const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
   const addPlayer = async (wid: string) => {
     const inv = await ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
     const j = (await call('POST', '/api/join', null, { code: inv.code, username: 'jess' + Math.random().toString(36).slice(2, 6), password: 'player pass 123', characterName: 'Jess' })).body;
+    accounts.set(j.token, j.account.id);
     return j.token as string;
   };
   const sd = () => ({ db: made.deps.db, library: made.deps.library, dataDir: null, vaultsDir: null, fetch: fake, env: { ALX_CRAWL_RATE: '0' } as Record<string, string | undefined>, mcp: undefined });
-  return { ...made, call, ok, admin, world, addPlayer, base, sd };
+  return { ...made, call, ok, admin, world, addPlayer, base, sd, accountOf: (token: string) => accounts.get(token) ?? '' };
 }
 type T = Awaited<ReturnType<typeof boot>>;
 
@@ -214,12 +228,20 @@ test('CrawlTiers_OpeningAPageReadsItFirst_ForTheDmAndForAPlayer', async () => {
   const tok = await t.addPlayer(wid);
   const before = { ...lk.calls };
 
-  // A player opens a page the source shares: it is read, then served.
+  // A player opening a page that is only listed spends no call: until it is read it is DM-only (nothing says yet that the source shares it).
+  const listed = await getPage(t, wid, tok, pageId(t, wid, 'Page 5'));
+  assert.equal(listed.status, 404);
+  assert.deepEqual(lk.calls, before, 'no call was made for a page the player could not see');
+  assert.equal(depthOf(t, wid, 'Page 5'), 'index');
+  // The DM opens it: it is read, then served, and the player may open it too.
+  assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'Page 5'))).status, 200);
+  const mid0 = { ...lk.calls };
   const open = await getPage(t, wid, tok, pageId(t, wid, 'Page 5'));
   assert.equal(open.status, 200, open.text.slice(0, 200));
+  assert.deepEqual(lk.calls, mid0, 'the player\'s open costs nothing');
   assert.ok(open.text.includes('LKBODY5'), 'the player gets the page itself, not the index line');
-  assert.equal(lk.calls.detail - before.detail, 1 + 1, 'the page and its parent (permissions)');
-  assert.equal(lk.calls.blocks - before.blocks, 1);
+  assert.equal(mid0.detail - before.detail, 1 + 1, 'the page and its parent (permissions)');
+  assert.equal(mid0.blocks - before.blocks, 1);
   assert.equal(depthOf(t, wid, 'Page 5'), 'full');
   // Opening it again costs nothing.
   const mid = { ...lk.calls };
@@ -338,6 +360,8 @@ test('CrawlTiers_RecrawlReadsOnlyWhatChangedAndAHiddenPageLosesItsPlayerCopyAtOn
   const { wid, sid } = await lkWorld(t, 15);
   await sync(t, sid);
   const tok = await t.addPlayer(wid);
+  // A page that is only listed has no player copy yet: the DM opening it reads it, and then it is the player's too.
+  for (const n of [5, 7, 9]) assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, `Page ${n}`))).status, 200);
   for (const n of [5, 7, 9]) assert.equal((await getPage(t, wid, tok, pageId(t, wid, `Page ${n}`))).status, 200);
   assert.equal(depthCounts(t.deps.db, sid).full, 3);
   const detailBefore = lk.calls.detail;
@@ -523,4 +547,89 @@ test('CrawlTiers_ASourceSetToDmOnlyStaysDmOnlyAtEveryDepth', async () => {
   assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'Page 4'))).status, 404);
   assert.equal((await t.call('GET', `/api/worlds/${wid}/library/pages`, tok)).body.length, 0);
   run(t.deps.db, 'SELECT 1');
+});
+
+// ---- map images --------------------------------------------------------------------------------------------------------------
+
+const mapRow = (t: T, ext: string) => one<any>(t.deps.db, 'SELECT * FROM intake_images WHERE external_id = ?', ext);
+
+test('CrawlTiers_KankaMapPicturesAreStoredAsMapsWithTheirOwnSizeCapAndFollowTheirPage', async () => {
+  imgCalls.length = 0;
+  // Pictures are capped at 1,000 bytes here; maps at 4,000.
+  const t = await boot({ ALX_IMAGE_MAX_BYTES: '1000', ALX_MAP_MAX_BYTES: '4000' });
+  kkReset(2);
+  kk.maps = [
+    { id: 1, entity_id: 2001, name: 'Realm Map', entry: '<p>MAPBODY1</p>', is_private: false, image_full: 'https://images.kanka.io/m1-3000.png', has_custom_image: true, updated_at: '2026-01-01T00:00:00Z' },
+    { id: 2, entity_id: 2002, name: 'Secret Map', entry: '<p>MAPBODY2</p>', is_private: true, image_full: 'https://images.kanka.io/m2-2000.png', has_custom_image: true, updated_at: '2026-01-01T00:00:00Z' },
+    { id: 3, entity_id: 2003, name: 'Huge Map', entry: '<p>MAPBODY3</p>', is_private: false, image_full: 'https://images.kanka.io/m3-9000.png', has_custom_image: true, updated_at: '2026-01-01T00:00:00Z' },
+    { id: 4, entity_id: 2004, name: 'No Image Map', entry: '<p>MAPBODY4</p>', is_private: false, image_full: 'https://images.kanka.io/default.png', has_custom_image: false, updated_at: '2026-01-01T00:00:00Z' },
+  ];
+  const wid = await t.world('Kanka Map World');
+  const conn = await t.ok('POST', '/api/admin/connections', { kind: 'kanka-api', name: 'My Kanka', config: { token: 'kanka-token-aaaaaaaaaaaaaaaaaaaa' } });
+  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { connectionId: conn.id, kind: 'kanka-api', name: 'Kanka', config: { campaignId: '1' }, defaultVisibility: 'party' });
+  const first = await sync(t, src.id);
+  assert.deepEqual(imgCalls.sort(), ['images.kanka.io/m1-3000.png', 'images.kanka.io/m2-2000.png', 'images.kanka.io/m3-9000.png'], 'a map with no custom image is not downloaded');
+  assert.equal(first.stats.detailCalls, 3, 'downloads are detail calls');
+  const rows = all<any>(t.deps.db, "SELECT external_id, kind, visibility, size FROM intake_images ORDER BY external_id");
+  assert.deepEqual(rows.map((r) => [r.external_id, r.kind, r.visibility]), [['kanka:mapimg:2001', 'map', 'party'], ['kanka:mapimg:2002', 'map', 'dm']], 'the huge map is over the map cap and is refused; a private map is the DM\'s');
+  assert.ok(rows[0].size > 1000, 'a map may be bigger than a picture');
+
+  const tok = await t.addPlayer(wid);
+  const dmPage = (await getPage(t, wid, t.admin, pageId(t, wid, 'Realm Map'))).body;
+  assert.equal(dmPage.pictures.length, 1);
+  assert.equal(dmPage.pictures[0].map, true);
+  assert.equal(dmPage.banner, 'https://images.kanka.io/m1-3000.png', 'the page keeps the address Kanka gave it as its banner');
+  assert.equal(dmPage.pictures[0].primary, false);
+  assert.equal((await fetch(t.base + dmPage.pictures[0].url)).status, 200);
+  const playerPage = (await getPage(t, wid, tok, pageId(t, wid, 'Realm Map'))).body;
+  assert.equal(playerPage.pictures.length, 1, 'a shared map follows its shared page');
+  assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'Secret Map'))).status, 404);
+  assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'Secret Map'))).body.pictures.length, 1, 'the DM has the private map');
+
+  // The Map page can pick imported maps: the DM sees both, a player only the shared one.
+  const dmMaps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, t.admin)).body;
+  assert.deepEqual(dmMaps.map((m: any) => m.name).sort(), ['Realm Map', 'Secret Map']);
+  assert.equal((await fetch(t.base + dmMaps[0].url)).status, 200);
+  const playerMaps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body;
+  assert.deepEqual(playerMaps.map((m: any) => m.name), ['Realm Map']);
+  assert.ok(!JSON.stringify(playerMaps).includes(mapRow(t, 'kanka:mapimg:2002').id), 'no id of a private map reaches a player');
+  const forged = mintTicket({ w: wid, k: 'intake', f: mapRow(t, 'kanka:mapimg:2002').id, a: t.accountOf(tok) });
+  assert.equal((await fetch(`${t.base}/api/media/intake/${forged}`)).status, 404);
+
+  // An unchanged map is not downloaded again; a changed one is, alone.
+  imgCalls.length = 0;
+  await sync(t, src.id, { full: true });
+  assert.deepEqual(imgCalls.filter((c) => !c.includes('m3-')), [], 'nothing was fetched again');
+  kk.maps[0].updated_at = '2026-04-01T00:00:00Z';
+  imgCalls.length = 0;
+  await sync(t, src.id);
+  assert.deepEqual(imgCalls, ['images.kanka.io/m1-3000.png']);
+
+  // The source's audience can keep every map DM-only.
+  run(t.deps.db, "UPDATE sources SET audience = 'dm' WHERE id = ?", src.id);
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'dm' });
+  await sync(t, src.id, { full: true });
+  assert.deepEqual((await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body, []);
+});
+
+test('CrawlTiers_LegendKeeperMapImagesComeWithTheMapPageWhenItIsReadAndStayDmOnlyForAHiddenOne', async () => {
+  imgCalls.length = 0;
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 4);
+  lk.res[1].map = 'https://cdn.lk.example/world-2500.png'; lk.res[1].name = 'World Map';
+  lk.res[2].map = 'https://cdn.lk.example/secret-2500.png'; lk.res[2].name = 'Hidden Map'; lk.res[2].isHidden = true;
+  await sync(t, sid);
+  assert.equal(all<any>(t.deps.db, 'SELECT 1 FROM intake_images').length, 0, 'the index only lists: no picture yet');
+  assert.deepEqual(imgCalls, []);
+  const tok = await t.addPlayer(wid);
+  // Opening the pages reads them, and their pictures come with them.
+  assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'World Map'))).status, 200);
+  assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'Hidden Map'))).status, 200);
+  assert.deepEqual(imgCalls.sort(), ['cdn.lk.example/secret-2500.png', 'cdn.lk.example/world-2500.png']);
+  assert.deepEqual(all<any>(t.deps.db, 'SELECT kind, visibility FROM intake_images ORDER BY name').map((r) => [r.kind, r.visibility]), [['map', 'dm'], ['map', 'party']]);
+  const maps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body;
+  assert.deepEqual(maps.map((m: any) => m.name), ['World Map']);
+  assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'World Map'))).body.pictures.length, 1);
+  assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'Hidden Map'))).status, 404);
+  assert.ok(!(await t.call('GET', `/api/worlds/${wid}/library/pages`, tok)).text.includes('secret-2500'));
 });
