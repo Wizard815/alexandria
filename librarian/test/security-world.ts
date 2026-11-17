@@ -169,6 +169,23 @@ export async function seedContent(h: H, S: Seed) {
     rec('INSERT INTO intake_markers (world_id, source_id, external_id, map_ref, name, latitude, longitude, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', W, sid, ext, 'imp-hall', name, 1, 2, vis);
   }
 
+  // Calendars and pictures a source gave (the generic API's calendars and images). A picture follows its page: it is the DM's alone when the
+  // picture itself is DM-only or its page is.
+  const cal = (name: string) => JSON.stringify({ name, epochYear: 0, months: [{ name: 'First', days: 30 }], weekdays: ['Day'] });
+  for (const [ext, vis, name] of [['c-dm', 'dm', mark('calendar_dm', ['dm'], 'a DM-only imported calendar')], ['c-party', 'party', 'Harbour calendar']] as const) {
+    rec('INSERT INTO intake_calendars (world_id, source_id, external_id, name, definition, visibility, current) VALUES (?, ?, ?, ?, ?, ?, ?)', W, sid, ext, name, cal(name), vis, null);
+  }
+  for (const [ext, vis, page, text] of [
+    ['img-a-party', 'party', 'imp-hall', mark('import_image_party', ['dm', 'jess', 'tom'], 'an imported picture of a shared page (control)')],
+    ['img-b-dm', 'dm', 'imp-hall', mark('import_image_dm', ['dm'], 'a DM-only imported picture of a shared page')],
+    ['img-c-dmpage', 'party', 'imp-dm', mark('import_image_dmpage', ['dm'], 'an imported picture of a DM-only page')],
+  ] as const) {
+    const bytes = PNG(text);
+    const iid = `img_${ext}`;
+    rec('INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_ref, page_external, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', iid, W, sid, ext, ext, ext, 'image/png', bytes.length, bytes, vis, page, page, new Date().toISOString());
+    pushId('intakeimage', iid);
+  }
+
   // ---- items: DM notes, a picture, a player's proposal ---------------------------------------
   await h.ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 50000, note: 'Starting coin' });
   await h.ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: 900, note: 'Starting coin' });
