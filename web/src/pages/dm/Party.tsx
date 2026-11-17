@@ -44,12 +44,12 @@ export default function DMParty() {
       <div className="cols">
         <aside className="col-1 card flush" style={{ maxWidth: 320 }}>
           <div className="list" role="tablist" aria-label="Whose inventory">
-            <button type="button" role="tab" aria-selected={owner === 'party'} className={`list-item${owner === 'party' ? ' active' : ''}`} onClick={() => setOwner('party')}>
+            <button type="button" role="tab" aria-selected={owner === 'party'} className={`list-item${owner === 'party' ? ' active' : ''}`} aria-current={(owner === 'party') || undefined} onClick={() => setOwner('party')}>
               <span className="grow"><strong>The party</strong><br /><span className="tiny muted">Shared pack{info.settings.partyPurse ? ' and purse' : ''}</span></span>
               {waiting('party') > 0 && <span className="chip teal" title="Waiting for your approval">{waiting('party')} ⏳</span>}
             </button>
             {players.map((p) => (
-              <button key={p.id} type="button" role="tab" aria-selected={owner === p.id} className={`list-item${owner === p.id ? ' active' : ''}`} onClick={() => setOwner(p.id)}>
+              <button key={p.id} type="button" role="tab" aria-selected={owner === p.id} className={`list-item${owner === p.id ? ' active' : ''}`} aria-current={(owner === p.id) || undefined} onClick={() => setOwner(p.id)}>
                 <span className="grow"><strong>{p.character_name || p.display_name}</strong><br /><span className="tiny muted">{p.display_name}</span></span>
                 {waiting(p.id) > 0 && <span className="chip teal" title="Waiting for your approval">{waiting(p.id)} ⏳</span>}
                 {here.has(p.id) ? <span className="chip green" title={here.get(p.id).location}>here</span> : <span className="chip">away</span>}

@@ -40,8 +40,14 @@ export function hashPassword(pw: string): string {
   return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
 
+// Checked against when nobody has the username, so a wrong name costs the same time as a wrong password.
+let dummyHash: string | null = null;
 export function checkPassword(pw: string, stored: string | null): boolean {
-  if (!stored) return false;
+  if (!stored) {
+    dummyHash ??= hashPassword(randomBytes(16).toString('hex'));
+    checkPassword(pw, dummyHash);
+    return false;
+  }
   const [algo, saltB64, hashB64] = stored.split('$');
   if (algo !== 'scrypt' || !saltB64 || !hashB64) return false;
   const expected = Buffer.from(hashB64, 'base64');

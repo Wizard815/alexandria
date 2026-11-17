@@ -26,7 +26,7 @@ export default function Messages() {
           {threads.loading && !threads.data ? <div style={{ padding: 16 }}><Loading /></div> : (
             <div className="list">
               {list.map((t: any) => (
-                <button key={t.id} type="button" className={`list-item${t.id === cur ? ' active' : ''}`} onClick={() => setSel(t.id)} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                <button key={t.id} type="button" className={`list-item${t.id === cur ? ' active' : ''}`} aria-current={(t.id === cur) || undefined} onClick={() => setSel(t.id)} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
                   <strong>{title(t)}</strong>
                   <span className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{t.last ?? 'No messages yet'}</span>
                   <span className="tiny faint">{t.kept ? 'Kept' : t.expiresAt ? `Deletes ${when(t.expiresAt)}` : ''}</span>

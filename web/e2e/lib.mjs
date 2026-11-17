@@ -55,7 +55,7 @@ export const INIT = () => {
         const r = region(e), l = label(e), k = `${r}|${l}`;
         counts[k] = (counts[k] ?? -1) + 1;
         const submit = e.tagName === 'BUTTON' && !!e.form && (e.type === 'submit');
-        return { region: r, label: l, key: k, nth: counts[k], href: e.tagName === 'A' ? e.getAttribute('href') : null, target: e.getAttribute('target'), download: e.hasAttribute('download'), submit, title: e.getAttribute('title') || '', selected: e.getAttribute('aria-checked') === 'true' || e.getAttribute('aria-selected') === 'true' || e.getAttribute('aria-current') === 'page' };
+        return { region: r, label: l, key: k, nth: counts[k], href: e.tagName === 'A' ? e.getAttribute('href') : null, target: e.getAttribute('target'), download: e.hasAttribute('download'), submit, title: e.getAttribute('title') || '', selected: e.getAttribute('aria-checked') === 'true' || e.getAttribute('aria-selected') === 'true' || (e.getAttribute('aria-current') ?? 'false') !== 'false' };
       });
     },
     find(key, nth) {
