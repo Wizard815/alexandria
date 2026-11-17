@@ -23,12 +23,14 @@ import { DepthBadge } from '../../features/connections/Tiers.tsx';
 import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
+import { FILES_CSS, FilesTab, PageFiles } from '../../features/libfiles/Files.tsx';
 
-type Side = 'pages' | 'saved' | 'lint';
+type Side = 'pages' | 'files' | 'saved' | 'lint';
 type Sort = 'tree' | 'recent' | 'title';
 
-export default function LibraryPage() {
-  const { w, info, isDM, me } = useWorld();
+/** `embedded`: inside the gateway admin (own heading, read-only except for files). */
+export default function LibraryPage({ embedded = false }: { embedded?: boolean } = {}) {
+  const { w, info, isDM, me, readOnly } = useWorld();
   const [params, setParams] = useSearchParams();
   const pages = useLoad<PageRow[]>(() => w.pages(), [w], ['page']);
   const lint = useLoad<any[]>(() => (isDM ? w.call('GET', '/library/lint') : Promise.resolve([])), [w, isDM], ['page']);
@@ -85,7 +87,7 @@ export default function LibraryPage() {
   const flat = useMemo(() => (sort === 'tree' && !needle ? null : [...list].sort((a, b) => (sort === 'recent' ? b.updated_at.localeCompare(a.updated_at) : a.title.localeCompare(b.title, undefined, { numeric: true })))), [list, sort, needle]);
 
   const selected = params.get('page');
-  const creating = isDM ? params.get('new') : null;
+  const creating = isDM && !readOnly ? params.get('new') : null;
   const open = useCallback((id: string) => setParams({ page: id }), [setParams]);
   const filtered = !!(tag || kind || savedOnly || sharedOnly || vis !== 'all');
 
@@ -130,15 +132,15 @@ export default function LibraryPage() {
     off.download(`${info.name} library.zip`, zipSync(files) as BlobPart, 'application/zip');
   };
 
-  const sideItems: [Side, string][] = [['pages', `Pages (${rows.length})`], ['saved', `Saved (${saved.length})`]];
+  const sideItems: [Side, string][] = [['pages', `Pages (${rows.length})`], ['files', 'Files'], ...(readOnly ? [] : [['saved', `Saved (${saved.length})`] as [Side, string]])];
   if (isDM) sideItems.push(['lint', `Leak check${lint.data?.length ? ` (${lint.data.length})` : ''}`]);
 
   return (
-    <div className="page wide">
-      <style>{LIB_CSS + TREE_CSS + SHELL_CSS}</style>
-      <PageHead title="Library" lead={isDM ? `Every page in ${info.name}. Players get only the player copy of shared pages.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
-        {isDM && <button type="button" className="btn primary" onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
-      </PageHead>
+    <div className={embedded ? "lib-embedded" : "page wide"}>
+      <style>{LIB_CSS + TREE_CSS + SHELL_CSS + FILES_CSS}</style>
+      {!embedded && <PageHead title="Library" lead={isDM ? `Every page in ${info.name}. Players get only the player copy of shared pages.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
+        {isDM && !readOnly && <button type="button" className="btn primary" onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
+      </PageHead>}
       {offline && <div className="lib-offline" role="status"><i className="fa-solid fa-plug-circle-xmark" aria-hidden="true" /> The library can't be reached. Showing pages saved on this device.</div>}
       {!offline && <ErrorBox error={pages.error} />}
       {busy && <div className="note small" role="status">{busy}</div>}
@@ -173,6 +175,7 @@ export default function LibraryPage() {
                 : <Tree rows={list} selected={selected} onOpen={open} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} />}
             </>
           )}
+          {side === 'files' && <FilesTab onOpen={open} />}
           {side === 'saved' && <SavedPanel saved={saved} offline={offline} onOpen={open} onUpdate={() => void updateSaved()} onZip={zipSaved}
             onRemove={async (id) => { await off.removeSaved(world, me, id); void refreshSaved(); }} />}
           {side === 'lint' && isDM && <LintPanel rows={lint.data} error={lint.error} onOpen={open} />}
@@ -266,7 +269,7 @@ function LintPanel({ rows, error, onOpen }: { rows: any[] | null; error: string 
 function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }: {
   id: string; rows: PageRow[]; savedAt: string | null; onOpen: (id: string) => void; onSavedChange: () => Promise<void> | void; toast: (m: string) => void; onDeleted: () => void;
 }) {
-  const { w, info, isDM, me } = useWorld();
+  const { w, info, isDM, me, readOnly } = useWorld();
   const [pg, setPg] = useState<any>(null);
   const [offlineAt, setOfflineAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -298,7 +301,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
   if (!pg) return <div className="card"><Loading what="page" /></div>;
   if (editing) return <Editor key={`edit:${pg.id}`} initial={pg} onSaved={(p) => { setEditing(false); toast(`Saved ${p.title}`); if (p.id !== id) onOpen(p.id); else void load(); }} onCancel={() => setEditing(false)} />;
 
-  const editable = isDM && !pg.source;
+  const editable = isDM && !pg.source && !readOnly;
   const toggleSave = async () => {
     if (savedAt) { await off.removeSaved(info.id, me, id); toast('Removed from this device'); }
     else toast((await off.savePage(info.id, me, pg)) ? 'Saved for offline' : 'Offline storage is blocked in this browser');
@@ -333,22 +336,22 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
         {pg.aliases?.length > 0 && <div className="small muted">Also called {pg.aliases.join(', ')}</div>}
         <div className="row wrap lib-meta">
           {isDM && pg.visibility && <LevelChip level={pg.visibility} all />}
-          {isDM && pg.source && <DepthBadge pageId={pg.id} />}
+          {isDM && !readOnly && pg.source && <DepthBadge pageId={pg.id} />}
           {editable && !offlineAt && <select aria-label="Level" value={levelOf(pg.visibility)} onChange={(e) => void setLevel(e.target.value)} disabled={act.busy}>{LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}</select>}
           {pg.tags?.map((t: string) => <span key={t} className="chip"><i className="fa-solid fa-tag" aria-hidden="true" /> {t}</span>)}
           {pg.updated_at && <span className="tiny faint">Updated {when(pg.updated_at)}</span>}
         </div>
         <div className="row wrap lib-actions">
-          <button type="button" className={`btn small${savedAt ? ' on' : ''}`} onClick={() => void toggleSave()} disabled={!!offlineAt} aria-pressed={!!savedAt}>
+          {!readOnly && <button type="button" className={`btn small${savedAt ? ' on' : ''}`} onClick={() => void toggleSave()} disabled={!!offlineAt} aria-pressed={!!savedAt}>
             <i className={`fa-solid ${savedAt ? 'fa-circle-check' : 'fa-download'}`} aria-hidden="true" /> {savedAt ? 'Saved for offline' : 'Save for offline'}
-          </button>
+          </button>}
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
-          {!offlineAt && <ShareButton pageId={pg.id} />}
-          {isDM && !offlineAt && <SculptPicker pageId={pg.id} />}
+          {!offlineAt && !readOnly && <ShareButton pageId={pg.id} />}
+          {isDM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
-          {isDM && !offlineAt && <button type="button" className="btn small danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>}
-          {!isDM && !offlineAt && <>
+          {isDM && !offlineAt && !readOnly && <button type="button" className="btn small danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>}
+          {!isDM && !offlineAt && !readOnly && <>
             <button type="button" className="btn small" onClick={() => setAsk('edit')}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>
             <button type="button" className="btn small" onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
           </>}
@@ -360,6 +363,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
       <div className={`lib-body${facts.length ? ' with-facts' : ''}`}>
         <div className="lib-page">
           {blocks.length ? <Blocks blocks={blocks} ctx={ctx} /> : <p className="muted">This page is empty.</p>}
+          {!offlineAt && <PageFiles pageId={pg.id} />}
           {pg.children?.length > 0 && !hasCollection(pg.blocks) && (
             <section className="lib-collection" aria-label="Pages inside">
               <h3 className="lib-h lib-h3">Inside {pg.title}</h3>

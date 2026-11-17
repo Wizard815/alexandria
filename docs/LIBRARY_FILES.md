@@ -1,0 +1,77 @@
+# Files in the library
+
+The DM can upload maps, pictures, PDFs, handouts and item sheets to a world's
+library (`librarian/src/features/libfiles`, `web/src/features/libfiles`).
+
+## What can be uploaded
+
+Pictures (PNG, JPEG, GIF, WebP), PDF, plain text and Markdown, JSON and CSV.
+The type is decided from the file's **bytes**, never its name or the type the
+browser sent. SVG, HTML, XML, scripts, programs and archives are refused (415),
+as are empty files, binary data with a text name, text that is not UTF-8, and
+JSON that does not parse. The size cap is 50 MB; change it with
+`ALX_LIBFILE_MAX_MB`.
+
+Each file has a **kind** (`map`, `handout`, `item`, `rules`, `other`) and a
+**level** (`party`, `broker`, `dm`, `classified`). No level means `dm`; a level
+that is not one of the four is refused, never defaulted to party.
+
+## Where a file lives
+
+A file belongs to a page: an existing one (`page=<id or path>`) or a new "file
+page" made for it (`folder=` and `title=`, the page gets the file's level).
+Pictures show inline under the page, PDFs and the rest as View and Download.
+The Library side panel has a **Files** tab: every file the viewer may see, with
+search. Maps (kind `map`, pictures only) are also offered on the Map page under
+"Map from the library".
+
+Players cannot upload (there is no player notes feature to attach files to).
+
+## Who sees a file
+
+A viewer gets a file only when they may see the **page** and the **file's
+level**: players party-level files on shared pages, the broker up to broker, a
+model acting for the DM up to dm (never `classified`), the DM everything. Lists
+and tickets are built per viewer; levels are shown to the DM only. A DM-only
+page's files are not found for a player even at party level.
+
+Bytes are served at `/api/media/libfile/<ticket>`. The ticket (the same signed
+ticket as sound and stage pictures) names one file and one account, expires
+after 12 hours, and the permission is checked again on every fetch, so lowering a
+page or file takes it away at once. Files are sent with `nosniff` and
+`default-src 'none'`; text is `text/plain`. Files are stored under
+`<data>/libfiles/<world>/` (a backup data folder), and are removed with their
+page. They are not saved in offline page copies.
+
+## Send to the source (optional)
+
+When the page comes from a source that can take files, the upload form offers
+"Also send to <source>". It uses the source's own connection credentials and is
+one explicit upload per file (audited as `libfile.send`):
+
+| Source | What is sent |
+|---|---|
+| Kanka (API token) | `POST /campaigns/{id}/entities/{entity}/entity_assets` (multipart: `name`, `type_id=1`, `visibility_id`, `file`). `visibility_id` is 1 (everyone) for a party file, 2 (admins) otherwise. |
+| LegendKeeper (API key) | `POST {project api}/assets` (multipart: `name`, `file`), into the project's asset library. |
+
+The option is hidden for a `classified` file (never sent anywhere, and a file made
+classified later cannot be sent), for mcp-kanka, the LegendKeeper MCP, Markdown
+folders, the generic API (it has no upload role) and pages with no source. A
+failure is shown on the file ("Not sent to Kanka: ...") with "Try sending again";
+the local copy always stays. The remote id is recorded. The two upload endpoints
+are written from the sources' public APIs and tested against fakes only.
+
+## Admin library
+
+Admin > Library (Library group, after Worlds) picks a world and reuses the
+Library page. An admin who is **not** the world's DM gets only the party copy
+(pages and files shared with the players) and cannot upload: being an admin does
+not open a world's secrets. An admin who is the world's DM gets the DM view and
+can upload. Routes: `/api/admin/library/worlds` and
+`/api/admin/library/worlds/:world/{library,files}`.
+
+## API (world routes, `/api/worlds/:world/files`)
+
+`GET /` (`?page=`), `GET /maps`, `GET /targets?page=&level=` (DM),
+`POST /?page=|folder=&title=&name=&kind=&level=&send=<sourceId>` (DM, raw body),
+`PATCH /:id`, `DELETE /:id`, `POST /:id/send`, `GET /:id`, `GET /:id/ticket`.
