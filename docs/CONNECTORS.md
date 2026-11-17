@@ -415,6 +415,8 @@ stats have `indexCalls` and `detailCalls`, and the crawl progress shows
 
 ### Rate limits
 
+The numbers below come from the services' own API docs; see [API_VERIFICATION.md](API_VERIFICATION.md).
+
 Sites limit calls: Kanka 30 a minute (90 for subscribers), others a number a
 second. Every call to a source goes through **one limiter per connection**
 (`intake/ratelimit.ts`), so every world and every source key that uses the

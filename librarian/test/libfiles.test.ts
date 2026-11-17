@@ -9,6 +9,7 @@ import { createApp } from '../src/app.ts';
 import { one, all, run } from '../src/core/db.ts';
 import { mintTicket } from '../src/features/sound/ticket.ts';
 import { sniffFile } from '../src/features/libfiles/sniff.ts';
+import { kankaAssetName } from '../src/features/libfiles/remote.ts';
 
 const PNG = (extra = 'x') => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(`pad ${extra} pad`)]);
 const PDF = (extra = 'x') => Buffer.from(`%PDF-1.4\n% ${extra}\n%%EOF\n`);
@@ -231,16 +232,27 @@ test('TestLibFiles_MapsAppearForTheMapPageOnlyWhenVisible', async () => {
 
 const KANKA = 'https://kanka.test/api/1.0';
 const LK = 'https://lk.test/api/v3/projects/p1';
-function fakes(calls: { url: string; method: string; auth: string; form: Record<string, any> }[], failKanka = false) {
+const STORE = 'https://store.lk.test/signed/abc';
+interface Call { url: string; method: string; auth: string; form: Record<string, any>; headers: Record<string, string>; json: any; size: number }
+// Kanka: POST entity_assets answers 200 with { data: {...} } (docs: "Code 200 with JSON body of the new entity-asset").
+// LegendKeeper v3: POST /assets/uploads (JSON) -> signed PUT url -> POST /assets/images (JSON) -> Asset; POST /assets only makes a folder.
+function fakes(calls: Call[], failKanka = false, lkStep: { failUpload?: number } = {}) {
   return (async (input: any, init?: any) => {
     const url = String(typeof input === 'string' ? input : input.url ?? input);
-    if (!/^https:\/\/(kanka|lk)\.test\//.test(url)) return fetch(input, init);
+    if (!/^https:\/\/(kanka|lk|store\.lk)\.test\//.test(url)) return fetch(input, init);
     const form: Record<string, any> = {};
     if (init?.body instanceof FormData) for (const [k, v] of init.body.entries()) form[k] = typeof v === 'string' ? v : { filename: (v as File).name, size: (v as File).size, type: (v as File).type };
-    calls.push({ url, method: String(init?.method ?? 'GET'), auth: String(init?.headers?.Authorization ?? ''), form });
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(init?.headers ?? {})) headers[k.toLowerCase()] = String(v);
     const json = (s: number, b: any) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } });
-    if (url.startsWith(KANKA)) return failKanka ? json(403, { message: 'no' }) : json(201, { data: { id: 9001 } });
-    return json(201, { id: 'asset_77', url: 'https://cdn/x.png' });
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+    const size = init?.body && !(init.body instanceof FormData) && typeof init.body !== 'string' ? (init.body as Uint8Array).length : 0;
+    calls.push({ url, method: String(init?.method ?? 'GET'), auth: String(init?.headers?.Authorization ?? ''), form, headers, json: body, size });
+    if (url.startsWith(KANKA)) return failKanka ? json(403, { message: 'no' }) : json(200, { data: { id: 9001, name: 'x', type_id: 1, visibility_id: 1 } });
+    if (url.startsWith(STORE)) return new Response(null, { status: lkStep.failUpload ?? 200 });
+    if (url === `${LK}/assets/uploads`) return json(200, { uploadKey: 'key_1', uploadUrl: STORE, method: 'PUT', headers: { 'content-type': body.contentType, 'x-amz-meta': 'signed' }, expiresAt: '2030-01-01T00:00:00.000Z' });
+    if (url === `${LK}/assets/images`) return json(201, { id: 'asset_77', name: body.name, type: 'IMAGE', url: 'https://assets.lk.test/x.png', width: 1, height: 1 });
+    return json(404, { message: 'not found', code: 'NOT_FOUND', requestId: 'r1' });
   }) as typeof fetch;
 }
 const addSource = (e: Env, kind: string, cfg: Record<string, unknown>, pageId: string, ext: string) => {
@@ -251,7 +263,7 @@ const addSource = (e: Env, kind: string, cfg: Record<string, unknown>, pageId: s
 };
 
 test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async () => {
-  const calls: any[] = [];
+  const calls: Call[] = [];
   const e = await boot({ fetch: fakes(calls) });
   try {
     const pg = await page(e, 'Characters/Aldric.md', 'party');
@@ -271,7 +283,9 @@ test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async ()
     assert.equal(calls[0].auth, 'Bearer kanka_token_0123456789abcdef');
     assert.equal(calls[0].form.type_id, '1');
     assert.equal(calls[0].form.visibility_id, '1', 'a party file is visible to everyone');
-    assert.equal(calls[0].form.file.filename, 'aldric.png');
+    assert.equal(calls[0].form.files.filename, 'aldric.png', 'the documented multipart field is `files`');
+    assert.equal(calls[0].form.file, undefined);
+    assert.equal(calls[0].form.name, 'aldric.png');
 
     // A DM-only file goes up as admin-only.
     await e.up(e.T.dm, `page=${pg.id}&name=notes.pdf&level=dm&send=${src}`, PDF());
@@ -295,7 +309,7 @@ test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async ()
 });
 
 test('TestLibFiles_WriteBackFailureKeepsTheLocalCopyAndCanBeRetried', async () => {
-  const calls: any[] = [];
+  const calls: Call[] = [];
   let fail = true;
   const inner = fakes(calls);
   const e = await boot({ fetch: (async (i: any, init?: any) => (fail && String(i).startsWith(KANKA) ? new Response('{}', { status: 403 }) : inner(i, init))) as typeof fetch });
@@ -315,7 +329,7 @@ test('TestLibFiles_WriteBackFailureKeepsTheLocalCopyAndCanBeRetried', async () =
 });
 
 test('TestLibFiles_LegendKeeperWriteBackAndHiddenWhereUnsupported', async () => {
-  const calls: any[] = [];
+  const calls: Call[] = [];
   const e = await boot({ fetch: fakes(calls) });
   try {
     const lk = await page(e, 'Places/Harbour.md', 'party');
@@ -323,9 +337,25 @@ test('TestLibFiles_LegendKeeperWriteBackAndHiddenWhereUnsupported', async () => 
     const r = await e.up(e.T.dm, `page=${lk.id}&name=harbour.png&kind=map&level=party&send=${src}`, PNG());
     assert.equal(r.status, 201);
     assert.equal(r.body.remote.id, 'asset_77');
-    assert.equal(calls[0].url, `${LK}/assets`);
+    // Three calls: sign, PUT the bytes to storage (no API key there), register the asset. Never a multipart POST /assets.
+    assert.deepEqual(calls.map((c) => `${c.method} ${c.url}`), [`POST ${LK}/assets/uploads`, `PUT ${STORE}`, `POST ${LK}/assets/images`]);
     assert.equal(calls[0].auth, 'Bearer lk_write_key_1234');
-    assert.equal(calls[0].form.file.filename, 'harbour.png');
+    assert.deepEqual(Object.keys(calls[0].json).sort(), ['contentHash', 'contentLength', 'contentType']);
+    assert.equal(calls[0].json.contentType, 'image/png');
+    assert.equal(calls[0].json.contentLength, PNG().length);
+    assert.match(calls[0].json.contentHash, /^[a-f0-9]{64}$/);
+    assert.equal(calls[1].size, PNG().length);
+    assert.equal(calls[1].auth, '', 'the API key never goes to the storage host');
+    assert.equal(calls[1].headers['x-amz-meta'], 'signed', 'the signed headers are sent as given');
+    assert.equal(calls[1].headers['content-type'], 'image/png');
+    assert.deepEqual(calls[2].json, { uploadKey: 'key_1', name: 'harbour.png' });
+    assert.equal(calls[2].auth, 'Bearer lk_write_key_1234');
+    // Only pictures: a PDF is not offered for LegendKeeper, and an upload with ?send= is refused before anything is stored.
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${lk.id}&level=party&mime=application/pdf`, e.T.dm)).target, null);
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${lk.id}&level=party&mime=image/webp`, e.T.dm)).target.app, 'LegendKeeper');
+    const before = calls.length;
+    assert.equal((await e.up(e.T.dm, `page=${lk.id}&name=notes.pdf&level=party&send=${src}`, PDF())).status, 400);
+    assert.equal(calls.length, before);
     // Sources with no upload offer nothing: the generic API (no upload role), the Markdown folder, mcp-kanka, a page with no source.
     const other = await page(e, 'Places/Other.md', 'party');
     const api = addSource(e, 'api', { baseUrl: 'https://api.test' }, other.id, 'x1');
@@ -336,7 +366,21 @@ test('TestLibFiles_LegendKeeperWriteBackAndHiddenWhereUnsupported', async () => 
     assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${mcp.id}`, e.T.dm)).target, null);
     const plain = await page(e, 'Places/Plain.md', 'party');
     assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${plain.id}`, e.T.dm)).target, null);
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 3);
+  } finally { e.close(); }
+});
+
+test('TestLibFiles_LegendKeeperStorageFailureIsReportedAndNoAssetIsRegistered', async () => {
+  const calls: Call[] = [];
+  const e = await boot({ fetch: fakes(calls, false, { failUpload: 403 }) });
+  try {
+    const lk = await page(e, 'Places/Harbour.md', 'party');
+    const src = addSource(e, 'legendkeeper-api', { apiUrl: LK, apiKey: 'lk_write_key_1234' }, lk.id, 'res_harbour');
+    const r = await e.up(e.T.dm, `page=${lk.id}&name=harbour.png&level=party&send=${src}`, PNG());
+    assert.equal(r.status, 201, 'the local copy is kept');
+    assert.equal(r.body.remote.id, null);
+    assert.match(r.body.remote.error, /storage answered 403/);
+    assert.ok(!calls.some((c) => c.url === `${LK}/assets/images`), 'nothing is registered when the bytes did not arrive');
   } finally { e.close(); }
 });
 
@@ -388,4 +432,11 @@ test('TestLibFiles_AdminWhoIsNotTheDmSeesOnlyThePartyCopyAndCannotUpload', async
     const up = await fetch(`${e.base}${A}/files?page=${open.id}&name=x.png`, { method: 'POST', headers: { Authorization: `Bearer ${e.T.admin}`, 'Content-Type': 'application/octet-stream' }, body: PNG('adm') });
     assert.equal(up.status, 201);
   } finally { e.close(); }
+});
+
+test('TestLibFiles_KankaAssetNameIsAtMost45CharactersAndKeepsItsExtension', () => {
+  assert.equal(kankaAssetName('aldric.png'), 'aldric.png');
+  const long = kankaAssetName('a very long picture name that goes on and on and on.png');
+  assert.equal(long.length, 45);
+  assert.ok(long.endsWith('.png'));
 });
