@@ -8,6 +8,7 @@ import { when } from '../../lib/format.ts';
 import { PageHead, ErrorBox, Field, VisChip, useAction, useToast } from '../../ui/index.tsx';
 import { ICONS, MarkLayer, RouteLayer, type Mark, type Pt } from '../player/mapParts.tsx';
 
+interface ImportedMap { id: string; name: string; url: string; page: { id: string; title: string } | null }
 type Tool = 'select' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase';
 const TOOLS: [Tool, string, string][] = [
   ['select', '➤', 'Select'], ['pin', '📍', 'Pin'], ['note', '🗒', 'Note'], ['route', '✎', 'Route'],
@@ -39,7 +40,11 @@ export default function MapBoard() {
   // Maps uploaded to the library (kind "map") that this viewer may see. A chosen one is kept as lib:<file id> and its ticket is looked up fresh.
   const libMaps = useLoad<{ id: string; name: string; url: string; pageTitle?: string }[]>(() => w.call('GET', '/files/maps').catch(() => []), [w], ['libfile']);
   const chosen = bgs[mapId] ?? '';
-  const bg = chosen.startsWith('lib:') ? (libMaps.data ?? []).find((f) => `lib:${f.id}` === chosen)?.url ?? '' : chosen;
+  // Maps imported from the world's sources (Kanka, LegendKeeper, a JSON API): the list the viewer may open, each with a fresh signed address.
+  const imported = useLoad(() => w.call('GET', '/intake/map-images').catch(() => []) as Promise<ImportedMap[]>, [w]);
+  const [picked, setPicked] = store<Record<string, string>>(`alx.mapimport.${info.id}`, {});
+  const importedMap = (imported.data ?? []).find((m) => m.id === picked[mapId]) ?? null;
+  const bg = importedMap?.url ?? (chosen.startsWith('lib:') ? (libMaps.data ?? []).find((f) => `lib:${f.id}` === chosen)?.url ?? '' : chosen);
   const setBg = (url: string) => setBgs({ ...bgs, [mapId]: url });
   const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed']);
   const [tool, setTool] = useState<Tool>('select');
@@ -204,9 +209,17 @@ export default function MapBoard() {
             </form>
             {(libMaps.data ?? []).length > 0 && (
               <Field label="Map from the library" help="Maps uploaded to the library, shown to you as far as your level allows.">
-                <select value={chosen.startsWith('lib:') ? chosen : ''} onChange={(e) => setBg(e.target.value)}>
+                <select value={chosen.startsWith('lib:') ? chosen : ''} onChange={(e) => { setBg(e.target.value); setPicked({ ...picked, [mapId]: '' }); }}>
                   <option value="">None</option>
                   {(libMaps.data ?? []).map((f) => <option key={f.id} value={`lib:${f.id}`}>{f.name}{f.pageTitle ? ` (${f.pageTitle})` : ''}</option>)}
+                </select>
+              </Field>
+            )}
+            {(imported.data ?? []).length > 0 && (
+              <Field label="Imported map (this browser only)" help="A map from one of this world's sources. Marks are shared; the choice of picture is not.">
+                <select value={importedMap?.id ?? ''} onChange={(e) => setPicked({ ...picked, [mapId]: e.target.value })}>
+                  <option value="">None</option>
+                  {(imported.data ?? []).map((m) => <option key={m.id} value={m.id}>{m.name || 'Map'}{m.page ? ` (${m.page.title})` : ''}</option>)}
                 </select>
               </Field>
             )}

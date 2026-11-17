@@ -15,7 +15,7 @@ const [port, data, web] = [Number(process.argv[2]), process.argv[3], process.arg
 fs.mkdirSync(data, { recursive: true });
 const models = fakeModels(fetch);
 const kanka = fakeKanka(models.fetch, KANKA_WORLD);
-const made = createApp({ noScheduler: true, dataDir: path.join(data, 'data'), vaultsDir: path.join(data, 'vaults'), webDir: web, fetch: kanka.fetch, env: { ...MODEL_ENV, ALX_RATE_LIMIT: '0' } });
+const made = createApp({ noScheduler: true, dataDir: path.join(data, 'data'), vaultsDir: path.join(data, 'vaults'), webDir: web, fetch: kanka.fetch, env: { ...MODEL_ENV, ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0' } });
 const server = made.app.listen(port, '127.0.0.1');
 await new Promise((r) => server.once('listening', r));
 const http = client(() => `http://127.0.0.1:${port}`);

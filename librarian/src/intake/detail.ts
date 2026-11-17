@@ -9,11 +9,13 @@
 // and audience are applied as the content arrives, and the player copy is
 // rebuilt before anyone is served it.
 import { all, one } from '../core/db.ts';
-import { effectiveConfig } from './connections.ts';
-import { CallCounter, type TierState } from './connector.ts';
+import { effectiveConfig, normAudience } from './connections.ts';
+import type { SyncRecord, TierState } from './connector.ts';
 import { connectorFor } from './registry.ts';
-import { connectorContext, isRunning, prefixFor, type SyncDeps } from './sync.ts';
-import { Bucket, addDetailCalls, budgetBucket, budgetOf, depthCounts, detailQueue, ensureTierSchema, getState, markWanted, queueLength, rateGate, setSettings, storeEntry, tieredOf } from './tiers.ts';
+import { connectorContext, isRunning, prefixFor, prepareImages, type SyncDeps } from './sync.ts';
+import { saveRecords } from './records.ts';
+import { Bucket, addDetailCalls, budgetBucket, budgetOf, depthCounts, detailQueue, ensureTierSchema, getState, markWanted, queueLength, setSettings, storeEntry, tieredOf } from './tiers.ts';
+import { limitKeyOf, limiterState, limitsOf } from './ratelimit.ts';
 
 const busy = new Set<string>();
 const inflight = new Map<string, Promise<ReadOutcome>>();
@@ -32,15 +34,15 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
   opts.signal?.addEventListener('abort', () => ctl.abort(), { once: true });
   const made = connectorContext(d, src, cfg, ctl.signal, () => {});
   const state = getState(d.db, src.id);
-  const counter = new CallCounter();
+  const counter = made.ctx.calls!;
   counter.phase = 'detail';
-  counter.gate = rateGate(src.id, tier.budgetPerMinute, d.env, ctl.signal);
-  made.ctx.calls = counter;
+  prepareImages(d, made.ctx, made.c, src);
   const ts: TierState = { token: state.token, cache: state.cache, full: false, complete: false, next: { token: state.token, cache: state.cache } };
   made.ctx.tier = ts;
   const prefix = prefixFor(made.c.id, src.name);
   const levelBefore = new Map<string, string>();
   const readIds: string[] = [];
+  const pictures: SyncRecord[] = [];
   try {
     for (const p of pages) {
       if (ctl.signal.aborted || (opts.maxCalls !== undefined && counter.detail >= opts.maxCalls)) break;
@@ -49,7 +51,8 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
       if (!now || (now.depth === 'full' && !now.stale)) continue;
       try {
         for await (const e of tier.detail(cfg, made.ctx, [p.external_id])) {
-          if ((e as any).kind) continue; // records come with the listing
+          // Records come with the listing, except the pictures of a page (a map's image): they are saved with the page.
+          if ((e as any).kind) { if ((e as any).kind === 'image') pictures.push(e as SyncRecord); continue; }
           const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
           if (before) levelBefore.set(before.id, before.visibility);
           const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
@@ -67,6 +70,12 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
     out.calls = counter.detail;
     made.close();
     addDetailCalls(d.db, src.id, counter.detail);
+  }
+  if (pictures.length) {
+    // Only these pictures are saved: every other kind of record (and every other picture) is left as it is.
+    const audience = normAudience(src.audience);
+    if (audience !== 'auto') for (const r of pictures as any[]) r.visibility = audience;
+    try { saveRecords(d.db, src.world_id, src.id, pictures, new Set(['relation', 'timeline', 'calendar', 'mapMarker', 'image'])); } catch { /* the pictures come back with the next run */ }
   }
   if (readIds.length) {
     // A page whose level changed changes what other pages may say about it: rebuild the world. Otherwise only the pages that were read.
@@ -173,6 +182,7 @@ export function tierSummary(d: Pick<SyncDeps, 'db'>, src: any) {
   const tier = tieredOf(src.kind, cfg);
   if (!tier) return { tiered: false };
   const st = getState(d.db, src.id);
+  const lim = limitsOf(c?.id ?? src.kind, cfg, {}, st.spread);
   const counts = depthCounts(d.db, src.id);
   const last = one<any>(d.db, 'SELECT stats FROM sync_runs WHERE source_id = ? ORDER BY started_at DESC LIMIT 1', src.id);
   let lastStats: any = {};
@@ -184,6 +194,9 @@ export function tierSummary(d: Pick<SyncDeps, 'db'>, src: any) {
     calls: { index: lastStats.indexCalls ?? 0, indexTotal: st.indexCalls, detailTotal: st.detailCalls },
     budget: budgetOf(st, tier), budgetDefault: Math.max(1, Math.floor(tier.budgetPerMinute / 2)), rateLimit: tier.budgetPerMinute,
     paused: st.paused, fetchAll: st.fetchAll, waiting: queueLength(d.db, src.id, st.fetchAll), waitingAll: queueLength(d.db, src.id, true),
+    limits: { perMinute: lim.perMinute, perSecond: lim.perSecond, spreadMinutes: lim.spreadMinutes, spreadOwn: st.spread !== null },
+    // Set while the site (or its limit) is holding calls back: the live state the world page shows.
+    throttle: limiterState(limitKeyOf(src, d.db)),
     indexAt: st.indexAt, lastDetailAt: st.lastDetailAt, running: busy.has(src.id),
   };
 }
