@@ -105,3 +105,12 @@
 
 /* Narrow cards: never squeeze a value into a sliver; keep form controls readable in tables. */
 .t-admin .table select.input { min-width: 9ch; }
+
+/* Library page: world picker, view note, and the reused Library inside the admin cards */
+.adm-lib-pick select { min-width: 220px; max-width: 100%; }
+.adm-lib-who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.t-admin .adm-lib .page-head .row { min-width: 0; max-width: 100%; }
+@media (max-width: 760px) { .adm-lib-pick, .adm-lib-pick select { width: 100%; } }
+.adm-lib-pick select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); min-height: 36px; }
+.lib-embedded { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 760px) { .t-admin .adm-lib .page-head .row { width: 100%; } }

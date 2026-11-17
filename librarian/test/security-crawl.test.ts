@@ -94,6 +94,7 @@ const SPEC: Record<string, string> = {
   'clock:id': 'SELECT id FROM clock_events WHERE world_id = ? UNION SELECT id FROM clock_log WHERE world_id = ?',
   'intake:sid': 'SELECT id FROM sources WHERE world_id = ?',
   'intake:kid': 'SELECT id FROM intake_keys WHERE world_id = ?',
+  'files:fid': 'SELECT id FROM libfiles_files WHERE world_id = ?',
   'itemcards:itemId': 'SELECT id FROM items WHERE world_id = ?',
   'sculpt:id': 'SELECT id FROM sculpt_templates WHERE world_id = ?',
   'sessionchat:mid': 'SELECT id FROM sessionchat_messages WHERE world_id = ?',
@@ -127,6 +128,7 @@ function queries(p: string): string[] {
   const words = ['harbour', 'vault', 'council', 'smuggler', 'lighthouse', 'zqx', 'secret', 'Ambusher', 'Goblin', 'Odda', 'classified'];
   const owners = ['me', 'party', S.ID.jess, S.ID.tom, S.ID.dm].map((o) => `?owner=${o}`);
   if (/\/(inventory|live\/ledger)\/?$/.test(p)) return owners;
+  if (/\/files\/?$/.test(p)) return [...S.ids.page.slice(0, 40).map((x) => `?page=${encodeURIComponent(x)}`), '?page=x'];
   if (/\/library\/search$/.test(p)) return words.flatMap((w) => [`?q=${w}`, `?q=${w}&semantic=1`]);
   if (/\/search\/?$/.test(p)) return words.map((w) => `?q=${w}&kinds=page,person,term,transcript,log,item&limit=50`);
   if (/\/(modules\/terms|modules\/rules\/search)$/.test(p)) return words.map((w) => `?q=${w}`);
@@ -165,7 +167,7 @@ const viewers = (): Who2[] => [
   { who: 'guest', token: S.K.guestRead, label: 'guest read key' },
 ];
 
-const ticketsIn = (text: string): string[] => [...text.matchAll(/\/api\/media\/(?:stage|sound|voice|intake)\/([\w.-]+)/g)].map((m) => m[1]);
+const ticketsIn = (text: string): string[] => [...text.matchAll(/\/api\/media\/(?:stage|sound|voice|intake|libfile)\/([\w.-]+)/g)].map((m) => m[1]);
 const ticketOwner = (t: string): string | null => { try { return JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString()).a ?? null; } catch { return null; } };
 
 interface CrawlResult { leaks: string[]; requests: number; reached: Set<string> }
@@ -434,6 +436,45 @@ test('TestSecurityCrawl_PlayersFilesAndMediaLeakNothing', async () => {
       assert.ok(res.status >= 400, `${u} -> ${res.status}`);
     }
   }
+});
+
+test('TestSecurityCrawl_LibraryFilesFollowTheirPageAndTheirOwnLevel', async () => {
+  const W = `/api/worlds/${S.W}`;
+  const bytes = async (url: string) => { const r = await fetch(baseOf(server) + url); return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString('latin1') }; };
+  const idOf = (name: string) => one<any>(deps.db, 'SELECT id FROM libfiles_files WHERE world_id = ? AND name LIKE ?', S.W, name === 'libfile_classified' ? 'vault-notes.txt' : `%${tok(name)}%`).id as string;
+  const hidden = ['libfile_dm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage'];
+  // The DM lists all of them (this is also how the seeded names are proved to land).
+  const dmList = (await call('GET', `${W}/files`, S.T.dm)).text;
+  for (const m of ['libfile_party', ...hidden.filter((x) => x !== 'libfile_classified')]) assert.ok(dmList.includes(tok(m)), `the DM sees ${m}`);
+  assert.ok(dmList.includes('vault-notes.txt'));
+  for (const who of ['jess', 'tom', 'guest'] as const) {
+    const list = await call('GET', `${W}/files`, S.T[who]);
+    assert.ok(list.text.includes(tok('libfile_party')), `${who} sees the control file`);
+    for (const m of hidden) assert.ok(!list.text.includes(tok(m)), `${who} was told about ${m}`);
+    const maps = await call('GET', `${W}/files/maps`, S.T[who]);
+    for (const m of hidden) assert.ok(!maps.text.includes(tok(m)));
+    // Fetching a hidden file, by header or on a ticket made for this player, gives nothing; the shared one opens.
+    for (const m of hidden) {
+      assert.equal((await call('GET', `${W}/files/${idOf(m)}`, S.T[who])).status, 404, `${who} ${m}`);
+      const r = await bytes(`/api/media/libfile/${mintTicket({ w: S.W, k: 'libfile', f: idOf(m), a: S.ID[who] })}`);
+      assert.equal(r.status, 404, `${who} ticket ${m}`);
+      assert.ok(!r.text.includes(tok(m)));
+    }
+    const ok = await bytes(`/api/media/libfile/${mintTicket({ w: S.W, k: 'libfile', f: idOf('libfile_party'), a: S.ID[who] })}`);
+    assert.equal(ok.status, 200);
+    assert.ok(ok.text.includes(tok('libfile_party')));
+  }
+  // The DM's ticket opens each of them (the seed landed), and a model acting for the DM never gets the classified one.
+  for (const m of hidden) assert.ok((await bytes(`/api/media/libfile/${mintTicket({ w: S.W, k: 'libfile', f: idOf(m), a: S.ID.dm })}`)).text.includes(tok(m)), `the DM's ticket opens ${m}`);
+  const asModel = await fetch(`${baseOf(server)}${W}/files`, { headers: { Authorization: `Bearer ${S.T.dm}`, 'X-Alexandria-Caller': 'model' } });
+  const modelText = await asModel.text();
+  assert.ok(!modelText.includes('vault-notes.txt'), 'the AI copy omits classified files');
+  assert.ok(modelText.includes(tok('libfile_dm_on_party')));
+  assert.equal((await fetch(`${baseOf(server)}${W}/files/${idOf('libfile_classified')}`, { headers: { Authorization: `Bearer ${S.T.dm}`, 'X-Alexandria-Caller': 'model' } })).status, 404);
+  // An admin who is not in the world, through the admin library, gets the party copy only.
+  const adm = await call('GET', `/api/admin/library/worlds/${S.W}/files`, S.T.ads);
+  assert.ok(adm.text.includes(tok('libfile_party')));
+  for (const m of hidden) assert.ok(!adm.text.includes(tok(m)), `the admin was told about ${m}`);
 });
 
 test('TestSecurityCrawl_DmNeverSeesPartyChatOrAnotherPlayersPrivateNotes', async () => {
@@ -814,7 +855,7 @@ test('TestSecurityCrawl_PlayersStillGetNothingAfterEverythingElseHasRun', async 
 });
 
 /** Seeded secrets that no HTTP response carries to anyone (bytes of a picture), so they are checked another way. */
-const NOT_IN_JSON = new Set(['stage_image', 'item_image', 'import_image_party', 'import_image_dm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
+const NOT_IN_JSON = new Set(['libfile_party', 'libfile_dm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage', 'stage_image', 'item_image', 'import_image_party', 'import_image_dm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
 
 test('TestSecurityCrawl_EverySeededSecretCanBeReadByWhoOwnsIt', () => {
   // A crawl that never saw a secret proves nothing about it. Every marker was read, in some response or stream,

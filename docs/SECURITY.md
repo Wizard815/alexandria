@@ -81,6 +81,7 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
 - An admin (table session or gateway admin session) is not a DM: world routes
   answer 404 or 403. Push keys read nothing. A key made for one world does
   nothing in another; a person in one world gets nothing from another.
+- Library files (`docs/LIBRARY_FILES.md`): a viewer gets a file only when they may see its page and its own level; a classified file is in no model's view; the admin library gives a non-DM admin only the party copy. The bytes live under `libfiles/` (exempt from the on-disk classified check: they are served only through those checks).
 - Media tickets are signed, for one account and one kind of file, expire, and
   are checked again on every use.
 - Revoked and signed-out credentials stop working.
