@@ -12,7 +12,7 @@
 //   POST              /api/admin/connections/mcp-discover (generic API over MCP: list the server's tools, guess the list and read tools)
 //   PUT               /api/admin/connections/:id/endpoints (the reviewed endpoint list)
 //   GET               /api/admin/connections/tiers/world/:world (each source's tiers: index, details, budget)
-//   PATCH             /api/admin/connections/tiers/:source (background budget, pause, fetch everything)
+//   PATCH             /api/admin/connections/tiers/:source (background budget, pause, fetch everything, spread the first scan, the connection's calls-per-minute/second limits)
 //   GET               /api/worlds/:world/world-sources   (DM: the sources; players: nothing)
 //   GET               /api/worlds/:world/world-sources/depths (DM: pages not yet read in full)
 //   MCP               world_sources
@@ -235,7 +235,19 @@ const feature: Feature = {
       const s = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));
       if (!s) throw new HttpError(404, 'Source not found');
       const b = req.body ?? {};
-      const upd: { budget?: number | null; paused?: boolean; fetchAll?: boolean } = {};
+      const upd: { budget?: number | null; paused?: boolean; fetchAll?: boolean; spread?: number | null; limits?: Record<string, number> } = {};
+      if (b.spread !== undefined) {
+        if (b.spread === null || b.spread === '') upd.spread = null;
+        else { const n = Number(b.spread); if (!Number.isInteger(n) || n < 0 || n > 1440) throw new HttpError(400, 'spread is minutes, 0 to 1440 (0: as fast as the limits allow)'); upd.spread = n; }
+      }
+      // The calls-a-minute and calls-a-second limits belong to the connection: every world that uses it shares them.
+      const lim: Record<string, number> = {};
+      for (const [k, key, max] of [['perMinute', 'maxPerMinute', 6000], ['perSecond', 'maxPerSecond', 100]] as const) {
+        if (b.limits?.[k] === undefined) continue;
+        const n = Number(b.limits[k]);
+        if (!Number.isInteger(n) || n < (k === 'perMinute' ? 1 : 0) || n > max) throw new HttpError(400, k === 'perMinute' ? 'perMinute is calls a minute, 1 to 6000' : 'perSecond is calls a second, 0 to 100 (0: no cap)');
+        lim[key] = n;
+      }
       if (b.budget !== undefined) {
         if (b.budget === null || b.budget === '') upd.budget = null;
         else { const n = Number(b.budget); if (!Number.isInteger(n) || n < 0 || n > 600) throw new HttpError(400, 'budget is calls a minute, 0 to 600'); upd.budget = n; }
@@ -243,7 +255,14 @@ const feature: Feature = {
       if (b.paused !== undefined) upd.paused = b.paused === true;
       if (b.fetchAll !== undefined) upd.fetchAll = b.fetchAll === true;
       if (!tierSummary(d, s).tiered) throw new HttpError(400, 'This source is read whole; it has no tiers to set');
-      setSettings(d.db, s.id, upd);
+      setSettings(d.db, s.id, { ...upd, limits: undefined } as any);
+      if (Object.keys(lim).length) {
+        if (s.connection_id) {
+          const conn = getConnection(d.db, s.connection_id);
+          if (conn) run(d.db, 'UPDATE connections SET config = ?, updated_at = ? WHERE id = ?', JSON.stringify({ ...parse(conn.config), ...lim }), now(), conn.id);
+        } else run(d.db, 'UPDATE sources SET config = ? WHERE id = ?', JSON.stringify({ ...parse(s.config), ...lim }), s.id);
+        upd.limits = lim;
+      }
       audit(d, res, 'source.tiers', `${s.id} ${JSON.stringify(upd)}`, s.world_id);
       const out = { id: s.id, name: s.name, ...tierSummary(d, s) };
       d.hub.emit(s.world_id, 'tiers', { sources: [out] }, dmOnly);

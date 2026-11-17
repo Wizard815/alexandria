@@ -54,8 +54,8 @@ export interface ConnectorContext {
   refreshed?: { relationOwners: Set<string>; mapRefs: Set<string> };
   /** Pictures already stored for this source: externalId to the marker it was stored with (so an unchanged picture is not downloaded again). */
   heldImages?: Map<string, string>;
-  /** Largest picture to download (bytes) and how many a run may download: the source's limits. */
-  imageLimits?: { maxBytes: number; perRun: number; maxHeld: number };
+  /** Largest picture to download (bytes) and how many a run may download: the source's limits. `maxMapBytes`: the larger cap for map images. */
+  imageLimits?: { maxBytes: number; perRun: number; maxHeld: number; maxMapBytes: number };
 }
 
 /** Calls made to a source in this run, by phase. A transport awaits `take()` before every request it sends: it waits for the source's rate limit, then counts the call. */
@@ -63,12 +63,16 @@ export class CallCounter {
   index = 0;
   detail = 0;
   phase: 'index' | 'detail' = 'index';
-  /** Waits until another call is allowed (the source's rate limit). */
-  gate?: () => Promise<void>;
+  /** Waits until another call is allowed (the source's rate limit). `paceMs`: the least time since the last paced call (scan pacing). */
+  gate?: (phase: 'index' | 'detail', paceMs: number) => Promise<void>;
+  /** The gap the index tier keeps between its calls while a scan is spread over a window (0: none). */
+  paceMs = 0;
+  /** Calls waited for by `take()` whose request has not gone out yet: the fetch does not wait for them again. */
+  credit = 0;
   /** Called after each counted call (the crawl uses it to refresh its numbers). */
   onHit?: () => void;
   async take() {
-    if (this.gate) await this.gate();
+    if (this.gate) { await this.gate(this.phase, this.phase === 'index' ? this.paceMs : 0); this.credit++; }
     this[this.phase]++;
     this.onHit?.();
   }
@@ -122,7 +126,7 @@ export type SyncRecord =
    * downloaded now; without it the picture already stored under `externalId` is kept (and its link refreshed). `marker` says which version of the
    * picture was stored (its URL and update time). `visibility` `party` means the picture may follow its page; it never makes a DM-only page visible.
    */
-  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'dm' | 'party' };
+  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'dm' | 'party'; map?: boolean };
 
 export interface TimelineEvent { id: string; name: string; date?: string | null; description?: Block[]; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
 export interface TimelineGroup { name: string; abbreviation?: string | null; description?: Block[]; events: TimelineEvent[] }

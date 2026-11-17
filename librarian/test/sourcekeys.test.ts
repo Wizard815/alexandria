@@ -51,7 +51,7 @@ const kanka = fakeKanka((async (input: any, init?: any) => {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-skeys-'));
 cleanups.push(() => fs.rmSync(tmp, { recursive: true, force: true }));
-const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: kanka.fetch, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_MODEL_CHAT_URL: 'http://fake.test/v1', ALX_MODEL_CHAT_MODEL: 'fake' } });
+const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: kanka.fetch, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_CRAWL_RATE: '0', ALX_MODEL_CHAT_URL: 'http://fake.test/v1', ALX_MODEL_CHAT_MODEL: 'fake' } });
 const deps = made.deps;
 const server = made.app.listen(0);
 await new Promise((r) => server.once('listening', r));

@@ -8,6 +8,7 @@ import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyGroup, markdownToBlocks } from '../model.ts';
 import { jsonOf } from '../../core/mcp.ts';
 import { htmlToMarkdown } from '../html.ts';
+import { pictureRecord } from '../images.ts';
 import { type Level, levelOfWord, maxLevel, tagLevel } from '../../core/levels.ts';
 
 // [API module, Alexandria type, legacy parent field]. Since Kanka 3.10 every
@@ -332,6 +333,20 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
   // A name for an unnamed element or marker, only from an entity players may see.
   const publicName = new Map<string, string>(rows.filter(({ e }) => e.is_private === false).map(({ e }) => [String(e.entity_id), esc(e.name)]));
 
+
+  // The picture of each map entity (the map itself), downloaded within the run's picture limits (maps may be larger: ALX_MAP_MAX_BYTES) and kept as a map
+  // of its page. Shared only with the page (never alone); an unchanged one (same address and update time) is only linked again.
+  const mapImages = async function* (): AsyncIterable<SyncRecord> {
+    for (const { mod, e } of rows) {
+      if (mod !== 'maps' || e.is_template === true) continue;
+      const url = e.image_full;
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url) || e.has_custom_image === false) continue;
+      const eid = String(e.entity_id ?? e.id);
+      const rec = await pictureRecord(ctx, { externalId: `kanka:mapimg:${eid}`, pageRef: `kanka:${eid}`, name: esc(e.name) || 'Map', url, updated: e.updated_at ?? null, visible: share(e.is_private === false) === 'party', map: true, origin: new URL(base).origin });
+      if (rec) yield rec;
+    }
+  };
+
   // Relations: GET relations lists the campaign's. Shared only for visibility "all" or "members" on a non-private relation.
   const listStrict = async (path: string): Promise<any[] | null> => {
     const out: any[] = [];
@@ -379,7 +394,7 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
     // A listing of what changed: refresh the relations of each changed entity, its map's markers and a changed calendar, and nothing else.
     // The other kinds (and the other entities' records) are read again by the next complete listing. `refreshed` says which owners and maps were read
     // in full, so only their records are replaced (an unchanged entity makes no relation call).
-    for (const k of ['relation', 'timeline', 'calendar', 'mapMarker'] as const) ctx.incomplete?.add(k);
+    for (const k of ['relation', 'timeline', 'calendar', 'mapMarker', 'image'] as const) ctx.incomplete?.add(k);
     const owners = new Set<string>();
     const maps = new Set<string>();
     ctx.refreshed = { relationOwners: owners, mapRefs: maps };
@@ -399,6 +414,7 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
       maps.add(`kanka:${e.entity_id ?? e.id}`);
       yield* recs;
     }
+    yield* mapImages();
     return;
   }
 
@@ -407,6 +423,7 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
   for (const r of rels ?? []) { const rec = relationRecord(r); if (rec) yield rec; }
 
   for (const { mod, e } of rows) if (mod === 'calendars' && e.is_template !== true) yield calendarRecord(e);
+  yield* mapImages();
 
   for (const { mod, e } of rows) {
     if (mod !== 'timelines' || e.is_template === true) continue;
