@@ -97,7 +97,7 @@ export function SessionLogDM() {
           <div className="card flush list">
             <h3 style={{ margin: 0, padding: '12px 14px' }}>Drafts</h3>
             {(drafts.data ?? []).length ? drafts.data!.map((d) => (
-              <button key={d.id} type="button" className={`list-item${sel === d.id ? ' active' : ''}`} onClick={() => setSel(d.id)}>
+              <button key={d.id} type="button" className={`list-item${sel === d.id ? ' active' : ''}`} aria-current={(sel === d.id) || undefined} onClick={() => setSel(d.id)}>
                 <span className="stack tight grow"><strong>{d.title}</strong><span className="tiny muted">{day(d.createdAt)} · v{d.version}{d.entryId ? ' · published' : ''}</span></span>
               </button>
             )) : <div style={{ padding: '0 14px 12px' }} className="muted small">No drafts yet.</div>}

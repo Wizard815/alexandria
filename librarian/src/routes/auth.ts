@@ -4,7 +4,7 @@ import { audit } from '../app.ts';
 import { one, all, run, tx } from '../core/db.ts';
 import {
   type Auth, authenticate, resolveToken, checkPassword, createAccount, createKey, createSession, hashPassword,
-  validatePassword, validateUsername,
+  validatePassword, validateUsername, Throttle,
 } from '../core/auth.ts';
 import { HttpError, now, oneOf, sha256, str } from '../core/util.ts';
 
@@ -23,6 +23,8 @@ export function mcpConnection(req: Request, key: string, access: 'read' | 'write
 }
 
 export default function authRoutes(d: Deps) {
+  // 20 failed sign-ins from one address, whatever the usernames, locks that address for a minute.
+  const ipThrottle = new Throttle(20, 60_000);
   const r = Router();
   const { db } = d;
 
@@ -45,10 +47,14 @@ export default function authRoutes(d: Deps) {
     const username = str(req.body?.username, 'username', { max: 40 });
     const password = str(req.body?.password, 'password', { max: 200 });
     const key = `${username.toLowerCase()}|${req.ip}`;
+    // One address trying many usernames is slowed down too, not just many tries at one name.
+    const ipKey = `ip|${req.ip}`;
     d.throttle.check(key);
+    ipThrottle.check(ipKey);
     const acc = one<any>(db, 'SELECT id, username, display_name, is_admin, pass_hash FROM accounts WHERE username = ?', username);
-    if (!acc || !checkPassword(password, acc.pass_hash)) {
+    if (!checkPassword(password, acc?.pass_hash ?? null) || !acc) {
       d.throttle.fail(key);
+      ipThrottle.fail(ipKey);
       throw new HttpError(401, 'Wrong username or password');
     }
     d.throttle.ok(key);

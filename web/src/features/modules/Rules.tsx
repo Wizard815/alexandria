@@ -32,7 +32,7 @@ export default function RulesPage() {
           </div>
           <div className="list" style={{ margin: '0 -18px' }}>
             {list.loading && !list.data ? <div style={{ padding: 14 }}><Loading /></div> : (list.data?.terms ?? []).length ? list.data.terms.map((t: any) => (
-              <button key={t.id} type="button" className={`list-item${sel === t.id ? ' active' : ''}`} onClick={() => setSel(t.id)}>
+              <button key={t.id} type="button" className={`list-item${sel === t.id ? ' active' : ''}`} aria-current={(sel === t.id) || undefined} onClick={() => setSel(t.id)}>
                 <span className="stack tight grow"><strong>{t.term}</strong><span className="tiny muted">{t.summary}</span></span>
                 <span className="chip">{t.kind}</span>
               </button>
