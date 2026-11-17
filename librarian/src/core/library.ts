@@ -7,7 +7,8 @@ import path from 'node:path';
 import { type DB, one, all, run, tx } from './db.ts';
 import { type FM, type FMValue, joinFrontmatter, splitFrontmatter } from './frontmatter.ts';
 import { audienceOf, copyOfMarkdown, frontmatterFor, redactMarkdown, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
-import { importedRelations } from '../intake/records.ts';
+import { imageIdForPage, imageVisibleTo, importedRelations } from '../intake/records.ts';
+import { mintTicket } from '../features/sound/ticket.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
 import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts';
 import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelForAccountKey, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
@@ -598,7 +599,7 @@ export class Library {
       .map((c) => ({ id: c.id, title: c.title, icon: c.icon ? JSON.parse(c.icon) : null }));
     const base = {
       id: pg.id, path: pg.path, title: pg.title, kind: pg.kind, tags: JSON.parse(pg.tags || '[]'), aliases: JSON.parse(pg.aliases || '[]'),
-      icon: pg.icon ? JSON.parse(pg.icon) : null, banner: pg.banner, folder: JSON.parse(pg.folder || '[]'), source: pg.source_name ?? null,
+      icon: pg.icon ? JSON.parse(pg.icon) : null, banner: pg.banner ?? this.pictureOf(worldId, pg, aud, viewer), folder: JSON.parse(pg.folder || '[]'), source: pg.source_name ?? null,
       blocks, properties, links, linkTitles, children, position: pg.position ?? null, updated_at: pg.updated_at,
       // Where the page came from and when it was last read from there.
       ...(pg.source_id ? { source_app: sourceApp(pg.source_kind), synced_at: pg.source_synced_at ?? null } : {}),
@@ -607,6 +608,19 @@ export class Library {
     // The source's own copy may hold more than the player copy, so players get the link only when the DM turned it on for the source.
     if (aud === 'player') return { ...base, ...(pg.url && playersMayOpen(pg.source_config) && !fromKey ? { url: pg.url } : {}), ...(fromKey ? { fromKey: true, via } : {}), frontmatter: copy.frontmatter, body: copy.markdown };
     return { ...base, visibility: pg.visibility, level, frontmatter: copy.frontmatter, body: copy.markdown };
+  }
+
+  /**
+   * The page's own picture, downloaded from its source (the generic API's images): a short-lived media address for this viewer, or null.
+   * A viewer other than the DM gets it only while the picture may follow the page and the page has a player copy (imageVisibleTo).
+   */
+  private pictureOf(worldId: string, pg: any, aud: string, viewer: Viewer): string | null {
+    if (!viewer.accountId || !pg.source_id || !pg.external_id) return null;
+    const imgId = imageIdForPage(this.db, worldId, pg.source_id, pg.external_id);
+    if (!imgId) return null;
+    const img = one<any>(this.db, 'SELECT world_id, source_id, visibility, page_external FROM intake_images WHERE id = ?', imgId);
+    if (!img || !imageVisibleTo(this.db, img, aud === 'dm' ? 'dm' : 'player')) return null;
+    return `/api/media/intake/${mintTicket({ w: worldId, k: 'intake', f: imgId, a: viewer.accountId })}`;
   }
 
   /**

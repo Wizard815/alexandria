@@ -75,11 +75,16 @@ const lkFetch = (url: string): Response | null => {
 const KANKA_BASE = 'https://api.kanka.io/1.0/campaigns/1';
 const kk = {
   chars: [] as any[],
+  cals: [] as any[],
+  maps: [] as any[],
+  markers: {} as Record<number, any[]>,
+  rels: [] as any[],
   calls: [] as string[],
   sync: '2026-02-01T00:00:00Z',
 };
 const kkReset = (n: number) => {
   kk.chars = Array.from({ length: n }, (_, i) => ({ id: i + 1, entity_id: 1000 + i + 1, name: `Hero ${i + 1}`, entry: `<p>KKBODY${i + 1} story</p>`, is_private: i % 5 === 0, tags: [], type: 'NPC', updated_at: '2026-01-01T00:00:00Z' }));
+  kk.cals = []; kk.maps = []; kk.markers = {}; kk.rels = [];
   kk.calls = [];
 };
 const kkFetch = (url: string): Response | null => {
@@ -89,8 +94,13 @@ const kkFetch = (url: string): Response | null => {
   const mod = u.pathname.slice('/1.0/campaigns/1/'.length);
   const page = Number(u.searchParams.get('page') ?? 1);
   const since = u.searchParams.get('lastSync');
-  if (mod === 'characters') {
-    let rows = kk.chars;
+  const rel = /^entities\/(\d+)\/relations$/.exec(mod);
+  if (rel) return json({ data: kk.rels.filter((r) => String(r.owner_id) === rel[1]), links: { next: null }, meta: { last_page: 1 } });
+  if (mod === 'relations') return json({ data: kk.rels, links: { next: null }, meta: { last_page: 1 } });
+  const mk = /^maps\/(\d+)\/map_markers$/.exec(mod);
+  if (mk) return json({ data: kk.markers[Number(mk[1])] ?? [], links: { next: null }, meta: { last_page: 1 } });
+  if (mod === 'characters' || mod === 'calendars' || mod === 'maps') {
+    let rows = mod === 'characters' ? kk.chars : mod === 'calendars' ? kk.cals : kk.maps;
     if (since) rows = rows.filter((c) => c.updated_at > since);
     const per = 45;
     const last = Math.max(1, Math.ceil(rows.length / per));
@@ -407,9 +417,10 @@ test('CrawlTiers_KankaListsCarryTheWholeEntryAndLaterListingsAskOnlyForChanges',
   kk.chars[2].entry = '<p>KKBODY3 edited</p>'; kk.chars[2].updated_at = '2026-03-01T00:00:00Z';
   kk.chars.splice(3, 1);
   const second = await sync(t, src.id);
-  assert.ok(kk.calls.every((c) => c.includes('lastSync=')), `every list asked for changes only: ${kk.calls.join(' ')}`);
-  assert.equal(kk.calls.length, 16, 'one list call per module, no relations');
-  assert.equal(second.stats.indexCalls, 16);
+  assert.ok(kk.calls.filter((c) => !c.startsWith('/entities/')).every((c) => c.includes('lastSync=')), `every list asked for changes only: ${kk.calls.join(' ')}`);
+  assert.deepEqual(kk.calls.filter((c) => c.startsWith('/entities/')).map((c) => c.split('?')[0]), ['/entities/1003/relations'], 'relations are read for the one changed entity only, never the whole campaign');
+  assert.equal(kk.calls.length, 17, 'one list call per module, and one relations call for the changed entity');
+  assert.equal(second.stats.indexCalls, 17);
   assert.equal(second.stats.pages, 1);
   assert.equal(second.stats.removed, 0, 'a listing of changes cannot remove');
   assert.ok(one<any>(t.deps.db, 'SELECT body FROM pages WHERE world_id = ? AND title = ?', wid, 'Hero 3').body.includes('KKBODY3 edited'));
@@ -420,6 +431,64 @@ test('CrawlTiers_KankaListsCarryTheWholeEntryAndLaterListingsAskOnlyForChanges',
   assert.equal(third.stats.removed, 1);
   assert.equal(one<any>(t.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND title = ?', wid, 'Hero 4'), undefined);
   assert.ok(kk.calls.every((c) => !c.includes('lastSync=')));
+});
+
+test('CrawlTiers_KankaIncrementalRefreshesRelationsMarkersAndCalendarsOfChangedEntitiesOnly', async () => {
+  const t = await boot();
+  kkReset(6);
+  const OLD = '2026-01-01T00:00:00Z';
+  const NEW = '2026-03-01T00:00:00Z';
+  kk.cals = [{ id: 1, entity_id: 2001, name: 'Calendar of Tests', is_private: false, updated_at: OLD, date: '1-2-3', months: [{ name: 'Firstmonth', length: 30 }], weekdays: ['Mon', 'Tue'] }];
+  kk.maps = [{ id: 1, entity_id: 3001, name: 'Map of Tests', is_private: false, updated_at: OLD }];
+  kk.markers = { 1: [{ id: 5, name: 'Old pin', latitude: 1, longitude: 2, shape_id: 1, is_private: false, visibility_id: 1 }] };
+  kk.rels = [
+    { id: 1, owner_id: 1002, target_id: 1004, relation: 'ally', visibility_id: 1, is_private: false },
+    { id: 2, owner_id: 1003, target_id: 1004, relation: 'friend', visibility_id: 1, is_private: false },
+    { id: 3, owner_id: 1002, target_id: 1005, relation: 'rival', visibility_id: 1, is_private: false },
+  ];
+  const wid = await t.world('Kanka Records World');
+  const conn = await t.ok('POST', '/api/admin/connections', { kind: 'kanka-api', name: 'My Kanka', config: { token: 'kanka-token-aaaaaaaaaaaaaaaaaaaa' } });
+  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { connectionId: conn.id, kind: 'kanka-api', name: 'Kanka', config: { campaignId: '1' }, defaultVisibility: 'party' });
+  const rels = () => all<any>(t.deps.db, 'SELECT external_id, from_ref, label FROM intake_relations WHERE source_id = ? ORDER BY external_id', src.id).map((r) => `${r.from_ref}:${r.label}`);
+  await sync(t, src.id);
+  assert.equal(rels().length, 3);
+  assert.equal(one<any>(t.deps.db, 'SELECT name FROM intake_markers WHERE source_id = ?', src.id).name, 'Old pin');
+  assert.equal(JSON.parse(one<any>(t.deps.db, 'SELECT definition FROM intake_calendars WHERE source_id = ?', src.id).definition).months[0].name, 'Firstmonth');
+
+  // At the source: Hero 2 changed and one of its relations was edited and another deleted; Hero 3's relation was edited too, but Hero 3 did not change.
+  // The calendar and the map changed.
+  kk.sync = '2026-03-02T00:00:00Z';
+  kk.chars[1].updated_at = NEW;
+  kk.rels[0].relation = 'sworn enemy';
+  kk.rels.splice(2, 1);
+  kk.rels[1].relation = 'ex-friend';
+  kk.cals[0].months = [{ name: 'Renamedmonth', length: 31 }]; kk.cals[0].updated_at = NEW;
+  kk.maps[0].updated_at = NEW;
+  kk.markers[1] = [{ id: 5, name: 'New pin', latitude: 4, longitude: 5, shape_id: 1, is_private: false, visibility_id: 1 }];
+  kk.calls = [];
+  const out = await sync(t, src.id);
+  const rel = kk.calls.filter((c) => /relations/.test(c)).map((c) => c.split('?')[0]);
+  assert.deepEqual(rel.sort(), ['/entities/1002/relations', '/entities/2001/relations', '/entities/3001/relations'], `relations were read for the three changed entities only: ${kk.calls.join(' ')}`);
+  assert.ok(!kk.calls.some((c) => c.startsWith('/relations') || c.includes('/entities/1003')), 'no campaign-wide relations call, none for an unchanged entity');
+  assert.equal(kk.calls.filter((c) => c.includes('map_markers')).length, 1, 'markers for the one changed map');
+  assert.equal(out.stats.indexCalls, kk.calls.length, 'every call is counted in the tier line');
+  assert.equal(out.stats.removed, 0, 'a listing of changes removes no pages');
+  assert.ok(rels().includes('kanka:1002:sworn enemy'), 'the edited relation was refreshed');
+  assert.ok(!rels().some((r) => r.endsWith(':rival')), 'a relation deleted at the source is gone from a changed entity');
+  assert.ok(rels().includes('kanka:1003:friend'), 'an unchanged entity keeps its relations as they were (the next complete listing refreshes them)');
+  assert.equal(one<any>(t.deps.db, 'SELECT name FROM intake_markers WHERE source_id = ?', src.id).name, 'New pin');
+  assert.equal(JSON.parse(one<any>(t.deps.db, 'SELECT definition FROM intake_calendars WHERE source_id = ?', src.id).definition).months[0].name, 'Renamedmonth');
+  assert.equal(all<any>(t.deps.db, 'SELECT 1 FROM intake_calendars WHERE source_id = ?', src.id).length, 1, 'the calendar was replaced, not duplicated');
+
+  // A run where nothing changed reads no relations at all.
+  kk.sync = '2026-03-03T00:00:00Z';
+  kk.calls = [];
+  await sync(t, src.id);
+  assert.ok(!kk.calls.some((c) => /relations|map_markers/.test(c)), `nothing changed, no relation or marker call: ${kk.calls.join(' ')}`);
+
+  // A complete listing refreshes the rest.
+  await sync(t, src.id, { full: true });
+  assert.ok(rels().includes('kanka:1003:ex-friend'));
 });
 
 // ---- the crawl's progress ---------------------------------------------------------------------------------------------------------------------

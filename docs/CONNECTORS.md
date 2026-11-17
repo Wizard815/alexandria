@@ -23,7 +23,7 @@ is the same for every source:
 | `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- dm -->`, DM headings |
 | `git` | A repo of Markdown reference files, cloned read-only | Same as Markdown |
 | `mcp-files` | Any MCP server that lists and reads files (Obsidian MCP and filesystem MCP presets, or name the tools) | Same as Markdown |
-| `api` | Any JSON API over HTTP, or any MCP tool that returns records | A visibility field you name; shared only for the values you list |
+| `api` | Any JSON API over HTTP (pages, tags, calendars, pictures), or any MCP tool that returns records (with an optional per-item read tool) | A visibility field you name; shared only for the values you list |
 
 | `push` | Nothing: your own tool sends entries (see "Push API") | The entry's `visibility` (shared only when the source is set to share), plus the usual secret blocks and DM facts |
 
@@ -343,14 +343,19 @@ source time of what the library holds). A page whose source time moved on is
 - **Kanka**: the module lists already carry `entry`, posts and attributes
   (`related=1`), so a listing reaches full depth with about pages / 45 calls
   per module (up to 100 a page for subscribers). Later listings send
-  `lastSync` and read only what changed. The default limit is 30 calls a
+  `lastSync` and read only what changed, and refresh the records of what
+  changed (see "Incremental re-crawls"). The default limit is 30 calls a
   minute for a user (90 for subscribers; all tokens share it): the crawl stays
   at 24 a minute and the background budget defaults to 12. Raise it on the
   world page if you are a subscriber.
 - **Generic API**: the endpoint list (below). A record with a body in the list
   is full; with only a summary, `summary`; otherwise `index`. An endpoint with
-  a `detailPath` (`/articles/{id}`) gives whole pages later. `sinceParam`
+  a `detailPath` (`/articles/{id}`) gives whole pages later. Calendars and
+  pictures come from their own lists (below). `sinceParam`
   (`updated_since`, `lastSync`) makes later listings incremental.
+- **Generic API through an MCP tool**: the list tool makes the index, and an
+  optional **read tool** (one page from its id) gives whole pages later (see
+  "MCP tool sources: a detail tier").
 - Markdown folders, git, MCP files and push sources have nothing to list
   separately and are read whole, as before.
 
@@ -383,6 +388,22 @@ the details.
 **Incremental re-crawls.** LegendKeeper re-lists everything (it has no
 `since`), notes each page's `updatedAt`, and only the changed pages become
 stale. Kanka and generic endpoints with a `sinceParam` list only what changed.
+**Kanka records on an incremental run.** Relations, calendars and map
+markers used to refresh only on a complete listing. A listing of changes now
+also refreshes them for what changed, and for nothing else:
+
+| What changed | Extra calls | Replaced |
+|---|---|---|
+| an entity | one `GET /entities/{id}/relations` | that entity's relations (as owner), including ones deleted at the source |
+| a calendar entity | none (the list has its months, weekdays and date) | that calendar |
+| a map entity | one `GET /maps/{id}/map_markers` | that map's markers |
+
+An entity that did not change makes no relation call, and a run with no
+changes makes none at all. These calls are index calls and are in the tier
+line (`indexCalls`). The relations, markers and calendars of everything else
+are refreshed by the next complete listing; timelines too. If a read fails,
+what was stored for it stays.
+
 Pages are removed **only after a complete listing**: a listing of changes, or
 one that failed part way, removes nothing; a complete one runs on the first
 crawl, every sixth, once a day, and on `POST .../sources/:id/sync` with
@@ -414,11 +435,93 @@ On Admin → Connections, a generic API connection has **Find endpoints**
 The DM gets a table (endpoint, role, mapping, confidence) to accept, change or
 mark unused. **Not sure endpoints stay blank and unused until assigned, and
 endpoints not marked used are never called.** Calendars and images are
-recognised but not imported yet; tags endpoints give tag names to records that
-list tag ids. The result is saved on the connection (`PUT
+imported (see "Calendars and pictures"); tags endpoints give tag names to
+records that list tag ids. The result is saved on the connection (`PUT
 /api/admin/connections/:id/endpoints`, setting `endpoints` as JSON) and can be
 saved as a preset, which carries the endpoint list and base URL (no token) to
 other worlds. A mapping with no visibility field leaves every record DM-only.
+
+### Generic API: calendars and pictures
+
+An endpoint with the role **Calendars** or **Images / files** that the DM has
+ticked is imported; one that is not ticked is never called, whatever its role.
+
+**Calendars** become the same world calendar the Kanka and LegendKeeper
+connectors give (`GET /intake/calendars`, used by the world clock). Mapping keys
+of the endpoint review, guessed from the schema or a sample:
+
+| Key | Holds |
+|---|---|
+| `idField`, `titleField` | id and name |
+| `monthsField` | the array of months; each month's name and length are its `name` and `days` (or `length`), or set `monthNameField` / `monthDaysField`; `intercalary: true` marks one outside the week |
+| `weekdaysField` | an array of names (strings, or objects with a `name`) |
+| `currentDateField` | today: `"1492-1-5"` or `{year, month, day}` |
+| `epochYearField`, `yearSuffixField` | the first year, and a suffix such as "DR" |
+| `eventsField` | dated events (`id`, `name`, `date`, `description`), kept as a timeline "<calendar> events" |
+| `visibilityField`, `sharedValues` | as for pages |
+
+A calendar with no months is skipped. A calendar is shared only when its
+visibility field says so; an event is shared only when it carries that same
+field with a shared value (no flag, DM-only).
+
+**Pictures** are downloaded and attached to pages. Keys: `urlField` (the
+picture's address, relative to the API host or absolute; without it `detailPath`
+is the download path with `{id}`), `pageField` (the id of the page it belongs
+to, as in its own list), `updatedField`, `visibilityField`.
+
+- Downloaded in the sync, after the pages, one request each, and counted as
+  **detail calls** (the tier line and `connections_source_state`). The lists
+  that find them are index calls.
+- Limits: 4 MB a picture (`ALX_IMAGE_MAX_BYTES`), 20 downloads a run
+  (`ALX_IMAGES_PER_RUN`; the rest follow on later runs) and 500 held per source
+  (`ALX_IMAGES_MAX`). A picture whose address and update time are unchanged is
+  not downloaded again; one the server refused is not asked for again until it
+  changes or the next complete listing. A busy server (429, 5xx) is retried.
+- Only PNG, JPEG, GIF and WebP: the content type and the file's own first
+  bytes must both say so. SVG and anything else is refused.
+- The API token goes only to the API's host. An absolute address on another
+  host is fetched without the token, only because the DM accepted this
+  endpoint; never from a private address (localhost, 10.x, 192.168.x,
+  169.254.x, `.local`), and a redirect to another host is not followed.
+- Stored in the database (`intake_images`), so backups hold them. The page's
+  `banner` is the picture's own media address, a signed ticket made for the
+  viewer (`/api/media/intake/<ticket>`) that is checked again on every fetch.
+  A player gets it only when the picture itself may follow its page (visibility
+  field shared, or none mapped and the source shares) **and** the page has a
+  player copy. A DM-only page's pictures, and DM-only pictures of a shared
+  page, are the DM's alone. The source's audience applies to them too.
+- Turning the endpoint off removes its pictures at the next sync.
+
+### MCP tool sources: a detail tier
+
+A generic source whose transport is an MCP tool crawls in tiers too. **Find
+tools** on the connection (`POST /api/admin/connections/mcp-discover`) asks the
+server for its tool list (no tool is called) and guesses:
+
+- the **list tool**: `list_*`, `search_*`, `find_*`, `all_*` with no required
+  argument
+- the **read tool**: `get_*`, `read_*`, `fetch_*`, `retrieve_*`... with an id
+  argument (`id`, `uuid`, `slug`, `*_id`), best when its noun matches the list
+  tool (`list_articles` and `get_article`). Names that change things (`create_`,
+  `update_`, `delete_`...) are never offered and are refused if typed.
+
+The DM picks or types them, or leaves the read tool blank: then the list is all
+there is and nothing is read later. Settings: `detailTool`, `detailIdArg`,
+`detailIdType` (text or number), `detailArgs` (extra arguments as JSON, with
+`{world}`-style placeholders), `detailItemPath` (where the record is in the
+answer), `summaryField` (an excerpt in the list).
+
+With a read tool the list makes the index (depth `summary` when the list has an
+excerpt, `index` otherwise), and whole pages are read like any tiered source: on
+demand (page opened, a DM's top three search hits, the agent), then in the
+background within the budget, with "fetch everything" if asked. One call per
+page, counted as a detail call; the default budget is 15 a minute. Only the read
+and list tools are ever called (the read-only client refuses the rest).
+
+Visibility is the same as ever: a page is shared only when its own record
+has the visibility field with a shared value, and a record with no such field
+is DM-only. The read tool's answer needs the field too, otherwise the page stays
+DM-only after it is read.
 
 ## How a sync runs
 
@@ -530,7 +633,8 @@ imported.
 have none), and each is stored per source in tables of the `intake`
 feature. A complete sync replaces a source's records; a kind the
 connector could not list (it adds the kind to `ctx.incomplete`) is kept
-as it was.
+as it was. A listing of changes may also say which relation owners and map
+pages it read in full (`ctx.refreshed`): those, and only those, are replaced.
 
 | `kind` | Fields | Stored in | Players see |
 |---|---|---|---|
@@ -538,6 +642,7 @@ as it was.
 | `timeline` | `externalId`, `name`, `visibility`, `groups: [{ name, abbreviation?, description?, events: [{ id, name, date?, description?, color?, ref?, visibility }] }]` | `intake_timelines`, `GET /intake/timelines` | shared timeline; events that are themselves shared; text through the block leak guard; a link only to a shared page |
 | `calendar` | `externalId`, `name`, `visibility`, `definition`, `current?` | `intake_calendars`, `GET /intake/calendars` | shared calendars |
 | `mapMarker` | `externalId`, `mapRef` (the map page's externalId), `name`, `latitude`, `longitude`, `shape?`, `color?`, `ref?`, `visibility` | `intake_markers`, `GET /intake/markers` | shared marker on a shared map, linked to a shared page or none |
+| `image` | `externalId`, `pageRef?`, `name`, `marker` (version stored), `data?` (the file, or absent to keep the stored one), `visibility` | `intake_images`, the page's `banner` | the picture of a page they may read, when the picture itself is shared |
 
 `visibility` is `dm` unless the source says players may see it. When
 unsure, `dm`.
