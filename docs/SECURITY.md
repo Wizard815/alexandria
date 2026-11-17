@@ -82,6 +82,7 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
   answer 404 or 403. Push keys read nothing. A key made for one world does
   nothing in another; a person in one world gets nothing from another.
 - Library files (`docs/LIBRARY_FILES.md`): a viewer gets a file only when they may see its page and its own level; a classified file is in no model's view; the admin library gives a non-DM admin only the party copy. The bytes live under `libfiles/` (exempt from the on-disk classified check: they are served only through those checks).
+- Gateway status pages (`/api/admin/gwstatus/*`, `librarian/src/features/gatewaystatus`): connection health, the world mirror, files held from sources and the search log. An admin who is not a world's DM gets counts only for that world (no page paths, file names or search words); errors are cleaned of tokens and keyed URLs before they are kept; searches keep a role, the words and counts for 30 days, never a result title. `TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead` reads them as an admin against the `dm_search_query` marker.
 - Media tickets are signed, for one account and one kind of file, expire, and
   are checked again on every use.
 - Revoked and signed-out credentials stop working.
