@@ -12,12 +12,13 @@
 // an excerpt when the list has one, the whole body when the list carries it),
 // and an endpoint's detail path (when mapped) gives whole pages later.
 // An endpoint the DM has not assigned is never called.
-import type { Connector, ConnectorContext, SyncItem, Tiered } from '../connector.ts';
+import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, Tiered } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, indexBlocks, markdownToBlocks } from '../model.ts';
 import { htmlToMarkdown } from '../html.ts';
 import { jsonOf } from '../../core/mcp.ts';
-import { type ApiEndpoint, ROLE_TYPE, cleanEndpoints, endpointUrl, endpointsOf, pageEndpoints, usedEndpoints } from './apiEndpoints.ts';
+import { type ApiEndpoint, ROLE_TYPE, calendarEndpoints, cleanEndpoints, endpointUrl, endpointsOf, imageEndpoints, pageEndpoints, usedEndpoints } from './apiEndpoints.ts';
+import { sniffImage } from '../records.ts';
 
 /** Read a dotted path like "data.items" or "attributes.name" from an object. */
 export function pick(obj: any, p: string | undefined): any {
@@ -65,6 +66,8 @@ function legacyEndpoint(cfg: any): ApiEndpoint {
     itemsPath: cfg.itemsPath, idField: cfg.idField, titleField: cfg.titleField, bodyField: cfg.bodyField, bodyFormat: cfg.bodyFormat, parentField: cfg.parentField, tagsField: cfg.tagsField,
     typeField: cfg.typeField, updatedField: cfg.updatedField, urlField: cfg.urlField, visibilityField: cfg.visibilityField, sharedValues: cfg.sharedValues,
     paging: cfg.paging, pageParam: cfg.pageParam, nextPath: cfg.nextPath,
+    // An MCP source with a per-item read tool has a detail tier: what the list tool gives is an index (or summary) until that tool reads the item.
+    ...(cfg.transport === 'mcp' ? { summaryField: cfg.summaryField || undefined, ...(cfg.detailTool ? { detailPath: `tool:${cfg.detailTool}`, detailItemPath: cfg.detailItemPath || undefined } : {}) } : {}),
   };
 }
 
@@ -168,6 +171,210 @@ export function toEntry(cfg: any, item: any, ctx: ConnectorContext, ep: ApiEndpo
   };
 }
 
+/** Is this record shared by the endpoint's visibility field? No field, or any other value: not shared (fail closed). */
+function sharedBy(ep: ApiEndpoint, item: any): boolean {
+  if (!ep.visibilityField) return false;
+  const shared = String(ep.sharedValues ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return shared.includes(String(pick(item, ep.visibilityField)).toLowerCase());
+}
+
+const asList = (v: unknown): any[] => (Array.isArray(v) ? v : []);
+const nameOf = (v: any): string => (v && typeof v === 'object' ? String(v.name ?? v.title ?? '') : v == null ? '' : String(v));
+
+/** "year-month-day" text, or an object with year, month and day. */
+export function calendarDate(v: unknown): { year: number; month: number; day: number } | null {
+  if (v && typeof v === 'object') {
+    const o = v as any;
+    const y = Number(o.year ?? o.y); const m = Number(o.month ?? o.m); const d = Number(o.day ?? o.d);
+    return Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d) ? { year: y, month: m, day: d } : null;
+  }
+  const m = /^(-?\d+)[-/.](\d+)[-/.](\d+)/.exec(String(v ?? '').trim());
+  return m ? { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) } : null;
+}
+
+/**
+ * One calendar record of a `calendars` endpoint as the world calendar the clock reads (the same record the Kanka and LegendKeeper connectors
+ * give): months with their lengths, weekdays, the current date, and the calendar's dated events as a timeline when `eventsField` is mapped.
+ * A calendar with no months is skipped (there is nothing to count days with). Shared only when the endpoint's visibility field says so.
+ */
+export function toCalendar(cfg: any, item: any, ctx: ConnectorContext, ep: ApiEndpoint): SyncRecord[] {
+  const idv = pick(item, ep.idField || 'id');
+  if (idv === undefined || idv === null) return [];
+  const name = String(pick(item, ep.titleField || 'name') ?? idv);
+  const months = asList(pick(item, ep.monthsField)).map((m, i) => {
+    const label = typeof m === 'string' ? m : String((ep.monthNameField ? pick(m, ep.monthNameField) : m?.name ?? m?.title) ?? '') || `Month ${i + 1}`;
+    const raw = typeof m === 'object' && m ? (ep.monthDaysField ? pick(m, ep.monthDaysField) : m.days ?? m.length ?? m.day_count ?? m.numDays) : undefined;
+    const days = Math.max(1, Math.round(Number(raw))) || 30;
+    return { name: label, days, ...(m && typeof m === 'object' && (m.intercalary === true || m.type === 'intercalary') ? { intercalary: true } : {}) };
+  });
+  if (!months.length) { ctx.log(`Calendar ${name} has no months at "${ep.monthsField ?? '(no months field mapped)'}": skipped`); return []; }
+  const epoch = ep.epochYearField ? Number(pick(item, ep.epochYearField)) : 0;
+  const suffix = ep.yearSuffixField ? text(pick(item, ep.yearSuffixField)) : '';
+  const definition: CalendarDefinition = {
+    name, epochYear: Number.isFinite(epoch) ? Math.round(epoch) : 0, ...(suffix ? { yearSuffix: suffix } : {}), months,
+    weekdays: asList(pick(item, ep.weekdaysField)).map(nameOf).filter(Boolean),
+  };
+  const shared = sharedBy(ep, item) && ctx.shareVisible;
+  const ext = `cal:${ep.key}:${idv}`;
+  const out: SyncRecord[] = [{ kind: 'calendar', externalId: ext, name, visibility: shared ? 'party' : 'dm', definition, current: ep.currentDateField ? calendarDate(pick(item, ep.currentDateField)) : null }];
+  const events = asList(pick(item, ep.eventsField)).filter((e) => e && typeof e === 'object' && (e.id ?? e.name ?? e.title) != null);
+  if (events.length) {
+    out.push({
+      kind: 'timeline', externalId: `${ext}:events`, name: `${name} events`, visibility: shared ? 'party' : 'dm',
+      groups: [{
+        name: 'Events', events: events.map((e, i) => ({
+          id: String(e.id ?? i), name: nameOf(e) || 'Event', date: e.date != null ? String(e.date) : e.start != null ? String(e.start) : null,
+          description: body(e.description ?? e.entry, ep.bodyFormat || 'markdown'),
+          // An event is shared only when it carries the endpoint's own visibility field with a shared value: no other word about it is trusted.
+          visibility: shared && sharedBy(ep, e) ? 'party' as const : 'dm' as const,
+        })),
+      }],
+    });
+  }
+  return out;
+}
+
+/** A host that must never be fetched from a picture address: loopback, private ranges, link-local and local names. */
+export function privateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h === '::1' || h === '::' || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h) || h.startsWith('::ffff:')) return true;
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+}
+
+/**
+ * Download one picture. Never sends the API token off the endpoint's own host; a picture on another host is fetched only when the mapped URL
+ * is absolute (the DM accepted this endpoint, so its address list is theirs), without the token, never from a private address, and redirects
+ * are followed only within the host they started on. Only PNG, JPEG, GIF and WebP (by content type AND by the file's own first bytes), at most
+ * `maxBytes`. SVG and anything else is refused. Null: not stored.
+ */
+async function downloadImage(cfg: any, url: string, apiOrigin: string, ctx: ConnectorContext, maxBytes: number): Promise<{ data: Uint8Array; mime: string } | null> {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const startOrigin = u.origin;
+  if (startOrigin !== apiOrigin && privateHost(u.hostname)) { ctx.log(`Picture skipped: ${u.host} is a private address`); return null; }
+  for (let hop = 0; hop < 3; hop++) {
+    const prev = ctx.calls?.phase;
+    if (ctx.calls) ctx.calls.phase = 'detail';
+    try { await ctx.calls?.take(); } finally { if (ctx.calls && prev) ctx.calls.phase = prev; }
+    const hdrs: Record<string, string> = u.origin === apiOrigin ? headers(cfg) : {};
+    hdrs.Accept = 'image/png,image/jpeg,image/gif,image/webp';
+    const r = await ctx.fetch(u.toString(), { headers: hdrs, redirect: 'manual', signal: ctx.signal });
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get('location');
+      let next: URL | null = null;
+      try { next = loc ? new URL(loc, u) : null; } catch { next = null; }
+      if (!next || next.origin !== startOrigin) return null;
+      u = next;
+      continue;
+    }
+    // A busy or broken server is worth asking again later; any other refusal is an answer.
+    if (r.status === 429 || r.status >= 500) throw new Error(`${u.host} answered ${r.status}`);
+    if (!r.ok) return null;
+    const type = String(r.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!/^image\/(png|jpe?g|gif|webp)$/.test(type)) return null;
+    const len = Number(r.headers.get('content-length'));
+    if (Number.isFinite(len) && len > maxBytes) return null;
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const reader = r.body?.getReader();
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > maxBytes) { reader.cancel().catch(() => {}); return null; }
+        chunks.push(value);
+      }
+    } else {
+      const buf = new Uint8Array(await r.arrayBuffer());
+      if (buf.length > maxBytes) return null;
+      chunks.push(buf);
+    }
+    const data = Buffer.concat(chunks);
+    const mime = sniffImage(data);
+    return mime ? { data, mime } : null;
+  }
+  return null;
+}
+
+/** Pictures a server refused: marker by external id, from the last listing and for the next one. */
+interface BadImages { prev: Record<string, string>; next: Record<string, string> }
+
+/**
+ * The pictures of an `images` endpoint. Each is downloaded once (an unchanged one, by its address and update time, is only re-linked),
+ * within the run's limits: a file size cap, a number of downloads a run (the rest come on later runs) and a total held. Downloads count as
+ * detail calls. A picture belongs to the page named by `pageField`.
+ */
+async function* apiImages(cfg: any, ep: ApiEndpoint, ctx: ConnectorContext, bad: BadImages): AsyncIterable<SyncRecord> {
+  const lim = ctx.imageLimits ?? { maxBytes: 4 * 1024 * 1024, perRun: 20, maxHeld: 500 };
+  const held = ctx.heldImages ?? new Map<string, string>();
+  const listUrl = endpointUrl(cfg.baseUrl, ep.path);
+  const apiOrigin = new URL(listUrl).origin;
+  const base = cfg.baseUrl ? `${String(cfg.baseUrl).replace(/\/+$/, '')}/` : listUrl;
+  let downloaded = 0;
+  let deferred = 0;
+  for await (const items of listPages(cfg, ep, ctx, null)) {
+    for (const it of items) {
+      const idv = pick(it, ep.idField || 'id');
+      if (idv === undefined || idv === null) continue;
+      const rawUrl = ep.urlField ? pick(it, ep.urlField) : undefined;
+      let target: string | null = null;
+      try {
+        if (typeof rawUrl === 'string' && rawUrl.trim()) target = new URL(rawUrl.trim(), base).toString();
+        else if (ep.detailPath) target = endpointUrl(cfg.baseUrl, fillPlaceholders(ep.detailPath, { ...placeholderValues(cfg), id: String(idv) }, 'url'));
+      } catch { target = null; }
+      if (!target) continue;
+      const updated = ep.updatedField ? String(pick(it, ep.updatedField) ?? '') : '';
+      const ext = `img:${ep.key}:${idv}`;
+      const marker = `${target}|${updated}`;
+      const owner = ep.pageField ? pick(it, ep.pageField) : undefined;
+      const pageRef = owner && typeof owner === 'object' ? (owner.id != null ? String(owner.id) : null) : owner != null && owner !== '' ? String(owner) : null;
+      const name = String(pick(it, ep.titleField || 'name') ?? idv);
+      const visibility: 'dm' | 'party' = (!ep.visibilityField || sharedBy(ep, it)) && ctx.shareVisible ? 'party' : 'dm';
+      const rec = { kind: 'image' as const, externalId: ext, pageRef, name, marker, visibility };
+      if (held.get(ext) === marker) { yield rec; continue; }
+      // One this server refused (not a picture, too big...) at this address and time is not asked for again until it changes or the next complete listing.
+      if (bad.prev[ext] === marker) { bad.next[ext] = marker; continue; }
+      if (downloaded >= lim.perRun || held.size + downloaded >= lim.maxHeld) { deferred++; continue; }
+      downloaded++;
+      let got: { data: Uint8Array; mime: string } | null = null;
+      try { got = await downloadImage(cfg, target, apiOrigin, ctx, lim.maxBytes); } catch (err: any) { if (ctx.signal.aborted) throw err; ctx.log(`Picture ${name} not downloaded: ${String(err?.message ?? err).slice(0, 120)}`); }
+      if (got) yield { ...rec, mime: got.mime, data: got.data };
+      else {
+        if (Object.keys(bad.next).length < 2000) bad.next[ext] = marker;
+        ctx.log(`Picture ${name} was not stored (not a PNG, JPEG, GIF or WebP, too big, or not reachable)`);
+        if (held.has(ext)) yield { ...rec, marker: held.get(ext)! };
+      }
+    }
+  }
+  if (deferred) ctx.log(`${deferred} pictures wait for the next run (${lim.perRun} a run)`);
+}
+
+/** Calendars and pictures of the used endpoints, after the pages. A list that fails is logged and its kind is left as stored (nothing is removed). */
+async function* apiExtras(cfg: any, all: ApiEndpoint[], ctx: ConnectorContext, bad: BadImages = { prev: {}, next: {} }): AsyncIterable<SyncRecord> {
+  for (const ep of calendarEndpoints(all)) {
+    try {
+      for await (const items of listPages(cfg, ep, ctx, null)) for (const it of items) yield* toCalendar(cfg, it, ctx, ep);
+    } catch (err: any) {
+      if (ctx.signal.aborted) throw err;
+      ctx.log(`Could not read calendars from ${ep.path}: ${err.message}`);
+      ctx.incomplete.add('calendar'); ctx.incomplete.add('timeline');
+    }
+  }
+  for (const ep of imageEndpoints(all)) {
+    try { yield* apiImages(cfg, ep, ctx, bad); } catch (err: any) {
+      if (ctx.signal.aborted) throw err;
+      ctx.log(`Could not read pictures from ${ep.path}: ${err.message}`);
+      ctx.incomplete.add('image');
+    }
+  }
+}
+
 /** Names of tags from a `tags` endpoint, for records that list tag ids. */
 async function tagNameMap(cfg: any, ctx: ConnectorContext, eps: ApiEndpoint[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -195,10 +402,43 @@ async function* apiIndex(raw: any, ctx: ConnectorContext): AsyncIterable<SyncIte
       for (const it of items) { const e = toEntry(cfg, it, ctx, ep, { prefix: keyPrefix(eps, ep), tagNames }); if (e) yield e; }
     }
   }
+  // Calendars and pictures: lists of their own (small), read whole each time.
+  const bad: BadImages = { prev: tier && !tier.full ? (tier.cache?.badImages ?? {}) : {}, next: {} };
+  yield* apiExtras(cfg, all, ctx, bad);
   if (tier) {
     // A listing of only what changed cannot say what was removed.
     tier.complete = !partial;
-    tier.next = { token: eps.some((e) => e.sinceParam) ? startedAt : null, cache: { tags: Object.fromEntries(tagNames) } };
+    tier.next = { token: eps.some((e) => e.sinceParam) ? startedAt : null, cache: { tags: Object.fromEntries(tagNames), badImages: bad.next } };
+  }
+}
+
+/**
+ * Tier 3 for an MCP source: the per-item read tool chosen in setup (`detailTool`, with the id in `detailIdArg`), one call per page. The answer is
+ * the whole record and is read like a list record, so a page with no visibility field in it is DM-only (fail closed).
+ */
+async function* mcpDetail(raw: any, ctx: ConnectorContext, ids: string[]): AsyncIterable<SyncItem> {
+  const cfg = resolved(raw);
+  if (!cfg.detailTool) return;
+  const mcp = ctx.mcp();
+  const ep = { ...legacyEndpoint(cfg), detailPath: undefined };
+  let extra: Record<string, unknown> = {};
+  if (cfg.detailArgs) { try { extra = JSON.parse(fillPlaceholders(cfg.detailArgs, placeholderValues(cfg), 'json')); } catch { extra = {}; } }
+  for (const ext of ids) {
+    if (ctx.signal.aborted) throw new Error('Sync stopped');
+    const idArg = String(cfg.detailIdArg || 'id');
+    await ctx.calls?.take();
+    const res = await mcp.call(cfg.detailTool, { ...extra, [idArg]: cfg.detailIdType === 'number' && /^-?\d+$/.test(ext) ? Number(ext) : ext });
+    if (res.isError) {
+      if (/not.?found|no such|does not exist|404/i.test(res.text)) continue;
+      throw new Error(`${cfg.detailTool}: ${res.text.slice(0, 160)}`);
+    }
+    let j = jsonOf(res);
+    if (cfg.detailItemPath) j = pick(j, cfg.detailItemPath);
+    else if (j && typeof j === 'object' && !Array.isArray(j) && j.data && typeof j.data === 'object' && !Array.isArray(j.data)) j = j.data;
+    if (Array.isArray(j)) j = j[0];
+    if (!j || typeof j !== 'object') continue;
+    const e = toEntry(cfg, j, ctx, ep);
+    if (e) yield e;
   }
 }
 
@@ -206,7 +446,7 @@ async function* apiDetail(raw: any, ctx: ConnectorContext, ids: string[]): Async
   const cfg = resolved(raw);
   const all = activeEndpoints(cfg);
   const eps = pageEndpoints(all);
-  if (cfg.transport === 'mcp') return;
+  if (cfg.transport === 'mcp') { yield* mcpDetail(cfg, ctx, ids); return; }
   // Tag names come from the last listing, so a page read alone costs one call.
   const tagNames = new Map<string, string>(Object.entries((ctx.tier?.cache?.tags ?? {}) as Record<string, string>));
   for (const ext of ids) {
@@ -228,11 +468,14 @@ async function* apiDetail(raw: any, ctx: ConnectorContext, ids: string[]): Async
   }
 }
 
+/** Tool names that change things: never a read tool (the read-only client refuses them too). */
+const WRITE_TOOL = /(create|update|delete|write|set_|put|patch|post|append|remove|move|upload|insert|edit|rename|replace|restore|run_|manage|advance|retreat)/i;
+
 export const genericApi: Connector = {
   id: 'api',
   label: 'Any JSON API (REST or MCP tool)',
-  description: 'Imports records from any world-building app with a JSON API. Let Alexandria find the endpoints and guess the fields, or map one list yourself; pages, tags, parents and visibility come across.',
-  capabilities: ['pages', 'tags'],
+  description: 'Imports records from any world-building app with a JSON API. Let Alexandria find the endpoints and guess the fields, or map one list yourself; pages, tags, parents, visibility, calendars and pictures come across. An MCP tool source can name a read tool for whole pages.',
+  capabilities: ['pages', 'tags', 'calendars', 'timelines', 'images'],
   fields: [
     { key: 'transport', label: 'How to reach it', type: 'select', options: [['http', 'HTTP (REST)'], ['mcp', 'An MCP tool']], default: 'http' },
     { key: 'baseUrl', label: 'Base URL', type: 'url', showIf: { transport: 'http' }, placeholder: 'https://api.example.com/v1', help: 'With a base URL Alexandria looks for the app\'s OpenAPI spec and guesses its endpoints (Admin > Connections > Find endpoints). The list URL below is the older way, for one list.' },
@@ -245,6 +488,12 @@ export const genericApi: Connector = {
     { key: 'mcpToken', label: 'MCP token', type: 'password', secret: true, showIf: { transport: 'mcp' } },
     { key: 'tool', label: 'List tool', type: 'text', showIf: { transport: 'mcp' }, help: 'A tool that returns records as JSON.' },
     { key: 'toolArgs', label: 'Tool arguments (JSON)', type: 'textarea', showIf: { transport: 'mcp' }, placeholder: '{"type": "article"}' },
+    { key: 'detailTool', label: 'Read tool (one item)', type: 'text', showIf: { transport: 'mcp' }, placeholder: 'get_article', help: 'Optional. A tool that returns one whole record from its id (get_*, read_*, fetch_*). With it, the list tool only makes the index and whole pages are read later, on demand and in the background. Blank: the list is all there is.' },
+    { key: 'detailIdArg', label: 'Read tool: id argument', type: 'text', showIf: { transport: 'mcp' }, placeholder: 'id' },
+    { key: 'detailIdType', label: 'Read tool: id type', type: 'select', options: [['string', 'Text'], ['number', 'Number']], default: 'string', showIf: { transport: 'mcp' } },
+    { key: 'detailArgs', label: 'Read tool: other arguments (JSON)', type: 'textarea', showIf: { transport: 'mcp' }, placeholder: '{"project": "{project}"}' },
+    { key: 'detailItemPath', label: 'Read tool: where the record is', type: 'text', showIf: { transport: 'mcp' }, placeholder: 'data' },
+    { key: 'summaryField', label: 'Summary field (list)', type: 'text', showIf: { transport: 'mcp' }, help: 'An opening excerpt the list tool gives, shown until the page is read.' },
     { key: 'paging', label: 'Paging', type: 'select', options: [['none', 'One response has everything'], ['page', 'Page numbers'], ['link', 'Next-page link in the response'], ['cursor', 'Cursor in the response']], default: 'none' },
     { key: 'pageParam', label: 'Page or cursor parameter', type: 'text', placeholder: 'page' },
     { key: 'nextPath', label: 'Where the next link or cursor is', type: 'text', placeholder: 'links.next' },
@@ -280,6 +529,12 @@ export const genericApi: Connector = {
       if (!/^[\w.-]{1,80}$/.test(String(cfg.tool ?? ''))) throw new ConfigError('Name the list tool');
       if (!cfg.server && !cfg.mcpUrl) throw new ConfigError('Give a local MCP server name or an MCP URL');
       if (cfg.toolArgs) try { JSON.parse(cfg.toolArgs); } catch { throw new ConfigError('Tool arguments must be JSON'); }
+      if (cfg.detailTool) {
+        if (!/^[\w.-]{1,80}$/.test(String(cfg.detailTool))) throw new ConfigError('The read tool is not a tool name');
+        if (WRITE_TOOL.test(String(cfg.detailTool))) throw new ConfigError('The read tool must be a tool that only reads (get_, read_, fetch_...), not one that changes anything');
+        if (cfg.detailIdArg && !/^\w{1,40}$/.test(String(cfg.detailIdArg))) throw new ConfigError('The read tool id argument is not a name');
+        if (cfg.detailArgs) { try { const a = JSON.parse(fillPlaceholders(cfg.detailArgs, placeholderValues(raw), 'json')); if (!a || typeof a !== 'object' || Array.isArray(a)) throw 0; } catch { throw new ConfigError('Read tool arguments must be a JSON object'); } }
+      }
     }
     if (cfg.paging && !['none', 'page', 'link', 'cursor'].includes(cfg.paging)) throw new ConfigError('Unknown paging');
     if ((cfg.paging === 'link' || cfg.paging === 'cursor') && !cfg.nextPath && !eps.length) throw new ConfigError('Say where the next link or cursor is');
@@ -301,6 +556,7 @@ export const genericApi: Connector = {
     const all = endpointsOf(cfg).length ? pageEndpoints(used) : used;
     const tagNames = await tagNameMap(cfg, ctx, used);
     for (const ep of all) for await (const items of listPages(cfg, ep, ctx, null)) for (const it of items) { const e = toEntry(cfg, it, ctx, ep, { prefix: keyPrefix(all, ep), tagNames }); if (e) yield e; }
+    yield* apiExtras(cfg, used, ctx);
   },
   tiered: (cfg): Tiered | null => {
     const eps = activeEndpoints(resolved(cfg));
@@ -308,6 +564,6 @@ export const genericApi: Connector = {
     // Unknown limits: stay gentle.
     return { budgetPerMinute: 30, index: (c, ctx) => apiIndex(c, ctx), detail: (c, ctx, ids) => apiDetail(c, ctx, ids) };
   },
-  readTools: (cfg) => (cfg.tool ? [String(cfg.tool)] : []),
+  readTools: (cfg) => [cfg.tool, cfg.detailTool].filter(Boolean).map(String),
   mcpConfig: (cfg) => (cfg.server ? { transport: 'stdio', server: cfg.server } : { transport: 'http', url: cfg.mcpUrl, token: cfg.mcpToken }),
 };

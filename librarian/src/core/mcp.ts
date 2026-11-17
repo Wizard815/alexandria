@@ -15,7 +15,7 @@ export interface McpToolResult {
 
 export interface McpClient {
   call(tool: string, args: Record<string, unknown>): Promise<McpToolResult>;
-  listTools(): Promise<{ name: string }[]>;
+  listTools(): Promise<{ name: string; description?: string; inputSchema?: any }[]>;
   close(): void;
 }
 
@@ -106,7 +106,7 @@ export class HttpMcp implements McpClient {
 
   async listTools() {
     await this.init();
-    return ((await this.rpc('tools/list', {}))?.tools ?? []) as { name: string }[];
+    return ((await this.rpc('tools/list', {}))?.tools ?? []) as { name: string; description?: string; inputSchema?: any }[];
   }
 
   close() {
@@ -174,7 +174,7 @@ export class StdioMcp implements McpClient {
 
   async listTools() {
     await this.ready;
-    return ((await this.rpc('tools/list', {}))?.tools ?? []) as { name: string }[];
+    return ((await this.rpc('tools/list', {}))?.tools ?? []) as { name: string; description?: string; inputSchema?: any }[];
   }
 
   close() {
