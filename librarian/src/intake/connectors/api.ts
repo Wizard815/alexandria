@@ -81,6 +81,9 @@ export function activeEndpoints(cfg: any): ApiEndpoint[] {
 
 /** Every page of one list. `since`: the time of the last listing, for an endpoint that can list only what changed. */
 async function* listPages(cfg: any, ep: ApiEndpoint, ctx: ConnectorContext, since: string | null): AsyncIterable<any[]> {
+  // A server that ignores the page number sends the same list again: stop when a page adds nothing new.
+  const known = new Set<string>();
+  const addsNothing = (items: any[]) => { let fresh = 0; for (const it of items) { const k = JSON.stringify(it); if (!known.has(k)) { known.add(k); fresh++; } } return items.length > 0 && fresh === 0; };
   const pageParam = ep.pageParam || 'page';
   const paging = ep.paging ?? 'none';
   if (cfg.transport === 'mcp') {
@@ -95,6 +98,7 @@ async function* listPages(cfg: any, ep: ApiEndpoint, ctx: ConnectorContext, sinc
       const j = jsonOf(res);
       const items = ep.itemsPath ? pick(j, ep.itemsPath) : j;
       if (!Array.isArray(items)) throw new Error('The tool did not return a list at the items path');
+      if (addsNothing(items)) return;
       yield items;
       if (paging === 'page') { if (!items.length) return; cursor += 1; }
       else if (paging === 'cursor') { cursor = pick(j, ep.nextPath); if (!cursor) return; }
@@ -121,6 +125,7 @@ async function* listPages(cfg: any, ep: ApiEndpoint, ctx: ConnectorContext, sinc
     const j: any = await r.json();
     const items = ep.itemsPath ? pick(j, ep.itemsPath) : j;
     if (!Array.isArray(items)) throw new Error('No list at the items path');
+    if (addsNothing(items)) return;
     yield items;
     if (paging === 'page') { if (!items.length) return; page += 1; }
     else if (paging === 'offset') { if (!items.length || (size && items.length < size)) return; offset += items.length; }
