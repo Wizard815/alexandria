@@ -20,7 +20,7 @@ import { all, one } from '../src/core/db.ts';
 import { toolsFor } from '../src/routes/mcpServer.ts';
 import { mintTicket } from '../src/features/sound/ticket.ts';
 import {
-  EventTap, MODEL_ENV, MODEL_HOST, baseOf, hay, noteRead, readBy, classifiedIn, client, fakeModels, leaksFor, listRoutes, markers, recordMounts, tok, txt,
+  EventTap, MODEL_ENV, MODEL_HOST, baseOf, hay, markersIn, noteRead, readBy, classifiedIn, client, fakeModels, leaksFor, listRoutes, markers, recordMounts, tok, txt,
   type Marker, type RouteDef, type Who,
 } from './security-kit.ts';
 import { KANKA_WORLD, makeAccounts, seedContent, type Seed } from './security-world.ts';
@@ -481,6 +481,26 @@ test('TestSecurityCrawl_LibraryFilesFollowTheirPageAndTheirOwnLevel', async () =
   for (const m of hidden) assert.ok(!adm.text.includes(tok(m)), `the admin was told about ${m}`);
 });
 
+test('TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead', async () => {
+  // The DM searched for a secret: the words are in the search log, and an admin who is not this world's DM sees counts only.
+  const logged = all<any>(deps.db, 'SELECT q FROM gwstatus_searches WHERE world_id = ?', S.W);
+  assert.ok(logged.some((r) => r.q.includes(tok('dm_search_query').toLowerCase())), 'the DM search was logged');
+  const gets = routes.filter((r) => r.method === 'GET' && r.path.startsWith('/api/admin/gwstatus/'));
+  assert.ok(gets.length >= 4, 'the status routes are found by the crawl');
+  for (const token of [S.T.ads]) {
+    for (const r of gets) {
+      const res = await call('GET', r.path, token);
+      assert.equal(res.status, 200, r.path);
+      // What the party may read (a shared file's name) may be shown; anything that only the DM may read may not.
+      assert.deepEqual(markersIn(res.text).filter((m) => !m.seen.includes('jess')).map((m) => m.id), [], `${r.path} showed a marker to an admin who is not the DM`);
+    }
+  }
+  const s = await call('GET', '/api/admin/gwstatus/searches?days=30', S.T.ads);
+  assert.ok(s.json.totals.hiddenQueries >= 1);
+  // A player never reaches them.
+  for (const r of gets) assert.ok([401, 403, 404].includes((await call('GET', r.path, S.T.jess)).status));
+});
+
 test('TestSecurityCrawl_DmNeverSeesPartyChatOrAnotherPlayersPrivateNotes', async () => {
   const leaks: string[] = [];
   for (const v of [{ who: 'dm' as Who, token: S.T.dm, label: 'dm session' }, { who: 'dm' as Who, token: S.K.dmRead, label: 'dm read key' }, { who: 'dm' as Who, token: S.K.dmWrite, label: 'dm write key' }, { who: 'dm' as Who, token: S.T.dm, label: 'dm session as a model', headers: CALLER_MODEL }]) {
@@ -859,7 +879,7 @@ test('TestSecurityCrawl_PlayersStillGetNothingAfterEverythingElseHasRun', async 
 });
 
 /** Seeded secrets that no HTTP response carries to anyone (bytes of a picture), so they are checked another way. */
-const NOT_IN_JSON = new Set(['libfile_party', 'libfile_dm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage', 'stage_image', 'item_image', 'import_image_party', 'import_image_dm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
+const NOT_IN_JSON = new Set(['dm_search_query', 'libfile_party', 'libfile_dm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage', 'stage_image', 'item_image', 'import_image_party', 'import_image_dm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
 
 test('TestSecurityCrawl_EverySeededSecretCanBeReadByWhoOwnsIt', () => {
   // A crawl that never saw a secret proves nothing about it. Every marker was read, in some response or stream,

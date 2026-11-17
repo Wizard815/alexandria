@@ -6,6 +6,7 @@ import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';
 import { HttpError, str } from '../../core/util.ts';
 import { adminViewer } from './worlds.ts';
+import { logSearch } from '../gatewaystatus/searchlog.ts';
 
 export function adminSearch(d: Deps, accountId: string, query: Record<string, unknown>) {
   const q = str(query.q, 'q', { max: 200 }).trim();
@@ -21,6 +22,7 @@ export function adminSearch(d: Deps, accountId: string, query: Record<string, un
     const v = adminViewer(d.db, w.id, accountId);
     const hits = d.library.search(w.id, q, v, 25);
     perWorld.push({ id: w.id, name: w.name, copy: v.role === 'dm' ? 'dm' : 'party', count: hits.length });
+    logSearch(d.db, { worldId: w.id, role: 'admin', origin: 'admin', q, hitIds: hits.map((h) => h.id) });
     for (const h of hits) {
       const source = sourceOf(h.id);
       const label = source ?? 'Written here';

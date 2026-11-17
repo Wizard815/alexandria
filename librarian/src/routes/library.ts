@@ -13,6 +13,7 @@ import { hybridPages } from '../features/search/embeddings.ts';
 import { scopeFor } from '../features/search/global.ts';
 import { readOnOpen, readSearchHits } from '../features/connections/ondemand.ts';
 import { shareRoutes } from '../features/sourcekeys/share.ts';
+import { logSearch, roleOf } from '../features/gatewaystatus/searchlog.ts';
 
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -56,10 +57,14 @@ export default function libraryRoutes(d: Deps) {
   r.get('/search', async (req, res) => {
     const c = ctx(res);
     const q = str(req.query.q, 'q', { max: 200 });
-    if (req.query.semantic === '1') return void res.json(await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20));
+    // The search log keeps who (a role), the words, how many found and from which sources: never a title.
+    const model = String(req.headers['x-alexandria-caller'] ?? '').toLowerCase() === 'model';
+    const log = (found: { id: string }[]) => logSearch(d.db, { worldId: c.world.id, role: roleOf(c.viewer, model), origin: model ? 'agent' : 'library', q, hitIds: found.map((h) => h.id) });
+    if (req.query.semantic === '1') { const found = await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20); log(found); return void res.json(found); }
     let hits = L.search(c.world.id, q, c.viewer);
     // The DM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
     if (c.viewer.role === 'dm' && await readSearchHits(d, c.world.id, hits)) hits = L.search(c.world.id, q, c.viewer);
+    log(hits);
     res.json(hits);
   });
   // DM: shared pages that look like they contain DM notes written as prose.

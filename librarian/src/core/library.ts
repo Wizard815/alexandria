@@ -763,6 +763,12 @@ export class Library {
     return count;
   }
 
+  /** Told of every copy the mirror writes (`error` null) or cannot write; the gateway status page keeps the failures. */
+  mirrorSink: ((e: { worldId: string; copy: string; path: string; error: string | null }) => void) | null = null;
+
+  /** The folder a world's mirror is written to (null: no data folder). */
+  mirrorDir(worldId: string): string | null { return this.worldDir(worldId); }
+
   private worldDir(worldId: string): string | null {
     if (!this.dataDir) return null;
     const w = one<{ slug: string }>(this.db, 'SELECT slug FROM worlds WHERE id = ?', worldId);
@@ -777,8 +783,11 @@ export class Library {
     // is skipped, so one odd path never stops every later save.
     const write = (sub: string, rel: string, text: string) => {
       const f = path.join(dir, sub, rel);
-      try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); }
-      catch (e) { console.warn(`library: could not write the ${sub} copy of ${rel}: ${(e as Error).message}`); }
+      try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); this.mirrorSink?.({ worldId, copy: sub, path: rel, error: null }); }
+      catch (e) {
+        console.warn(`library: could not write the ${sub} copy of ${rel}: ${(e as Error).message}`);
+        try { this.mirrorSink?.({ worldId, copy: sub, path: rel, error: (e as Error).message }); } catch { /* the status page never stops a save */ }
+      }
     };
     const remove = (f: string) => { try { fs.rmSync(f, { force: true }); } catch (e) { console.warn(`library: could not remove ${f}: ${(e as Error).message}`); } };
     write('vault', p, joinFrontmatter({ ...fm, visibility }, body));
