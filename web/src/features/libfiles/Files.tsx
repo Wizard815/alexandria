@@ -36,7 +36,7 @@ export function UploadForm({ pageId, max, onDone, onCancel }: { pageId?: string;
   const [send, setSend] = useState(false);
   // Where this could also be sent: only when the page comes from a source that takes files, and never for a classified file.
   const target = useLoad<{ target: { sourceId: string; sourceName: string; app: string } | null }>(
-    () => (pageId && level !== 'classified' ? w.call('GET', '/files/targets', undefined, { page: pageId, level }) : Promise.resolve({ target: null })), [w, pageId, level]);
+    () => (pageId && level !== 'classified' ? w.call('GET', '/files/targets', undefined, { page: pageId, level, ...(file?.type ? { mime: file.type } : {}) }) : Promise.resolve({ target: null })), [w, pageId, level, file?.type]);
   const t = level === 'classified' ? null : target.data?.target ?? null;
 
   const pick = (f: File | null) => {
