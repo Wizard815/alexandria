@@ -16,8 +16,8 @@ import { Icon } from '../pages/admin/kit.tsx';
 
 // The sidebar's three groups. A feature that adds an admin page without a place here lands under Gateway.
 const GROUPS: { label: string; links: [string, string][] }[] = [
-  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds'], ['library', 'Library'], ['search', 'Search']] },
-  { label: 'Sources', links: [['connections', 'Connections'], ['sources', 'World sources'], ['source-keys', 'Source keys']] },
+  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds'], ['library', 'Library'], ['search', 'Search'], ['mirror', 'World mirror']] },
+  { label: 'Sources', links: [['connections', 'Connections'], ['sources', 'World sources'], ['source-keys', 'Source keys'], ['source-files', 'Source files']] },
   { label: 'Gateway', links: [['accounts', 'Accounts'], ['permissions', 'Permissions'], ['models', 'Models'], ['integrations', 'Integrations'], ['access', 'Access & MCP'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ['security', 'Security']] },
 ];
 const KNOWN = new Set(GROUPS.flatMap((g) => g.links.map(([to]) => to)));

@@ -71,6 +71,32 @@ export function rateFields(connectorId: string): ConfigField[] {
 
 export interface Throttle { waitMs: number; reason: 'asked' | 'limit' | 'pace' }
 
+/**
+ * Where the numbers go: a listener (the gateway status page) hears of every call a connection's limiter lets through, of what the site
+ * answered, and of how a whole sync ended. One per database, so two databases in one process (tests) never mix. Texts are cleaned first
+ * (`cleanErrorText`): no token, no keyed URL.
+ */
+export interface CallSink {
+  call(id: string, at: number): void;
+  result(id: string, r: { at: number; status: number; ms: number; message: string | null; retryAfterSec: number | null; limit: number | null; remaining: number | null }): void;
+  outcome(id: string, at: number, ok: boolean, message: string | null): void;
+}
+const sinks = new WeakMap<object, CallSink>();
+/** The status feature listens to the calls of every limiter that belongs to this database (null: stop). */
+export function setCallSink(db: object, s: CallSink | null) { if (s) sinks.set(db, s); else sinks.delete(db); }
+export const callSinkOf = (db: object): CallSink | null => sinks.get(db) ?? null;
+
+/** Error text safe to keep and show: URLs lose their path and query, bearer tokens, `key=value` secrets, the connection's own secret values and long opaque runs are cut. */
+export function cleanErrorText(msg: unknown, secrets: string[] = []): string {
+  let t = String(msg ?? '').replace(/\s+/g, ' ').trim();
+  for (const s of secrets) if (s.length >= 4) t = t.split(s).join('•••');
+  t = t.replace(/\b(https?|wss?):\/\/([^\s/?#"'<>)]+)[^\s"'<>)]*/gi, (_m, scheme, host) => `${scheme}://${String(host).replace(/^[^@]*@/, '')}/…`);
+  t = t.replace(/\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{6,}/gi, '$1 •••');
+  t = t.replace(/\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|authorization|auth|key|sig|signature)(["']?\s*[:=]\s*["']?)[^\s&"',;]+/gi, '$1$2•••');
+  t = t.replace(/[A-Za-z0-9_\-.~+/]{28,}={0,2}/g, '•••');
+  return t.slice(0, 240);
+}
+
 const MAX_WAIT_MS = 15 * 60_000;
 const RETRIES_ON_429 = 4;
 
@@ -93,6 +119,14 @@ export class Limiter {
   private lastPaced = 0;
   private waiting: Throttle | null = null;
   private waitingUntil = 0;
+  /** What to call this limiter in the status page (`con:<id>` or `src:<id>`), the listener, and secret values to cut from texts. Set by connectorContext. */
+  logical: string | null = null;
+  sink: CallSink | null = null;
+  secrets: string[] = [];
+  /** The last thing the site said about its limits (kept in memory; the listener keeps it on disk). */
+  lastRetryAfterSec: number | null = null;
+  lastRemaining: number | null = null;
+  lastLimit: number | null = null;
   constructor(key: string, limits: Limits) { this.key = key; this.limits = limits; this.configure(limits); }
 
   configure(l: Limits) {
@@ -129,6 +163,7 @@ export class Limiter {
         if (this.limits.perSecond > 0) this.secLog.push(at);
         if (gapMs > 0) this.lastPaced = at;
         this.waiting = null;
+        if (this.sink && this.logical) { try { this.sink.call(this.logical, at); } catch { /* the status page never stops a call */ } }
         return;
       }
       this.waiting = { waitMs: ms, reason: why };
@@ -153,6 +188,32 @@ export class Limiter {
     if (wait !== null && (status === 429 || status === 503 || wait > 0)) until = Math.max(until, at + wait * 1000);
     if (Number.isFinite(remaining) && remaining <= 0 && reset !== null) until = Math.max(until, at + reset * 1000);
     if (until > this.blockedUntil) this.blockedUntil = Math.min(until, at + MAX_WAIT_MS);
+    this.lastRetryAfterSec = wait !== null ? Math.round(wait) : null;
+    this.lastLimit = Number.isFinite(limit) && limit > 0 ? limit : null;
+    this.lastRemaining = Number.isFinite(remaining) ? remaining : null;
+  }
+
+  /** Tell the listener what a call came to (`status` 0: the call itself failed). */
+  report(status: number, ms: number, error?: unknown) {
+    if (!this.sink || !this.logical) return;
+    const message = status === 0 ? cleanErrorText(error, this.secrets) || 'The call failed' : status >= 400 ? `The site answered ${status}` : null;
+    try { this.sink.result(this.logical, { at: clock.now(), status, ms, message, retryAfterSec: this.lastRetryAfterSec, limit: this.lastLimit, remaining: this.lastRemaining }); } catch { /* never stops a call */ }
+  }
+
+  /** How a whole sync (or a read of pages) ended: the text is cleaned before it is kept. */
+  outcome(ok: boolean, error?: unknown) {
+    if (!this.sink || !this.logical) return;
+    try { this.sink.outcome(this.logical, clock.now(), ok, ok ? null : cleanErrorText(error, this.secrets) || 'It failed'); } catch { /* never stops a sync */ }
+  }
+
+  /** A read-only view of the numbers, for the status page. */
+  snapshot() {
+    const at = clock.now();
+    const used = this.log.filter((t) => t > at - 60_000).length;
+    return {
+      perMinute: this.limits.perMinute, perMinuteInEffect: this.perMinute, perSecond: this.limits.perSecond, usedLastMinute: used,
+      throttle: this.throttle(), lastRetryAfterSec: this.lastRetryAfterSec, lastRemaining: this.lastRemaining, lastLimit: this.lastLimit,
+    };
   }
 
   /** How long a 429 should wait: Retry-After when given, else exponential back-off with jitter. */
@@ -192,6 +253,7 @@ export function limiterFor(key: string, limits: Limits): Limiter {
   return l;
 }
 export const limiterState = (key: string): Throttle | null => limiters.get(key)?.throttle() ?? null;
+export const limiterSnapshot = (key: string) => limiters.get(key)?.snapshot() ?? null;
 export const resetLimiters = () => limiters.clear();
 
 /**
@@ -203,8 +265,11 @@ export function limitedFetch(inner: typeof fetch, lim: Limiter, signal: AbortSig
     for (let attempt = 0; ; attempt++) {
       // A call `take()` already paid for is not paid twice; a retry, or a fetch nobody counted, waits its turn here.
       if (attempt === 0 && calls.credit > 0) calls.credit--; else await lim.acquire(signal);
-      const r = await inner(input, init);
+      const t0 = clock.now();
+      let r: Response;
+      try { r = await inner(input, init); } catch (e) { lim.report(0, clock.now() - t0, e); throw e; }
       lim.observe(r.headers, r.status);
+      lim.report(r.status, clock.now() - t0);
       const retry = r.status === 429 || (r.status === 503 && r.headers.get('retry-after') !== null);
       if (!retry || attempt >= RETRIES_ON_429) return r;
       r.body?.cancel().catch(() => {});

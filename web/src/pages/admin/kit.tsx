@@ -19,6 +19,8 @@ const PATHS: Record<string, string> = {
   security: 'M6 11V8a6 6 0 1112 0v3M5 11h14v9H5zM12 15v2',
   back: 'M15 5l-7 7 7 7',
   search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5',
+  mirror: 'M4 6h16M4 12h16M4 18h10M17 15l3 3-3 3',
+  'source-files': 'M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6',
   access: 'M8 15a4 4 0 110-8 4 4 0 010 8zM11 11h10M18 11v3M15 11v2',
 };
 

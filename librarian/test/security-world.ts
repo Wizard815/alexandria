@@ -356,6 +356,10 @@ export async function seedContent(h: H, S: Seed) {
   S.pages.keyJess = ext(2);
   S.pages.keyTom = ext(3);
 
+  // ---- the search log: a DM's own search about a secret is kept for the DM's admin pages, never for players or a non-DM admin ----------
+  await dm('GET', `/library/search?q=${encodeURIComponent(`who really killed the harbour master ${mark('dm_search_query', ['dm'], 'the words of a DM search about a secret (the admin search log)')}`)}`);
+  await h.ok('GET', `/api/worlds/${W}/library/search?q=${encodeURIComponent('smuggler queen')}`, T.jess);
+
   // ---- another world: nothing of it reaches this one ---------------------------------------------------------------------
   const dm2 = (m: string, u: string, b?: unknown) => h.ok(m, `/api/worlds/${S.W2}${u}`, T.dm2, b);
   await dm2('PUT', '/library/pages', { path: 'w2/Other Secret.md', visibility: 'dm', body: `# Other\n${mark('w2_dm_page', ['dm2'], 'a DM page of another world')}\n` });

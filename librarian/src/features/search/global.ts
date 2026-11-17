@@ -14,6 +14,7 @@ import { names } from '../../routes/_shared.ts';
 import { searchRules, searchTerms } from '../modules/search.ts';
 import { hybridPages } from './embeddings.ts';
 import { scoreFields } from './match.ts';
+import { logSearch, roleOf } from '../gatewaystatus/searchlog.ts';
 
 export const KINDS = ['page', 'person', 'term', 'transcript', 'log', 'item'] as const;
 export type Kind = (typeof KINDS)[number];
@@ -74,6 +75,7 @@ export const scopeFor = (v: Viewer): 'dm' | 'party' | 'ai' => (v.role !== 'dm' ?
 async function pages(d: Deps, worldId: string, v: Viewer, q: string, limit: number, semantic: boolean): Promise<GlobalHit[]> {
   const scope = scopeFor(v);
   const hits = semantic ? await hybridPages(d, worldId, q, scope, limit) : (d.library.search(worldId, q, v, limit) as any[]);
+  logSearch(d.db, { worldId, role: roleOf(v), origin: 'global', q, hitIds: hits.map((h: any) => h.id) });
   const base = v.role === 'dm' ? 'dm/library' : 'library';
   return finish('page', hits.map((h: any) => ({
     hit: { id: h.id, title: h.title, snippet: h.snippet, snippetHtml: h.snippetHtml, titleHtml: h.titleHtml, link: `${base}?page=${encodeURIComponent(h.id)}`, meta: { path: h.path, matchedOn: h.matchedOn } },
