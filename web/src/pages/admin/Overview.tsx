@@ -100,6 +100,7 @@ export default function AdminOverview() {
           </Section>
 
           <div className="adm-two">
+            <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
             <Section title="Connections" lead="Logins to services, shared by any world that uses them." actions={<Link className="btn small" to="/admin/connections">Manage</Link>}>
               {conns.data?.length ? (
                 <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
@@ -119,6 +120,7 @@ export default function AdminOverview() {
                 </table></div></div>
               ) : <p className="muted">No connections yet. <Link to="/admin/connections">Make one</Link>, or <Link to="/admin/worlds/setup">set up a world</Link>.</p>}
             </Section>
+            </div>
             <Section title="Gateway devices" lead="Hosted here, so any world's table can use them." actions={<Link className="btn small" to="/admin/integrations">Integrations</Link>}>
               {g ? (
                 <dl className="adm-kv">
