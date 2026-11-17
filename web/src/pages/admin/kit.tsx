@@ -18,6 +18,8 @@ const PATHS: Record<string, string> = {
   audit: 'M7 4h10a2 2 0 012 2v14l-3-2-2 2-2-2-2 2-2-2-3 2V6a2 2 0 012-2zM9 9h6M9 13h4',
   security: 'M6 11V8a6 6 0 1112 0v3M5 11h14v9H5zM12 15v2',
   back: 'M15 5l-7 7 7 7',
+  search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5',
+  access: 'M8 15a4 4 0 110-8 4 4 0 010 8zM11 11h10M18 11v3M15 11v2',
 };
 
 export function Icon({ name, size = 18, color }: { name: string; size?: number; color?: string }) {
