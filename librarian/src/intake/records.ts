@@ -7,6 +7,7 @@
 // - a record's text goes through the same block leak guard as a page
 import type { DB } from '../core/db.ts';
 import { all, one, run, tx } from '../core/db.ts';
+import { id as newId, now } from '../core/util.ts';
 import type { Block, Mention } from './model.ts';
 import { blocksFor, playerBlocks } from './player.ts';
 import type { CalendarDefinition, Capability, SyncRecord, TimelineGroup } from './connector.ts';
@@ -52,6 +53,26 @@ CREATE TABLE IF NOT EXISTS intake_markers (
   PRIMARY KEY (world_id, source_id, external_id)
 );
 
+-- Pictures downloaded from a source (the generic API's image endpoints). Kept in the database so backups hold them. A picture follows its page:
+-- a player may fetch it only while the page it belongs to is shared with them (see imageVisibleTo).
+CREATE TABLE IF NOT EXISTS intake_images (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  external_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  marker TEXT NOT NULL DEFAULT '',
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'dm',
+  page_ref TEXT,
+  page_external TEXT,
+  at TEXT NOT NULL,
+  UNIQUE (world_id, source_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS intake_images_page ON intake_images (world_id, source_id, page_external);
+
 -- intake_calendars has no foreign key on source_id (its shape is shared with the clock), so clean up here.
 CREATE TRIGGER IF NOT EXISTS intake_calendars_source_gone AFTER DELETE ON sources BEGIN
   DELETE FROM intake_calendars WHERE source_id = old.id;
@@ -62,7 +83,48 @@ const ready = new WeakSet<object>();
 export interface RecordViewer { role: string; audience?: 'ai' | 'broker' }
 
 /** Which capability a record kind needs a connector to have declared. */
-export const RECORD_CAPABILITY: Record<SyncRecord['kind'], Capability> = { relation: 'relations', timeline: 'timelines', calendar: 'calendars', mapMarker: 'maps' };
+export const RECORD_CAPABILITY: Record<SyncRecord['kind'], Capability> = { relation: 'relations', timeline: 'timelines', calendar: 'calendars', mapMarker: 'maps', image: 'images' };
+
+/** The file type of a picture from its first bytes (never from what a server said). SVG is left out: it can carry script. */
+export function sniffImage(b: Uint8Array): string | null {
+  if (b.length > 8 && b[0] === 0x89 && Buffer.from(b.subarray(1, 4)).toString('latin1') === 'PNG') return 'image/png';
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length > 6 && Buffer.from(b.subarray(0, 4)).toString('latin1') === 'GIF8') return 'image/gif';
+  if (b.length > 12 && Buffer.from(b.subarray(0, 4)).toString('latin1') === 'RIFF' && Buffer.from(b.subarray(8, 12)).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
+export const MAX_STORED_IMAGE = 8 * 1024 * 1024;
+
+/** The stored page a picture belongs to: the source's id for it, or one that ends in `:<id>` (several endpoints) when only one page does. */
+function pageOf(db: DB, worldId: string, sourceId: string, ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  if (one(db, 'SELECT 1 FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, sourceId, ref)) return ref;
+  const like = all<{ external_id: string }>(db, `SELECT external_id FROM pages WHERE world_id = ? AND source_id = ? AND external_id LIKE ? ESCAPE '\\' LIMIT 2`, worldId, sourceId, `%:${ref.replace(/[\\%_]/g, '\\$&')}`);
+  return like.length === 1 ? like[0].external_id : null;
+}
+
+/** What is stored for a source: externalId to marker, so an unchanged picture is not downloaded again. */
+export function heldImages(db: DB, worldId: string, sourceId: string): Map<string, string> {
+  if (!ready.has(db)) { db.exec(RECORDS_SCHEMA); ready.add(db); }
+  return new Map(all<{ external_id: string; marker: string }>(db, 'SELECT external_id, marker FROM intake_images WHERE world_id = ? AND source_id = ?', worldId, sourceId).map((r) => [r.external_id, r.marker]));
+}
+
+/** The stored picture of a page, if it has one: its id (for a media ticket). */
+export function imageIdForPage(db: DB, worldId: string, sourceId: string | null, externalId: string | null): string | null {
+  if (!sourceId || !externalId) return null;
+  try { return one<{ id: string }>(db, 'SELECT id FROM intake_images WHERE world_id = ? AND source_id = ? AND page_external = ? ORDER BY external_id LIMIT 1', worldId, sourceId, externalId)?.id ?? null; } catch { return null; }
+}
+
+/**
+ * May this viewer fetch this picture? The DM: yes. Everyone else: only when the picture itself may follow its page AND the page it belongs
+ * to has a player copy (shared and checked). A picture with no page, or whose page is DM-only, is the DM's alone. Fail closed.
+ */
+export function imageVisibleTo(db: DB, img: { world_id: string; source_id: string; visibility: string; page_external: string | null }, role: string): boolean {
+  if (role === 'dm') return true;
+  if (img.visibility !== 'party' || !img.page_external) return false;
+  const pg = one<any>(db, 'SELECT visibility, player_body FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', img.world_id, img.source_id, img.page_external);
+  return !!pg && pg.visibility === 'party' && pg.player_body !== null;
+}
 
 const vis = (v: unknown): 'dm' | 'party' => (v === 'party' ? 'party' : 'dm');
 const text = (v: unknown, max: number) => String(v ?? '').slice(0, max);
@@ -104,10 +166,10 @@ const cleanGroups = (groups: TimelineGroup[] | undefined): TimelineGroup[] => (A
  * source no longer has are removed, except kinds it could not list (`incomplete`).
  * Returns counts per kind.
  */
-export function saveRecords(db: DB, worldId: string, sourceId: string, records: SyncRecord[], incomplete: Set<SyncRecord['kind']> = new Set()) {
+export function saveRecords(db: DB, worldId: string, sourceId: string, records: SyncRecord[], incomplete: Set<SyncRecord['kind']> = new Set(), refreshed?: { relationOwners: Set<string>; mapRefs: Set<string> }) {
   if (!ready.has(db)) { db.exec(RECORDS_SCHEMA); ready.add(db); }
-  const counts = { relations: 0, timelines: 0, calendars: 0, markers: 0 };
-  const keep = { relation: new Set<string>(), timeline: new Set<string>(), calendar: new Set<string>(), mapMarker: new Set<string>() };
+  const counts = { relations: 0, timelines: 0, calendars: 0, markers: 0, images: 0 };
+  const keep = { relation: new Set<string>(), timeline: new Set<string>(), calendar: new Set<string>(), mapMarker: new Set<string>(), image: new Set<string>() };
   tx(db, () => {
     for (const r of records) {
       if (!r?.externalId || typeof r.externalId !== 'string') continue;
@@ -145,6 +207,25 @@ export function saveRecords(db: DB, worldId: string, sourceId: string, records: 
             worldId, sourceId, ext, text(r.mapRef, 300), text(r.name, 300), Number(r.latitude), Number(r.longitude), r.shape ? text(r.shape, 40) : null, r.color ? text(r.color, 40) : null, r.ref ? text(r.ref, 300) : null, vis(r.visibility));
           counts.markers++;
           break;
+        case 'image': {
+          const link = pageOf(db, worldId, sourceId, r.pageRef);
+          const bytes = r.data && r.data.length ? Buffer.from(r.data) : null;
+          const mime = bytes ? sniffImage(bytes) : null;
+          if (bytes && (!mime || bytes.length > MAX_STORED_IMAGE)) continue;
+          if (bytes) {
+            run(db, `INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_ref, page_external, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (world_id, source_id, external_id) DO UPDATE SET name = excluded.name, marker = excluded.marker, mime = excluded.mime, size = excluded.size, data = excluded.data,
+                visibility = excluded.visibility, page_ref = excluded.page_ref, page_external = excluded.page_external, at = excluded.at`,
+              newId('img_'), worldId, sourceId, ext, text(r.name, 300), text(r.marker, 600), mime, bytes.length, bytes, vis(r.visibility), r.pageRef ? text(r.pageRef, 300) : null, link, now());
+          } else {
+            // Kept as it is: only its link and visibility are refreshed (a page may have arrived since).
+            const n = run(db, 'UPDATE intake_images SET name = ?, visibility = ?, page_ref = ?, page_external = ? WHERE world_id = ? AND source_id = ? AND external_id = ?',
+              text(r.name, 300), vis(r.visibility), r.pageRef ? text(r.pageRef, 300) : null, link, worldId, sourceId, ext);
+            if (!n) continue;
+          }
+          counts.images++;
+          break;
+        }
         default:
           continue;
       }
@@ -160,6 +241,20 @@ export function saveRecords(db: DB, worldId: string, sourceId: string, records: 
     prune('intake_timelines', 'timeline');
     prune('intake_calendars', 'calendar');
     prune('intake_markers', 'mapMarker');
+    prune('intake_images', 'image');
+    // A listing of changed pages read some owners' relations and some maps' markers in full: replace those, and only those.
+    if (refreshed) {
+      for (const owner of refreshed.relationOwners) {
+        for (const row of all<{ external_id: string }>(db, 'SELECT external_id FROM intake_relations WHERE world_id = ? AND source_id = ? AND from_ref = ?', worldId, sourceId, owner)) {
+          if (!keep.relation.has(row.external_id)) run(db, 'DELETE FROM intake_relations WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, sourceId, row.external_id);
+        }
+      }
+      for (const map of refreshed.mapRefs) {
+        for (const row of all<{ external_id: string }>(db, 'SELECT external_id FROM intake_markers WHERE world_id = ? AND source_id = ? AND map_ref = ?', worldId, sourceId, map)) {
+          if (!keep.mapMarker.has(row.external_id)) run(db, 'DELETE FROM intake_markers WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, sourceId, row.external_id);
+        }
+      }
+    }
   });
   return counts;
 }

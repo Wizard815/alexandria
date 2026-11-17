@@ -2,6 +2,7 @@
 // MCP address, a generic API's mapping), kept once and used by any number of
 // worlds. Secrets are never shown again; "••••" means one is saved.
 import { EndpointReview } from './EndpointReview.tsx';
+import { McpToolReview } from './McpToolReview.tsx';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
@@ -22,6 +23,7 @@ export default function ConnectionsPage() {
   const [del, setDel] = useState<Connection | null>(null);
   const [showPresets, setShowPresets] = useState(false);
   const [finding, setFinding] = useState<Connection | null>(null);
+  const [tools, setTools] = useState<Connection | null>(null);
   const { toast, toastNode } = useToast();
   const byKind = new Map((connectors.data ?? []).map((c) => [c.id, c]));
   const reload = () => { void conns.reload(); void connectors.reload(); };
@@ -47,7 +49,8 @@ export default function ConnectionsPage() {
                     <div className="row wrap" style={{ justifyContent: 'flex-end', gap: 6 }}>
                       <button type="button" className="btn small" onClick={() => setTesting(c)}>Test</button>
                       <button type="button" className="btn small" onClick={() => setEditing(c)}>Edit</button>
-                      {c.kind === 'api' && <button type="button" className="btn small" onClick={() => setFinding(c)}>Find endpoints</button>}
+                      {c.kind === 'api' && c.config.transport !== 'mcp' && <button type="button" className="btn small" onClick={() => setFinding(c)}>Find endpoints</button>}
+                      {c.kind === 'api' && c.config.transport === 'mcp' && <button type="button" className="btn small" onClick={() => setTools(c)}>Find tools</button>}
                       {c.kind === 'api' && <SaveAsPreset connection={c} onDone={(m) => { toast(m); reload(); }} />}
                       <button type="button" className="btn small danger" onClick={() => setDel(c)}>Delete</button>
                     </div>
@@ -60,6 +63,7 @@ export default function ConnectionsPage() {
       )}
       <div className="row"><button type="button" className={`btn small${showPresets ? ' on' : ''}`} aria-expanded={showPresets} onClick={() => setShowPresets(!showPresets)}>Generic API presets</button></div>
       {showPresets && <PresetsPanel onChanged={reload} toast={toast} />}
+      {tools && <McpToolReview connection={tools} onClose={() => setTools(null)} onDone={(m) => { setTools(null); toast(m); reload(); }} />}
       {finding && <EndpointReview connection={finding} onClose={() => setFinding(null)} onDone={(m) => { setFinding(null); toast(m); reload(); }} />}
       {editing && connectors.data && <ConnectionDialog connectors={connectors.data} connection={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onDone={(m) => { setEditing(null); toast(m); reload(); }} />}
       {testing && byKind.get(testing.kind) && <TestDialog connection={testing} connector={byKind.get(testing.kind)!} onClose={() => setTesting(null)} />}

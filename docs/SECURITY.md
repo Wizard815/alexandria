@@ -24,7 +24,9 @@ run) and says who may see it. Spots covered include:
   callouts, comments, frontmatter keys, DM aliases and links inside a shared
   page
 - imported pages with DM, broker and classified fact groups, secret blocks,
-  map pins; imported relations, timelines and map markers that are private
+  map pins; imported relations, timelines, map markers and calendars that are
+  private; imported pictures that are DM-only or belong to a DM-only page
+  (their bytes carry the marker; checked through the signed media route)
 - DM item notes (and alerts after an edit), item pictures, a player's
   proposed item, DM-only people, quotes and notes, the DM's note on a shared
   person, every player's private note and profile block ("only me")
