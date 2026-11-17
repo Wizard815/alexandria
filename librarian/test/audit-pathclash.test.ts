@@ -10,7 +10,7 @@ before(async () => { k = await boot(); });
 after(() => k?.close());
 const put = (body: unknown) => k.call('PUT', k.w('/library/pages'), k.T.dm, body);
 
-test('Audit_Paths: a page below another page\'s file name does not break saving every later page', { todo: 'core/library.ts mirror() throws EEXIST; see audit REPORT H/M finding "path clash"' }, async () => {
+test('Audit_Paths: a page below another page\'s file name does not break saving every later page', async () => {
   assert.equal((await put({ path: 'clash/Dup.md', body: 'file first' })).status, 200);
   const b = await put({ path: 'clash/Dup.md/Child.md', body: 'a page below a file' });
   assert.ok(b.status < 500, `a page below another page's file name -> ${b.status} ${b.text.slice(0, 100)}`);

@@ -152,7 +152,11 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
     // A page the list says is hidden loses its player copy now, not when its details are next read.
     if (demoted.length) { d.library.applyAudience(src.world_id, src.id); log(`${demoted.length} pages are hidden at the source: made DM-only`); }
     // Only a complete listing may delete. A listing of what changed lists nothing else.
-    if (!ts || ts.complete) stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
+    // A complete listing that found nothing while the source has pages is far more likely a half-down API
+    // or a key that lost its rights than a world emptied on purpose: keep the pages.
+    const held = (one<any>(d.db, 'SELECT COUNT(*) AS n FROM pages WHERE world_id = ? AND source_id = ?', src.world_id, src.id)?.n ?? 0) as number;
+    if ((!ts || ts.complete) && seen.size === 0 && held > 0) log(`The source listed no pages but ${held} are stored: nothing is removed. Remove the source to clear them.`);
+    else if (!ts || ts.complete) stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
     else log('Only changed pages were listed, so nothing is removed this time');
     if (ts) saveIndexState(d.db, sourceId, { token: ts.next.token, cache: ts.next.cache, complete: ts.complete, calls: counter.index });
     // The source's audience decides what its records are: DM only, or shared (a reader still needs the pages they point at shared).

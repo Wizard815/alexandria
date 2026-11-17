@@ -203,6 +203,11 @@ export class Library {
     const l = String(level ?? '').toLowerCase();
     if (!isLevel(l)) throw new HttpError(400, 'level must be party, broker, dm or classified');
     const fm = { ...(JSON.parse(pg.frontmatter || '{}') as FM), visibility: l };
+    // A level change ends the page's shares: a share made at one level must not come back on its own
+    // when the page is later lowered again. Sharing it again is one click.
+    if (String(JSON.parse(pg.frontmatter || '{}')?.visibility ?? '') !== l) {
+      try { run(this.db, 'DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ?', worldId, pg.id); } catch { /* sharing not installed */ }
+    }
     return this.save(worldId, { path: pg.path, title: pg.title, body: pg.body, frontmatter: fm, visibility: l }, by);
   }
 
@@ -767,19 +772,23 @@ export class Library {
   private mirror(worldId: string, p: string, fm: FM, body: string, visibility: string, pc: { fm: FM; body: string; blocks?: Block[] | null; properties?: PropertyGroup[] | null } | null) {
     const dir = this.worldDir(worldId);
     if (!dir) return;
+    // The files on disk are a copy for people who read the folder; the database is the truth.
+    // A copy that can't be written (e.g. "a/Dup.md" is a file and "a/Dup.md/Child.md" needs it as a folder)
+    // is skipped, so one odd path never stops every later save.
     const write = (sub: string, rel: string, text: string) => {
       const f = path.join(dir, sub, rel);
-      fs.mkdirSync(path.dirname(f), { recursive: true });
-      fs.writeFileSync(f, text);
+      try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); }
+      catch (e) { console.warn(`library: could not write the ${sub} copy of ${rel}: ${(e as Error).message}`); }
     };
+    const remove = (f: string) => { try { fs.rmSync(f, { force: true }); } catch (e) { console.warn(`library: could not remove ${f}: ${(e as Error).message}`); } };
     write('vault', p, joinFrontmatter({ ...fm, visibility }, body));
     const partyFile = path.join(dir, 'party', p);
     if (pc) {
       write('party', p, joinFrontmatter(pc.fm, pc.body));
       write('_api', p.replace(/\.md$/i, '.json'), JSON.stringify({ path: p, frontmatter: pc.fm, body: pc.body, blocks: pc.blocks ?? [], properties: pc.properties ?? [] }, null, 2));
     } else {
-      fs.rmSync(partyFile, { force: true });
-      fs.rmSync(path.join(dir, '_api', p.replace(/\.md$/i, '.json')), { force: true });
+      remove(partyFile);
+      remove(path.join(dir, '_api', p.replace(/\.md$/i, '.json')));
     }
   }
 }
