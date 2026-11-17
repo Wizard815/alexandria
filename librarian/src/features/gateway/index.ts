@@ -4,7 +4,12 @@
 //                      what the guards stopped, devices, recent activity
 //   GET /source-keys   every world's source keys and escalated questions, as metadata only
 //   GET /guard         the page levels across worlds and what the guards stopped in the last 7 days
-//   GET /devices       lights, macros, triggers and microphones per world (counts and names)
+//   GET /devices       lights, macros, triggers, microphones and speakers per world (counts and names)
+//   GET /leak-check    the runtime leak check's history; POST /leak-check/run starts one (also nightly)
+//   GET /worlds        per world: player keys, shares, same-thing suggestions, the source trust setting
+//   POST /worlds/:id/links, PUT /worlds/:id/prefs   an admin's decisions for the two last cards
+//   GET /search        the admin's search across worlds (party copies unless the admin is that world's DM)
+//   GET /mcp           Alexandria's MCP address, tools and the keys that reach it (never a key)
 //
 // Being an admin does not open a world's secrets. These routes never return a key's secret, the hidden
 // context of an escalated question, an answer, page text or the text a guard stopped: only who, when, what
@@ -13,10 +18,16 @@ import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
-import { all, one } from '../../core/db.ts';
+import { all, one, run } from '../../core/db.ts';
 import { names } from '../../routes/_shared.ts';
 import { effectiveStatus, type EscRow } from '../sourcekeys/escalation.ts';
 import { keyView, worldKeys } from '../sourcekeys/store.ts';
+import type { Auth } from '../../core/auth.ts';
+import { HttpError } from '../../core/util.ts';
+import { SCHEMA as LEAK_SCHEMA, closeStale, lastFinished, listRuns, startRun } from './leakcheck.ts';
+import { SCHEMA as WORLD_SCHEMA, setLink, setPrefs, worldCards } from './worlds.ts';
+import { adminSearch, mcpAccess } from './adminview.ts';
+import { adminHasDefaultPassword } from './security.ts';
 
 const count = (db: DB, sql: string, ...args: unknown[]): number => {
   try { return one<{ n: number }>(db, sql, ...args)?.n ?? 0; } catch { return 0; } // a table of a feature that is not installed
@@ -43,11 +54,22 @@ const ACTIVITY: Record<string, string> = {
   'source.sync': 'Source synced', 'source.create': 'Source added', 'source.delete': 'Source removed', 'source.update': 'Source changed',
   'source.audience': 'Source audience changed', 'source.tiers': 'Crawl budget changed', 'sourcekeys.add': 'Source key added', 'sourcekeys.revoke': 'Source key revoked',
   'sourcekeys.escalate': 'A question needed hidden information', 'member.set': 'Member role set', 'member.remove': 'Member removed',
-  'agent.leak_blocked': 'Guard replaced a player agent reply', 'ai.classified_refused': 'Guard refused a model request', 'password.reset': 'Password reset',
+  'agent.leak_blocked': 'Guard replaced a player agent reply', 'ai.classified_refused': 'Guard refused a model request', 'password.reset': 'Password reset', 'gateway.leak_found': 'Leak check found a leak',
 };
 
 const feature: Feature = {
   id: 'gateway',
+  schema: LEAK_SCHEMA + WORLD_SCHEMA,
+  // The leak check, once a day. Not started in tests.
+  start: (d: Deps) => {
+    closeStale(d.db);
+    const t = setInterval(() => {
+      const last = one<{ at: string | null }>(d.db, `SELECT MAX(started_at) AS at FROM gateway_leak_runs`)?.at;
+      if (!last || Date.now() - Date.parse(last) > 23 * 3600e3) startRun(d, 'nightly');
+    }, 30 * 60e3);
+    t.unref?.();
+    return () => clearInterval(t);
+  },
   adminMount: 'gateway',
   adminRoutes: (d: Deps) => {
     const r = Router();
@@ -62,12 +84,19 @@ const feature: Feature = {
           brokerDeals: count(db, `SELECT COUNT(*) AS n FROM broker_requests WHERE status = 'pricing'`),
         },
         roles: Object.fromEntries(roles.map((x) => [x.role, x.n])),
+        security: { defaultAdminPassword: adminHasDefaultPassword(db) },
+        leak: (() => {
+          const l = lastFinished(db);
+          return l ? { at: l.finishedAt, leaks: l.leaks, status: l.status, pages: l.pages, viewers: l.viewers, error: l.error } : null;
+        })(),
         guard: { blocked7d: guardEvents(db, ago(7), 1000).length, last: guardEvents(db, ago(7), 1)[0]?.at ?? null },
         devices: {
           lights: count(db, 'SELECT COUNT(*) AS n FROM lights_drivers WHERE enabled = 1'),
           macros: count(db, 'SELECT COUNT(*) AS n FROM actions_macros'),
           triggers: count(db, 'SELECT COUNT(*) AS n FROM actions_triggers WHERE revoked = 0'),
           mics: count(db, 'SELECT COUNT(*) AS n FROM audio_mics'),
+          speakers: count(db, 'SELECT COUNT(*) AS n FROM sound_listeners WHERE music = 1 OR ambience = 1 OR sfx = 1'),
+          speakersConnected: count(db, 'SELECT COUNT(*) AS n FROM sound_listeners WHERE (music = 1 OR ambience = 1 OR sfx = 1) AND seen_at >= ?', ago(1)),
         },
         activity: rows<any>(db, `SELECT a.id, a.action, a.at, w.name AS world FROM audit a LEFT JOIN worlds w ON w.id = a.world_id
           WHERE a.action IN (${Object.keys(ACTIVITY).map(() => '?').join(',')}) ORDER BY a.id DESC LIMIT 8`, ...Object.keys(ACTIVITY))
@@ -114,9 +143,44 @@ const feature: Feature = {
           macros: count(db, 'SELECT COUNT(*) AS n FROM actions_macros WHERE world_id = ?', w.id),
           triggers: count(db, 'SELECT COUNT(*) AS n FROM actions_triggers WHERE world_id = ? AND revoked = 0', w.id),
           mics: rows<any>(db, 'SELECT label, mode FROM audio_mics WHERE world_id = ? ORDER BY label', w.id).map((m) => ({ label: m.label, mode: m.mode })),
+          // A speaker is a browser or app that told the sound board it plays music, ambience or effects. Seen in the last day counts as connected.
+          speakers: rows<any>(db, 'SELECT label, seen_at FROM sound_listeners WHERE world_id = ? AND (music = 1 OR ambience = 1 OR sfx = 1) ORDER BY seen_at DESC', w.id)
+            .map((s) => ({ label: s.label || 'Unnamed device', seenAt: s.seen_at, connected: s.seen_at >= ago(1) })),
         })),
+        // Nothing registers the DM desktop app with the gateway yet, so there is no count to give.
+        desktopApps: null,
       });
     });
+
+    r.get('/leak-check', (_req, res) => {
+      const runs = listRuns(db, 20);
+      res.json({ running: runs[0]?.status === 'running', runs, last: lastFinished(db) });
+    });
+    r.post('/leak-check/run', (req, res) => {
+      const auth = res.locals.auth as Auth;
+      const r2 = startRun(d, 'manual');
+      if (r2.started) run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (NULL, ?, ?, ?, ?)', auth.account.id, 'gateway.leakcheck', 'run now', new Date().toISOString());
+      res.status(202).json(r2);
+    });
+
+    r.get('/worlds', (_req, res) => {
+      const me = (res.locals.auth as Auth).account.id;
+      res.json({ worlds: all<{ id: string }>(db, 'SELECT id FROM worlds ORDER BY name').map((w) => ({ id: w.id, ...worldCards(d, w.id, me) })) });
+    });
+    const worldOf = (id: unknown) => { if (!one(db, 'SELECT 1 FROM worlds WHERE id = ?', id)) throw new HttpError(404, 'World not found'); return String(id); };
+    r.post('/worlds/:id/links', (req, res) => {
+      const w = worldOf(req.params.id);
+      setLink(d, w, (res.locals.auth as Auth).account.id, req.body?.a, req.body?.b, req.body?.status);
+      res.json(worldCards(d, w, (res.locals.auth as Auth).account.id).sameThing);
+    });
+    r.put('/worlds/:id/prefs', (req, res) => {
+      const w = worldOf(req.params.id);
+      setPrefs(d, w, (res.locals.auth as Auth).account.id, req.body);
+      res.json(worldCards(d, w, (res.locals.auth as Auth).account.id).disagree);
+    });
+
+    r.get('/search', (req, res) => res.json(adminSearch(d, (res.locals.auth as Auth).account.id, req.query)));
+    r.get('/mcp', async (_req, res) => res.json(await mcpAccess(d)));
     return r;
   },
 };

@@ -1,11 +1,12 @@
 // Gateway admin → Permissions & leak guard: the four secrecy levels, how a player can come to see more, the
 // real page counts per level, and what the guards stopped in the last 7 days (kind and time only, never the text).
-// The leak crawler itself is a test (npm test, docs/SECURITY.md); it is not run from here.
+// The leak check runs here on demand and every night; the leak crawler (npm test, docs/SECURITY.md) is the build-time twin.
+import { useEffect } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
-import { ErrorBox, Loading, PageHead } from '../../ui/index.tsx';
+import { ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
-import { Pill, Section, Tile, type Tone } from '../../pages/admin/kit.tsx';
+import { Callout, Pill, Section, Tile, type Tone } from '../../pages/admin/kit.tsx';
 
 interface Guard { levels: Record<'party' | 'broker' | 'dm' | 'classified', number>; blanketKeys: number; perUserKeys: number; events: { id: number; at: string; world: string | null; kind: string; what: string }[] }
 
@@ -59,11 +60,55 @@ export default function Permissions() {
               </table></div></div>
             ) : <p className="muted">Nothing has been stopped in the last 7 days.</p>}
           </Section>
-          <Section title="Leak crawler">
-            <p className="small muted">The leak crawler reads every route, live stream, offline copy and AI tool as each kind of viewer and fails the build when a marker reaches someone who may not see it. It runs with the tests (<span className="mono">npm test</span>), not from this page. See docs/SECURITY.md.</p>
-          </Section>
+          <LeakCheck />
         </>
       )}
     </div>
+  );
+}
+
+interface Finding { world: string; worldName: string; viewer: string; surface: string; pageId: string | null; kind: string }
+interface Run { id: number; startedAt: string; finishedAt: string | null; trigger: string; status: string; worlds: number; viewers: number; pages: number; reads: number; leaks: number; error: string | null; findings?: Finding[] }
+const SURFACE: Record<string, string> = { list: 'page list', page: 'page, offline copy or MCP read', search: 'page search', 'global-search': 'search everything' };
+
+/** Reads every world's library as each player and guest, and checks no DM-only 8-word run shows up. Runs are kept; leaked text never is. */
+function LeakCheck() {
+  const { client } = useAuth();
+  const lc = useLoad(() => client.request<{ running: boolean; runs: Run[] }>('GET', '/api/admin/gateway/leak-check'), []);
+  const go = useAction();
+  const running = lc.data?.running;
+  // While a run is going, look again every couple of seconds.
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => void lc.reload(), 2000);
+    return () => clearInterval(t);
+  }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
+  const runs = lc.data?.runs ?? [];
+  const last = runs.find((r) => r.status !== 'running');
+  const start = () => void go.run(async () => { await client.request('POST', '/api/admin/gateway/leak-check/run', {}); await lc.reload(); });
+  return (
+    <Section title="Leak check" lead="Reads each world as every player and guest (and as a guest with no account) and checks that no run of 8 words of DM-only text, broker or classified text shows up in the page list, any page, search, the offline copy or the MCP read tools. It runs every night."
+      actions={<button type="button" className="btn primary small" onClick={start} disabled={go.busy || !!running}>{running ? 'Checking…' : 'Run now'}</button>}>
+      <ErrorBox error={go.error || lc.error} />
+      {last && last.leaks > 0 && (
+        <Callout tone="bad">
+          <strong>{last.leaks} leak{last.leaks === 1 ? '' : 's'} found in the last run.</strong> Only where is shown, never the words.
+          <ul className="adm-feed">{(last.findings ?? []).slice(0, 20).map((f, i) => <li key={i}><span>{f.worldName} · {f.viewer === 'guest-without-account' ? 'a guest with no account' : 'a player or guest'} · {SURFACE[f.surface] ?? f.surface}{f.pageId ? <span className="mono tiny"> · page {f.pageId}</span> : null}</span></li>)}</ul>
+        </Callout>
+      )}
+      {lc.loading && !lc.data ? <Loading /> : runs.length ? (
+        <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
+          <thead><tr><th>When</th><th>By</th><th className="num">Viewers</th><th className="num">Pages checked</th><th className="num">Leaks</th><th>Result</th></tr></thead>
+          <tbody>{runs.map((r) => (
+            <tr key={r.id}>
+              <td className="small">{when(r.startedAt)}</td><td>{r.trigger === 'nightly' ? 'Nightly' : 'Run now'}</td>
+              <td className="num">{r.viewers}</td><td className="num">{r.pages.toLocaleString()}</td><td className="num">{r.leaks}</td>
+              <td>{r.status === 'running' ? <Pill tone="teal">Running</Pill> : r.status === 'error' ? <Pill tone="warn">Did not finish</Pill> : r.leaks ? <Pill tone="bad">Leak found</Pill> : <Pill tone="ok">Clean</Pill>}{r.error && <span className="tiny">{r.error}</span>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div></div>
+      ) : <p className="muted">It has not run yet. Run it now, or it runs tonight.</p>}
+      <p className="tiny faint">Pages a player's own key or a share opens are judged by the copy they are meant to see. The build-time leak crawler (npm test, docs/SECURITY.md) checks more routes and live streams.</p>
+    </Section>
   );
 }
