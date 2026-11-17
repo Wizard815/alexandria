@@ -15,8 +15,8 @@ import type { Auth } from '../../core/auth.ts';
 import { HttpError, id, now, secret, sha256 } from '../../core/util.ts';
 import type { Feature } from '../types.ts';
 import { ctx, isDM } from '../../routes/_shared.ts';
-import { RECORDS_SCHEMA, calendarsFor, imageVisibleTo, markersFor, timelinesFor } from '../../intake/records.ts';
-import { readTicket } from '../sound/ticket.ts';
+import { RECORDS_SCHEMA, calendarsFor, imageVisibleTo, initRecords, mapImagesFor, markersFor, timelinesFor } from '../../intake/records.ts';
+import { mintTicket, readTicket } from '../sound/ticket.ts';
 import { capabilityUnion, connectorFor } from '../../intake/registry.ts';
 import { prefixFor, runSync } from '../../intake/sync.ts';
 import { cleanEntry } from '../../intake/push.ts';
@@ -195,6 +195,7 @@ function pushApi(app: import('express').Express, d: Deps) {
 const feature: Feature = {
   id: 'intake',
   schema,
+  migrate: (db) => initRecords(db),
   worldMount: 'intake',
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
@@ -209,6 +210,12 @@ const feature: Feature = {
     });
     r.get('/calendars', (_req, res) => res.json(calendarsFor(d.db, ctx(res).world.id, ctx(res).viewer)));
     r.get('/timelines', (_req, res) => res.json(timelinesFor(d.db, ctx(res).world.id, ctx(res).viewer)));
+    // Map images imported from the sources (Kanka maps, LegendKeeper map documents, generic API map endpoints), for the Map page to pick from.
+    // The DM sees all; a player only maps whose page is shared with them (the same check as every picture). Each url is a short-lived ticket for this account.
+    r.get('/map-images', (_req, res) => {
+      const c = ctx(res);
+      res.json(mapImagesFor(d.db, c.world.id, isDM(res) ? 'dm' : 'player').map((m) => ({ ...m, url: `/api/media/intake/${mintTicket({ w: c.world.id, k: 'intake', f: m.id, a: c.viewer.accountId })}` })));
+    });
     r.get('/markers', (_req, res) => res.json(markersFor(d.db, ctx(res).world.id, ctx(res).viewer)));
     // The DM makes source keys for this world's sources.
     r.use((req, res, next) => {

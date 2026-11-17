@@ -24,7 +24,7 @@ function world(kind: string, config: Record<string, unknown>) {
   run(db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s', 'w', ?, 'S', ?, 'party')`, kind, JSON.stringify(config));
   return { db, lib: new Library(db, null) };
 }
-const sync = (db: any, lib: Library, fetchImpl: typeof fetch) => runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch: fetchImpl, env: {}, mcp: null as any }, 's', 'a');
+const sync = (db: any, lib: Library, fetchImpl: typeof fetch) => runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch: fetchImpl, env: { ALX_CRAWL_RATE: '0' }, mcp: null as any }, 's', 'a');
 
 // ---------- Kanka ----------
 

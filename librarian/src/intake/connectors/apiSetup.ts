@@ -47,6 +47,7 @@ const ROLE_WORDS: [Role, RegExp][] = [
   ['events', /^(events?|timelines?|histor(y|ies)|sessions?|chronicles?|eras?|journals?|quests?|campaigns?)$/],
   ['calendars', /^(calendars?|moons?|weather)$/],
   ['tags', /^(tags?|labels?|categories|category)$/],
+  ['map', /^(battle-?maps?|world-?maps?|map-?(images?|files?|art|assets?)|maps?-?(images?|files?))$/],
   ['images', /^(images?|files?|assets?|media|uploads?|attachments?|pictures?|photos?|handouts?|documents?)$/],
   ['pages', /^(articles?|pages?|posts?|notes?|entries|entry|lore|docs?|wiki|wikis|topics?|entities|resources?|records?|stories|story|chapters?|content)$/],
 ];
@@ -155,7 +156,7 @@ const IMG = {
 
 /** The extra fields of a calendars or images endpoint, and how complete the guess is (0 to 1). Null for any other role. */
 export function mapRoleFields(role: Role, props: Prop[], base: Mapping): Mapping | null {
-  if (role !== 'calendars' && role !== 'images') return null;
+  if (role !== 'calendars' && role !== 'images' && role !== 'map') return null;
   const f: Partial<ApiEndpoint> = { ...base.fields };
   const notes: string[] = [...base.notes.filter((n) => !/visibility/.test(n))];
   const named = (names: string[], kinds?: Prop['kind'][]) => names.map((n) => props.find((x) => norm(x.name) === n && (!kinds || kinds.includes(x.kind)))).find(Boolean);
@@ -176,7 +177,7 @@ export function mapRoleFields(role: Role, props: Prop[], base: Mapping): Mapping
     delete f.bodyField; delete f.bodyFormat; delete f.summaryField; delete f.parentField;
     // The `url` guess of mapFields only takes http addresses; a picture's address may be relative.
     if (url) score += 0.5; else notes.push('No address field found: map one (or a download path) before using these images.');
-    if (!f.pageField) notes.push('No field says which page a picture belongs to: pictures would be stored but shown on no page.');
+    if (!f.pageField && role === 'images') notes.push('No field says which page a picture belongs to: pictures would be stored but shown on no page.');
   }
   return { fields: f, score: Math.min(1, score), notes };
 }
@@ -184,7 +185,7 @@ export function mapRoleFields(role: Role, props: Prop[], base: Mapping): Mapping
 /** Can the endpoint be switched on as it stands? Pages and tags need an id and title; calendars months; pictures an address. */
 export function endpointUsable(ep: ApiEndpoint): boolean {
   if (ep.role === 'calendars') return !!(ep.idField && ep.titleField && ep.monthsField);
-  if (ep.role === 'images') return !!(ep.idField && (ep.urlField || ep.detailPath));
+  if (ep.role === 'images' || ep.role === 'map') return !!(ep.idField && (ep.urlField || ep.detailPath));
   return (PAGE_ROLES.includes(ep.role) || ep.role === 'tags') && !!(ep.idField && ep.titleField);
 }
 

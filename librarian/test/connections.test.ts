@@ -385,7 +385,7 @@ test('TestPresets_BuiltInSaveApplyImportExport', async () => {
   assert.equal(connectors.at(-1).group, 'generic');
   assert.ok(connectors.at(-1).presets.length >= 5);
   const kanka = connectors.find((x: any) => x.id === 'kanka-api');
-  assert.deepEqual(kanka.fields.filter((f: any) => f.scope === 'connection').map((f: any) => f.key).sort(), ['apiUrl', 'token']);
+  assert.deepEqual(kanka.fields.filter((f: any) => f.scope === 'connection').map((f: any) => f.key).sort(), ['apiUrl', 'maxPerMinute', 'maxPerSecond', 'spreadMinutes', 'token']);
   assert.equal(kanka.fields.find((f: any) => f.key === 'campaignId').scope, 'source');
 
   // A source of a preset-made connection fills the placeholder from its own world value.

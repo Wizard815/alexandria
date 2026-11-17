@@ -338,16 +338,16 @@ source time of what the library holds). A page whose source time moved on is
   need detail calls, so pages stay at index depth. Detail is one call for the
   resource, one for each document and one for each ancestor whose permissions
   are not known yet. The published limit is 300 calls a minute per key (6,000
-  an hour; 12,000 an hour per project): the crawl stays at 60 a minute and
-  the background budget defaults to 30.
+  an hour; 12,000 an hour per project): the connection defaults to 60 calls a
+  minute and 2 a second, and the background budget to 24 (see "Rate limits").
 - **Kanka**: the module lists already carry `entry`, posts and attributes
   (`related=1`), so a listing reaches full depth with about pages / 45 calls
   per module (up to 100 a page for subscribers). Later listings send
   `lastSync` and read only what changed, and refresh the records of what
   changed (see "Incremental re-crawls"). The default limit is 30 calls a
-  minute for a user (90 for subscribers; all tokens share it): the crawl stays
-  at 24 a minute and the background budget defaults to 12. Raise it on the
-  world page if you are a subscriber.
+  minute for a user (90 for subscribers; all tokens share it): the connection
+  defaults to 30 a minute and the background budget to 12. Raise "Max calls per
+  minute" on the connection (or on the world page) if you are a subscriber.
 - **Generic API**: the endpoint list (below). A record with a body in the list
   is full; with only a summary, `summary`; otherwise `index`. An endpoint with
   a `detailPath` (`/articles/{id}`) gives whole pages later. Calendars and
@@ -412,6 +412,52 @@ crawl, every sixth, once a day, and on `POST .../sources/:id/sync` with
 **Call accounting.** Every request to a source is counted by tier: the sync
 stats have `indexCalls` and `detailCalls`, and the crawl progress shows
 "Index: 14 calls, 2,031 pages · Details: 120 of 2,031 · Budget 30/min".
+
+### Rate limits
+
+Sites limit calls: Kanka 30 a minute (90 for subscribers), others a number a
+second. Every call to a source goes through **one limiter per connection**
+(`intake/ratelimit.ts`), so every world and every source key that uses the
+connection shares it: the index, details read in the background, a page opened
+on demand, picture and map downloads, and the connection test. A source with
+no connection has its own.
+
+| Setting (on the connection) | Default | Meaning |
+|---|---|---|
+| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 60, generic API 60 | never more in any 60 seconds |
+| `maxPerSecond` ("Max calls per second") | LegendKeeper 2, others 0 (no cap) | never more in any second |
+| `spreadMinutes` ("Spread the first scan over (minutes)") | 1 | see below; 0: as fast as the limits allow |
+
+Set them in Admin > Connections (the connector's form) or on the world page
+under "Reading the sources", where `PATCH /api/admin/connections/tiers/:source`
+takes `{ limits: { perMinute, perSecond }, spread }`. The limits are written to
+the connection (every world using it gets them, and the change is audited);
+`spread` is this source's own (`null` goes back to the connection's value).
+The background detail budget follows the limit: a fifth is kept free for pages
+people open and for other users of the same key (so 30 a minute gives 24).
+
+The limiter also listens to the site:
+
+- `Retry-After`, `X-RateLimit-Limit/Remaining/Reset` and `RateLimit-*` headers:
+  a `Remaining` of 0 waits for the reset; a published `Limit` below ours is
+  followed (a tenth under it), so a free Kanka account that was set to 90 a
+  minute settles at 27.
+- A `429` (or a `503` with `Retry-After`) waits `Retry-After`, or backs off
+  1, 2, 4, 8 seconds plus jitter, and asks again up to four times. After that the
+  429 is handed to the connector, which fails the run: it never hammers.
+- While calls are held back, the world page shows "Waiting 12 s — the site
+  asked us to slow down" (`throttle` in `GET /connections/tiers/world/:id`).
+
+**Scan pacing.** A complete listing (the first scan, or the periodic one)
+paces the index calls evenly across `spreadMinutes`: the gap between two calls
+is the window divided by the calls the last complete listing made (30 when
+none is known yet), and never below what the limits allow. Details and
+picture downloads are not paced. Only calls made through `fetch` or an MCP
+tool of the connector are limited: a local stdio MCP server that is shared with
+other programs is outside our control.
+
+`ALX_CRAWL_RATE` (calls a minute, `0` = no limit at all, no spreading) overrides
+the limits for tests.
 
 ### Generic API: automatic setup
 
@@ -490,7 +536,47 @@ to, as in its own list), `updatedField`, `visibilityField`.
   field shared, or none mapped and the source shares) **and** the page has a
   player copy. A DM-only page's pictures, and DM-only pictures of a shared
   page, are the DM's alone. The source's audience applies to them too.
+- A page can have **several pictures**. The page response has `banner` (the
+  first, by the source's id; or the address the source gave the page) and
+  `pictures`: `[{ id, name, url, map, primary }]`, each `url` a signed ticket
+  for this viewer, listed only when that viewer may fetch the picture (same
+  check as above, once per picture). The library page shows the pictures that
+  are not the banner as a small row of links under it.
 - Turning the endpoint off removes its pictures at the next sync.
+
+### Maps from sources
+
+A map's own picture is imported next to the page's pictures and kept as a
+**map** (`intake_images.kind = 'map'`, `map: true` in `pictures`). It follows
+its page like any picture and has its own, larger size cap: `ALX_MAP_MAX_BYTES`
+(default 25 MB; pictures stay at `ALX_IMAGE_MAX_BYTES`). Downloads are detail
+calls, within the same per-run and held-total limits, and an unchanged map
+(same address and update time) is not downloaded again.
+
+- **Kanka**: the image of each map entity (`image_full`), in the module list.
+- **LegendKeeper**: the image of a map document (`mapImage`), downloaded when the
+  map page is read (opened, or in the background), so it is a detail-tier call.
+- **Generic API**: an endpoint with the role **Map images** (`map`), mapped like
+  Images: `urlField` or `detailPath`, `pageField` (without it the record's own id
+  is taken as the page it belongs to), `updatedField`, `visibilityField`. A plain
+  `/maps` list stays a list of places (a map is also a page); only names like
+  `battlemaps` or `map-images` are guessed as `map`.
+
+`GET /api/worlds/:world/intake/map-images` lists the imported maps the viewer
+may open (the DM all; a player only maps whose picture is shared and whose
+page has a player copy), each with a signed `url`, its `name` and `page`. The
+Map page (DM and player) offers them under "Imported map"; the choice is
+kept in that browser, like the pasted image URL.
+
+### Opening a page you cannot see
+
+A page held only at index depth is read from its source when someone opens it
+(`readOnOpen`). The caller's access is checked **first**, by the library's own
+rules (a player copy exists, the level allows it, a per-account lift or a share
+applies): only the DM, or a viewer who could be served the page, causes a
+call. Index-only pages with no visibility information are DM-only, so a
+player opening one gets the usual 404, spends no call and does not even mark
+the page as wanted.
 
 ### MCP tool sources: a detail tier
 
