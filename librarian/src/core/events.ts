@@ -10,6 +10,8 @@ interface Sub {
   worldId: string;
   viewer: Viewer;
   res: Response;
+  /** Is this subscriber still who they were when the stream opened (a member with the same role, the session or key still valid)? */
+  alive?: () => boolean;
 }
 
 export const everyone: Audience = () => true;
@@ -27,7 +29,7 @@ export class EventHub {
     return () => { this.taps.delete(fn); };
   }
 
-  subscribe(worldId: string, viewer: Viewer, res: Response) {
+  subscribe(worldId: string, viewer: Viewer, res: Response, alive?: () => boolean) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -35,27 +37,37 @@ export class EventHub {
       'X-Accel-Buffering': 'no',
     });
     res.write(': connected\n\n');
-    const sub = { worldId, viewer, res };
+    const sub: Sub = { worldId, viewer, res, alive };
     this.subs.add(sub);
-    const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+    const ping = setInterval(() => { if (this.drop(sub)) return; res.write(': ping\n\n'); }, 25_000);
     res.on('close', () => {
       clearInterval(ping);
       this.subs.delete(sub);
     });
   }
 
+  /** A stream stays open long after it was checked: close it when its person left the world, changed role, signed out or lost the key. */
+  private drop(s: Sub): boolean {
+    let alive = true;
+    try { alive = s.alive ? s.alive() : true; } catch { alive = false; }
+    if (alive) return false;
+    this.subs.delete(s);
+    try { s.res.end(); } catch { /* already closed */ }
+    return true;
+  }
+
   emit(worldId: string, type: string, data: unknown, audience: Audience) {
     const payload = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const s of this.subs) {
-      if (s.worldId === worldId && audience(s.viewer)) s.res.write(payload);
+    for (const s of [...this.subs]) {
+      if (s.worldId === worldId && !this.drop(s) && audience(s.viewer)) s.res.write(payload);
     }
     for (const t of this.taps) { try { t(worldId, type, data); } catch { /* a listener never breaks an emit */ } }
   }
 
   /** Emit a value computed per viewer (for role-filtered views like combat). */
   emitPer(worldId: string, type: string, view: (v: Viewer) => unknown | null) {
-    for (const s of this.subs) {
-      if (s.worldId !== worldId) continue;
+    for (const s of [...this.subs]) {
+      if (s.worldId !== worldId || this.drop(s)) continue;
       const data = view(s.viewer);
       if (data !== null && data !== undefined) s.res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
     }

@@ -145,7 +145,14 @@ export default function authRoutes(d: Deps) {
     const a = (res.locals.auth as Auth).account;
     const row = one<any>(db, 'SELECT pass_hash FROM accounts WHERE id = ?', a.id);
     if (!checkPassword(str(req.body?.current, 'current', { max: 200 }), row?.pass_hash)) throw new HttpError(400, 'Current password is wrong');
-    run(db, 'UPDATE accounts SET pass_hash = ? WHERE id = ?', hashPassword(validatePassword(req.body?.password)), a.id);
+    const next = hashPassword(validatePassword(req.body?.password));
+    const auth = res.locals.auth as Auth;
+    // Every other session is signed out: someone holding an old session must not outlive the change. This one stays.
+    const keep = auth.via === 'session' ? sha256(req.headers.authorization?.slice(7).trim() ?? '') : '';
+    tx(db, () => {
+      run(db, 'UPDATE accounts SET pass_hash = ? WHERE id = ?', next, a.id);
+      run(db, 'DELETE FROM sessions WHERE account_id = ? AND token_hash <> ?', a.id, keep);
+    });
     audit(db, null, a.id, 'password.change');
     res.json({ ok: true });
   });
