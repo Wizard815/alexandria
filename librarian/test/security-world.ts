@@ -296,6 +296,19 @@ export async function seedContent(h: H, S: Seed) {
   pushId('card', (await dm('POST', '/stage/cards', { kind: 'image', ref: stageImg.json.id, title: 'Backdrop' })).id);
   pushId('card', (await dm('POST', '/stage/cards', { kind: 'text', title: mark('stage_card_tom', ['dm', 'tom'], 'a stage card shown to tom only'), text: 'Just for you.', show: true, to: [ID.tom] })).id);
 
+  // ---- files in the library: each one's name and its bytes carry the marker -------------------------------------
+  const lib = async (query: string, bytes: Uint8Array | string, name: string) => {
+    const r = await h.call('POST', `/api/worlds/${W}/files?${query}&name=${encodeURIComponent(name)}`, T.dm, bytes, { 'Content-Type': 'application/octet-stream' });
+    if (r.status >= 300) throw new Error(`library file ${r.status} ${r.text}`);
+    pushId('libfile', r.json.id);
+    return r.json;
+  };
+  await lib(`page=${S.pages.shared.id}&level=party&kind=handout`, PNG(mark('libfile_party', ['dm', 'jess', 'tom'], 'a party-level file on a shared page (control)')), `${tok('libfile_party')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=dm&kind=map`, PNG(mark('libfile_dm_on_party', ['dm'], 'a DM-level file on a shared page')), `${tok('libfile_dm_on_party')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=broker&kind=item`, PNG(mark('libfile_broker', ['dm'], 'a broker-level file on a shared page')), `${tok('libfile_broker')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=classified&kind=rules`, mark('libfile_classified', ['dm'], 'a classified file on a shared page', { ai: false, long: true }), 'vault-notes.txt');
+  await lib(`page=${S.pages.dm.id}&level=party&kind=handout`, PNG(mark('libfile_on_dmpage', ['dm'], 'a party-level file attached to a DM-only page')), `${tok('libfile_on_dmpage')}.png`);
+
   // ---- generators, sculpting, voice, sound --------------------------------------------------------
   await page('item_dm', 'items/Whisper Blade.md', 'dm', `# Whisper Blade\nA dagger. ${mark('quickgen_item', ['dm'], 'a DM-only page tagged item (quick-gen draws from it)')}\n`, { title: `Whisper Blade ${tok('quickgen_item')}`, tags: ['item'], rarity: 'rare' });
   await page('item_class', 'items/Hollow Crown.md', 'classified', `# Hollow Crown\n${mark('quickgen_item_class', ['dm'], 'a classified page tagged item', { ai: false, long: true })}\n`, { title: 'Hollow Crown', tags: ['item'], rarity: 'rare' });

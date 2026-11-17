@@ -16,7 +16,7 @@ import { Icon } from '../pages/admin/kit.tsx';
 
 // The sidebar's three groups. A feature that adds an admin page without a place here lands under Gateway.
 const GROUPS: { label: string; links: [string, string][] }[] = [
-  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds'], ['search', 'Search']] },
+  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds'], ['library', 'Library'], ['search', 'Search']] },
   { label: 'Sources', links: [['connections', 'Connections'], ['sources', 'World sources'], ['source-keys', 'Source keys']] },
   { label: 'Gateway', links: [['accounts', 'Accounts'], ['permissions', 'Permissions'], ['models', 'Models'], ['integrations', 'Integrations'], ['access', 'Access & MCP'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ['security', 'Security']] },
 ];

@@ -6,6 +6,7 @@ const PATHS: Record<string, string> = {
   brand: 'M3 21h18M5 21V10M9.5 21V10M14.5 21V10M19 21V10M2 10l10-6 10 6z',
   overview: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
   worlds: 'M12 3a9 9 0 100 18 9 9 0 000-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9M12 3c-2.5 2.6-3.8 5.6-3.8 9s1.3 6.4 3.8 9',
+  library: 'M4 5a2 2 0 012-2h4v18H6a2 2 0 01-2-2zM10 3h4v18h-4zM14 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4z',
   connections: 'M7 7h4v4H7zM13 13h4v4h-4zM11 9h3a2 2 0 012 2v2M5 9H3M21 15h-2M9 3v4M15 17v4',
   sources: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5',
   'source-keys': 'M8 15a4 4 0 110-8 4 4 0 010 8zM11 11h10M18 11v3M15 11v2',
