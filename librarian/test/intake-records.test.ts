@@ -161,7 +161,11 @@ test('TestIntakeRecords_LegendKeeperCalendarsTimelinesAndMaps', async () => {
     { id: 'atlas', name: 'Atlas', parentId: null, isHidden: false, tags: [], aliases: [], documents: [{ id: 'dmap', name: 'Main', type: 'map' }, { id: 'dtl', name: 'History', type: 'time' }] },
     { id: 'town', name: 'Port Town', parentId: null, isHidden: false, tags: [], aliases: [], documents: [{ id: 'd3', name: 'Main', type: 'page' }] },
     { id: 'plot', name: 'Secret Plot', parentId: null, isHidden: true, tags: [], aliases: [], documents: [{ id: 'd4', name: 'Main', type: 'page' }] },
+    // listResources without parentId also lists templates (top-level ones have parentId 'templates'); they are not pages of the world.
+    { id: 'tpl', name: 'Template NPC', parentId: 'templates', isHidden: false, tags: [], aliases: [], documents: [{ id: 'd5', name: 'Main', type: 'page' }] },
+    { id: 'tplkid', name: 'Template Child', parentId: 'tpl', isHidden: false, tags: [], aliases: [], documents: [{ id: 'd6', name: 'Main', type: 'page' }] },
   ];
+  const urls: string[] = [];
   const CAL = { id: 'cal1', name: 'Old Reckoning', hasZeroYear: false, hoursInDay: 20, minutesInHour: 60, weekdays: [{ id: 'a', name: 'First' }, { id: 'b', name: 'Second' }],
     months: [{ id: 'm1', name: 'Thaw', length: 28, isIntercalary: false }, { id: 'm2', name: 'Feast', length: 3, isIntercalary: true }],
     moons: [{ id: 'mo', name: 'Pale', phase: 28 * 1200, shift: 1200 }], positiveEras: [{ id: 'e', name: 'Era', abbr: 'OR', startsAt: 0, resetMode: 'none' }], version: '1' };
@@ -173,13 +177,14 @@ test('TestIntakeRecords_LegendKeeperCalendarsTimelinesAndMaps', async () => {
   ];
   const fake = (async (url: string) => {
     const u = new URL(url);
+    urls.push(u.pathname.replace('/api/v3/projects/proj1', '') + u.search);
     const path = u.pathname.replace('/api/v3/projects/proj1', '');
     if (path === '/resources') return json({ data: R, hasMore: false });
     if (path === '/calendars') return json({ data: [CAL], hasMore: false });
     let m = /^\/resources\/([^/]+)$/.exec(path);
     if (m) {
       const r = R.find((x) => x.id === m![1])!;
-      return json({ ...r, permissions: {}, ancestors: [], properties: [], documents: r.documents.map((d) => ({ ...d, isHidden: false, ...(d.type === 'map' ? { mapImage: { url: 'https://cdn.example/map.png', width: 800, height: 600 } } : {}) })) });
+      return json({ ...r, permissions: {}, ancestors: [], properties: [], documents: r.documents.map((d) => ({ ...d, isHidden: false, ...(d.type === 'map' ? { mapImage: { assetId: 'asset1', url: 'https://cdn.example/map.png', width: 800, height: 600, bounds: [[-600, 0], [0, 800]], tiles: null } } : {}) })) });
     }
     m = /^\/resources\/([^/]+)\/docs\/([^/]+)\/(blocks|features|lanes|events)$/.exec(path);
     if (m) {
@@ -196,6 +201,12 @@ test('TestIntakeRecords_LegendKeeperCalendarsTimelinesAndMaps', async () => {
   const { db, lib } = world('legendkeeper-api', { apiUrl: 'https://www.legendkeeper.com/api/v3/projects/proj1', apiKey: 'lk_testkey_123' });
   const out = await sync(db, lib, fake);
   assert.equal(out.status, 'ok', out.error);
+  const titles = (lib.list('w', dm) as any[]).map((p: any) => p.title);
+  assert.ok(!titles.some((t: string) => /Template/.test(t)), `templates are not imported: ${titles}`);
+  assert.ok(titles.includes('Port Town'));
+  assert.ok(!urls.some((x) => /^\/resources\/(tpl|tplkid)/.test(x)), 'a template is never read');
+  assert.ok(urls.includes('/resources/atlas/docs/dtl/lanes'), 'lanes are not paged by the API: no limit or cursor is sent');
+  assert.ok(urls.some((x) => x.startsWith('/resources?limit=100')), 'resources are listed 100 at a time');
   // Calendar: definition in the shared shape. LegendKeeper has no hidden flag for calendars, so DM-only.
   const cal = all<any>(db, 'SELECT * FROM intake_calendars')[0];
   assert.equal(cal.visibility, 'dm');
