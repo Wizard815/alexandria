@@ -14,9 +14,18 @@ interface Endpoint {
 }
 interface Found { source: 'openapi' | 'sample'; specUrl: string | null; title: string | null; calls: number; endpoints: Endpoint[]; notes: string[] }
 
-const ROLES: [string, string][] = [['pages', 'Pages / articles'], ['people', 'People / characters'], ['places', 'Places / locations'], ['items', 'Items'], ['organisations', 'Organisations / factions'], ['events', 'Events / timelines'], ['calendars', 'Calendars (not imported yet)'], ['tags', 'Tags'], ['images', 'Images / files (not imported yet)'], ['unknown', 'Not sure']];
-const IMPORTED = ['pages', 'people', 'places', 'items', 'organisations', 'events', 'tags'];
+const ROLES: [string, string][] = [['pages', 'Pages / articles'], ['people', 'People / characters'], ['places', 'Places / locations'], ['items', 'Items'], ['organisations', 'Organisations / factions'], ['events', 'Events / timelines'], ['calendars', 'Calendars'], ['tags', 'Tags'], ['images', 'Images / files'], ['unknown', 'Not sure']];
+const IMPORTED = ['pages', 'people', 'places', 'items', 'organisations', 'events', 'tags', 'calendars', 'images'];
+/** Roles that make library pages: at least one must be in use. */
+const PAGE_ROLES = ['pages', 'people', 'places', 'items', 'organisations', 'events'];
 const MAP: [keyof Endpoint, string][] = [['idField', 'id'], ['titleField', 'title'], ['bodyField', 'body'], ['summaryField', 'summary'], ['parentField', 'parent'], ['tagsField', 'tags'], ['updatedField', 'updated'], ['visibilityField', 'visibility'], ['sharedValues', 'shared when']];
+/** Fields of a calendars or images endpoint. Shown only for that role. */
+const CAL_MAP: [string, string][] = [['monthsField', 'months'], ['weekdaysField', 'weekdays'], ['currentDateField', 'today'], ['epochYearField', 'epoch year'], ['yearSuffixField', 'year suffix'], ['eventsField', 'events']];
+const IMG_MAP: [string, string][] = [['urlField', 'address'], ['pageField', 'page it is of']];
+const mapFor = (role: string): [keyof Endpoint, string][] => [
+  ...MAP.filter(([k]) => !(role === 'calendars' || role === 'images') || ['idField', 'titleField', 'updatedField', 'visibilityField', 'sharedValues'].includes(String(k))),
+  ...((role === 'calendars' ? CAL_MAP : role === 'images' ? IMG_MAP : []) as [keyof Endpoint, string][]),
+];
 const conf = (c?: number) => (c === undefined ? '' : c >= 0.75 ? 'green' : c >= 0.5 ? 'gold' : 'red');
 
 export function EndpointReview({ connection, onClose, onDone }: { connection: Connection; onClose: () => void; onDone: (m: string) => void }) {
@@ -33,7 +42,7 @@ export function EndpointReview({ connection, onClose, onDone }: { connection: Co
     setEps(r.endpoints);
   });
   const edit = (i: number, patch: Partial<Endpoint>) => setEps((o) => o.map((e, j) => (j === i ? { ...e, ...patch } : e)));
-  const used = eps.filter((e) => e.use && IMPORTED.includes(e.role) && e.role !== 'tags').length;
+  const used = eps.filter((e) => e.use && PAGE_ROLES.includes(e.role)).length;
   const save = () => a.run(async () => {
     await client.request('PUT', `/api/admin/connections/${connection.id}/endpoints`, { baseUrl, endpoints: eps.map((e) => ({ ...e, use: e.use && IMPORTED.includes(e.role) })) });
     onDone(`Saved ${used} endpoint${used === 1 ? '' : 's'}. Use "Save mapping as preset" to reuse them in other worlds.`);
@@ -55,11 +64,11 @@ export function EndpointReview({ connection, onClose, onDone }: { connection: Co
                 {eps.map((e, i) => (
                   <tr key={e.key + i} style={{ opacity: e.use ? 1 : 0.6 }}>
                     <td><input type="checkbox" aria-label={`Use ${e.path}`} checked={e.use} disabled={!IMPORTED.includes(e.role)} onChange={(x) => edit(i, { use: x.target.checked })} /></td>
-                    <td className="mono">{e.path}{e.detailPath ? <div className="tiny muted">detail {e.detailPath}</div> : null}</td>
+                    <td className="mono">{e.path}{e.detailPath ? <div className="tiny muted">{e.role === 'images' ? 'download' : 'detail'} {e.detailPath}</div> : null}</td>
                     <td><select aria-label={`Role of ${e.path}`} value={e.role} onChange={(x) => edit(i, { role: x.target.value, use: e.use && IMPORTED.includes(x.target.value) })}>{ROLES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                     <td>
-                      <details><summary className="tiny">{MAP.filter(([k]) => e[k]).map(([k, l]) => `${l}: ${String(e[k])}`).join(' · ') || 'no mapping'}</summary>
-                        <div className="stack tight">{MAP.map(([k, l]) => <label key={String(k)} className="row tiny" style={{ gap: 4 }}><span style={{ width: 80 }}>{l}</span><input value={String(e[k] ?? '')} onChange={(x) => edit(i, { [k]: x.target.value || undefined })} /></label>)}</div>
+                      <details><summary className="tiny">{mapFor(e.role).filter(([k]) => e[k]).map(([k, l]) => `${l}: ${String(e[k])}`).join(' · ') || 'no mapping'}</summary>
+                        <div className="stack tight">{mapFor(e.role).map(([k, l]) => <label key={String(k)} className="row tiny" style={{ gap: 4 }}><span style={{ width: 80 }}>{l}</span><input value={String(e[k] ?? '')} onChange={(x) => edit(i, { [k]: x.target.value || undefined })} /></label>)}</div>
                         {e.note && <div className="tiny muted">{e.note}</div>}
                       </details>
                     </td>
@@ -70,7 +79,7 @@ export function EndpointReview({ connection, onClose, onDone }: { connection: Co
             </table>
           </div>
         )}
-        {!!eps.length && <p className="tiny muted" style={{ margin: 0 }}>Endpoints that are not ticked, or that have no role, are never called. Records stay DM-only unless a visibility field is mapped and holds a "shared" value.</p>}
+        {!!eps.length && <p className="tiny muted" style={{ margin: 0 }}>Endpoints that are not ticked, or that have no role, are never called. Records stay DM-only unless a visibility field is mapped and holds a "shared" value. Calendars become the world's calendars; images are downloaded (PNG, JPEG, GIF or WebP, up to 4 MB, a few at a time) and shown on the page they belong to, only to people who may see that page.</p>}
         <ErrorBox error={a.error} />
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn primary" disabled={a.busy || !eps.length || !used} onClick={() => void save()}>Save endpoints</button></div>
       </div>
