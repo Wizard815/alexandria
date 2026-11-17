@@ -1,0 +1,104 @@
+/* The gateway admin ("Alexandria · Gateway"): a dark sidebar in three groups, white bordered cards,
+   tables and pills. Loaded with the admin layout; every rule is under .t-admin so the table side is untouched.
+   Colours come from the .t-admin tokens in theme.css. */
+.t-admin {
+  --adm-side: #16202A; --adm-side-active: #22303C; --adm-side-text: #C9D3D9; --adm-side-faint: #93A3AD;
+  --adm-warn: #8A5A00; --adm-warn-bg: #FFF6E0; --adm-warn-line: #E8C77A;
+}
+.t-admin a { color: var(--accent); }
+.t-admin a:hover { color: var(--accent-strong); filter: none; }
+.t-admin a.btn, .t-admin a.nav-link { text-decoration: none; }
+.t-admin a.btn.primary { color: var(--on-accent); }
+
+/* shell and sidebar */
+.t-admin.adm .side { flex: 0 0 240px; background: var(--adm-side); color: var(--adm-side-text); padding: 24px 16px; gap: 20px; }
+.adm-brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+.adm-brand-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.adm-brand .name { font-family: var(--font-head); font-size: 18px; font-weight: 600; color: #FFFFFF; letter-spacing: 0.02em; }
+.adm-brand .sub { font-size: 12px; color: var(--adm-side-faint); letter-spacing: 0; text-transform: none; padding: 0; }
+.adm-menu-btn { display: none; min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #3A4856; background: transparent; color: #FFFFFF; font: inherit; cursor: pointer; }
+.adm-nav { display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; }
+.t-admin .nav-group { gap: 2px; }
+.t-admin .nav-label { padding: 0 12px 4px; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--adm-side-faint); }
+.t-admin .nav-link { padding: 9px 12px; color: var(--adm-side-text); }
+.t-admin .nav-link:hover { background: #1C2833; color: #FFFFFF; }
+.t-admin .nav-link.active { background: var(--adm-side-active); color: #FFFFFF; }
+.t-admin .side-foot { border-top: 1px solid #2A3745; gap: 8px; }
+.t-admin .side-foot .btn { background: transparent; color: #FFFFFF; border-color: #3A4856; }
+.adm-who { color: var(--adm-side-faint); padding: 0 12px; }
+
+/* page */
+.t-admin .page { max-width: 1180px; padding: 28px 32px 64px; gap: 20px; }
+.t-admin .page-head h1 { font-size: 26px; font-weight: 600; }
+.t-admin .page-head .lead p { font-size: 14px; }
+.t-admin .card { border-radius: 8px; padding: 18px 20px; }
+.t-admin .card.flush { padding: 0; }
+.t-admin h2 { font-size: 16px; font-weight: 600; letter-spacing: 0; }
+.t-admin .btn { border-radius: 6px; min-height: 36px; }
+.t-admin .btn.small { min-height: 30px; }
+.t-admin .btn.primary { background: var(--accent); }
+.adm-section { gap: 14px; }
+.adm-section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; }
+
+/* tiles */
+.tiles { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile-label { font-size: 12px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tile-value { font-size: 28px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile-sub { font-size: 12px; color: var(--muted); }
+.tile.bad .tile-value { color: var(--danger); }
+.tile.warn .tile-value { color: var(--adm-warn); }
+.tile.ok .tile-value { color: var(--ok-text); }
+
+/* tables */
+.t-admin .table th { font-size: 11px; letter-spacing: 0.08em; padding: 10px 12px; background: var(--panel-2); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.t-admin .table td { padding: 11px 12px; vertical-align: middle; }
+.t-admin .table tr:first-child td { border-top: 0; }
+.t-admin .table td .tiny { display: block; }
+.t-admin .table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.adm-table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.adm-table-wrap > .scroll-x > .table { min-width: 560px; }
+
+/* pills */
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok-text); border-color: #BFDFC8; }
+.pill.warn { background: var(--adm-warn-bg); color: var(--adm-warn); border-color: var(--adm-warn-line); }
+.pill.bad { background: var(--danger-bg); color: var(--danger-text); border-color: #F0C2BD; }
+.pill.teal { background: var(--accent-bg); color: var(--accent-strong); border-color: #B7D9D4; }
+.t-admin .chip { background: var(--panel-2); }
+.t-admin .chip.green { background: var(--ok-bg); } .t-admin .chip.red { background: var(--danger-bg); } .t-admin .chip.teal { background: var(--accent-bg); }
+.t-admin .chip.gold { background: var(--adm-warn-bg); color: var(--adm-warn); border-color: var(--adm-warn-line); }
+
+/* callouts */
+.callout { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--adm-warn-line); background: var(--adm-warn-bg); color: var(--adm-warn); font-size: 14px; }
+.callout.bad { border-color: #F0C2BD; background: var(--danger-bg); color: var(--danger-text); }
+.callout.ok { border-color: #BFDFC8; background: var(--ok-bg); color: var(--ok-text); }
+
+/* lists inside cards */
+.adm-kv { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 8px 16px; font-size: 14px; }
+.adm-kv dt { color: var(--muted); } .adm-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.adm-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.adm-feed li { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.adm-feed li:first-child { border-top: 0; }
+.adm-feed time { flex: 0 0 auto; width: 92px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.adm-world-list { display: flex; flex-direction: column; gap: 8px; }
+.adm-world-list .list-item { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.adm-world-list .list-item.active { border-color: var(--accent); background: var(--accent-bg); box-shadow: none; }
+.adm-two { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+
+/* phone: the sidebar becomes a top bar with a menu button */
+@media (max-width: 760px) {
+  .t-admin.adm .side { position: static; height: auto; flex: none; width: 100%; padding: 12px 16px; gap: 0; overflow: visible; }
+  .adm-menu-btn { display: inline-flex; align-items: center; }
+  .t-admin.adm .side .adm-nav { display: none; padding-top: 14px; }
+  .t-admin.adm .side.open .adm-nav { display: flex; }
+  .t-admin.adm .side .nav-group { flex-direction: column; }
+  .t-admin.adm .side-foot { flex-direction: column; }
+  .t-admin .page { padding: 16px 16px 48px; gap: 16px; }
+  .t-admin .page-head h1 { font-size: 22px; }
+  .t-admin .card { padding: 14px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile-value { font-size: 24px; }
+  .adm-kv { grid-template-columns: 1fr; gap: 2px 0; } .adm-kv dd { margin-bottom: 8px; }
+  .adm-feed time { width: 70px; }
+}

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, useAction } from '../../ui/index.tsx';
+import { when } from '../../lib/format.ts';
+import { Pill } from './kit.tsx';
 
 export default function AdminWorlds() {
   const { client, me, refresh } = useAuth();
@@ -20,20 +22,20 @@ export default function AdminWorlds() {
       </PageHead>
       <ErrorBox error={worlds.error} />
       <div className="cols">
-        <div className="col-1 card flush">
-          {worlds.loading && !worlds.data ? <div style={{ padding: 16 }}><Loading /></div> : (
-            <div className="list">
+        <div className="col-1">
+          {worlds.loading && !worlds.data ? <Loading /> : (
+            <div className="adm-world-list">
               {(worlds.data ?? []).map((w) => (
                 <button key={w.id} type="button" className={`list-item${w.id === sel ? ' active' : ''}`} onClick={() => setSel(w.id)}>
                   <span className="grow"><strong>{w.name}</strong><br /><span className="tiny muted mono">{w.slug}</span></span>
-                  <span className="tiny muted">{w.members} people · {w.pages} pages</span>
+                  <span className="tiny muted" style={{ textAlign: 'right' }}>{w.pages.toLocaleString()} pages<br />{w.sources} source{w.sources === 1 ? '' : 's'} · {w.members} people</span>
                 </button>
               ))}
               {!worlds.data?.length && <Empty>No worlds yet.</Empty>}
             </div>
           )}
         </div>
-        <div className="col-2">{cur ? <WorldMembers world={cur} accounts={accounts.data ?? []} onChange={() => { void worlds.reload(); void refresh(); }} /> : <div className="card"><p className="muted">Pick a world to see who is in it.</p></div>}</div>
+        <div className="col-2">{cur ? <WorldMembers world={cur} accounts={accounts.data ?? []} onChange={() => { void worlds.reload(); void refresh(); }} /> : <div className="card"><p className="muted">Pick a world to see its sources and who is in it.</p></div>}</div>
       </div>
       {creating && <NewWorld accounts={accounts.data ?? []} meId={me!.account.id} onClose={() => setCreating(false)} onDone={(id) => { setCreating(false); setSel(id); void worlds.reload(); void refresh(); }} />}
     </div>
@@ -90,6 +92,8 @@ function WorldMembers({ world, accounts, onChange }: { world: any; accounts: any
         </span>
       </div>
       <ErrorBox error={a.error || members.error} />
+      <WorldSources world={world} />
+      <h3>People</h3>
       <div className="scroll-x"><table className="table">
         <thead><tr><th>Person</th><th>Character</th><th>Role</th><th /></tr></thead>
         <tbody>{(members.data ?? []).map((m) => (
@@ -110,6 +114,36 @@ function WorldMembers({ world, accounts, onChange }: { world: any; accounts: any
       )}
       <hr />
       <div className="row between"><span className="small muted">This world's sources, audience and crawl are on <Link to={`/admin/worlds/${world.id}`}>its page</Link>; the accounts they use are in <Link to="/admin/connections">Connections</Link>.</span><button type="button" className="btn small danger" onClick={del}>Delete world</button></div>
+    </div>
+  );
+}
+
+/** What feeds this world's library: each source with its connection, who it is for and how its last sync went. */
+function WorldSources({ world }: { world: any }) {
+  const { client } = useAuth();
+  const ov = useLoad(() => client.request<any>('GET', `/api/admin/worlds/${world.id}/overview`), [world.id]);
+  const d = ov.data;
+  if (!d) return ov.error ? <ErrorBox error={ov.error} /> : null;
+  return (
+    <div className="stack">
+      <div className="row wrap" aria-label="Pages by level">
+        {([['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'DM only', 'red'], ['classified', 'Classified', 'red']] as const).map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: <strong>{d.levels[k]}</strong></span>)}
+      </div>
+      <h3>Sources</h3>
+      {d.sources.length ? (
+        <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
+          <thead><tr><th>Source</th><th>Connection</th><th>Audience</th><th className="num">Pages</th><th>Last sync</th></tr></thead>
+          <tbody>{d.sources.map((s: any) => (
+            <tr key={s.id}>
+              <td><strong>{s.name}</strong><span className="tiny muted">{s.connector?.label ?? s.kind}</span></td>
+              <td>{s.connection?.name ?? <span className="faint">own settings</span>}</td>
+              <td><Pill tone={s.audience === 'dm' ? 'bad' : s.audience === 'party' ? 'teal' : ''}>{s.audience_label}</Pill></td>
+              <td className="num">{s.pages.toLocaleString()}</td>
+              <td className="small">{s.last_sync_at ? when(s.last_sync_at) : <span className="faint">never</span>} {s.last_status && <Pill tone={s.last_status === 'ok' ? 'ok' : s.last_status === 'error' ? 'bad' : ''}>{s.last_status}</Pill>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div></div>
+      ) : <p className="muted small">No sources yet. Open <Link to={`/admin/worlds/${world.id}`}>the world's page</Link> to add one.</p>}
     </div>
   );
 }
