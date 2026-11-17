@@ -589,3 +589,44 @@ test('TestWorldLore_AgentRunsLoreWriteWithoutAskingAndOthersStillWait', async ()
     for (const t of ['save_page', 'add_coin', 'add_item', 'send_broker_offer', 'add_broker_note']) assert.ok(!approve.has(t), `${t} still needs the DM`);
   } finally { e.close(); }
 });
+
+test('TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress', async () => {
+  const infobox = { id: 'blk_info1', kind: 'infobox', layout: 'wrapRight', width: 40, rows: [{ kind: 'keyValue', key: 'Age', value: '41' }] };
+  const embed = { id: 'blk_emb1', kind: 'embed', url: 'https://example.test/v' };
+  // REST: the replace echoes the kept blocks by id, after the new text.
+  {
+    const lk = new FakeLK();
+    const writes: any[] = [];
+    const e = await boot({ fetch: restFetch(lk, writes) });
+    try {
+      const src = addSource(e, 'legendkeeper-api', LK_CFG, 'LK');
+      await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
+      const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Kept', markdown: 'First text', by: 'agent' });
+      const r = lk.res.get(made.ref)!;
+      r.blocks[r.documents[0].id] = [{ id: 'blk_p1', kind: 'paragraph', content: [{ text: 'First text' }] }, infobox, embed];
+      await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: 'New text', by: 'agent' });
+      const put = writes.filter((w) => w.method === 'PUT' && /\/blocks$/.test(w.path)).at(-1);
+      assert.deepEqual(put.body.blocks.map((b: any) => b.kind), ['paragraph', 'infobox', 'embed']);
+      assert.deepEqual(put.body.blocks.slice(1), [infobox, embed], 'kept blocks go back exactly, ids included');
+      assert.equal(put.body.blocks[0].content[0].text, 'New text');
+    } finally { e.close(); }
+  }
+  // MCP: the markdown carries one lk:keep marker per kept block.
+  {
+    const lk = new FakeLK();
+    const mcp = fakeMcp(lk);
+    const e = await boot({ testMcp: mcp });
+    try {
+      const src = addSource(e, 'legendkeeper-mcp', { transport: 'http', url: 'http://lk-mcp.test/mcp' }, 'LKMCP');
+      await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
+      const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Kept MCP', markdown: 'First', by: 'agent' });
+      const r = lk.res.get(made.ref)!;
+      r.blocks[r.documents[0].id] = [{ id: 'blk_p1', kind: 'paragraph', content: [{ text: 'First' }] }, infobox];
+      await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: 'Second', by: 'agent' });
+      const w = mcp.calls.filter((c) => c.tool === 'write_page').at(-1)!;
+      assert.match(w.args.markdown, /^Second/);
+      assert.match(w.args.markdown, /<!-- lk:keep id="blk_info1" kind="infobox" -->\n<!-- \/lk:keep -->/);
+      assert.ok(!w.args.markdown.includes('blk_p1'), 'text blocks are rewritten, not kept');
+    } finally { e.close(); }
+  }
+});
