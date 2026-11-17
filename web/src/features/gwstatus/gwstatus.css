@@ -1,0 +1,35 @@
+/* Gateway status pages: connection health, the world mirror, source files, search insight. Uses the admin tokens. */
+.gws-block { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 18px; align-items: start; }
+.gws-chart { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.gws-bars { width: 100%; height: 54px; display: block; }
+.gws-bar { fill: var(--accent, #2f8f83); }
+.gws-bar.none { fill: var(--line, #ddd); }
+.gws-bar.bad { fill: var(--danger, #c0392b); }
+.gws-facts { font-size: 13px; grid-template-columns: minmax(92px, 120px) 1fr; gap: 6px 14px; }
+.gws-bad { color: var(--danger-text, #a3322a); }
+.gws-wait { margin-top: 4px; color: var(--adm-warn, #8a5a00); font-weight: 500; }
+.gws-wrap { overflow-wrap: anywhere; word-break: break-word; }
+.gws-h3 { margin: 4px 0 0; font-size: 14px; }
+.gws-hidden { font-style: italic; }
+.gws-source { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
+.gws-source:first-of-type { border-top: 0; padding-top: 0; }
+.gws-source-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.gws-conn-row td { border-top: 0 !important; padding-top: 0 !important; padding-bottom: 16px !important; background: transparent; }
+
+.gws-insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.gws-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.gws-list li { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; align-items: center; }
+.gws-list li:first-child { border-top: 0; }
+.gws-q { overflow-wrap: anywhere; }
+.gws-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+.gws-meter { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--panel-2, #eee); overflow: hidden; }
+.gws-meter > span { display: block; height: 100%; background: var(--accent, #2f8f83); border-radius: 3px; }
+.gws-world-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 10px 0 0; display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gws-range { display: inline-flex; gap: 6px; }
+
+@media (max-width: 760px) {
+  .gws-block { grid-template-columns: 1fr; gap: 10px; }
+  .gws-facts { grid-template-columns: 1fr; gap: 2px; }
+  .gws-facts dt { margin-top: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .gws-source-head > .btn { width: 100%; }
+}

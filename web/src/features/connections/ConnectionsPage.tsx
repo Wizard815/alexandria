@@ -3,11 +3,12 @@
 // worlds. Secrets are never shown again; "••••" means one is saved.
 import { EndpointReview } from './EndpointReview.tsx';
 import { McpToolReview } from './McpToolReview.tsx';
-import { useState, type FormEvent } from 'react';
+import { Fragment, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, useAction, useToast } from '../../ui/index.tsx';
+import { HealthPill, StatusBlock, useConnStatuses } from '../gwstatus/ConnStatus.tsx';
 import {
   ConfigFields, ConnectorPicker, CopyBox, SECRET, defaultsFor, pickConfig, scopeOf,
   type Connection, type Connector, type Preset,
@@ -26,6 +27,7 @@ export default function ConnectionsPage() {
   const [tools, setTools] = useState<Connection | null>(null);
   const { toast, toastNode } = useToast();
   const byKind = new Map((connectors.data ?? []).map((c) => [c.id, c]));
+  const status = useConnStatuses();
   const reload = () => { void conns.reload(); void connectors.reload(); };
 
   return (
@@ -38,11 +40,14 @@ export default function ConnectionsPage() {
         <div className="card flush">
           {conns.data?.length ? (
             <div className="scroll-x"><table className="table adm-conns">
-              <thead><tr><th>Connection</th><th>Template</th><th>Secret</th><th>Used by</th><th /></tr></thead>
-              <tbody>{conns.data.map((c) => (
-                <tr key={c.id}>
+              <thead><tr><th>Connection</th><th>Template</th><th>Status</th><th>Calls today</th><th>Secret</th><th>Used by</th><th /></tr></thead>
+              <tbody>{conns.data.map((c) => { const st = status.byConnection.get(c.id); return (
+                <Fragment key={c.id}>
+                <tr>
                   <td><strong>{c.name}</strong>{c.notes && <span className="tiny muted">{c.notes}</span>}</td>
                   <td>{c.connector?.label ?? c.kind}</td>
+                  <td>{st ? <HealthPill health={st.health} /> : <span className="faint">…</span>}</td>
+                  <td className="num">{st ? st.callsToday.toLocaleString() : '…'}</td>
                   <td>{Object.values(c.config).some((v) => v === SECRET) ? <span className="pill ok">saved</span> : <span className="pill">none</span>}</td>
                   <td><span className="small">{c.sources} source{c.sources === 1 ? '' : 's'} · {c.worlds} world{c.worlds === 1 ? '' : 's'}</span><UsedBy id={c.id} count={c.sources} /></td>
                   <td>
@@ -56,7 +61,9 @@ export default function ConnectionsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}</tbody>
+                {st && <tr className="gws-conn-row"><td colSpan={7}><StatusBlock s={st} /></td></tr>}
+                </Fragment>
+              ); })}</tbody>
             </table></div>
           ) : <Empty>No connections yet. Make one, or set up a world and make it there.</Empty>}
         </div>
