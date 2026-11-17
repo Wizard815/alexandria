@@ -302,7 +302,25 @@ export function lkUrl(cfg: Record<string, any>, resourceId: string, docId?: stri
 }
 export const LK_WEB_URL = 'https://www.legendkeeper.com/app/project/{project}/resource/{id}';
 
-/** Every resource of the project, by cursor (100 a call). */
+/**
+ * listResources without `parentId` also lists templates (the docs: "templates are listed with the other resources"), and a
+ * ResourceListItem has no template flag. A template is a resource whose parentId is the reserved id `templates`, or that sits under one.
+ */
+export function lkWithoutTemplates(all: any[]): any[] {
+  const byId = new Map(all.map((r) => [String(r.id), r]));
+  const memo = new Map<string, boolean>();
+  const isTemplate = (r: any, depth = 0): boolean => {
+    const id = String(r.id);
+    if (memo.has(id)) return memo.get(id)!;
+    const p = r.parentId == null ? '' : String(r.parentId);
+    const t = r.isTemplate === true || p === 'templates' || (depth < 64 && !!p && byId.has(p) && isTemplate(byId.get(p), depth + 1));
+    memo.set(id, t);
+    return t;
+  };
+  return all.filter((r) => !isTemplate(r));
+}
+
+/** Every resource of the project, by cursor (100 a call; templates left out). */
 async function lkListResources(t: Transport, ctx: ConnectorContext): Promise<any[]> {
   const all: any[] = [];
   let cursor: string | undefined;
@@ -314,8 +332,9 @@ async function lkListResources(t: Transport, ctx: ConnectorContext): Promise<any
     if (!j.hasMore || !j.nextCursor) break;
     cursor = String(j.nextCursor);
   }
-  ctx.log(`Listed ${all.length} resources`);
-  return all;
+  const kept = lkWithoutTemplates(all);
+  ctx.log(`Listed ${kept.length} resources`);
+  return kept;
 }
 
 const LK_TYPE_TAGS = ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'];
@@ -585,12 +604,12 @@ export function lkCalendar(c: any): CalendarDefinition {
 /** The resource id in a lk://resources/<id>[/docs/<id>] link, or null. */
 const lkRef = (uri: unknown) => /^lk:\/\/resources\/([^/?#]+)/.exec(String(uri ?? ''))?.[1] ?? null;
 
-/** Every page of a cursor-paged list. */
-async function lkList(t: Transport, path: string): Promise<any[]> {
+/** Every page of a cursor-paged list. `paged: false` for the lists the API does not page (lanes): no limit or cursor is sent. */
+async function lkList(t: Transport, path: string, paged = true): Promise<any[]> {
   const out: any[] = [];
   let cursor: string | undefined;
   for (let i = 0; i < 200; i++) {
-    const j = await t.get(path, { limit: 100, ...(cursor ? { cursor } : {}) });
+    const j = await t.get(path, paged ? { limit: 100, ...(cursor ? { cursor } : {}) } : undefined);
     out.push(...(Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []));
     if (!j?.hasMore || !j?.nextCursor) break;
     cursor = String(j.nextCursor);
@@ -622,7 +641,7 @@ async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any,
 
 /** A timeline document: one group per lane, events in time order. `shared` is false for a hidden timeline; events carry their own flag. */
 async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean, shared: boolean): Promise<SyncRecord> {
-  const lanes = await lkList(t, `/resources/${r.id}/docs/${d.id}/lanes`);
+  const lanes = await lkList(t, `/resources/${r.id}/docs/${d.id}/lanes`, false);
   const events = await lkList(t, `/resources/${r.id}/docs/${d.id}/events`);
   const groups: TimelineGroup[] = lanes.slice().sort((a, b) => String(a.rank ?? '').localeCompare(String(b.rank ?? ''))).map((lane) => ({
     name: String(lane.name ?? 'Lane'),
@@ -636,7 +655,9 @@ async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean,
   return { kind: 'timeline', externalId: `${r.id}#${d.id}`, name: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name), visibility: shared ? 'party' : 'dm', groups };
 }
 
-// LegendKeeper allows 300 calls a minute per key and 6,000 an hour (12,000 an hour per project across keys). 60 a minute leaves room for the people using the app.
+// The v3 API (OpenAPI description, "Rate limits"): per key 300 requests a minute, 6,000 an hour, 60,000 a day; writes 120 a minute and 3,000 an hour;
+// 12,000 an hour per project across keys. A sustained 6,000 an hour is 100 a minute, so the default is 60 a minute (3,600 an hour) with
+// at most 2 a second (the docs advise writes at least half a second apart), and the background budget is 80% of that.
 const LK_TIERED = (transport: (cfg: Record<string, any>, ctx: ConnectorContext) => Transport) => (): Tiered => ({
   budgetPerMinute: 60,
   index: (cfg, ctx) => lkIndex(transport(cfg, ctx), ctx, cfg),
