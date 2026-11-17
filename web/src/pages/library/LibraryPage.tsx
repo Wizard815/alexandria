@@ -323,10 +323,28 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
   const first = pg.blocks?.[0];
   const blocks = first?.kind === 'heading' && (first.content ?? []).map((c: any) => c.text ?? '').join('').trim().toLowerCase() === String(pg.title).toLowerCase() ? pg.blocks.slice(1) : pg.blocks ?? [];
 
+  // The page's other pictures (the first one is the banner): each a signed address for this viewer, shown as small links to the full picture.
+  const gallery = (Array.isArray(pg.pictures) ? pg.pictures : [])
+    .filter((p: any) => p && !p.primary && safeImageUrl(p.url))
+    .map((p: any) => ({ id: String(p.id), url: safeImageUrl(p.url)!, name: String(p.name ?? '').slice(0, 120), map: p.map === true }))
+    .slice(0, 24) as { id: string; url: string; name: string; map: boolean }[];
+
   return (
     <article className="card lib-view">
       {offlineAt && <div className="lib-offline small" role="status"><i className="fa-solid fa-cloud-arrow-down" aria-hidden="true" /> Offline copy from {when(offlineAt)}.</div>}
       {safeImageUrl(pg.banner) && <div className="lib-banner" style={{ backgroundImage: `url("${safeImageUrl(pg.banner)}")` }} role="img" aria-label="" />}
+      {gallery.length > 0 && (
+        <ul className="lib-gallery" aria-label="More pictures of this page">
+          {gallery.map((p) => (
+            <li key={p.id}>
+              <a href={p.url} target="_blank" rel="noopener noreferrer" title={`${p.map ? 'Map: ' : ''}${p.name} (opens the picture)`}>
+                <img src={p.url} alt={p.name ? `${p.map ? 'Map: ' : ''}${p.name}` : p.map ? 'Map' : 'Picture'} loading="lazy" />
+              </a>
+              {p.name && <span className="tiny muted">{p.map ? 'Map: ' : ''}{p.name}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
       <header className="lib-head">
         {crumbs.length > 0 && <div className="tiny faint lib-crumbs">{crumbs.join(' / ')}{parent && <> / <button type="button" className="lib-link-btn inline" onClick={() => onOpen(parent.id)}>{parent.title}</button></>}</div>}
         <h1 className="lib-title">{pg.icon?.glyph && <Icon icon={pg.icon} size={26} />}<span>{pg.title}</span></h1>
@@ -394,6 +412,11 @@ const SHELL_CSS = `
 .lib-view { padding: 0; overflow: hidden; }
 .lib-view > .lib-offline { margin: 12px 18px 0; }
 .lib-banner { height: 180px; background-size: cover; background-position: center; border-bottom: 1px solid var(--line); }
+.lib-gallery { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 10px 22px 0; list-style: none; }
+.lib-gallery li { display: flex; flex-direction: column; gap: 2px; max-width: 120px; }
+.lib-gallery img { display: block; width: 120px; height: 80px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); }
+.lib-gallery a:focus-visible img, .lib-gallery a:hover img { border-color: var(--accent); }
+.lib-gallery span { overflow-wrap: anywhere; }
 .lib-head { padding: 16px 22px 8px; }
 .lib-title { display: flex; align-items: center; gap: 12px; margin: 4px 0; font-family: var(--font-head); font-size: 30px; line-height: 1.15; overflow-wrap: anywhere; }
 .lib-meta, .lib-actions { gap: 6px; margin-top: 8px; }

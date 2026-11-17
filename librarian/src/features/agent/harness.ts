@@ -265,7 +265,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     if (notes.length) L.push(`This player's notes on people: ${notes.join('; ').slice(0, 1500)}`);
   }
   if (ctxIn.page) {
-    await readOnOpen(d, c.worldId, ctxIn.page);
+    await readOnOpen(d, c.worldId, ctxIn.page, forModel(c.viewer));
     try {
       const pg: any = d.library.get(c.worldId, ctxIn.page, forModel(c.viewer));
       L.push(`The user is looking at the library page [${pg.title}] (${pg.id}):\n${String(pg.body ?? '').slice(0, 5000)}`);

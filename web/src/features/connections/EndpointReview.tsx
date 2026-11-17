@@ -14,8 +14,8 @@ interface Endpoint {
 }
 interface Found { source: 'openapi' | 'sample'; specUrl: string | null; title: string | null; calls: number; endpoints: Endpoint[]; notes: string[] }
 
-const ROLES: [string, string][] = [['pages', 'Pages / articles'], ['people', 'People / characters'], ['places', 'Places / locations'], ['items', 'Items'], ['organisations', 'Organisations / factions'], ['events', 'Events / timelines'], ['calendars', 'Calendars'], ['tags', 'Tags'], ['images', 'Images / files'], ['unknown', 'Not sure']];
-const IMPORTED = ['pages', 'people', 'places', 'items', 'organisations', 'events', 'tags', 'calendars', 'images'];
+const ROLES: [string, string][] = [['pages', 'Pages / articles'], ['people', 'People / characters'], ['places', 'Places / locations'], ['items', 'Items'], ['organisations', 'Organisations / factions'], ['events', 'Events / timelines'], ['calendars', 'Calendars'], ['tags', 'Tags'], ['images', 'Images / files'], ['map', 'Map images'], ['unknown', 'Not sure']];
+const IMPORTED = ['pages', 'people', 'places', 'items', 'organisations', 'events', 'tags', 'calendars', 'images', 'map'];
 /** Roles that make library pages: at least one must be in use. */
 const PAGE_ROLES = ['pages', 'people', 'places', 'items', 'organisations', 'events'];
 const MAP: [keyof Endpoint, string][] = [['idField', 'id'], ['titleField', 'title'], ['bodyField', 'body'], ['summaryField', 'summary'], ['parentField', 'parent'], ['tagsField', 'tags'], ['updatedField', 'updated'], ['visibilityField', 'visibility'], ['sharedValues', 'shared when']];
@@ -23,8 +23,8 @@ const MAP: [keyof Endpoint, string][] = [['idField', 'id'], ['titleField', 'titl
 const CAL_MAP: [string, string][] = [['monthsField', 'months'], ['weekdaysField', 'weekdays'], ['currentDateField', 'today'], ['epochYearField', 'epoch year'], ['yearSuffixField', 'year suffix'], ['eventsField', 'events']];
 const IMG_MAP: [string, string][] = [['urlField', 'address'], ['pageField', 'page it is of']];
 const mapFor = (role: string): [keyof Endpoint, string][] => [
-  ...MAP.filter(([k]) => !(role === 'calendars' || role === 'images') || ['idField', 'titleField', 'updatedField', 'visibilityField', 'sharedValues'].includes(String(k))),
-  ...((role === 'calendars' ? CAL_MAP : role === 'images' ? IMG_MAP : []) as [keyof Endpoint, string][]),
+  ...MAP.filter(([k]) => !(role === 'calendars' || role === 'images' || role === 'map') || ['idField', 'titleField', 'updatedField', 'visibilityField', 'sharedValues'].includes(String(k))),
+  ...((role === 'calendars' ? CAL_MAP : role === 'images' || role === 'map' ? IMG_MAP : []) as [keyof Endpoint, string][]),
 ];
 const conf = (c?: number) => (c === undefined ? '' : c >= 0.75 ? 'green' : c >= 0.5 ? 'gold' : 'red');
 
@@ -64,7 +64,7 @@ export function EndpointReview({ connection, onClose, onDone }: { connection: Co
                 {eps.map((e, i) => (
                   <tr key={e.key + i} style={{ opacity: e.use ? 1 : 0.6 }}>
                     <td><input type="checkbox" aria-label={`Use ${e.path}`} checked={e.use} disabled={!IMPORTED.includes(e.role)} onChange={(x) => edit(i, { use: x.target.checked })} /></td>
-                    <td className="mono">{e.path}{e.detailPath ? <div className="tiny muted">{e.role === 'images' ? 'download' : 'detail'} {e.detailPath}</div> : null}</td>
+                    <td className="mono">{e.path}{e.detailPath ? <div className="tiny muted">{e.role === 'images' || e.role === 'map' ? 'download' : 'detail'} {e.detailPath}</div> : null}</td>
                     <td><select aria-label={`Role of ${e.path}`} value={e.role} onChange={(x) => edit(i, { role: x.target.value, use: e.use && IMPORTED.includes(x.target.value) })}>{ROLES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                     <td>
                       <details><summary className="tiny">{mapFor(e.role).filter(([k]) => e[k]).map(([k, l]) => `${l}: ${String(e[k])}`).join(' · ') || 'no mapping'}</summary>
