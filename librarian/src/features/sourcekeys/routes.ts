@@ -86,7 +86,7 @@ export function routes(d: Deps) {
 
   r.get('/lookup', async (req, res) => {
     needMember(res);
-    res.json(await lookup(d, { worldId: W(res), accountId: me(res), role: ctx(res).viewer.role, q: str(req.query.q, 'q', { max: 200 }), question: typeof req.query.question === 'string' ? req.query.question.slice(0, 500) : undefined }));
+    res.json(await lookup(d, { worldId: W(res), accountId: me(res), role: ctx(res).viewer.role, q: str(req.query.q, 'q', { max: 200 }), question: typeof req.query.question === 'string' ? req.query.question.slice(0, 500) : undefined, ai: ctx(res).viewer.audience === 'ai' }));
   });
 
   r.get('/escalations', (_req, res) => {
