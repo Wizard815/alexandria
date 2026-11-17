@@ -10,7 +10,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
-import { one, all, run, tx } from '../core/db.ts';
+import { type DB, one, all, run, tx } from '../core/db.ts';
 import { type Auth, createAccount, requireAdmin, validatePassword, validateUsername } from '../core/auth.ts';
 import { DEFAULT_SETTINGS } from '../core/policy.ts';
 import { HttpError, id, now, oneOf, sha256, str } from '../core/util.ts';
@@ -179,6 +179,7 @@ export default function adminRoutes(d: Deps) {
   r.delete('/worlds/:id/members/:account', (req, res) => {
     if (!run(db, 'DELETE FROM members WHERE world_id = ? AND account_id = ?', String(req.params.id), String(req.params.account))) throw new HttpError(404, 'Member not found');
     run(db, 'UPDATE api_keys SET revoked = 1 WHERE world_id = ? AND account_id = ?', String(req.params.id), String(req.params.account));
+    forgetMember(db, String(req.params.id), String(req.params.account), me(res));
     audit(db, String(req.params.id), me(res), 'member.remove', String(req.params.account));
     res.json({ ok: true });
   });
@@ -192,4 +193,25 @@ export default function adminRoutes(d: Deps) {
   });
 
   return r;
+}
+
+/**
+ * Someone removed from a world takes nothing with them and gets nothing back if re-added: their own source keys are
+ * revoked (secrets wiped), they are taken off other keys' users, their key access and shares (made by them or to them)
+ * go, and they leave the world's message threads.
+ */
+export function forgetMember(db: DB, worldId: string, accountId: string, by: string) {
+  const tryRun = (sql: string, ...a: unknown[]) => { try { run(db, sql, ...a); } catch { /* that feature's tables are not installed */ } };
+  tx(db, () => {
+    tryRun(`UPDATE sourcekeys_keys SET revoked = 1, revoked_at = ?, revoked_by = ?, secret = '' WHERE world_id = ? AND owner_id = ? AND revoked = 0`, now(), by, worldId, accountId);
+    try {
+      for (const k of all<any>(db, 'SELECT id, users FROM sourcekeys_keys WHERE world_id = ?', worldId)) {
+        const users = (JSON.parse(k.users || '[]') as string[]);
+        if (users.includes(accountId)) run(db, 'UPDATE sourcekeys_keys SET users = ? WHERE id = ?', JSON.stringify(users.filter((u) => u !== accountId)), k.id);
+      }
+    } catch { /* not installed */ }
+    tryRun('DELETE FROM sourcekeys_access WHERE world_id = ? AND account_id = ?', worldId, accountId);
+    tryRun('DELETE FROM sourcekeys_shares WHERE world_id = ? AND (from_id = ? OR to_id = ?)', worldId, accountId, accountId);
+    run(db, 'DELETE FROM thread_members WHERE account_id = ? AND thread_id IN (SELECT id FROM threads WHERE world_id = ?)', accountId, worldId);
+  });
 }

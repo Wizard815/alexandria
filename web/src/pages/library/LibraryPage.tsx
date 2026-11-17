@@ -164,7 +164,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
                 <div className="lib-hits" aria-label="Text matches">
                   <div className="tiny faint">Text matches ({hits.length})</div>
                   {hits.length ? hits.slice(0, 50).map((h) => (
-                    <button key={h.id} type="button" className={`list-item${selected === h.id ? ' active' : ''}`} onClick={() => open(h.id)}>
+                    <button key={h.id} type="button" className={`list-item${selected === h.id ? ' active' : ''}`} aria-current={(selected === h.id) || undefined} onClick={() => open(h.id)}>
                       <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="sx-snip" dangerouslySetInnerHTML={{ __html: h.titleHtml !== undefined ? safeMarks(h.titleHtml) : escapeHtml(h.title) }} /><span className="tiny muted sx-snip" dangerouslySetInnerHTML={{ __html: snippetOf(h) }} /></span>
                     </button>
                   )) : <span className="small muted">No text matches.</span>}
@@ -204,7 +204,7 @@ function FlatList({ rows, selected, onOpen, saved }: { rows: PageRow[]; selected
   return (
     <div className="lib-flat">
       {rows.slice(0, n).map((r) => (
-        <button key={r.id} type="button" className={`list-item${selected === r.id ? ' active' : ''}`} onClick={() => onOpen(r.id)}>
+        <button key={r.id} type="button" className={`list-item${selected === r.id ? ' active' : ''}`} aria-current={(selected === r.id) || undefined} onClick={() => onOpen(r.id)}>
           {r.icon?.glyph ? <Icon icon={r.icon} size={14} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />}
           <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{r.title}</strong><span className="tiny faint lib-ellipsis">{[r.source, ...(r.folder ?? [])].filter(Boolean).join(' / ') || r.path} · {when(r.updated_at)}</span></span>
           {r.visibility && r.visibility !== 'party' && <LevelChip level={r.visibility} />}

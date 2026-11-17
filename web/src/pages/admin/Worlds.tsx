@@ -29,7 +29,7 @@ export default function AdminWorlds() {
           {worlds.loading && !worlds.data ? <Loading /> : (
             <div className="adm-world-list">
               {(worlds.data ?? []).map((w) => (
-                <button key={w.id} type="button" className={`list-item${w.id === sel ? ' active' : ''}`} onClick={() => setSel(w.id)}>
+                <button key={w.id} type="button" className={`list-item${w.id === sel ? ' active' : ''}`} aria-current={(w.id === sel) || undefined} onClick={() => setSel(w.id)}>
                   <span className="grow"><strong>{w.name}</strong><br /><span className="tiny muted mono">{w.slug}</span></span>
                   <span className="tiny muted" style={{ textAlign: 'right' }}>{w.pages.toLocaleString()} pages<br />{w.sources} source{w.sources === 1 ? '' : 's'} · {w.members} people{card(w.id) && <><br />{cardLine(card(w.id))}</>}</span>
                 </button>
