@@ -140,7 +140,8 @@ function fileRoutes(d: Deps): Router {
     const c = ctx(res);
     const pg = pageOf(res, req.query.page);
     const level = isLevel(req.query.level) ? req.query.level : 'dm';
-    res.json({ target: targetFor(d, c.world.id, pg, level) });
+    const mime = typeof req.query.mime === 'string' && req.query.mime ? req.query.mime.toLowerCase() : undefined;
+    res.json({ target: targetFor(d, c.world.id, pg, level, mime) });
   });
 
   r.post('/', requireDM, express.raw({ type: () => true, limit: maxBytes(d) + 1024 * 1024 }), async (req: Request, res: Response) => {
@@ -173,8 +174,8 @@ function fileRoutes(d: Deps): Router {
     }
     // The page must be one this DM view can open and (for a new send) a source that takes files.
     if (sendTo) {
-      const t = targetFor(d, c.world.id, pg, level);
-      if (!t || t.sourceId !== sendTo) throw new HttpError(400, 'That source cannot take this file (classified files are never sent, and not every source has an upload)');
+      const t = targetFor(d, c.world.id, pg, level, sniffed.mime);
+      if (!t || t.sourceId !== sendTo) throw new HttpError(400, 'That source cannot take this file (classified files are never sent, and not every source has an upload or takes this type of file)');
     }
 
     const fid = newId('lf_');
@@ -199,7 +200,7 @@ function fileRoutes(d: Deps): Router {
       rec = { source: out.target.sourceName, app: out.target.app, id: out.remoteId, error: null, at: now() };
       log(d, c.world.id, me(res), 'libfile.send', `${row.name} to ${out.target.app} ${out.target.sourceName}`);
     } catch (err: any) {
-      const t = targetFor(d, c.world.id, pg, row.level);
+      const t = targetFor(d, c.world.id, pg, row.level, row.mime);
       rec = { source: t?.sourceName ?? '', app: t?.app ?? '', id: null, error: String(err?.message ?? err).slice(0, 300), at: now() };
       log(d, c.world.id, me(res), 'libfile.send_failed', `${row.name}: ${rec.error}`);
     }
@@ -212,7 +213,7 @@ function fileRoutes(d: Deps): Router {
     const c = ctx(res);
     const row = fileOf(res, req.params.fid);
     const pg = pageOf(res, row.page_id);
-    const t = targetFor(d, c.world.id, pg, row.level);
+    const t = targetFor(d, c.world.id, pg, row.level, row.mime);
     if (!t || (req.body?.source && t.sourceId !== req.body.source)) throw new HttpError(400, 'This file cannot be sent to a source');
     await send(res, row, pg, fs.readFileSync(path.join(folder(d, c.world.id), row.id)));
     res.json(view(d, one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', row.id)!, c.viewer, pg.title));
