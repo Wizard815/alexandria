@@ -51,15 +51,15 @@ one explicit upload per file (audited as `libfile.send`):
 
 | Source | What is sent |
 |---|---|
-| Kanka (API token) | `POST /campaigns/{id}/entities/{entity}/entity_assets` (multipart: `name`, `type_id=1`, `visibility_id`, `file`). `visibility_id` is 1 (everyone) for a party file, 2 (admins) otherwise. |
-| LegendKeeper (API key) | `POST {project api}/assets` (multipart: `name`, `file`), into the project's asset library. |
+| Kanka (API token) | `POST /campaigns/{id}/entities/{entity}/entity_assets` (multipart: `name` (cut to 45 characters), `type_id=1`, `visibility_id`, `files`). `visibility_id` is 1 (everyone) for a party file, 2 (admins) otherwise. |
+| LegendKeeper (API key) | The v3 API's three-step image upload into the project's asset library: `POST {project api}/assets/uploads` (JSON `contentType`, `contentLength`, `contentHash`), `PUT` the bytes to the signed `uploadUrl` with the headers it names, then `POST {project api}/assets/images` (JSON `uploadKey`, `name`). **Pictures only** (JPEG, PNG, GIF, WebP): a PDF or text file is not offered for LegendKeeper. |
 
 The option is hidden for a `classified` file (never sent anywhere, and a file made
 classified later cannot be sent), for mcp-kanka, the LegendKeeper MCP, Markdown
 folders, the generic API (it has no upload role) and pages with no source. A
 failure is shown on the file ("Not sent to Kanka: ...") with "Try sending again";
-the local copy always stays. The remote id is recorded. The two upload endpoints
-are written from the sources' public APIs and tested against fakes only.
+the local copy always stays. The remote id is recorded. The upload calls follow the
+sources' published API docs (see `docs/API_VERIFICATION.md`) and are tested against fakes only.
 
 ## Admin library
 
