@@ -11,6 +11,19 @@ export interface TierInfo {
   depth?: { index: number; summary: number; full: number; stale: number };
   calls?: { index: number; indexTotal: number; detailTotal: number };
   budget?: number; budgetDefault?: number; rateLimit?: number; paused?: boolean; fetchAll?: boolean; waiting?: number; waitingAll?: number;
+  /** The connection's limits (shared by every world that uses it) and this source's scan spread. */
+  limits?: { perMinute: number; perSecond: number; spreadMinutes: number; spreadOwn: boolean };
+  /** Set while calls are held back: the site asked us to slow down, our own limit is reached, or the first scan is being spread out. */
+  throttle?: { waitMs: number; reason: 'asked' | 'limit' | 'pace' } | null;
+}
+
+/** "Waiting 12 s — the site asked us to slow down" */
+export function throttleText(t: TierInfo['throttle']): string | null {
+  if (!t) return null;
+  const s = Math.max(1, Math.round(t.waitMs / 1000));
+  const wait = s >= 120 ? `${Math.round(s / 60)} min` : `${s} s`;
+  const why = t.reason === 'asked' ? 'the site asked us to slow down' : t.reason === 'pace' ? 'spreading the first scan out' : 'keeping under the calls-per-minute limit';
+  return `Waiting ${wait} — ${why}`;
 }
 
 const n = (x: number | undefined) => (x ?? 0).toLocaleString();
@@ -22,7 +35,7 @@ export function TierPanel({ worldId, active }: { worldId: string; active: boolea
   const { client } = useAuth();
   const tiers = useLoad(() => client.request<TierInfo[]>('GET', `/api/admin/connections/tiers/world/${worldId}`), [worldId]);
   // The background reads a few pages every few seconds: follow it while something waits.
-  const moving = active || !!tiers.data?.some((t) => t.tiered && !t.paused && ((t.fetchAll && (t.waitingAll ?? 0) > 0) || (t.waiting ?? 0) > 0));
+  const moving = active || !!tiers.data?.some((t) => t.tiered && (!!t.throttle || (!t.paused && ((t.fetchAll && (t.waitingAll ?? 0) > 0) || (t.waiting ?? 0) > 0))));
   useEffect(() => {
     if (!moving) return;
     const i = setInterval(() => void tiers.reload(), 4000);
@@ -45,6 +58,13 @@ function TierRow({ t, onChanged }: { t: TierInfo; onChanged: () => void }) {
   const a = useAction();
   const [budget, setBudget] = useState(String(t.budget ?? ''));
   useEffect(() => setBudget(String(t.budget ?? '')), [t.budget]);
+  const [perMin, setPerMin] = useState(String(t.limits?.perMinute ?? ''));
+  const [perSec, setPerSec] = useState(String(t.limits?.perSecond ?? ''));
+  const [spread, setSpread] = useState(String(t.limits?.spreadMinutes ?? ''));
+  useEffect(() => { setPerMin(String(t.limits?.perMinute ?? '')); setPerSec(String(t.limits?.perSecond ?? '')); setSpread(String(t.limits?.spreadMinutes ?? '')); }, [t.limits?.perMinute, t.limits?.perSecond, t.limits?.spreadMinutes]);
+  const limitsDirty = perMin !== String(t.limits?.perMinute) || perSec !== String(t.limits?.perSecond) || spread !== String(t.limits?.spreadMinutes);
+  const saveLimits = () => patch({ limits: { perMinute: Number(perMin), perSecond: Number(perSec || 0) }, spread: spread === '' ? null : Number(spread) });
+  const slow = throttleText(t.throttle);
   const patch = (body: Record<string, unknown>) => a.run(async () => { await client.request('PATCH', `/api/admin/connections/tiers/${t.id}`, body); onChanged(); });
   const pct = t.pages ? Math.round(((t.read ?? 0) / t.pages) * 100) : 0;
   return (
@@ -62,6 +82,19 @@ function TierRow({ t, onChanged }: { t: TierInfo; onChanged: () => void }) {
         <button type="button" className={`btn small${t.fetchAll ? ' on' : ''}`} disabled={a.busy} onClick={() => void patch({ fetchAll: !t.fetchAll })} title="Reads every page in the background, at the budget. It can take hours.">{t.fetchAll ? 'Stop fetching everything' : 'Fetch everything now'}</button>
         <button type="button" className="btn small" disabled={a.busy} onClick={() => void patch({ paused: !t.paused })}>{t.paused ? 'Resume' : 'Pause'}</button>
       </div>
+      {t.limits && (
+        <div className="row wrap" style={{ alignItems: 'flex-end' }}>
+          <label className="stack tight small" style={{ gap: 2 }}>Max calls per minute
+            <input type="number" min={1} max={6000} value={perMin} style={{ width: 90 }} onChange={(e) => setPerMin(e.target.value)} aria-label={`${t.name} max calls per minute`} /></label>
+          <label className="stack tight small" style={{ gap: 2 }}>Max calls per second
+            <input type="number" min={0} max={100} value={perSec} style={{ width: 90 }} onChange={(e) => setPerSec(e.target.value)} aria-label={`${t.name} max calls per second`} /></label>
+          <label className="stack tight small" style={{ gap: 2 }}>Spread the first scan over (minutes)
+            <input type="number" min={0} max={1440} value={spread} style={{ width: 90 }} onChange={(e) => setSpread(e.target.value)} aria-label={`${t.name} spread the first scan over minutes`} /></label>
+          <button type="button" className="btn small" disabled={a.busy || !limitsDirty || perMin === ''} onClick={() => void saveLimits()}>Save limits</button>
+          <span className="tiny muted" style={{ flexBasis: '100%' }}>The two limits belong to the connection and are shared by every world that uses it: keep them at or under what the site allows. 0 calls a second means no per-second cap; 0 minutes means the first scan runs as fast as the limits allow.</span>
+        </div>
+      )}
+      {slow && <div role="status" className="small" style={{ color: 'var(--accent-strong)' }}>{slow}</div>}
       <ErrorBox error={a.error} />
     </div>
   );

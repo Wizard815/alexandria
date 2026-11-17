@@ -139,9 +139,17 @@ const mediaFetch = (url: string, init?: any): Response | null => {
     { id: 'c3', name: 'Broken calendar', is_private: false },
   ] });
   if (p === '/images') return json({ data: mediaImages() });
+  if (p === '/battlemaps') return json({ data: [
+    { id: 'm1', name: 'Harbour map', file: '/files/map-4000.png', page: 'p1', updated: 'v1', is_private: false },
+    { id: 'm2', name: 'Vault map', file: '/files/map-3000.png', page: 'p2', updated: 'v1', is_private: false },
+    { id: 'm3', name: 'Enormous map', file: '/files/map-9000.png', page: 'p1', updated: 'v1', is_private: false },
+    { id: 'm4', name: 'Loose map', file: '/files/map-1500.png', updated: 'v1', is_private: false },
+  ] });
   if (p === '/unused-images') return json({ data: [{ id: 'u1', name: 'Never', file: '/files/never.png' }] });
   if (p.startsWith('/files/')) {
     media.files++;
+    const mapSize = /^\/files\/map-(\d+)\.png$/.exec(p);
+    if (mapSize) return new Response(PNG('m'.repeat(Number(mapSize[1]))), { status: 200, headers: imageHeaders() });
     if (p === '/files/huge.png') return new Response(PNG('x'.repeat(5000)), { status: 200, headers: imageHeaders(5000 + 12) });
     if (p === '/files/vector.svg') return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { status: 200, headers: { 'Content-Type': 'image/svg+xml' } });
     if (p === '/files/liar.png') return new Response('<html>not a picture</html>', { status: 200, headers: imageHeaders() });
@@ -541,4 +549,90 @@ test('CrawlGeneric_CalendarAndPictureEndpointsAreGuessedWithTheirFields', async 
 test('CrawlGeneric_AddressesOnPrivateHostsAreNeverFetched', () => {
   for (const h of ['localhost', '127.0.0.1', '10.1.2.3', '192.168.0.5', '172.20.0.1', '169.254.169.254', '[::1]', 'printer.local', 'db.internal', '100.64.0.1']) assert.equal(privateHost(h), true, h);
   for (const h of ['cdn.example.net', '93.184.216.34', '172.32.0.1']) assert.equal(privateHost(h), false, h);
+});
+
+// ---- several pictures on one page, and maps --------------------------------------------------------------------------------
+
+test('CrawlGeneric_APageShowsAllItsPicturesAndTheSecondOneNeverReachesAPlayerWhenItIsDmOnly', async () => {
+  const t = await boot({ ALX_IMAGE_MAX_BYTES: '2000' });
+  const w = await mediaWorld(t);
+  await w.sync();
+  const tok = await t.addPlayer(w.wid);
+  const p1 = pageByTitle(t, w.wid, 'Public page');
+  // Page 1 has two stored pictures (Portrait, Elsewhere); the first by the source's id is the banner.
+  const dm = (await getPage(t, w.wid, t.admin, p1)).body;
+  assert.deepEqual(dm.pictures.map((x: any) => x.name), ['Portrait', 'Elsewhere']);
+  assert.equal(dm.banner, dm.pictures[0].url);
+  assert.deepEqual(dm.pictures.map((x: any) => x.primary), [true, false]);
+  for (const pic of dm.pictures) assert.equal((await fetch(t.base + pic.url)).status, 200);
+  const both = (await getPage(t, w.wid, tok.token, p1)).body;
+  assert.deepEqual(both.pictures.map((x: any) => x.name), ['Portrait', 'Elsewhere'], 'both are shared with the page');
+
+  // The second picture is marked private at the source: the DM still has it, a player has no sign of it.
+  run(t.deps.db, "UPDATE intake_images SET visibility = 'dm' WHERE external_id = 'img:images:i3'");
+  const asPlayer = await getPage(t, w.wid, tok.token, p1);
+  assert.deepEqual(asPlayer.body.pictures.map((x: any) => x.name), ['Portrait']);
+  assert.ok(!asPlayer.text.includes('Elsewhere') && !asPlayer.text.includes(imageRow(t, 'i3').id), 'no name or id of the DM-only picture reaches a player');
+  assert.equal((await getPage(t, w.wid, t.admin, p1)).body.pictures.length, 2);
+  const forged = mintTicket({ w: w.wid, k: 'intake', f: imageRow(t, 'i3').id, a: tok.accountId });
+  assert.equal((await fetch(`${t.base}/api/media/intake/${forged}`)).status, 404);
+  // If the first picture is the DM-only one, the player's banner is the next one, never the private one.
+  run(t.deps.db, "UPDATE intake_images SET visibility = 'dm' WHERE external_id = 'img:images:i1'");
+  run(t.deps.db, "UPDATE intake_images SET visibility = 'party' WHERE external_id = 'img:images:i3'");
+  const swapped = (await getPage(t, w.wid, tok.token, p1)).body;
+  assert.deepEqual(swapped.pictures.map((x: any) => x.name), ['Elsewhere']);
+  assert.equal(swapped.banner, swapped.pictures[0].url);
+  // Hiding the page takes every picture away at once.
+  run(t.deps.db, "UPDATE pages SET visibility = 'dm', player_body = NULL WHERE id = ?", p1);
+  assert.equal((await getPage(t, w.wid, tok.token, p1)).status, 404);
+  assert.equal((await fetch(t.base + swapped.pictures[0].url)).status, 404);
+});
+
+const MAP_ENDPOINTS = () => [...MEDIA_ENDPOINTS(), { path: '/battlemaps', role: 'map', use: true, key: 'maps', itemsPath: 'data', idField: 'id', titleField: 'name', urlField: 'file', pageField: 'page', updatedField: 'updated', visibilityField: 'is_private', sharedValues: 'false' }];
+
+test('CrawlGeneric_MapEndpointsImportMapsWithTheirOwnSizeCapAndTheMapPageCanPickThem', async () => {
+  const t = await boot({ ALX_IMAGE_MAX_BYTES: '2000', ALX_MAP_MAX_BYTES: '5000' });
+  const w = await mediaWorld(t, { endpoints: MAP_ENDPOINTS() });
+  const out = await w.sync();
+  const maps = all<any>(t.deps.db, "SELECT external_id, kind, size, page_external FROM intake_images WHERE kind = 'map' ORDER BY external_id");
+  assert.deepEqual(maps.map((m) => [m.external_id.replace('img:maps:', ''), m.page_external]), [['m1', 'p1'], ['m2', 'p2'], ['m4', null]], 'a map over ALX_MAP_MAX_BYTES is refused; a map with no page is stored but on no page');
+  assert.ok(maps[0].size > 2000, 'maps may be bigger than pictures');
+  assert.equal(all<any>(t.deps.db, "SELECT 1 FROM intake_images WHERE kind = 'picture'").length, 4, 'ordinary pictures are still capped at their own size');
+  assert.equal(out.stats.indexCalls, 4, 'the map list is one more list call');
+  // A map is on its page like any picture: the page's pictures list marks it.
+  const p1 = pageByTitle(t, w.wid, 'Public page');
+  const dm = (await getPage(t, w.wid, t.admin, p1)).body;
+  assert.ok(dm.pictures.some((x: any) => x.map && x.name === 'Harbour map'));
+  assert.equal(dm.pictures.filter((x: any) => !x.map).length, 2);
+  // The Map page lists imported maps: the DM all of them, a player only maps of pages shared with them.
+  const dmMaps = (await t.call('GET', `/api/worlds/${w.wid}/intake/map-images`, t.admin)).body;
+  assert.deepEqual(dmMaps.map((m: any) => m.name), ['Harbour map', 'Loose map', 'Vault map']);
+  assert.equal(dmMaps.find((m: any) => m.name === 'Harbour map').page.title, 'Public page');
+  const tok = await t.addPlayer(w.wid);
+  const playerMaps = (await t.call('GET', `/api/worlds/${w.wid}/intake/map-images`, tok.token)).body;
+  assert.deepEqual(playerMaps.map((m: any) => m.name), ['Harbour map']);
+  assert.ok(!JSON.stringify(playerMaps).includes(imageRow(t, 'm2')?.id ?? 'none'));
+  const vault = one<any>(t.deps.db, "SELECT id FROM intake_images WHERE external_id = 'img:maps:m2'");
+  const loose = one<any>(t.deps.db, "SELECT id FROM intake_images WHERE external_id = 'img:maps:m4'");
+  for (const id of [vault.id, loose.id]) assert.equal((await fetch(`${t.base}/api/media/intake/${mintTicket({ w: w.wid, k: 'intake', f: id, a: tok.accountId })}`)).status, 404);
+  assert.equal((await fetch(t.base + playerMaps[0].url)).status, 200);
+  // Detail-tier budget: map downloads are detail calls and stay within the run's picture limit.
+  assert.equal(out.stats.detailCalls, 8 + 4, 'every attempted download counts');
+  const again = await w.sync();
+  assert.equal(again.stats.detailCalls, 0, 'nothing is downloaded again');
+});
+
+test('CrawlGeneric_AMapRoleIsGuessedForMapFileEndpointsAndReviewedLikePictures', () => {
+  assert.equal(guessRole('/maps').role, 'places', 'a plain /maps list stays a list of places (a map is also a page)');
+  assert.equal(guessRole('/battlemaps').role, 'map');
+  assert.equal(guessRole('/map-images').role, 'map');
+  assert.equal(guessRole('/world-maps').role, 'map');
+  const eps = cleanEndpoints([{ path: '/map-images', role: 'map', use: true, idField: 'id', urlField: 'file' }]);
+  assert.equal(eps[0].role, 'map');
+  assert.equal(eps[0].use, true);
+  assert.equal(endpointUsable(eps[0]), true);
+  assert.equal(endpointUsable({ ...eps[0], urlField: undefined, detailPath: undefined }), false);
+  const f = mapRoleFields('map', [{ name: 'id', kind: 'string', samples: ['1'] }, { name: 'name', kind: 'string', samples: ['A'] }, { name: 'file_url', kind: 'string', samples: ['/f/a.png'] }, { name: 'page_id', kind: 'string', samples: ['p1'] }], { fields: { idField: 'id', titleField: 'name' }, score: 0.5, notes: [] });
+  assert.equal(f?.fields.urlField, 'file_url');
+  assert.equal(f?.fields.pageField, 'page_id');
 });

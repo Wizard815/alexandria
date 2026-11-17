@@ -18,6 +18,7 @@ import { now } from '../core/util.ts';
 import type { Entry } from './model.ts';
 import type { Connector, Tiered } from './connector.ts';
 import { connectorFor } from './registry.ts';
+import { limitsOf, resetLimiters } from './ratelimit.ts';
 
 export type Depth = 'index' | 'summary' | 'full';
 
@@ -35,6 +36,9 @@ export function ensureTierSchema(db: DB) {
   add('held_updated_at', 'TEXT');
   add('wanted', 'INTEGER NOT NULL DEFAULT 0');
   db.exec(TIER_SCHEMA);
+  const sc = (db.prepare('PRAGMA table_info(connections_source_state)').all() as { name: string }[]).map((c) => c.name);
+  if (!sc.includes('spread_minutes')) db.exec('ALTER TABLE connections_source_state ADD COLUMN spread_minutes INTEGER');
+  if (!sc.includes('last_index_calls')) db.exec('ALTER TABLE connections_source_state ADD COLUMN last_index_calls INTEGER NOT NULL DEFAULT 0');
   db.exec('CREATE INDEX IF NOT EXISTS pages_source_depth ON pages (source_id, depth)');
   ready.add(db);
 }
@@ -52,7 +56,9 @@ CREATE TABLE IF NOT EXISTS connections_source_state (
   index_calls INTEGER NOT NULL DEFAULT 0,
   index_at TEXT,
   detail_calls INTEGER NOT NULL DEFAULT 0,
-  last_detail_at TEXT
+  last_detail_at TEXT,
+  spread_minutes INTEGER,
+  last_index_calls INTEGER NOT NULL DEFAULT 0
 );
 `;
 
@@ -69,6 +75,10 @@ export interface SourceState {
   indexAt: string | null;
   detailCalls: number;
   lastDetailAt: string | null;
+  /** "Spread the first scan over N minutes": this source's own setting, or null (the connection's). */
+  spread: number | null;
+  /** Calls the last complete listing made: the scan is paced over its window by this many. */
+  lastIndexCalls: number;
 }
 
 export function getState(db: DB, sourceId: string): SourceState {
@@ -79,27 +89,28 @@ export function getState(db: DB, sourceId: string): SourceState {
   return {
     source_id: sourceId, budget: r?.budget ?? null, paused: !!r?.paused, fetchAll: !!r?.fetch_all, token: r?.token ?? null, cache,
     runsSinceFull: r?.runs_since_full ?? 0, lastFullAt: r?.last_full_at ?? null, indexCalls: r?.index_calls ?? 0, indexAt: r?.index_at ?? null,
-    detailCalls: r?.detail_calls ?? 0, lastDetailAt: r?.last_detail_at ?? null,
+    detailCalls: r?.detail_calls ?? 0, lastDetailAt: r?.last_detail_at ?? null, spread: r?.spread_minutes ?? null, lastIndexCalls: r?.last_index_calls ?? 0,
   };
 }
 
 const touch = (db: DB, sourceId: string) => run(db, 'INSERT OR IGNORE INTO connections_source_state (source_id) VALUES (?)', sourceId);
 
-export function setSettings(db: DB, sourceId: string, s: { budget?: number | null; paused?: boolean; fetchAll?: boolean }) {
+export function setSettings(db: DB, sourceId: string, s: { budget?: number | null; paused?: boolean; fetchAll?: boolean; spread?: number | null }) {
   ensureTierSchema(db);
   touch(db, sourceId);
   if (s.budget !== undefined) run(db, 'UPDATE connections_source_state SET budget = ? WHERE source_id = ?', s.budget, sourceId);
   if (s.paused !== undefined) run(db, 'UPDATE connections_source_state SET paused = ? WHERE source_id = ?', s.paused ? 1 : 0, sourceId);
   if (s.fetchAll !== undefined) run(db, 'UPDATE connections_source_state SET fetch_all = ? WHERE source_id = ?', s.fetchAll ? 1 : 0, sourceId);
+  if (s.spread !== undefined) run(db, 'UPDATE connections_source_state SET spread_minutes = ? WHERE source_id = ?', s.spread, sourceId);
 }
 
 /** After a listing: keep the token and cache the connector left, and count the calls. */
 export function saveIndexState(db: DB, sourceId: string, a: { token: string | null; cache: Record<string, any> | null; complete: boolean; calls: number }) {
   ensureTierSchema(db);
   touch(db, sourceId);
-  run(db, `UPDATE connections_source_state SET token = ?, cache = ?, index_calls = index_calls + ?, index_at = ?,
+  run(db, `UPDATE connections_source_state SET token = ?, cache = ?, index_calls = index_calls + ?, index_at = ?, last_index_calls = CASE WHEN ? AND ? > 0 THEN ? ELSE last_index_calls END,
     runs_since_full = CASE WHEN ? THEN 0 ELSE runs_since_full + 1 END, last_full_at = CASE WHEN ? THEN ? ELSE last_full_at END WHERE source_id = ?`,
-  a.token, a.cache ? JSON.stringify(a.cache) : null, a.calls, now(), a.complete ? 1 : 0, a.complete ? 1 : 0, now(), sourceId);
+  a.token, a.cache ? JSON.stringify(a.cache) : null, a.calls, now(), a.complete ? 1 : 0, a.calls, a.calls, a.complete ? 1 : 0, a.complete ? 1 : 0, now(), sourceId);
 }
 
 export function addDetailCalls(db: DB, sourceId: string, calls: number) {
@@ -119,7 +130,11 @@ export function needsFullListing(st: SourceState, force = false) {
 
 /** The tier a source's connector offers with these settings, or null (the source is read whole by `sync`). */
 export function tieredFor(c: Connector | null, cfg: Record<string, any>): Tiered | null {
-  try { return c?.tiered?.(cfg) ?? null; } catch { return null; }
+  try {
+    const t = c?.tiered?.(cfg) ?? null;
+    // The background budget follows the connection's calls-a-minute limit (a fifth is kept for pages opened and other users of the same key).
+    return t && c ? { ...t, budgetPerMinute: Math.max(1, Math.floor(limitsOf(c.id, cfg).perMinute * 0.8)) } : null;
+  } catch { return null; }
 }
 export const tieredOf = (kind: string, cfg: Record<string, any>) => tieredFor(connectorFor(kind, cfg), cfg);
 
@@ -151,29 +166,7 @@ export class Bucket {
   spend(n: number, at: number) { if (this.perMin > 0) { this.refill(at); this.tokens -= n; } }
 }
 
-const rateBuckets = new Map<string, Bucket>();
 const budgetBuckets = new Map<string, Bucket>();
-
-/** The calls-a-minute limit of the source's own API, shared by every call to it: the index, the details and a page opened on demand. `ALX_CRAWL_RATE` overrides it (0: no limit). */
-export function rateGate(sourceId: string, perMin: number, env: Record<string, string | undefined>, signal: AbortSignal): () => Promise<void> {
-  const override = env.ALX_CRAWL_RATE;
-  const rate = override !== undefined && override !== '' ? Number(override) : perMin;
-  let b = rateBuckets.get(sourceId);
-  if (!b || b.perMin !== rate) { b = new Bucket(rate, Math.min(rate, 30), Date.now()); rateBuckets.set(sourceId, b); }
-  const bucket = b;
-  return async () => {
-    for (;;) {
-      if (signal.aborted) throw new Error('Sync stopped');
-      const w = bucket.waitMs(Date.now());
-      if (w <= 0) { bucket.spend(1, Date.now()); return; }
-      await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, Math.min(w, 5000));
-        const stop = () => { clearTimeout(t); reject(new Error('Sync stopped')); };
-        signal.addEventListener('abort', stop, { once: true });
-      });
-    }
-  };
-}
 
 /** The background budget bucket of a source (calls a minute). `at` is the clock, so tests can move it. */
 export function budgetBucket(sourceId: string, perMin: number, at: number): Bucket {
@@ -181,7 +174,7 @@ export function budgetBucket(sourceId: string, perMin: number, at: number): Buck
   if (!b || b.perMin !== perMin) { b = new Bucket(perMin, Math.max(1, Math.min(perMin, 10)), at); budgetBuckets.set(sourceId, b); }
   return b;
 }
-export const resetBuckets = () => { rateBuckets.clear(); budgetBuckets.clear(); };
+export const resetBuckets = () => { budgetBuckets.clear(); resetLimiters(); };
 
 // ---- storing -------------------------------------------------------------------------
 

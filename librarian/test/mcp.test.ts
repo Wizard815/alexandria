@@ -176,7 +176,7 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
   run(db, `INSERT INTO accounts (id, username, display_name, created_at) VALUES ('a', 'a', 'a', 'now')`);
   run(db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s', 'w', 'legendkeeper-mcp', 'LK', '{"url":"http://x/mcp"}', 'party')`);
   const lib = new Library(db, null);
-  const out = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: {}, mcp: fake as any }, 's', 'a');
+  const out = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: { ALX_CRAWL_RATE: '0' }, mcp: fake as any }, 's', 'a');
   assert.equal(out.status, 'ok', out.error);
   assert.equal(out.stats.pages, 6, 'pages, and the map document as a page of its own');
   assert.ok(calls.every(([t, a]) => t === 'api_request' && a.method === 'GET'));
@@ -196,6 +196,6 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
   assert.ok(dmPage.blocks.some((b: any) => b.kind === 'secret') && JSON.stringify(dmPage).includes('Smugglers'));
   // A second sync with a page gone removes it.
   R.splice(R.findIndex((x) => x.id === 'npc1'), 1);
-  const again = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: {}, mcp: fake as any }, 's', 'a');
+  const again = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch, env: { ALX_CRAWL_RATE: '0' }, mcp: fake as any }, 's', 'a');
   assert.equal(again.stats.removed, 2);
 });
