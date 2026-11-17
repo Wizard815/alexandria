@@ -10,9 +10,9 @@ import type { McpClient } from '../core/mcp.ts';
 import { HttpError, id, now } from '../core/util.ts';
 import { CallCounter, isRecord, type ConnectorContext, type SyncRecord, type TierState } from './connector.ts';
 import { connectorFor, makeMcpFactory } from './registry.ts';
-import { RECORD_CAPABILITY, saveRecords } from './records.ts';
+import { RECORD_CAPABILITY, heldImages, saveRecords } from './records.ts';
 import { effectiveConfig, normAudience } from './connections.ts';
-import { depthCounts, getState, needsFullListing, rateGate, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
+import { addDetailCalls, depthCounts, getState, needsFullListing, rateGate, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -108,6 +108,12 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
       log(ts.full ? 'Listing everything (tier 1: list calls only)' : 'Listing what changed since the last crawl (tier 1)');
     }
     const demoted: string[] = [];
+    // Pictures already held (so they are not downloaded again) and the limits on downloading more.
+    if (made.c.capabilities.includes('images')) {
+      made.ctx.heldImages = heldImages(d.db, src.world_id, sourceId);
+      const num = (v: string | undefined, dflt: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== undefined && v !== '' ? Number(v) : dflt);
+      made.ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 4 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 500) };
+    }
     for await (const e of tier ? tier.index(cfg, made.ctx) : made.c.sync(cfg, made.ctx)) {
       if (ctl.signal.aborted) throw new Error('Sync stopped');
       if (isRecord(e)) {
@@ -134,6 +140,8 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
     }
     stats.indexCalls = counter.index;
     stats.detailCalls = counter.detail;
+    // Pictures downloaded by this run are detail calls: they count against the source's totals like pages read later.
+    if (counter.detail) addDetailCalls(d.db, sourceId, counter.detail);
     // A page the list says is hidden loses its player copy now, not when its details are next read.
     if (demoted.length) { d.library.applyAudience(src.world_id, src.id); log(`${demoted.length} pages are hidden at the source: made DM-only`); }
     // Only a complete listing may delete. A listing of what changed lists nothing else.
@@ -148,13 +156,13 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
         for (const g of r.groups ?? []) for (const ev of g.events ?? []) ev.visibility = audience;
       }
     }
-    const saved = saveRecords(d.db, src.world_id, src.id, records, made.ctx.incomplete);
-    stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers;
-    if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers`);
+    const saved = saveRecords(d.db, src.world_id, src.id, records, made.ctx.incomplete, made.ctx.refreshed);
+    stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers + saved.images;
+    if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers, ${saved.images} pictures`);
     log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} DM-only), removed ${stats.removed}`);
     if (tier) {
       const dc = depthCounts(d.db, sourceId);
-      log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}`);
+      log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}${counter.detail ? ` · ${counter.detail} picture downloads` : ''}`);
     }
     save('ok');
     run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${stats.pages} pages`, sourceId);
