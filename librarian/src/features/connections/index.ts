@@ -9,6 +9,7 @@
 //   POST              /api/admin/connections/test | /:id/test
 //   GET/POST/DELETE   /api/admin/connections/presets ... (generic API presets, import, export)
 //   POST              /api/admin/connections/api-discover (generic API: find the spec, guess the endpoints)
+//   POST              /api/admin/connections/mcp-discover (generic API over MCP: list the server's tools, guess the list and read tools)
 //   PUT               /api/admin/connections/:id/endpoints (the reviewed endpoint list)
 //   GET               /api/admin/connections/tiers/world/:world (each source's tiers: index, details, budget)
 //   PATCH             /api/admin/connections/tiers/:source (background budget, pause, fetch everything)
@@ -27,13 +28,13 @@ import { HttpError, id, now, str } from '../../core/util.ts';
 import { ctx, isDM } from '../../routes/_shared.ts';
 import { pageLevel } from '../../core/levels.ts';
 import { ConfigError, type Connector } from '../../intake/connector.ts';
-import { CONNECTORS, connectorFor } from '../../intake/registry.ts';
+import { CONNECTORS, connectorFor, makeMcpFactory } from '../../intake/registry.ts';
 import { AUDIENCE_LABEL, SECRET_MASK, connectionKeys, createConnection, getConnection, hasConnection, keepSecrets, maskedConfig, migrateSources, normAudience, splitConfig, type ConnectionRow } from '../../intake/connections.ts';
 import { BUILTIN_PRESETS, cleanPresetConfig, cleanPresetName, exportPreset, parsePresetImport, type Preset } from '../../intake/presets.ts';
 import { connectorContext } from '../../intake/sync.ts';
 import { dmOnly } from '../../core/events.ts';
 import { cleanEndpoints } from '../../intake/connectors/apiEndpoints.ts';
-import { discoverApi } from '../../intake/connectors/apiSetup.ts';
+import { discoverApi, guessMcpTools } from '../../intake/connectors/apiSetup.ts';
 import { startDetailWorker, tierSummary } from '../../intake/detail.ts';
 import { TIER_SCHEMA, depthsOf, ensureTierSchema, setSettings } from '../../intake/tiers.ts';
 import { CRAWL_SCHEMA } from './crawl.ts';
@@ -184,6 +185,28 @@ const feature: Feature = {
         audit(d, res, 'connection.discover', `${out.source} ${out.calls} calls ${out.endpoints.length} endpoints`);
         res.json(out);
       } catch (e: any) { throw new HttpError(400, e.message); }
+    });
+
+    // Generic API over an MCP server: which tool lists, which one reads one item. Asks the server for its tool list (no tool is called).
+    r.post('/mcp-discover', async (req, res) => {
+      const b = req.body ?? {};
+      let cfg: Record<string, any> = {};
+      if (b.connectionId) {
+        const conn = getConnection(d.db, String(b.connectionId));
+        if (!conn || conn.kind !== 'api') throw new HttpError(404, 'Generic API connection not found');
+        cfg = parse(conn.config);
+      }
+      const inc = b.config && typeof b.config === 'object' ? b.config : {};
+      for (const k of ['server', 'mcpUrl', 'mcpToken']) if (typeof inc[k] === 'string' && inc[k] !== SECRET_MASK && inc[k] !== '') cfg[k] = inc[k].slice(0, 500);
+      if (!cfg.server && !cfg.mcpUrl) throw new HttpError(400, 'Give a local MCP server name or an MCP URL');
+      const c = connectorFor('api')!;
+      const made = makeMcpFactory(c, { ...cfg, transport: 'mcp', tool: 'list' }, d.env, d.fetch, d.testMcp);
+      try {
+        const tools = await Promise.race([made.factory().listTools(), new Promise<never>((_, no) => setTimeout(() => no(new Error('The MCP server did not answer in time')), 20_000))]);
+        const guess = guessMcpTools(tools, typeof b.listTool === 'string' && b.listTool ? b.listTool : cfg.tool || undefined);
+        audit(d, res, 'connection.mcp-discover', `${tools.length} tools`);
+        res.json({ tools: tools.map((t) => t.name), ...guess });
+      } catch (e: any) { throw new HttpError(400, `Could not list the server's tools: ${String(e.message).slice(0, 200)}`); } finally { made.close(); }
     });
 
     // The DM's reviewed list: each endpoint's role and mapping, or "unused". Saved on the connection; a preset can be made from it.
