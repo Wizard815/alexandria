@@ -98,6 +98,7 @@ test('TestSecurityState_FilesOnDiskFollowTheSameRules', () => {
     const playerFacing = area === 'party' || area === '_api';
     for (const m of Object.values(markers)) {
       if (m.re || !text.includes(m.token.toLowerCase())) continue;
+      if (sub[0] === 'libfiles') continue; // library files: the DM's uploads, served only through the per-file level check (see libfiles.test.ts and the crawl)
       if (area === 'vault' && sub[0] === 'worlds') continue; // the DM's own Markdown vault
       if (m.id === 'w2_public' && sub[1] === 'elsewhere') continue; // that world's own players
       if (!m.ai || (playerFacing && !m.seen.includes('jess')) || !playerFacing) bad.push(`${f.slice(dataDir.length)} holds "${m.id}"`);

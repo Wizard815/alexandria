@@ -1,0 +1,313 @@
+// Files in the library: maps, pictures, PDFs, handouts, item sheets, text, JSON and CSV.
+//
+// A file belongs to a page (an existing one, or a "file page" made for it) and
+// has its own level (party, broker, dm, classified; default dm). A viewer gets
+// a file only when they may see the page AND the file's level, checked on every
+// request: lists carry per-viewer signed tickets (/api/media/libfile/<ticket>,
+// see features/sound/ticket.ts) that are checked again on each fetch. A
+// classified file is not in any AI's view. Bytes are on disk under
+// <data>/libfiles/<world>/<id> (included in backups).
+//
+// The same routes are mounted for the library admin at
+// /api/admin/library/worlds/:world/{library,files}: an admin who is the world's
+// DM gets the DM view, any other admin only the party copy, and cannot upload.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Router } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
+import type { Feature } from '../types.ts';
+import type { Deps } from '../../app.ts';
+import { all, one, run } from '../../core/db.ts';
+import { type Auth, requireDM } from '../../core/auth.ts';
+import { audienceOf, type Viewer } from '../../core/policy.ts';
+import { type Level, canSeeLevel, isLevel, normLevel } from '../../core/levels.ts';
+import { safePagePath } from '../../core/library.ts';
+import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
+import { ctx, me } from '../../routes/_shared.ts';
+import { mintTicket, readTicket } from '../sound/ticket.ts';
+import { KINDS, cleanName, sniffFile } from './sniff.ts';
+import { sendFile, targetFor } from './remote.ts';
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS libfiles_files (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'other',
+  level TEXT NOT NULL DEFAULT 'dm',
+  mime TEXT NOT NULL,
+  family TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  by_id TEXT,
+  at TEXT NOT NULL,
+  remote TEXT
+);
+CREATE INDEX IF NOT EXISTS libfiles_world ON libfiles_files (world_id, page_id);
+`;
+
+const DEFAULT_MAX_MB = 50;
+export const maxBytes = (d: Deps) => Math.max(1, Number(d.env.ALX_LIBFILE_MAX_MB) || DEFAULT_MAX_MB) * 1024 * 1024;
+const folder = (d: Deps, world: string) => path.join(d.dataDir ?? '', 'libfiles', world);
+
+interface Row { id: string; world_id: string; page_id: string; name: string; kind: string; level: string; mime: string; family: string; size: number; by_id: string | null; at: string; remote: string | null }
+
+/** May this viewer have this file? The page and the file's own level both count; a classified file is never for a model. */
+export function mayRead(d: Deps, f: Pick<Row, 'level' | 'page_id' | 'world_id'>, viewer: Viewer): boolean {
+  const pg = one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
+  if (!pg) return false;
+  const aud = audienceOf(viewer);
+  return canSeeLevel(normLevel(pg.visibility), aud) && canSeeLevel(normLevel(f.level), aud);
+}
+
+const sees = (viewer: Viewer) => audienceOf(viewer) !== 'player';
+
+function view(d: Deps, f: Row, viewer: Viewer, pageTitle?: string) {
+  const out: any = {
+    id: f.id, pageId: f.page_id, name: f.name, kind: f.kind, mime: f.mime, family: f.family, size: f.size, at: f.at,
+    url: `/api/media/libfile/${mintTicket({ w: f.world_id, k: 'libfile', f: f.id, a: viewer.accountId })}`,
+  };
+  if (pageTitle !== undefined) out.pageTitle = pageTitle;
+  // The DM (and the broker's view) also see the level and where the file was sent.
+  if (sees(viewer)) { out.level = f.level; if (f.remote && viewer.role === 'dm') out.remote = JSON.parse(f.remote); }
+  return out;
+}
+
+function sendBytes(res: Response, f: Row, file: string, download: boolean) {
+  res.setHeader('Content-Type', f.mime.startsWith('text/') ? `${f.mime}; charset=utf-8` : f.mime);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'");
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Content-Length', String(f.size));
+  const safe = f.name.replace(/[^\x20-\x7e]+/g, '_').replace(/"/g, '');
+  res.setHeader('Content-Disposition', `${download || f.family === 'csv' ? 'attachment' : 'inline'}; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(f.name)}`);
+  fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+}
+
+/** Delete bytes on disk that no row owns (a page was deleted, so its rows went with it). */
+export function sweep(d: Deps) {
+  if (!d.dataDir) return;
+  const root = path.join(d.dataDir, 'libfiles');
+  let worlds: string[] = [];
+  try { worlds = fs.readdirSync(root); } catch { return; }
+  for (const w of worlds) {
+    const have = new Set(all<{ id: string }>(d.db, 'SELECT id FROM libfiles_files WHERE world_id = ?', w).map((r) => r.id));
+    try { for (const n of fs.readdirSync(path.join(root, w))) if (!have.has(n)) fs.rmSync(path.join(root, w, n), { force: true }); } catch { /* gone */ }
+  }
+}
+
+const log = (d: Deps, world: string, who: string | null, action: string, detail: string) =>
+  run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', world, who, action, detail.slice(0, 500), now());
+
+/** /files for the world (and for the admin's copy of a world). */
+function fileRoutes(d: Deps): Router {
+  const r = Router({ mergeParams: true });
+  const W = (res: Response) => ctx(res).world.id;
+  const pageOf = (res: Response, ref: unknown) => {
+    const pg = one<any>(d.db, 'SELECT id, path, title, visibility, source_id, external_id FROM pages WHERE world_id = ? AND (id = ? OR path = ?)', W(res), String(ref ?? ''), String(ref ?? ''));
+    // A page the viewer may not open is not found.
+    if (!pg || !canSeeLevel(normLevel(pg.visibility), audienceOf(ctx(res).viewer))) throw new HttpError(404, 'Page not found');
+    return pg;
+  };
+  const fileOf = (res: Response, fid: unknown): Row => {
+    const f = one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', String(fid), W(res));
+    if (!f || !mayRead(d, f, ctx(res).viewer)) throw new HttpError(404, 'File not found');
+    return f;
+  };
+
+  // The files the viewer may see: of one page (?page=), or all of them (the admin browser).
+  r.get('/', (req, res) => {
+    const c = ctx(res);
+    const rows = req.query.page
+      ? all<Row>(d.db, 'SELECT * FROM libfiles_files WHERE world_id = ? AND page_id = ? ORDER BY at', c.world.id, pageOf(res, req.query.page).id)
+      : all<Row>(d.db, 'SELECT * FROM libfiles_files WHERE world_id = ? ORDER BY at DESC', c.world.id);
+    const titles = new Map(all<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ?', c.world.id).map((p) => [p.id, p.title]));
+    res.json({ max: maxBytes(d), canUpload: c.viewer.role === 'dm' && !c.viewer.audience, files: rows.filter((f) => mayRead(d, f, c.viewer)).map((f) => view(d, f, c.viewer, titles.get(f.page_id))) });
+  });
+
+  // Maps for the Map page: pictures of kind "map" the viewer may see.
+  r.get('/maps', (_req, res) => {
+    const c = ctx(res);
+    const titles = new Map(all<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ?', c.world.id).map((p) => [p.id, p.title]));
+    res.json(all<Row>(d.db, `SELECT * FROM libfiles_files WHERE world_id = ? AND kind = 'map' AND family = 'image' ORDER BY name`, c.world.id)
+      .filter((f) => mayRead(d, f, c.viewer)).map((f) => view(d, f, c.viewer, titles.get(f.page_id))));
+  });
+
+  // Where an upload could also be sent (DM). Null hides the option.
+  r.get('/targets', requireDM, (req, res) => {
+    const c = ctx(res);
+    const pg = pageOf(res, req.query.page);
+    const level = isLevel(req.query.level) ? req.query.level : 'dm';
+    res.json({ target: targetFor(d, c.world.id, pg, level) });
+  });
+
+  r.post('/', requireDM, express.raw({ type: () => true, limit: maxBytes(d) + 1024 * 1024 }), async (req: Request, res: Response) => {
+    const c = ctx(res);
+    if (c.viewer.audience) throw new HttpError(403, 'Files are uploaded in the app');
+    if (!d.dataDir) throw new HttpError(503, 'This server has no data folder for files');
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body) || !body.length) throw new HttpError(400, 'Send the file as the request body');
+    if (body.length > maxBytes(d)) throw new HttpError(413, `That file is over ${Math.round(maxBytes(d) / 1024 / 1024)} MB`);
+    const name = cleanName(req.query.name);
+    const sniffed = sniffFile(body, name);
+    if ('error' in sniffed) throw new HttpError(415, sniffed.error);
+    const kind = oneOf(req.query.kind ?? 'other', 'kind', KINDS, 'other');
+    if (kind === 'map' && sniffed.family !== 'image') throw new HttpError(400, 'A map must be a picture');
+    // Fail closed: no level means DM-only; a level that is not one is refused.
+    const level: Level = req.query.level === undefined || req.query.level === '' ? 'dm' : isLevel(req.query.level) ? req.query.level : (() => { throw new HttpError(400, 'level must be party, broker, dm or classified'); })();
+    const sendTo = req.query.send ? String(req.query.send) : '';
+
+    let pg: any;
+    let created = false;
+    if (req.query.page) pg = pageOf(res, req.query.page);
+    else {
+      const title = str(req.query.title ?? name.replace(/\.[A-Za-z0-9]{1,8}$/, ''), 'title', { max: 200 });
+      const dir = String(req.query.folder ?? '').replace(/^\/+|\/+$/g, '');
+      const p = safePagePath(`${dir ? dir + '/' : ''}${title.replace(/[\\/]+/g, ' ')}.md`);
+      if (one(d.db, 'SELECT 1 FROM pages WHERE world_id = ? AND path = ?', c.world.id, p)) throw new HttpError(409, 'A page with that name already exists in that folder');
+      created = true;
+      d.library.save(c.world.id, { path: p, title, body: '', frontmatter: { tags: ['file'] }, visibility: level }, me(res));
+      pg = one<any>(d.db, 'SELECT id, path, title, visibility, source_id, external_id FROM pages WHERE world_id = ? AND path = ?', c.world.id, p);
+    }
+    // The page must be one this DM view can open and (for a new send) a source that takes files.
+    if (sendTo) {
+      const t = targetFor(d, c.world.id, pg, level);
+      if (!t || t.sourceId !== sendTo) throw new HttpError(400, 'That source cannot take this file (classified files are never sent, and not every source has an upload)');
+    }
+
+    const fid = newId('lf_');
+    fs.mkdirSync(folder(d, c.world.id), { recursive: true });
+    fs.writeFileSync(path.join(folder(d, c.world.id), fid), body);
+    run(d.db, 'INSERT INTO libfiles_files (id, world_id, page_id, name, kind, level, mime, family, size, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      fid, c.world.id, pg.id, name, kind, level, sniffed.mime, sniffed.family, body.length, me(res), now());
+    log(d, c.world.id, me(res), 'libfile.upload', `${name} ${kind} ${level} ${pg.path}`);
+    sweep(d);
+    const row = one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', fid)!;
+    if (sendTo) await send(res, row, pg, body);
+    emit(row);
+    res.status(201).json({ ...view(d, one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', fid)!, c.viewer, pg.title), pageCreated: created, page: { id: pg.id, path: pg.path, title: pg.title } });
+  });
+
+  /** Send to the page's source and record the result (the local copy stays whatever happens). */
+  async function send(res: Response, row: Row, pg: any, bytes: Uint8Array) {
+    const c = ctx(res);
+    let rec: any;
+    try {
+      const out = await sendFile(d, c.world.id, pg, { name: row.name, mime: row.mime, level: row.level, bytes });
+      rec = { source: out.target.sourceName, app: out.target.app, id: out.remoteId, error: null, at: now() };
+      log(d, c.world.id, me(res), 'libfile.send', `${row.name} to ${out.target.app} ${out.target.sourceName}`);
+    } catch (err: any) {
+      const t = targetFor(d, c.world.id, pg, row.level);
+      rec = { source: t?.sourceName ?? '', app: t?.app ?? '', id: null, error: String(err?.message ?? err).slice(0, 300), at: now() };
+      log(d, c.world.id, me(res), 'libfile.send_failed', `${row.name}: ${rec.error}`);
+    }
+    run(d.db, 'UPDATE libfiles_files SET remote = ? WHERE id = ?', JSON.stringify(rec), row.id);
+  }
+  const emit = (row: Row) => d.hub.emit(row.world_id, 'libfile', { pageId: row.page_id }, (v) => mayRead(d, row, v));
+
+  // Try the upload to the source again (DM).
+  r.post('/:fid/send', requireDM, async (req, res) => {
+    const c = ctx(res);
+    const row = fileOf(res, req.params.fid);
+    const pg = pageOf(res, row.page_id);
+    const t = targetFor(d, c.world.id, pg, row.level);
+    if (!t || (req.body?.source && t.sourceId !== req.body.source)) throw new HttpError(400, 'This file cannot be sent to a source');
+    await send(res, row, pg, fs.readFileSync(path.join(folder(d, c.world.id), row.id)));
+    res.json(view(d, one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', row.id)!, c.viewer, pg.title));
+  });
+
+  r.patch('/:fid', requireDM, (req, res) => {
+    const c = ctx(res);
+    if (c.viewer.audience) throw new HttpError(403, 'Files are changed in the app');
+    const row = fileOf(res, req.params.fid);
+    const b = req.body ?? {};
+    const level = b.level === undefined ? row.level : isLevel(b.level) ? b.level : (() => { throw new HttpError(400, 'level must be party, broker, dm or classified'); })();
+    const kind = b.kind === undefined ? row.kind : oneOf(b.kind, 'kind', KINDS);
+    if (kind === 'map' && row.family !== 'image') throw new HttpError(400, 'A map must be a picture');
+    const name = b.name === undefined ? row.name : cleanName(b.name, row.name);
+    run(d.db, 'UPDATE libfiles_files SET level = ?, kind = ?, name = ? WHERE id = ?', level, kind, name, row.id);
+    log(d, c.world.id, me(res), 'libfile.update', `${name} ${kind} ${level}`);
+    const next = one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', row.id)!;
+    emit(next);
+    res.json(view(d, next, c.viewer));
+  });
+
+  r.delete('/:fid', requireDM, (req, res) => {
+    const c = ctx(res);
+    const row = fileOf(res, req.params.fid);
+    run(d.db, 'DELETE FROM libfiles_files WHERE id = ?', row.id);
+    fs.rmSync(path.join(folder(d, c.world.id), row.id), { force: true });
+    log(d, c.world.id, me(res), 'libfile.delete', row.name);
+    d.hub.emit(c.world.id, 'libfile', { pageId: row.page_id }, () => true);
+    res.json({ ok: true });
+  });
+
+  // The bytes, for a caller that can send the sign-in header (the app uses tickets in <img>/<a>).
+  r.get('/:fid', (req, res) => {
+    const f = fileOf(res, req.params.fid);
+    sendBytes(res, f, path.join(folder(d, W(res)), f.id), req.query.download === '1');
+  });
+  r.get('/:fid/ticket', (req, res) => res.json({ url: view(d, fileOf(res, req.params.fid), ctx(res).viewer).url }));
+  return r;
+}
+
+/** The admin's view of a world: DM view when the admin is the world's DM, else the party copy and no writes. */
+function adminWorld(d: Deps) {
+  return (req: Request, res: Response, next: (e?: any) => void) => {
+    const auth = res.locals.auth as Auth;
+    const world = one<any>(d.db, 'SELECT id, slug, name, settings FROM worlds WHERE id = ? OR slug = ?', String(req.params.world), String(req.params.world));
+    if (!world) throw new HttpError(404, 'World not found');
+    const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', world.id, auth.account.id);
+    res.locals.w = { world, viewer: { accountId: auth.account.id, role: m?.role === 'dm' ? 'dm' : 'player' } };
+    res.locals.adminView = m?.role === 'dm' ? 'dm' : 'party';
+    next();
+  };
+}
+
+function adminRoutes(d: Deps): Router {
+  const r = Router();
+  // Every world, and what this admin may open of it.
+  r.get('/worlds', (_req, res) => {
+    const a = (res.locals.auth as Auth).account.id;
+    res.json(all<any>(d.db, `SELECT w.id, w.name, w.slug, (SELECT COUNT(*) FROM pages p WHERE p.world_id = w.id) AS pages,
+      (SELECT role FROM members m WHERE m.world_id = w.id AND m.account_id = ?) AS role FROM worlds w ORDER BY w.name`, a)
+      .map((w) => ({ id: w.id, name: w.name, slug: w.slug, pages: w.pages, role: w.role ?? null, view: w.role === 'dm' ? 'dm' : 'party' })));
+  });
+  const world = Router({ mergeParams: true });
+  world.use(adminWorld(d));
+  world.get('/', (_req, res) => res.json({ id: ctx(res).world.id, name: ctx(res).world.name, role: ctx(res).viewer.role === 'dm' ? 'dm' : null, view: res.locals.adminView }));
+  // Reading the library: the same answers the world's own routes give this viewer. Nothing here writes.
+  world.get('/library/pages', (_req, res) => res.json(d.library.list(ctx(res).world.id, ctx(res).viewer)));
+  world.get('/library/pages/:pid', (req, res) => res.json(d.library.get(ctx(res).world.id, String(req.params.pid), ctx(res).viewer)));
+  world.get('/library/search', (req, res) => res.json(d.library.search(ctx(res).world.id, str(req.query.q, 'q', { max: 200 }), ctx(res).viewer)));
+  world.get('/library/lint', (_req, res) => res.json(ctx(res).viewer.role === 'dm' ? d.library.lint(ctx(res).world.id) : []));
+  world.use('/files', fileRoutes(d));
+  r.use('/worlds/:world', world);
+  return r;
+}
+
+const feature: Feature = {
+  id: 'libfiles',
+  schema: SCHEMA,
+  dataDirs: ['libfiles'],
+  worldMount: 'files',
+  worldRoutes: (d) => fileRoutes(d),
+  adminMount: 'library',
+  adminRoutes: (d) => adminRoutes(d),
+  start: (d) => { sweep(d); },
+  appRoutes: (app, d) => {
+    // <img> and <a> cannot send the sign-in header: a signed ticket names one file and one account and is checked again on every fetch.
+    // A member gets what their role may see; an admin who is not in the world gets the party copy only.
+    app.get('/api/media/libfile/:ticket', (req, res) => {
+      const t = readTicket(String(req.params.ticket));
+      if (!t || t.k !== 'libfile') throw new HttpError(404, 'File not found');
+      const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);
+      const admin = !m && one(d.db, 'SELECT 1 FROM accounts WHERE id = ? AND is_admin = 1', t.a);
+      const f = (m || admin) && one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', t.f, t.w);
+      if (!f || !mayRead(d, f, { accountId: t.a, role: m?.role === 'dm' ? 'dm' : 'player' })) throw new HttpError(404, 'File not found');
+      sendBytes(res, f, path.join(folder(d, t.w), f.id), req.query.download === '1');
+    });
+  },
+};
+export default feature;
