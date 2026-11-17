@@ -83,7 +83,7 @@ test('Audit_Crawl: a deleted then recreated record comes back', async () => {
   assert.deepEqual(pagesOf(sid).map((p) => p.title), ['Comes and goes', 'Stays']);
 });
 
-test('Audit_Crawl: an empty answer from a source that had pages does not wipe the library', { todo: 'intake/sync.ts removeMissing trusts an empty complete listing; see audit REPORT "empty listing wipes a source"' }, async () => {
+test('Audit_Crawl: an empty answer from a source that had pages does not wipe the library', async () => {
   let items: any[] = [{ id: 1, name: 'A', body: 'a' }, { id: 2, name: 'B', body: 'b' }, { id: 3, name: 'C', body: 'c' }];
   api.routes['/wipe'] = () => json({ data: items });
   const sid = await source('/wipe');
@@ -94,7 +94,7 @@ test('Audit_Crawl: an empty answer from a source that had pages does not wipe th
   assert.equal(pagesOf(sid).length, 3, 'an empty list from the source removed every page it had (a source that is half down answers like this)');
 });
 
-test('Audit_Crawl: a server that ignores the page number does not get asked a thousand times', { todo: 'intake/connectors/api.ts listPages: stop a page-numbered list when a page adds no new ids; see audit REPORT' }, async () => {
+test('Audit_Crawl: a server that ignores the page number does not get asked a thousand times', async () => {
   api.hits.length = 0;
   api.routes['/stuck'] = () => json({ data: api.hits.filter((h) => h.startsWith('/stuck')).length > 30 ? [] : [{ id: 1, name: 'Same', body: 'a' }, { id: 2, name: 'Same too', body: 'b' }] });
   const sid = await source('/stuck', { paging: 'page', pageParam: 'page' });
