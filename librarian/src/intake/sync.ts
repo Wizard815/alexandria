@@ -13,7 +13,7 @@ import { connectorFor, makeMcpFactory } from './registry.ts';
 import { RECORD_CAPABILITY, heldImages, saveRecords } from './records.ts';
 import { effectiveConfig, normAudience } from './connections.ts';
 import { addDetailCalls, depthCounts, getState, needsFullListing, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
-import { limiterFor, limitedFetch, limitKeyOf, limitsOf, type Limiter, type Limits } from './ratelimit.ts';
+import { callSinkOf, limiterFor, limitedFetch, limitKeyOf, limitsOf, type Limiter, type Limits } from './ratelimit.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -63,6 +63,12 @@ export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortS
   // Every call to the source goes through the limiter of its connection (shared by all worlds and keys that use it).
   const limits = limitsOf(c.id, cfg, d.env, getState(d.db, src.id).spread);
   const limiter = limiterFor(limitKeyOf(src, d.db), limits);
+  // The status page hears of every call, answer and ending of this connection (the test of a connection not saved yet is nobody's).
+  if (src.id !== 'test') {
+    limiter.logical = src.connection_id ? `con:${src.connection_id}` : `src:${src.id}`;
+    limiter.sink = callSinkOf(d.db);
+    limiter.secrets = Object.entries(cfg ?? {}).filter(([k, v]) => /token|key|secret|pass|auth|bearer|cookie/i.test(k) && typeof v === 'string' && v.length >= 4).map(([, v]) => v as string);
+  }
   const counter = new CallCounter();
   counter.gate = (_phase, paceMs) => limiter.acquire(signal, paceMs);
   const ctx: ConnectorContext = {
@@ -100,9 +106,11 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
     run(d.db, 'UPDATE sync_runs SET status = ?, finished_at = ?, stats = ?, log = ?, error = ? WHERE id = ?', status, status === 'running' ? null : now(), JSON.stringify(stats), lines.join('\n'), error, runId);
   };
   let close = () => {};
+  let limiter: Limiter | null = null;
   try {
     const made = connectorContext(d, src, cfg, ctl.signal, log);
     close = made.close;
+    limiter = made.limiter;
     log(`Started ${made.c.label}`);
     const seen = new Set<string>();
     const prefix = prefixFor(made.c.id, src.name);
@@ -176,10 +184,12 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
       log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}${counter.detail ? ` · ${counter.detail} picture downloads` : ''}`);
     }
     save('ok');
+    limiter.outcome(true);
     run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `ok: ${stats.pages} pages`, sourceId);
   } catch (err: any) {
     const stopped = ctl.signal.aborted;
     log(`${stopped ? 'Stopped' : 'Failed'}: ${err.message}`);
+    if (!stopped) limiter?.outcome(false, err.message);
     save(stopped ? 'stopped' : 'error', String(err.message).slice(0, 500));
     run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), `${stopped ? 'stopped' : 'error'}: ${String(err.message).slice(0, 200)}`, sourceId);
   } finally {

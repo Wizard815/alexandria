@@ -8,6 +8,8 @@ import { ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
 import { tierLine, type TierInfo } from '../../features/connections/Tiers.tsx';
 import { Callout, Pill, Section, Tile } from './kit.tsx';
+import { Bars, HealthPill, useConnStatuses } from '../../features/gwstatus/ConnStatus.tsx';
+import { ago, clock } from '../../features/gwstatus/api.ts';
 
 const RUN: Record<string, 'ok' | 'bad' | 'teal' | ''> = { ok: 'ok', error: 'bad', stopped: '', running: 'teal' };
 const MODEL_NAMES: Record<string, string> = { chat: 'Chat (DM and players)', audit: 'Audit (decisions)', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank' };
@@ -30,6 +32,7 @@ export default function AdminOverview() {
   const models = useLoad(() => get<{ jobs: any[] }>('/models'), []);
   const status = useLoad(() => get<{ jobs: Record<string, { primary?: string }> }>('/models/status'), []);
   const backup = useAction();
+  const cstat = useConnStatuses();
   const d = o.data;
 
   const download = () => void backup.run(async () => {
@@ -100,10 +103,19 @@ export default function AdminOverview() {
             <Section title="Connections" lead="Logins to services, shared by any world that uses them." actions={<Link className="btn small" to="/admin/connections">Manage</Link>}>
               {conns.data?.length ? (
                 <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
-                  <thead><tr><th>Connection</th><th>Template</th><th>Used by</th></tr></thead>
-                  <tbody>{conns.data.map((c) => (
-                    <tr key={c.id}><td><strong>{c.name}</strong></td><td>{c.connector?.label ?? c.kind}</td><td>{c.sources} source{c.sources === 1 ? '' : 's'} · {c.worlds} world{c.worlds === 1 ? '' : 's'}</td></tr>
-                  ))}</tbody>
+                  <thead><tr><th>Connection</th><th>Status</th><th className="num">Today</th><th>Last hour</th><th>Used by</th></tr></thead>
+                  <tbody>{conns.data.map((c) => {
+                    const st = cstat.byConnection.get(c.id);
+                    return (
+                      <tr key={c.id}>
+                        <td><strong>{c.name}</strong><span className="tiny muted">{c.connector?.label ?? c.kind}</span></td>
+                        <td>{st ? <><HealthPill health={st.health} />{st.lastError && st.health !== 'ok' ? <span className="tiny" style={{ color: 'var(--danger-text)' }}>{st.lastError.message}</span> : st.rate.waiting ? <span className="tiny muted">held until {clock(st.rate.waiting.until)}</span> : <span className="tiny muted">last ok {ago(st.lastSuccessAt)}</span>}</> : <span className="faint">…</span>}</td>
+                        <td className="num">{st ? st.callsToday.toLocaleString() : '…'}</td>
+                        <td style={{ minWidth: 96 }}>{st ? <><div style={{ width: 96 }}><Bars series={st.series.slice(-12)} /></div><span className="tiny muted">{st.callsLastHour} calls</span></> : null}</td>
+                        <td className="small">{c.sources} source{c.sources === 1 ? '' : 's'} · {c.worlds} world{c.worlds === 1 ? '' : 's'}</td>
+                      </tr>
+                    );
+                  })}</tbody>
                 </table></div></div>
               ) : <p className="muted">No connections yet. <Link to="/admin/connections">Make one</Link>, or <Link to="/admin/worlds/setup">set up a world</Link>.</p>}
             </Section>
