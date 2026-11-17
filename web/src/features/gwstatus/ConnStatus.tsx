@@ -37,7 +37,7 @@ export function Bars({ series }: { series: ConnStatus['series'] }) {
 function rateLine(s: ConnStatus): string {
   const r = s.rate;
   const cap = r.perMinuteInEffect > 0 ? `${r.usedLastMinute} of ${r.perMinuteInEffect} calls this minute` : `${r.usedLastMinute} calls this minute (no limit set)`;
-  const lower = r.perMinuteInEffect > 0 && r.perMinuteInEffect < r.perMinute ? ` · held to ${r.perMinuteInEffect} a minute because the site allows ${r.siteLimit ?? 'fewer'}` : '';
+  const lower = r.perMinuteInEffect > 0 && r.perMinuteInEffect < r.perMinute ? ` · held to ${r.perMinuteInEffect} a minute ${r.siteLimit ? `because the site allows ${r.siteLimit}` : 'after the site asked for fewer'}` : '';
   return `${cap}${r.perSecond ? ` · at most ${r.perSecond} a second` : ''}${lower}`;
 }
 

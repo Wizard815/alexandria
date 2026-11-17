@@ -1,5 +1,5 @@
 /* Gateway status pages: connection health, the world mirror, source files, search insight. Uses the admin tokens. */
-.gws-block { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 18px; align-items: start; }
+.gws-block { position: sticky; left: 0; width: min(100%, calc(100vw - 70px)); box-sizing: border-box; display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 18px; align-items: start; }
 .gws-chart { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .gws-bars { width: 100%; height: 54px; display: block; }
 .gws-bar { fill: var(--accent, #2f8f83); }
