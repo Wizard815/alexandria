@@ -1,6 +1,6 @@
 // Signed-in state. The session token lives in localStorage so a reload
 // keeps you signed in; signing out deletes it on the server too.
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlexandriaClient, AlexandriaError } from '@alx/client';
 import { responseCache, clearAccount } from './offline.ts';
 import { netHooks } from './net.ts';
@@ -45,12 +45,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
 
+  const setupRetry = useRef<number | undefined>(undefined);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
   const refresh = useCallback(async () => {
+    window.clearTimeout(setupRetry.current);
     try {
       // Set needsSetup together with me (below), so no screen sees "setup
       // done" with nobody signed in and bounces to /login in between.
       let setup: boolean | null = null;
       try { setup = (await client.needsSetup()).needsSetup; } catch (e) { if (!unreachable(e)) throw e; }
+      // The gateway didn't answer (still starting, or offline): ask again soon,
+      // so a fresh install still reaches /setup instead of sitting on /login.
+      if (setup === null) setupRetry.current = window.setTimeout(() => { void refreshRef.current(); }, 2000);
       if (client.token) {
         const m = (await client.me()) as Me;
         if (client.cacheScope !== m.account.id) {
@@ -79,7 +85,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [client]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  refreshRef.current = refresh;
+  useEffect(() => { void refresh(); return () => window.clearTimeout(setupRetry.current); }, [refresh]);
 
   const signIn = useCallback(async (token: string) => {
     client.token = token;

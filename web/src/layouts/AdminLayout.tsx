@@ -9,15 +9,16 @@ import { OfflineBanner } from '../ui/index.tsx';
 import * as F from '../features/registry.ts';
 import AdminLogin from '../features/adminauth/Login.tsx';
 import { setAdminToken, useAdminToken } from '../features/adminauth/session.ts';
+import AdminSearchBox from '../features/gateway/SearchBox.tsx';
 
 import '../admin.css';
 import { Icon } from '../pages/admin/kit.tsx';
 
 // The sidebar's three groups. A feature that adds an admin page without a place here lands under Gateway.
 const GROUPS: { label: string; links: [string, string][] }[] = [
-  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds']] },
+  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds'], ['search', 'Search']] },
   { label: 'Sources', links: [['connections', 'Connections'], ['sources', 'World sources'], ['source-keys', 'Source keys']] },
-  { label: 'Gateway', links: [['accounts', 'Accounts'], ['permissions', 'Permissions'], ['models', 'Models'], ['integrations', 'Integrations'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ['security', 'Security']] },
+  { label: 'Gateway', links: [['accounts', 'Accounts'], ['permissions', 'Permissions'], ['models', 'Models'], ['integrations', 'Integrations'], ['access', 'Access & MCP'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ['security', 'Security']] },
 ];
 const KNOWN = new Set(GROUPS.flatMap((g) => g.links.map(([to]) => to)));
 const EXTRA: [string, string][] = F.adminNav.filter((n) => !KNOWN.has(n.to)).map((n) => [n.to, n.label]);
@@ -87,7 +88,7 @@ export function AdminLayout() {
           </div>
         </div>
       </nav>
-      <main className="main"><OfflineBanner /><Outlet /></main>
+      <main className="main"><AdminSearchBox /><OfflineBanner /><Outlet /></main>
     </div>
   );
   if (mode.kind === 'table') return body;
