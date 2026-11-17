@@ -121,7 +121,7 @@ interface Env {
 
 async function boot(opts: { fetch?: typeof fetch; testMcp?: any } = {}): Promise<Env> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-wl-'));
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: opts.fetch, testMcp: opts.testMcp, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: opts.fetch, testMcp: opts.testMcp, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_CRAWL_RATE: '0' } });
   const server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
