@@ -23,7 +23,9 @@ export interface WorldSettings {
 export interface WorldInfo { id: string; slug: string; name: string; role: Role; settings: WorldSettings }
 export interface Member { id: string; display_name: string; role: Role; character_name: string | null }
 
-interface WorldState {
+export interface WorldState {
+  /** The library admin shows a world without its live stream or write tools. */
+  readOnly?: boolean;
   w: WorldClient;
   info: WorldInfo;
   members: Member[];
@@ -115,6 +117,11 @@ export function WorldProvider({ children }: { children: ReactNode }) {
       {children}
     </Ctx.Provider>
   );
+}
+
+/** A world served by something other than /api/worlds/:id (the library admin). */
+export function StaticWorldProvider({ value, children }: { value: WorldState; children: ReactNode }) {
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useWorld() {
