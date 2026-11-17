@@ -39,10 +39,65 @@ export function lkRuns(text: string): any[] {
 /** Block kinds WorldLore's Markdown writes itself; every other top-level block is kept when a page is rewritten. */
 const TEXT_KINDS = new Set(['heading', 'paragraph', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'quote', 'codeBlock', 'code', 'horizontalRule', 'rule', 'divider', 'secret', 'callout']);
 
-/** The top-level blocks of a document that Markdown cannot express, exactly as LegendKeeper returned them. */
-export function keptBlocks(doc: any): any[] {
-  const blocks: any[] = Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : [];
-  return blocks.filter((b) => b && typeof b === 'object' && b.id && !TEXT_KINDS.has(String(b.kind ?? b.type ?? '')));
+/** A document's block list, however LegendKeeper wrapped it. */
+const blockList = (doc: any): any[] => (Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : []);
+
+
+const headingKey = (b: any): string | null => {
+  if (String(b?.kind ?? b?.type ?? '') !== 'heading') return null;
+  const text = (Array.isArray(b.content) ? b.content : []).map((r: any) => String(r?.text ?? '')).join('');
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+};
+
+/**
+ * Where each kept block goes in the rewritten page: under the same heading, after as many text blocks as it
+ * followed before (never past that section); before the first heading if it sat there; else after the same number
+ * of text blocks from the top. Kept blocks keep their order. Returns, per kept block, the index in `next` it goes before.
+ */
+export function placeKept(old: any[], next: any[]): { block: any; at: number }[] {
+  const out: { block: any; at: number }[] = [];
+  const keys = next.map(headingKey);
+  const firstHeading = keys.findIndex((k) => k !== null);
+  let heading: string | null = null;
+  let sinceHeading = 0;
+  let total = 0;
+  let floor = 0;
+  for (const b of old) {
+    if (!b || typeof b !== 'object') continue;
+    const kind = String(b.kind ?? b.type ?? '');
+    if (b.id && !TEXT_KINDS.has(kind)) {
+      let at: number;
+      const h = heading === null ? -1 : keys.indexOf(heading);
+      if (heading !== null && h >= 0) {
+        let end = keys.findIndex((k, j) => j > h && k !== null);
+        if (end < 0) end = next.length;
+        at = Math.min(h + 1 + sinceHeading, end);
+      } else if (heading === null) {
+        at = Math.min(sinceHeading, firstHeading < 0 ? next.length : firstHeading);
+      } else {
+        at = Math.min(total, next.length);
+      }
+      at = Math.max(at, floor);
+      floor = at;
+      out.push({ block: b, at });
+      continue;
+    }
+    const k = headingKey(b);
+    if (k !== null) { heading = k; sinceHeading = 0; } else sinceHeading++;
+    total++;
+  }
+  return out;
+}
+
+/** Put kept items into a list at the places placeKept chose. */
+function interleave<T>(items: T[], kept: { at: number; item: T }[]): T[] {
+  const out: T[] = [];
+  let k = 0;
+  for (let j = 0; j <= items.length; j++) {
+    while (k < kept.length && kept[k].at === j) out.push(kept[k++].item);
+    if (j < items.length) out.push(items[j]);
+  }
+  return out;
 }
 
 async function pageDoc(get: (p: string, q?: any) => Promise<any>, id: string): Promise<any> {
@@ -57,22 +112,30 @@ const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s+/;
 
 /** Markdown to LegendKeeper blocks: headings, paragraphs, lists, quotes, > [!secret] callouts, code and rules. */
 export function mdToLkBlocks(md: string): any[] {
+  return mdChunks(md).map((c) => c.block);
+}
+
+/** Markdown split into top-level blocks, each with the lines it came from. */
+export function mdChunks(md: string): { block: any; md: string }[] {
   const lines = md.replace(/\r\n?/g, '\n').split('\n');
   const blocks: any[] = [];
+  const spans: [number, number][] = [];
   const para = (t: string) => ({ kind: 'paragraph', content: lkRuns(t) });
   let i = 0;
+  const push = (b: any, from: number) => { blocks.push(b); spans.push([from, i]); };
   while (i < lines.length) {
     const l = lines[i];
     let m: RegExpExecArray | null;
     if (!l.trim()) { i++; continue; }
-    if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) { blocks.push({ kind: 'heading', level: m[1].length, content: lkRuns(m[2].trim()) }); i++; continue; }
-    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)) { blocks.push({ kind: 'rule' }); i++; continue; }
+    const from = i;
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) { i++; push({ kind: 'heading', level: m[1].length, content: lkRuns(m[2].trim()) }, from); continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)) { i++; push({ kind: 'rule' }, from); continue; }
     if (/^```/.test(l)) {
       const lang = l.slice(3).trim();
       const body: string[] = [];
       for (i++; i < lines.length && !/^```/.test(lines[i]); i++) body.push(lines[i]);
       i++;
-      blocks.push({ kind: 'code', ...(lang ? { language: lang } : {}), text: body.join('\n') });
+      push({ kind: 'code', ...(lang ? { language: lang } : {}), text: body.join('\n') }, from);
       continue;
     }
     if (/^\s*>/.test(l)) {
@@ -81,21 +144,21 @@ export function mdToLkBlocks(md: string): any[] {
       const head = /^\[!(\w+)\][+-]?\s*(.*)$/.exec(q[0] ?? '');
       const rest = head ? [...(head[2] ? [head[2]] : []), ...q.slice(1)] : q;
       const kids = rest.filter((x) => x.trim()).map(para);
-      blocks.push(head && /^(secret|gm|dm)$/i.test(head[1]) ? { kind: 'secret', children: kids } : { kind: 'quote', children: kids.length ? kids : [para('')] });
+      push(head && /^(secret|gm|dm)$/i.test(head[1]) ? { kind: 'secret', children: kids } : { kind: 'quote', children: kids.length ? kids : [para('')] }, from);
       continue;
     }
     if (LIST_ITEM.test(l)) {
       const ordered = /^\s*\d+[.)]\s+/.test(l);
       const items: any[] = [];
       for (; i < lines.length && LIST_ITEM.test(lines[i]); i++) items.push({ kind: 'listItem', children: [para(lines[i].replace(LIST_ITEM, ''))] });
-      blocks.push({ kind: ordered ? 'orderedList' : 'bulletList', children: items });
+      push({ kind: ordered ? 'orderedList' : 'bulletList', children: items }, from);
       continue;
     }
     const buf: string[] = [];
     for (; i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\s*>)/.test(lines[i]) && !LIST_ITEM.test(lines[i]); i++) buf.push(lines[i].trim());
-    blocks.push(para(buf.join(' ')));
+    push(para(buf.join(' ')), from);
   }
-  return blocks;
+  return blocks.map((block, k) => ({ block, md: lines.slice(spans[k][0], spans[k][1]).join('\n') }));
 }
 
 /** What the write code needs from LegendKeeper, whether it is reached over REST or the MCP server. */
@@ -145,9 +208,12 @@ function restBackend(cfg: Record<string, any>, ctx: ConnectorContext): LkBackend
     async setContent(id, markdown) {
       const doc = await pageDoc(t.get, id);
       // Replacing a document's blocks deletes every block not echoed back by id, so blocks Markdown cannot
-      // express (infoboxes, embeds, images, tables, collections...) are sent back unchanged after the new text.
-      const kept = keptBlocks(await t.get(`/resources/${id}/docs/${doc.id}/blocks`).catch(() => null));
-      await send('PUT', `/resources/${id}/docs/${doc.id}/blocks`, { blocks: [...mdToLkBlocks(markdown), ...kept] });
+      // express (infoboxes, embeds, images, tables, collections...) are sent back unchanged.
+      // Each goes back where it was: under the same heading, after the same number of text blocks.
+      const current = await t.get(`/resources/${id}/docs/${doc.id}/blocks`).catch(() => null);
+      const next = mdToLkBlocks(markdown);
+      const placed = placeKept(blockList(current), next).map((p) => ({ at: p.at, item: p.block }));
+      await send('PUT', `/resources/${id}/docs/${doc.id}/blocks`, { blocks: interleave(next, placed) });
     },
     async patch(id, a) { await send('PATCH', `/resources/${id}`, { ...(a.name !== undefined ? { name: a.name.slice(0, 500) } : {}), ...(a.hidden !== undefined ? { isHidden: a.hidden } : {}) }); },
     async move(id, parent) { await send('POST', `/resources/${id}/move`, { parentId: parent }); },
@@ -174,16 +240,18 @@ function mcpBackend(cfg: Record<string, any>, ctx: ConnectorContext): LkBackend 
       return String(rid);
     },
     async setContent(id, markdown) {
-      // The MCP keeps a block it cannot express when the markdown carries its lk:keep markers: add one per such block.
-      let keep = '';
+      // The MCP keeps a block it cannot express when the markdown carries its lk:keep markers: one per such block,
+      // at the same place it held (see placeKept).
+      let out = markdown;
       try {
         const doc = await pageDoc(t.get, id);
-        keep = keptBlocks(await t.get(`/resources/${id}/docs/${doc.id}/blocks`))
-          .filter((b) => LK_ID.test(String(b.id ?? '')))
-          .map((b) => `<!-- lk:keep id="${b.id}" kind="${String(b.kind ?? 'block').replace(/[^A-Za-z0-9_-]/g, '')}" -->\n<!-- /lk:keep -->`)
-          .join('\n\n');
+        const chunks = mdChunks(markdown);
+        const placed = placeKept(blockList(await t.get(`/resources/${id}/docs/${doc.id}/blocks`)), chunks.map((c) => c.block))
+          .filter((p) => LK_ID.test(String(p.block.id ?? '')))
+          .map((p) => ({ at: p.at, item: `<!-- lk:keep id="${p.block.id}" kind="${String(p.block.kind ?? 'block').replace(/[^A-Za-z0-9_-]/g, '')}" -->\n<!-- /lk:keep -->` }));
+        if (placed.length) out = interleave(chunks.map((c) => c.md), placed).join('\n\n') + '\n';
       } catch { /* could not read the page: write it as given */ }
-      await tool('write_page', { resource: id, markdown: keep ? `${markdown.trimEnd()}\n\n${keep}\n` : markdown, mode: 'replace' });
+      await tool('write_page', { resource: id, markdown: out, mode: 'replace' });
     },
     async patch(id, a) { await tool('update_resource', { resource: id, ...(a.name !== undefined ? { name: a.name.slice(0, 500) } : {}), ...(a.hidden !== undefined ? { is_hidden: a.hidden } : {}) }); },
     async move(id, parent) { await tool('move_resource', { resource: id, new_parent: parent }); },
