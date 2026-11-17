@@ -62,12 +62,14 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
         if (ctl.signal.aborted) break;
         out.failed++;
         out.error = String(err?.message ?? err).slice(0, 200);
+        made.limiter.outcome(false, err?.message ?? err);
         // A rate limit that did not clear: stop for now, the next tick tries again.
         if (/rate limit|rate-limit/i.test(out.error)) break;
       }
     }
   } finally {
     out.calls = counter.detail;
+    if (out.read > 0 && !out.failed) made.limiter.outcome(true);
     made.close();
     addDetailCalls(d.db, src.id, counter.detail);
   }
