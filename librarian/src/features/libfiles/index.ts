@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
+import { logSearch } from '../gatewaystatus/searchlog.ts';
 import express from 'express';
 import type { Request, Response } from 'express';
 import type { Feature } from '../types.ts';
@@ -280,7 +281,12 @@ function adminRoutes(d: Deps): Router {
   // Reading the library: the same answers the world's own routes give this viewer. Nothing here writes.
   world.get('/library/pages', (_req, res) => res.json(d.library.list(ctx(res).world.id, ctx(res).viewer)));
   world.get('/library/pages/:pid', (req, res) => res.json(d.library.get(ctx(res).world.id, String(req.params.pid), ctx(res).viewer)));
-  world.get('/library/search', (req, res) => res.json(d.library.search(ctx(res).world.id, str(req.query.q, 'q', { max: 200 }), ctx(res).viewer)));
+  world.get('/library/search', (req, res) => {
+    const q = str(req.query.q, 'q', { max: 200 });
+    const hits = d.library.search(ctx(res).world.id, q, ctx(res).viewer);
+    logSearch(d.db, { worldId: ctx(res).world.id, role: 'admin', origin: 'admin', q, hitIds: hits.map((h) => h.id) });
+    res.json(hits);
+  });
   world.get('/library/lint', (_req, res) => res.json(ctx(res).viewer.role === 'dm' ? d.library.lint(ctx(res).world.id) : []));
   world.use('/files', fileRoutes(d));
   r.use('/worlds/:world', world);

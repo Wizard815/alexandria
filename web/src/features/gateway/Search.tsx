@@ -6,6 +6,7 @@ import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead } from '../../ui/index.tsx';
 import { Pill, Section } from '../../pages/admin/kit.tsx';
+import SearchInsights from '../gwstatus/SearchInsights.tsx';
 
 interface Result { world: { id: string; name: string }; id: string; path: string; title: string; titleHtml: string; snippetHtml: string; source: string | null }
 interface Found { q: string; worlds: { id: string; name: string; copy: 'dm' | 'party'; count: number }[]; sources: { name: string; count: number }[]; results: Result[] }
@@ -56,6 +57,7 @@ export default function AdminSearch() {
           ) : <Empty>Nothing found. Pages only a world's DM may read are not searched from here. <Link to="/admin/worlds">Worlds</Link></Empty>}
         </Section>
       ) : <p className="muted">Type at least two letters.</p>}
+      <SearchInsights />
     </div>
   );
 }
