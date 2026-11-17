@@ -33,6 +33,10 @@ export interface DateParts {
 export interface DateInput { year: number; month: number; day: number; hour?: number; minute?: number }
 
 export const MINUTES_PER_DAY = 1440;
+/** The furthest year a date may name (a calendar has at most 60 months of 400 days, so this stays far below 2^53 minutes). */
+export const MAX_YEAR = 1_000_000;
+/** The furthest a raw minute count may be from the start of the epoch year (stays far below 2^53). */
+export const MAX_MINUTES = 4e13;
 export const floorDiv = (a: number, b: number) => Math.floor(a / b);
 export const mod = (a: number, b: number) => ((a % b) + b) % b;
 
@@ -146,6 +150,8 @@ export function minutesToDate(def: CalendarDef, minutes: number): DateParts {
 export function dateToMinutes(def: CalendarDef, d: DateInput): number {
   const { year, month, day, hour = 0, minute = 0 } = d;
   if (![year, month, day, hour, minute].every(Number.isInteger)) throw new RangeError('A date needs whole numbers for year, month and day');
+  // Minutes are stored as a number: a year this far out would not fit and would break every read of the clock.
+  if (Math.abs(year) > MAX_YEAR) throw new RangeError(`The year must be between -${MAX_YEAR} and ${MAX_YEAR}`);
   const m = def.months[month - 1];
   if (!m) throw new RangeError(`This calendar has months 1 to ${def.months.length}`);
   if (day < 1 || day > m.days) throw new RangeError(`${m.name} has days 1 to ${m.days}`);
