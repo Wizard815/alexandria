@@ -36,7 +36,10 @@ export default function MapBoard() {
   const [maps, setMaps] = store<string[]>(`alx.maps.${info.id}`, ['world']);
   const [mapId, setMapId] = store<string>(`alx.map.${info.id}`, maps[0] ?? 'world');
   const [bgs, setBgs] = store<Record<string, string>>(`alx.mapbg.${info.id}`, {});
-  const bg = bgs[mapId] ?? '';
+  // Maps uploaded to the library (kind "map") that this viewer may see. A chosen one is kept as lib:<file id> and its ticket is looked up fresh.
+  const libMaps = useLoad<{ id: string; name: string; url: string; pageTitle?: string }[]>(() => w.call('GET', '/files/maps').catch(() => []), [w], ['libfile']);
+  const chosen = bgs[mapId] ?? '';
+  const bg = chosen.startsWith('lib:') ? (libMaps.data ?? []).find((f) => `lib:${f.id}` === chosen)?.url ?? '' : chosen;
   const setBg = (url: string) => setBgs({ ...bgs, [mapId]: url });
   const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed']);
   const [tool, setTool] = useState<Tool>('select');
@@ -199,8 +202,16 @@ export default function MapBoard() {
               <input id="map-new" name="map" className="input grow" placeholder="Another map, e.g. old-kesh" style={{ minHeight: 32 }} />
               <button type="submit" className="btn small">Open</button>
             </form>
+            {(libMaps.data ?? []).length > 0 && (
+              <Field label="Map from the library" help="Maps uploaded to the library, shown to you as far as your level allows.">
+                <select value={chosen.startsWith('lib:') ? chosen : ''} onChange={(e) => setBg(e.target.value)}>
+                  <option value="">None</option>
+                  {(libMaps.data ?? []).map((f) => <option key={f.id} value={`lib:${f.id}`}>{f.name}{f.pageTitle ? ` (${f.pageTitle})` : ''}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Map image (this browser only)" help="Paste an image URL to draw over. Marks are shared; the image is not.">
-              <input value={bg} onChange={(e) => setBg(e.target.value.trim())} placeholder="https://…/map.jpg" />
+              <input value={chosen.startsWith('lib:') ? '' : chosen} onChange={(e) => setBg(e.target.value.trim())} placeholder="https://…/map.jpg" />
             </Field>
           </section>
         </aside>
