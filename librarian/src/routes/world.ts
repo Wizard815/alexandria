@@ -2,8 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
-import { all, run } from '../core/db.ts';
-import { type Auth, requireDM } from '../core/auth.ts';
+import { all, one, run } from '../core/db.ts';
+import { type Auth, bearer, requireDM } from '../core/auth.ts';
 import { mergeSettings } from '../core/policy.ts';
 import { HttpError, int, now, oneOf, sha256 } from '../core/util.ts';
 import { ctx, isDM, me, settings } from './_shared.ts';
@@ -17,13 +17,23 @@ export function listMyWorlds(d: Deps) {
   };
 }
 
+/** Settings only the DM reads: where the WorldLore folder lives and what the DM's agent may do without asking. */
+const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove'] as const;
+/** The settings as a viewer may read them (a player, a guest or a model asking as one gets no DM-only key). */
+export function settingsFor<T extends Record<string, unknown>>(s: T, role: string): Partial<T> {
+  if (role === 'dm') return s;
+  const out: Record<string, unknown> = { ...s };
+  for (const k of DM_ONLY_SETTINGS) delete out[k];
+  return out as Partial<T>;
+}
+
 export default function worldRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
 
   r.get('/', (_req, res) => {
     const c = ctx(res);
-    res.json({ id: c.world.id, slug: c.world.slug, name: c.world.name, role: c.viewer.role, settings: settings(res) });
+    res.json({ id: c.world.id, slug: c.world.slug, name: c.world.name, role: c.viewer.role, settings: settingsFor(settings(res), c.viewer.role) });
   });
 
   // People in this world, by name. Players see names and roles, nothing else.
@@ -31,7 +41,7 @@ export default function worldRoutes(d: Deps) {
     res.json(all(db, `SELECT a.id, a.display_name, m.role, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? ORDER BY m.role, a.display_name`, ctx(res).world.id));
   });
 
-  r.get('/settings', (_req, res) => res.json(settings(res)));
+  r.get('/settings', (_req, res) => res.json(settingsFor(settings(res), ctx(res).viewer.role)));
   r.patch('/settings', requireDM, (req, res) => {
     const c = ctx(res);
     let next;
@@ -42,7 +52,7 @@ export default function worldRoutes(d: Deps) {
     }
     run(db, 'UPDATE worlds SET settings = ? WHERE id = ?', JSON.stringify(next), c.world.id);
     audit(db, c.world.id, me(res), 'settings.update', Object.keys(req.body ?? {}).join(','));
-    d.hub.emit(c.world.id, 'settings', next, () => true);
+    d.hub.emitPer(c.world.id, 'settings', (v) => settingsFor(next, v.role));
     res.json(next);
   });
 
@@ -58,9 +68,18 @@ export default function worldRoutes(d: Deps) {
   });
 
   // Live updates for this world. Each event is filtered per viewer.
-  r.get('/events', (_req, res) => {
+  r.get('/events', (req, res) => {
     const c = ctx(res);
-    d.hub.subscribe(c.world.id, c.viewer, res);
+    const auth = res.locals.auth as Auth;
+    const hash = sha256(bearer(req) ?? '');
+    // Checked again for every event: a person removed from the world, moved to another role, signed out or whose key was revoked gets nothing more.
+    const alive = () => {
+      const m = one<{ role: string }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', c.world.id, c.viewer.accountId);
+      if (!m || m.role !== c.viewer.role) return false;
+      if (auth.via === 'session') return !!one(db, 'SELECT 1 FROM sessions WHERE token_hash = ? AND expires_at > ?', hash, now());
+      return !!one(db, 'SELECT 1 FROM api_keys k JOIN accounts a ON a.id = k.account_id WHERE k.key_hash = ? AND k.revoked = 0 AND (k.scope <> \'admin\' OR a.is_admin = 1)', hash);
+    };
+    d.hub.subscribe(c.world.id, c.viewer, res, alive);
   });
 
   r.get('/audit', requireDM, (req, res) => {

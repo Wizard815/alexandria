@@ -116,7 +116,7 @@ export function resolveToken(db: DB, token: string, opts: { adminSession?: boole
   return null;
 }
 
-function bearer(req: Request): string | null {
+export function bearer(req: Request): string | null {
   const h = req.headers.authorization;
   if (h?.startsWith('Bearer ')) return h.slice(7).trim();
   if (h?.startsWith('Basic ')) {
