@@ -15,7 +15,8 @@ import type { Auth } from '../../core/auth.ts';
 import { HttpError, id, now, secret, sha256 } from '../../core/util.ts';
 import type { Feature } from '../types.ts';
 import { ctx, isDM } from '../../routes/_shared.ts';
-import { RECORDS_SCHEMA, calendarsFor, markersFor, timelinesFor } from '../../intake/records.ts';
+import { RECORDS_SCHEMA, calendarsFor, imageVisibleTo, markersFor, timelinesFor } from '../../intake/records.ts';
+import { readTicket } from '../sound/ticket.ts';
 import { capabilityUnion, connectorFor } from '../../intake/registry.ts';
 import { prefixFor, runSync } from '../../intake/sync.ts';
 import { cleanEntry } from '../../intake/push.ts';
@@ -220,7 +221,23 @@ const feature: Feature = {
   },
   adminMount: 'intake',
   adminRoutes: (d) => keyRoutes(d, () => null, accountId),
-  appRoutes: (app, d) => pushApi(app, d),
+  appRoutes: (app, d) => {
+    pushApi(app, d);
+    // A page's own picture (downloaded by a sync). <img> cannot send the sign-in header: a signed ticket names one picture and one account, and
+    // the permission is checked again on every request, so a page the DM hides stops serving its picture at once.
+    app.get('/api/media/intake/:ticket', (req, res) => {
+      const t = readTicket(String(req.params.ticket));
+      const m = t && t.k === 'intake' && one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);
+      const img = t && m && one<any>(d.db, 'SELECT * FROM intake_images WHERE id = ? AND world_id = ?', t.f, t.w);
+      if (!t || !m || !img || !imageVisibleTo(d.db, img, m.role)) throw new HttpError(404, 'Picture not found');
+      res.setHeader('Content-Type', img.mime);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'");
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.end(Buffer.from(img.data));
+    });
+  },
 };
 
 export default feature;
