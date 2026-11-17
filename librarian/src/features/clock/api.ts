@@ -7,7 +7,7 @@ import type { EventHub } from '../../core/events.ts';
 import { dmOnly, everyone } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import {
-  BUILTIN_CALENDARS, MINUTES_PER_DAY, WAKE_HOUR, dateToMinutes, formatDate, formatDay, minutesToDate, nextDayAt, nextHour, normalizeCalendar, remapDate, yearLength,
+  BUILTIN_CALENDARS, MAX_MINUTES, MINUTES_PER_DAY, WAKE_HOUR, dateToMinutes, formatDate, formatDay, minutesToDate, nextDayAt, nextHour, normalizeCalendar, remapDate, yearLength,
   type CalendarDef, type DateInput, type DateParts,
 } from './calendar.ts';
 
@@ -234,7 +234,10 @@ export interface EventInput {
 }
 
 function when(def: CalendarDef, v: unknown, field: string): number {
-  if (typeof v === 'number' && Number.isInteger(v)) return v;
+  if (typeof v === 'number' && Number.isInteger(v)) {
+    if (Math.abs(v) > MAX_MINUTES) throw new HttpError(400, `${field} is too far from year 0 of the calendar`);
+    return v;
+  }
   if (v && typeof v === 'object') {
     try { return dateToMinutes(def, v as DateInput); } catch (e: any) { throw new HttpError(400, `${field}: ${e.message}`); }
   }
