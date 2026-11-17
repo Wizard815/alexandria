@@ -126,7 +126,8 @@ export default function adminRoutes(d: Deps) {
   // Worlds
   r.get('/worlds', (_req, res) => {
     res.json(all(db, `SELECT w.id, w.slug, w.name, w.created_at, (SELECT COUNT(*) FROM members m WHERE m.world_id = w.id) AS members,
-      (SELECT COUNT(*) FROM pages p WHERE p.world_id = w.id) AS pages FROM worlds w ORDER BY w.name`));
+      (SELECT COUNT(*) FROM pages p WHERE p.world_id = w.id) AS pages,
+      (SELECT COUNT(*) FROM sources s WHERE s.world_id = w.id) AS sources FROM worlds w ORDER BY w.name`));
   });
 
   r.post('/worlds', (req, res) => {
