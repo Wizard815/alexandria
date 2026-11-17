@@ -36,6 +36,23 @@ export function lkRuns(text: string): any[] {
   return out;
 }
 
+/** Block kinds WorldLore's Markdown writes itself; every other top-level block is kept when a page is rewritten. */
+const TEXT_KINDS = new Set(['heading', 'paragraph', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'quote', 'codeBlock', 'code', 'horizontalRule', 'rule', 'divider', 'secret', 'callout']);
+
+/** The top-level blocks of a document that Markdown cannot express, exactly as LegendKeeper returned them. */
+export function keptBlocks(doc: any): any[] {
+  const blocks: any[] = Array.isArray(doc?.blocks) ? doc.blocks : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc) ? doc : [];
+  return blocks.filter((b) => b && typeof b === 'object' && b.id && !TEXT_KINDS.has(String(b.kind ?? b.type ?? '')));
+}
+
+async function pageDoc(get: (p: string, q?: any) => Promise<any>, id: string): Promise<any> {
+  const detail = await get(`/resources/${id}`);
+  const docs: any[] = detail?.documents ?? [];
+  const doc = docs.find((d) => d.type === 'page') ?? docs.find((d) => d.type === 'blank');
+  if (!doc) throw new WriteRefused('This resource has no page to write to', 409);
+  return doc;
+}
+
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s+/;
 
 /** Markdown to LegendKeeper blocks: headings, paragraphs, lists, quotes, > [!secret] callouts, code and rules. */
@@ -126,11 +143,11 @@ function restBackend(cfg: Record<string, any>, ctx: ConnectorContext): LkBackend
       return String(r.id);
     },
     async setContent(id, markdown) {
-      const detail = await t.get(`/resources/${id}`);
-      const docs: any[] = detail.documents ?? [];
-      const doc = docs.find((d) => d.type === 'page') ?? docs.find((d) => d.type === 'blank');
-      if (!doc) throw new WriteRefused('This resource has no page to write to', 409);
-      await send('PUT', `/resources/${id}/docs/${doc.id}/blocks`, { blocks: mdToLkBlocks(markdown) });
+      const doc = await pageDoc(t.get, id);
+      // Replacing a document's blocks deletes every block not echoed back by id, so blocks Markdown cannot
+      // express (infoboxes, embeds, images, tables, collections...) are sent back unchanged after the new text.
+      const kept = keptBlocks(await t.get(`/resources/${id}/docs/${doc.id}/blocks`).catch(() => null));
+      await send('PUT', `/resources/${id}/docs/${doc.id}/blocks`, { blocks: [...mdToLkBlocks(markdown), ...kept] });
     },
     async patch(id, a) { await send('PATCH', `/resources/${id}`, { ...(a.name !== undefined ? { name: a.name.slice(0, 500) } : {}), ...(a.hidden !== undefined ? { isHidden: a.hidden } : {}) }); },
     async move(id, parent) { await send('POST', `/resources/${id}/move`, { parentId: parent }); },
@@ -156,7 +173,18 @@ function mcpBackend(cfg: Record<string, any>, ctx: ConnectorContext): LkBackend 
       if (!rid) throw new Error('LegendKeeper did not return the new resource id');
       return String(rid);
     },
-    async setContent(id, markdown) { await tool('write_page', { resource: id, markdown, mode: 'replace' }); },
+    async setContent(id, markdown) {
+      // The MCP keeps a block it cannot express when the markdown carries its lk:keep markers: add one per such block.
+      let keep = '';
+      try {
+        const doc = await pageDoc(t.get, id);
+        keep = keptBlocks(await t.get(`/resources/${id}/docs/${doc.id}/blocks`))
+          .filter((b) => LK_ID.test(String(b.id ?? '')))
+          .map((b) => `<!-- lk:keep id="${b.id}" kind="${String(b.kind ?? 'block').replace(/[^A-Za-z0-9_-]/g, '')}" -->\n<!-- /lk:keep -->`)
+          .join('\n\n');
+      } catch { /* could not read the page: write it as given */ }
+      await tool('write_page', { resource: id, markdown: keep ? `${markdown.trimEnd()}\n\n${keep}\n` : markdown, mode: 'replace' });
+    },
     async patch(id, a) { await tool('update_resource', { resource: id, ...(a.name !== undefined ? { name: a.name.slice(0, 500) } : {}), ...(a.hidden !== undefined ? { is_hidden: a.hidden } : {}) }); },
     async move(id, parent) { await tool('move_resource', { resource: id, new_parent: parent }); },
     async remove(id) { await tool('delete_resource', { resource: id, confirm: true, cascade: false }); },

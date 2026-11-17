@@ -144,9 +144,11 @@ Notes where the LegendKeeper docs are silent or add a caveat:
   already ask for an Admin key; nothing changes.
 - **Whole-page replace.** `replaceDocumentBlocks` deletes any block not echoed by
   id, including `unsupported` ones the block model cannot express. WorldLore
-  replaces the whole page from Markdown, so an unsupported block in a page it
-  edits is lost. WorldLore only writes pages inside its own workspace, so this was
-  left as is.
+  replaces the whole page from Markdown, so it first reads the page's blocks and
+  sends every block Markdown cannot express (infobox, image, embed, table,
+  collection, unsupported...) back unchanged, by id, after the new text. Over the
+  MCP it adds an `lk:keep` marker per such block, which the MCP's `write_page`
+  preserves. Fixed; tested in `TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress`.
 - `GET /search`, `GET /tags` (ADMIN), `GET /projects`, `GET /projects/{id}`, chat
   and member endpoints exist; we do not call them. Key search lists `/resources`
   by name rather than using `/search`.
