@@ -35,6 +35,19 @@ export function buildTree(rows: PageRow[]): Node[] {
     }
     level.push(node);
   }
+  // A resource that has children and a page of its own reaches the tree twice (its page, and the folder its children's paths name): one node, both
+  // openable and expandable. Only siblings with the same name merge, and never a source at the top.
+  const same = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  const mergeTwins = (ns: Node[]) => {
+    for (let i = ns.length - 1; i >= 0; i--) {
+      const f = ns[i];
+      if (f.page) continue;
+      const twin = ns.find((x) => x.page && same(x.label) === same(f.label));
+      if (twin) { twin.children.push(...f.children); ns.splice(i, 1); }
+    }
+    for (const n of ns) mergeTwins(n.children);
+  };
+  for (const r of roots) mergeTwins(r.children);
   // Children are sorted first so a folder knows where its first page sits. Sources are A–Z; below them
   // folders come before pages and each group follows the source's order, pages with no position last (A–Z).
   const sortCount = (ns: Node[], top: boolean): number => {

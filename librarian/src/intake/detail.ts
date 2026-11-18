@@ -14,11 +14,14 @@ import type { SyncRecord, TierState } from './connector.ts';
 import { connectorFor } from './registry.ts';
 import { connectorContext, isRunning, prefixFor, prepareImages, type SyncDeps } from './sync.ts';
 import { saveRecords } from './records.ts';
-import { Bucket, addDetailCalls, budgetBucket, budgetOf, depthCounts, detailQueue, ensureTierSchema, getState, markWanted, queueLength, setSettings, storeEntry, tieredOf } from './tiers.ts';
+import { Bucket, addDetailCalls, budgetBucket, budgetDefaultOf, budgetOf, depthCounts, detailQueue, ensureTierSchema, getState, markWanted, queueLength, setSettings, storeEntry, tieredOf } from './tiers.ts';
 import { limitKeyOf, limiterState, limitsOf } from './ratelimit.ts';
 
 const busy = new Set<string>();
 const inflight = new Map<string, Promise<ReadOutcome>>();
+// One read of a page at a time, whoever asks (the background reader, a page opened, a search hit): the second caller waits for the first
+// and uses what it saved. Keyed by page id; held from the moment a read starts until it has stored (or failed).
+const pageFlights = new Map<string, Promise<void>>();
 const onDemand = new Map<string, Bucket>();
 // A page that failed to read waits before the background tries it again (5 minutes, doubling, at most 6 hours), so one bad page never
 // holds the head of the queue. A refused key (401) pauses the whole source's background reads for 10 minutes.
@@ -26,12 +29,20 @@ const failures = new Map<string, { n: number; until: number }>();
 const sourceBlocked = new Map<string, number>();
 const noteFailure = (id: string, at: number) => { const n = (failures.get(id)?.n ?? 0) + 1; failures.set(id, { n, until: at + Math.min(6 * 3600_000, 300_000 * 2 ** (n - 1)) }); };
 /** Tests only: forget every failure and block. */
-export function resetFailures() { failures.clear(); sourceBlocked.clear(); }
+export function resetFailures() { failures.clear(); sourceBlocked.clear(); refused.clear(); }
+
+// A key the site refuses for page content while it lists pages: said on the source's status until a read works again.
+const refused = new Map<string, string>();
+const refusalText = (kind: string) => kind.startsWith('legendkeeper')
+  ? "This key can list pages but can't read their content. Check its role: LegendKeeper keys need Admin to read page text and hidden pages."
+  : "This key can list pages but can't read their content. Check its role and permissions at the source.";
+/** Why this source's pages are not being read (a key the site refuses for content), or null. */
+export const refusalOf = (sourceId: string): string | null => refused.get(sourceId) ?? null;
 
 export interface ReadOutcome { read: number; calls: number; failed: number; error?: string }
 
 /** Read these pages of one source in full and save them. `maxCalls` stops between pages once that many calls were made. */
-export async function readPages(d: SyncDeps, src: any, pages: { id: string; external_id: string }[], opts: { signal?: AbortSignal; maxCalls?: number } = {}): Promise<ReadOutcome> {
+export async function readPages(d: SyncDeps, src: any, pages: { id: string; external_id: string }[], opts: { signal?: AbortSignal; maxCalls?: number; background?: boolean } = {}): Promise<ReadOutcome> {
   ensureTierSchema(d.db);
   const cfg = effectiveConfig(d.db, src);
   const tier = tieredOf(src.kind, cfg);
@@ -39,7 +50,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
   if (!tier || !pages.length) return out;
   const ctl = new AbortController();
   opts.signal?.addEventListener('abort', () => ctl.abort(), { once: true });
-  const made = connectorContext(d, src, cfg, ctl.signal, () => {});
+  const made = connectorContext(d, src, cfg, ctl.signal, () => {}, { background: !!opts.background });
   const state = getState(d.db, src.id);
   const counter = made.ctx.calls!;
   counter.phase = 'detail';
@@ -53,6 +64,12 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
   try {
     for (const p of pages) {
       if (ctl.signal.aborted || (opts.maxCalls !== undefined && counter.detail >= opts.maxCalls)) break;
+      // Somebody is already reading this page: wait for that read and use its result instead of making the calls twice.
+      const flying = pageFlights.get(p.id);
+      if (flying) { await flying.catch(() => {}); continue; }
+      let landed!: () => void;
+      pageFlights.set(p.id, new Promise<void>((r) => { landed = r; }));
+      try {
       // Already read in full by an earlier page of the same resource (LegendKeeper tabs): nothing to fetch.
       const now = one<any>(d.db, `SELECT depth, visibility, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE id = ?`, p.id);
       if (!now || (now.depth === 'full' && !now.stale)) continue;
@@ -74,14 +91,15 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
         out.error = String(err?.message ?? err).slice(0, 200);
         made.limiter.outcome(false, err?.message ?? err);
         noteFailure(p.id, Date.now());
-        if (/\(401\)|answered 401\b/.test(out.error)) { sourceBlocked.set(src.id, Date.now() + 600_000); break; }
+        if (/\(401\)|answered 401\b/.test(out.error)) { sourceBlocked.set(src.id, Date.now() + 600_000); refused.set(src.id, refusalText(src.kind)); break; }
         // A rate limit that did not clear: stop for now, the next tick tries again.
         if (/rate limit|rate-limit/i.test(out.error)) break;
       }
+      } finally { pageFlights.delete(p.id); landed(); }
     }
   } finally {
     out.calls = counter.detail;
-    if (out.read > 0 && !out.failed) made.limiter.outcome(true);
+    if (out.read > 0 && !out.failed) { made.limiter.outcome(true); refused.delete(src.id); }
     made.close();
     addDetailCalls(d.db, src.id, counter.detail);
   }
@@ -116,7 +134,10 @@ export async function ensureFull(d: SyncDeps, worldId: string, pageRef: string, 
   if (row.depth === 'full' && !row.stale) return 'ready';
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', row.source_id);
   if (!src?.enabled || !tieredOf(src.kind, effectiveConfig(d.db, src))) return 'ready';
+  // The background reader (or another open) is already on this page: wait for that read, no new calls and no on-demand allowance spent.
   let pending = inflight.get(row.id);
+  const flying = pageFlights.get(row.id);
+  if (!pending && flying) { await flying.catch(() => {}); return heldInFull(d, row.id) ? 'fetched' : 'unavailable'; }
   if (!pending) {
     // A page nobody has a reason to open is not worth a call: opening pages is limited to 30 a minute for each source.
     const b = onDemand.get(src.id) ?? onDemand.set(src.id, new Bucket(30, 10, Date.now())).get(src.id)!;
@@ -128,8 +149,11 @@ export async function ensureFull(d: SyncDeps, worldId: string, pageRef: string, 
     inflight.set(row.id, pending);
   }
   const r = await pending;
-  return r.read ? 'fetched' : 'unavailable';
+  return r.read || heldInFull(d, row.id) ? 'fetched' : 'unavailable';
 }
+
+/** A page read in full a moment ago by someone else (a read in flight is shared, not repeated). */
+const heldInFull = (d: SyncDeps, pageId: string) => !!one<any>(d.db, `SELECT 1 AS x FROM pages WHERE id = ? AND depth = 'full' AND NOT (source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, ''))`, pageId);
 
 /** The first few pages of a search, or a page the agent was handed, read now (at most `max`). */
 export async function ensureMany(d: SyncDeps, worldId: string, ids: string[], max = 3, opts: { timeoutMs?: number } = {}): Promise<number> {
@@ -170,7 +194,7 @@ export async function detailTick(d: SyncDeps, opts: { at?: number } = {}): Promi
     if (!queue.length) continue;
     busy.add(src.id);
     try {
-      const r = await readPages(d, src, queue.map((q) => ({ id: q.id, external_id: q.external_id })), { maxCalls: allowed });
+      const r = await readPages(d, src, queue.map((q) => ({ id: q.id, external_id: q.external_id })), { maxCalls: allowed, background: true });
       bucket.spend(Math.max(r.calls, r.read ? 0 : 1), at);
       out.push({ sourceId: src.id, calls: r.calls, read: r.read, waiting: queueLength(d.db, src.id, st.fetchAll) });
     } finally { busy.delete(src.id); }
@@ -208,11 +232,12 @@ export function tierSummary(d: Pick<SyncDeps, 'db'>, src: any) {
     pages: counts.total, depth: { index: counts.index, summary: counts.summary, full: counts.full, stale: counts.stale },
     read: counts.full,
     calls: { index: lastStats.indexCalls ?? 0, indexTotal: st.indexCalls, detailTotal: st.detailCalls },
-    budget: budgetOf(st, tier), budgetDefault: Math.max(1, Math.floor(tier.budgetPerMinute / 2)), rateLimit: tier.budgetPerMinute,
+    budget: budgetOf(st, tier), budgetDefault: budgetDefaultOf(tier), rateLimit: tier.budgetPerMinute,
     paused: st.paused, fetchAll: st.fetchAll, waiting: queueLength(d.db, src.id, st.fetchAll), waitingAll: queueLength(d.db, src.id, true),
-    limits: { perMinute: lim.perMinute, perSecond: lim.perSecond, spreadMinutes: lim.spreadMinutes, spreadOwn: st.spread !== null },
+    limits: { perMinute: lim.perMinute, perSecond: lim.perSecond, perHour: lim.perHour, spreadMinutes: lim.spreadMinutes, spreadOwn: st.spread !== null },
     // Set while the site (or its limit) is holding calls back: the live state the world page shows.
     throttle: limiterState(limitKeyOf(src, d.db)),
+    refused: refusalOf(src.id),
     indexAt: st.indexAt, lastDetailAt: st.lastDetailAt, running: busy.has(src.id),
   };
 }

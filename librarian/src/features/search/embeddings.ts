@@ -24,7 +24,7 @@ import { type DB, all, one, run, tx } from '../../core/db.ts';
 import { embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { type PageHit, type ParsedQuery, type Scope, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
-import { eligibleCount, isCurrent, pendingCopies } from './copies.ts';
+import { eligibleIds, isCurrent, pendingCopies } from './copies.ts';
 import { libraryOf as libraryFor } from '../../core/library.ts';
 import { type Reach, type VecScope, VEC_SCOPES, openable, reachOf, reachOfScope, reachScopes } from './scopes.ts';
 import { normalize, vectorStore } from './vectorstore.ts';
@@ -130,7 +130,7 @@ export interface SyncResult { embedded: number; pages: number; remaining: boolea
  * Embed pages whose chunks are missing or out of date. Safe to call again at
  * any time; stops quietly when no embeddings model answers.
  */
-export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number }) => void } = {}): Promise<SyncResult> {
+export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number; id: string; scope: VecScope }) => void } = {}): Promise<SyncResult> {
   const res: SyncResult = { embedded: 0, pages: 0, remaining: false };
   const cfg = jobConfig(d, 'extra');
   if (!cfg) return res;
@@ -159,7 +159,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
           res.embedded += chunks.length;
           res.pages++;
           budget--;
-          opts.onPage?.({ pages: res.pages, embedded: res.embedded });
+          opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: r.id, scope });
         }
       }
     }
@@ -175,25 +175,35 @@ export type ScopeCount = { eligible: number; indexed: number; pending: number; c
 
 /** Per scope: pages that have this copy, pages whose chunks are current, pages waiting, and the chunk count. */
 export function scopeCoverage(d: Deps, worldId: string, stateTable: 'search_chunk_state' | 'bible_state', model: string | null): Record<VecScope, ScopeCount> {
-  const out = {} as Record<VecScope, ScopeCount>;
+  return scopeAndPageCoverage(d, worldId, stateTable, model).scopes;
+}
+
+/** Per scope (copies) and in total (distinct pages), from one pass over the copies. */
+export function scopeAndPageCoverage(d: Deps, worldId: string, stateTable: 'search_chunk_state' | 'bible_state', model: string | null) {
+  const scopes = {} as Record<VecScope, ScopeCount>;
   const chunkCounts = vectorStore(d.db).counts(worldId);
+  const eligibleSet = new Set<string>();
+  const pendingSet = new Set<string>();
   for (const s of VEC_SCOPES) {
-    const eligible = eligibleCount(d, s, worldId);
-    const pending = model ? pendingCopies(d, s, stateTable, model, 1_000_000, worldId).length : eligible;
-    out[s] = { eligible, pending, indexed: Math.max(0, eligible - pending), chunks: chunkCounts[s] };
+    const ids = eligibleIds(d, s, worldId);
+    for (const id of ids) eligibleSet.add(id);
+    const waiting = model ? pendingCopies(d, s, stateTable, model, 1_000_000, worldId) : ids.map((id) => ({ id }));
+    for (const r of waiting) pendingSet.add(r.id);
+    scopes[s] = { eligible: ids.length, pending: waiting.length, indexed: Math.max(0, ids.length - waiting.length), chunks: chunkCounts[s] };
   }
-  return out;
+  const waitingPages = [...pendingSet].filter((id) => eligibleSet.has(id)).length;
+  return { scopes, pages: { eligible: eligibleSet.size, pending: waitingPages, indexed: eligibleSet.size - waitingPages } };
 }
 
 /** How much of a world's library the embeddings model has read: pages with chunks, pages still waiting, and the chunks, in total and per scope. */
 export function embeddingCoverage(d: Deps, worldId: string) {
   const cfg = jobConfig(d, 'extra');
   const stats = embeddingStats(d.db, worldId);
-  const scopes = scopeCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg.model) : null);
-  const sum = (k: 'eligible' | 'pending' | 'indexed') => VEC_SCOPES.reduce((n, s) => n + scopes[s][k], 0);
+  const { scopes, pages } = scopeAndPageCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg.model) : null);
   return {
     configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, scopes,
-    pages: cfg ? { eligible: sum('eligible'), pending: sum('pending'), indexed: sum('indexed') } : { eligible: 0, indexed: 0, pending: 0 },
+    // Distinct pages (a page with a DM copy and a party copy counts once); `scopes` counts copies, one scope at a time.
+    pages: cfg ? pages : { eligible: 0, indexed: 0, pending: 0 },
     chunks: stats.dmChunks + stats.partyChunks + stats.brokerChunks + stats.liftedChunks,
   };
 }
