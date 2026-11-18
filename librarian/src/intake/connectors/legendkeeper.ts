@@ -352,6 +352,11 @@ function lkIdentity(r: any, pages: any[], d: any) {
   };
 }
 
+const ANCESTOR_TTL_MS = 5 * 60_000;
+const ANCESTOR_MEMO = new Map<string, { d: any; until: number }>();
+/** Tests only. */
+export const resetAncestorMemo = () => ANCESTOR_MEMO.clear();
+
 /** What is kept between listings: each resource's parent, hidden flag and tree position, so one page can be read alone later. */
 const lkCache = (all: any[], positions: Map<string, number>) => ({ res: Object.fromEntries(all.map((r) => [String(r.id), [r.parentId ? String(r.parentId) : '', r.isHidden === false ? 0 : 1, positions.get(String(r.id)) ?? -1]])) });
 const lkFromCache = (cache: Record<string, any> | null | undefined) => {
@@ -385,6 +390,16 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
     if (!details.has(rid)) details.set(rid, t.get(`/resources/${rid}`).catch((err: any) => { ctx.log(`Could not read ${byId.get(rid)?.name ?? rid}: ${err.message}`); return null; }));
     return details.get(rid)!;
   };
+  // An ancestor's detail is only read for its permissions, and a folder with many pages under it is asked about by each of them (one
+  // session per page when pages are read one at a time): remember it for a few minutes, per project. Only successful reads are kept.
+  const ancestorDetail = async (rid: string) => {
+    const key = `${String(cfg.apiUrl ?? '')}|${rid}`;
+    const hit = ANCESTOR_MEMO.get(key);
+    if (hit && hit.until > Date.now() && !details.has(rid)) return hit.d;
+    const d = await detailOf(rid);
+    if (d) { ANCESTOR_MEMO.set(key, { d, until: Date.now() + ANCESTOR_TTL_MS }); if (ANCESTOR_MEMO.size > 5000) ANCESTOR_MEMO.clear(); }
+    return d;
+  };
   // Resource permissions: { MEMBER | ADMIN | OWNER | <user id>: 0..5 }, 0 = No Access.
   // A No Access entry for players (the MEMBER role or any one user) on the
   // resource or any ancestor keeps it from the party. An unreadable detail or
@@ -393,7 +408,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
   const deniesPlayers = (rid: string, depth = 0): Promise<boolean> => {
     if (!denied.has(rid)) denied.set(rid, (async () => {
       if (depth > 64) return true;
-      const d = await detailOf(rid);
+      const d = depth > 0 ? await ancestorDetail(rid) : await detailOf(rid);
       const perms = d?.permissions;
       if (!perms || typeof perms !== 'object' || Array.isArray(perms)) return true;
       for (const [who, level] of Object.entries(perms)) {

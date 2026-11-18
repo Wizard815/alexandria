@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all, one, run } from '../src/core/db.ts';
 import { detailTick, ensureFull, resetFailures } from '../src/intake/detail.ts';
+import { resetAncestorMemo } from '../src/intake/connectors/legendkeeper.ts';
 import { mintTicket } from '../src/features/sound/ticket.ts';
 import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
 
@@ -39,6 +40,7 @@ const lkReset = (n: number) => {
   lk.failListPage = 0;
   lk.blocks401 = false;
   lk.blocks404 = new Set();
+  resetAncestorMemo();
 };
 const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page' }], hasChildren: false });
 const lkFetch = (url: string): Response | null => {
@@ -666,4 +668,14 @@ test('CrawlTiers_RefusedKeyStopsTheBackgroundAndABadPageDoesNotBlockTheQueue', a
   await detailTick(dep, { at: now + 2_000_000 });
   assert.ok(lk.calls.detail + lk.calls.blocks - before <= 2, 'the bad page is not tried again straight away');
   void wid;
+});
+
+test('CrawlTiers_PagesReadOneByOneAskForTheirSharedFolderOnlyOnce', async () => {
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 10);
+  await sync(t, sid);
+  // Pages 2 to 9 sit under r1: reading them one at a time still reads r1's permissions once.
+  for (const n of [2, 3, 4, 5, 6]) await getPage(t, wid, t.admin, pageId(t, wid, `Page ${n}`));
+  assert.equal(lk.detailIds.filter((x) => x === 'r1').length, 1, 'the folder was read once for five pages');
+  assert.equal(lk.detailIds.filter((x) => x === 'r2').length, 1, 'and each page once');
 });
