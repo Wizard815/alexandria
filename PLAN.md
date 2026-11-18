@@ -944,6 +944,70 @@ a blanket key):
 - **Testing:** the leak crawler gets new markers for per-key content and
   blanket-key content.
 
+## 18. Minerva: the DM's agent and her long-term memory
+
+The agent is called **Minerva**, after the goddess of wisdom. She works for the DM: she
+prepares sessions, remembers the campaign's long-term goals and each player's ideas and
+history, and helps at the table. **Players never meet Minerva.** To them she is the
+information broker: same model, the player harness, the broker's name and voice. She never
+says or hints that she is Minerva, that she serves the DM, or what she remembers about them.
+
+### 18.1 Her memory: an LLMWIKI for the campaign
+
+The layout follows the family LLMWIKI (one shared root, one private root per person, the
+same PARA layout in each), with the world in place of the household and players in place of
+family members. It lives in the WorldLore workspace (library or a write-enabled source):
+
+```
+Minerva/
+  world/                 the campaign (like household/)
+    inbox/ sessions/ raw/       short-term: captures, one note per session, transcripts
+    wiki/1-goals/ 2-arcs/ 3-reference/ 4-archive/
+  players/<id>/          one root per player (like people/<id>/)
+    profile.md           the player and their character; "Shared with the party" section
+    inbox/ sessions/ raw/
+    wiki/1-goals/ 2-arcs/ 3-reference/ 4-archive/
+  dm/                    the DM's own root: plans, twists, hooks, notes on players
+```
+
+- **1-goals** have a finish line (a character's oath, the party's quest, the DM's planned
+  reveal). **2-arcs** run on (a rivalry, a faction's scheme). **3-reference** explains how
+  something is. **4-archive** is done or no longer true.
+- **Two tiers, as in LLMWIKI.** Short-term memory (inbox, the session note, transcripts) is
+  loose. At the end of a session Minerva files what matters into the wiki as drafts; the DM
+  approves (or turns on auto-approve).
+
+### 18.2 Who sees what
+
+Every note has a level (party, broker, dm, classified) like any library page.
+
+| Root | DM | That player | Other players |
+|---|---|---|---|
+| `world/` | all | party-level notes | party-level notes |
+| `players/<id>/` | all | their party-level notes and their own notes | only the profile's "Shared with the party" |
+| `dm/` | all | never | never |
+
+- Minerva's notes about a player (what they're after, a hook the DM is planting, "doesn't
+  like horror") are DM level by default, even inside that player's root.
+- A player's own notes and ideas, told to the broker, go in their root at party level and
+  only they (and the DM) see them; something one player tells about another goes in the
+  teller's root (LLMWIKI's rule).
+- Classified never reaches any model, as everywhere.
+
+### 18.3 Tools (same shape as the LLMWIKI bridge)
+
+`context_for(player)` (profile, open session note, inbox, active goals: the DM gets
+everything, a player only their own view), `memory_log`, `memory_capture`,
+`conversation_log` (session transcripts by speaker, filed per player), `who_is` (name,
+character or mic speaker to player id), `goal_update`, `wiki_write` (draft notes). The
+player harness gets only the player-safe forms, under the broker's name.
+
+### 18.4 With the story bible
+
+The story bible (facts pulled from pages) and smart connections are Minerva's reference
+shelf. Her wiki is the curated memory on top: goals, arcs, people, decisions, with links
+to the pages and facts they come from.
+
 ## Decisions
 
 1. **Live transcript for players:** yes, with key-word cards. It's built from
