@@ -19,6 +19,7 @@ import { connectorContext, getRun, isRunning, listRuns, runSync, stopSync } from
 import { AUDIENCES, AUDIENCE_LABEL, SECRET_MASK, adoptSource, effectiveConfig, forceRecordsDm, getConnection, maskedConfig, normAudience, splitConfig, type SourceAudience } from '../intake/connections.ts';
 import { BUILTIN_PRESETS } from '../intake/presets.ts';
 import { embeddingCoverage } from '../features/search/embeddings.ts';
+import { worldStatus } from '../features/connections/status.ts';
 import { crawlRunning, latestCrawl, levelCounts, shapeCrawl, startCrawl, stopCrawl } from '../features/connections/crawl.ts';
 
 /** The picker order: the dedicated connectors first, the generic API (with its presets) last. */
@@ -158,6 +159,11 @@ export default function sourceRoutes(d: Deps) {
     audit(db, s.world_id, me(res), 'source.update', s.id);
     // The default switch changes what an `auto` source shares: the pages already saved follow it at the next sync.
     if (nextAud !== prevAud) applyAudience(s, prevAud, nextAud, res);
+    // The default visibility is what lets a page the source calls shared through: pages already read follow it now, not at the next sync.
+    else if (b.defaultVisibility !== undefined && b.defaultVisibility !== s.default_visibility) {
+      audit(db, s.world_id, me(res), 'source.visibility', `${s.id} ${s.default_visibility} -> ${b.defaultVisibility}`.slice(0, 480));
+      d.library.applyAudience(s.world_id, s.id);
+    }
     // Moving a source to another connection of the same kind.
     if (b.connectionId !== undefined && b.connectionId !== s.connection_id) {
       if (b.connectionId === null) throw new HttpError(400, 'A source cannot be detached from its connection');
@@ -252,7 +258,7 @@ export default function sourceRoutes(d: Deps) {
     const levels = levelCounts(d, w.id);
     res.json({
       world: w, sources, levels, pages: Object.values(levels).reduce((a, b) => a + b, 0),
-      embeddings: embeddingCoverage(d, w.id), crawl: latestCrawl(d, w.id), crawling: crawlRunning(w.id),
+      embeddings: embeddingCoverage(d, w.id), crawl: latestCrawl(d, w.id), crawling: crawlRunning(w.id), status: worldStatus(d, w.id),
     });
   });
 

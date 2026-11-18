@@ -18,7 +18,7 @@ import { now } from '../core/util.ts';
 import type { Entry } from './model.ts';
 import type { Connector, Tiered } from './connector.ts';
 import { connectorFor } from './registry.ts';
-import { limitsOf, resetLimiters } from './ratelimit.ts';
+import { BACKGROUND_SHARE, limitsOf, resetLimiters } from './ratelimit.ts';
 
 export type Depth = 'index' | 'summary' | 'full';
 
@@ -35,6 +35,10 @@ export function ensureTierSchema(db: DB) {
   add('source_updated_at', 'TEXT');
   add('held_updated_at', 'TEXT');
   add('wanted', 'INTEGER NOT NULL DEFAULT 0');
+  const hadShared = cols.includes('source_shared');
+  add('source_shared', 'INTEGER');
+  // Pages already read and shared were shared by the source itself.
+  if (!hadShared) db.exec("UPDATE pages SET source_shared = 1 WHERE source_id IS NOT NULL AND depth <> 'index' AND visibility = 'party'");
   db.exec(TIER_SCHEMA);
   const sc = (db.prepare('PRAGMA table_info(connections_source_state)').all() as { name: string }[]).map((c) => c.name);
   if (!sc.includes('spread_minutes')) db.exec('ALTER TABLE connections_source_state ADD COLUMN spread_minutes INTEGER');
@@ -132,16 +136,25 @@ export function needsFullListing(st: SourceState, force = false) {
 export function tieredFor(c: Connector | null, cfg: Record<string, any>): Tiered | null {
   try {
     const t = c?.tiered?.(cfg) ?? null;
-    // The background budget follows the connection's calls-a-minute limit (a fifth is kept for pages opened and other users of the same key).
-    return t && c ? { ...t, budgetPerMinute: Math.max(1, Math.floor(limitsOf(c.id, cfg).perMinute * 0.8)) } : null;
+    // The background may use a share of the connection's calls-a-minute limit (a fifth is kept for pages opened and other users of the same key),
+    // and of its hourly cap when it has one.
+    if (!t || !c) return null;
+    const lim = limitsOf(c.id, cfg);
+    const hourly = lim.perHour > 0 ? Math.floor((lim.perHour * BACKGROUND_SHARE) / 60) : Infinity;
+    const budgetPerMinute = Math.max(1, Math.min(Math.floor(lim.perMinute * BACKGROUND_SHARE), hourly));
+    return { ...t, budgetPerMinute };
   } catch { return null; }
 }
 export const tieredOf = (kind: string, cfg: Record<string, any>) => tieredFor(connectorFor(kind, cfg), cfg);
 
-/** The detail calls a minute a source may use in the background: the setting, else half of what its connector can take. */
+/** The detail calls a minute a source gets when nobody sets one: 40 (LegendKeeper), else half of what its connector can take; never above the cap. */
+export const DEFAULT_BUDGET = 40;
+export const budgetDefaultOf = (t: Tiered): number => Math.max(1, Math.min(t.budgetPerMinute, t.budgetDefault ?? Math.floor(t.budgetPerMinute / 2)));
+
+/** The detail calls a minute a source may use in the background: the setting, else the default. */
 export function budgetOf(st: SourceState, t: Tiered): number {
   if (st.budget !== null && st.budget >= 0) return Math.min(st.budget, 600);
-  return Math.max(1, Math.floor(t.budgetPerMinute / 2));
+  return budgetDefaultOf(t);
 }
 
 // ---- rate limits -------------------------------------------------------------------
@@ -182,7 +195,7 @@ export const resetBuckets = () => { budgetBuckets.clear(); resetLimiters(); };
 export function markDepth(db: DB, pageId: string, e: Entry) {
   const depth: Depth = e.depth === 'index' || e.depth === 'summary' ? e.depth : 'full';
   const su = e.sourceUpdatedAt ?? e.updatedAt ?? null;
-  run(db, 'UPDATE pages SET depth = ?, fetched_at = ?, source_updated_at = ?, held_updated_at = ? WHERE id = ?', depth, depth === 'index' ? null : now(), su, depth === 'index' ? null : su, pageId);
+  run(db, 'UPDATE pages SET depth = ?, fetched_at = ?, source_updated_at = ?, held_updated_at = ?, source_shared = ? WHERE id = ?', depth, depth === 'index' ? null : now(), su, depth === 'index' ? null : su, depth !== 'index' && typeof e.sourceShared === 'boolean' ? (e.sourceShared ? 1 : 0) : e.restricted ? 0 : null, pageId);
 }
 
 export type Stored = 'saved' | 'kept' | 'demote';
@@ -200,6 +213,7 @@ export function storeEntry(d: { db: DB; library: Library }, worldId: string, sou
     if (ex && ex.depth !== 'index') {
       const su = e.sourceUpdatedAt ?? e.updatedAt ?? null;
       if (su && su !== ex.source_updated_at) run(d.db, 'UPDATE pages SET source_updated_at = ? WHERE id = ?', su, ex.id);
+      if (e.restricted) run(d.db, 'UPDATE pages SET source_shared = 0 WHERE id = ?', ex.id);
       if (e.restricted && ex.source_level !== 'dm') { run(d.db, "UPDATE pages SET source_level = 'dm' WHERE id = ?", ex.id); return { how: 'demote', id: ex.id }; }
       return { how: 'kept', id: ex.id };
     }

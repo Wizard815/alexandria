@@ -15,6 +15,7 @@
 //   PATCH             /api/admin/connections/tiers/:source (background budget, pause, fetch everything, spread the first scan, the connection's calls-per-minute/second limits)
 //   GET               /api/worlds/:world/world-sources   (DM: the sources; players: nothing)
 //   GET               /api/worlds/:world/world-sources/depths (DM: pages not yet read in full)
+//   GET               /api/worlds/:world/world-sources/status (DM: why players see nothing, a refused key, a wait for the site)
 //   MCP               world_sources
 //
 // The world pages (overview, crawl, re-index) are in routes/sources.ts.
@@ -39,6 +40,7 @@ import { startDetailWorker, tierSummary } from '../../intake/detail.ts';
 import { TIER_SCHEMA, depthsOf, ensureTierSchema, setSettings } from '../../intake/tiers.ts';
 import { CRAWL_SCHEMA } from './crawl.ts';
 import { sourceSummary } from './summary.ts';
+import { worldStatus } from './status.ts';
 
 const schema = `
 -- A connection: one connector's account-level settings and secrets, used by any number of sources in any number of worlds.
@@ -242,10 +244,10 @@ const feature: Feature = {
       }
       // The calls-a-minute and calls-a-second limits belong to the connection: every world that uses it shares them.
       const lim: Record<string, number> = {};
-      for (const [k, key, max] of [['perMinute', 'maxPerMinute', 6000], ['perSecond', 'maxPerSecond', 100]] as const) {
+      for (const [k, key, max] of [['perMinute', 'maxPerMinute', 6000], ['perSecond', 'maxPerSecond', 100], ['perHour', 'maxPerHour', 100_000]] as const) {
         if (b.limits?.[k] === undefined) continue;
         const n = Number(b.limits[k]);
-        if (!Number.isInteger(n) || n < (k === 'perMinute' ? 1 : 0) || n > max) throw new HttpError(400, k === 'perMinute' ? 'perMinute is calls a minute, 1 to 6000' : 'perSecond is calls a second, 0 to 100 (0: no cap)');
+        if (!Number.isInteger(n) || n < (k === 'perMinute' ? 1 : 0) || n > max) throw new HttpError(400, k === 'perMinute' ? 'perMinute is calls a minute, 1 to 6000' : k === 'perHour' ? 'perHour is calls an hour, 0 to 100000 (0: no cap)' : 'perSecond is calls a second, 0 to 100 (0: no cap)');
         lim[key] = n;
       }
       if (b.budget !== undefined) {
@@ -391,6 +393,11 @@ const feature: Feature = {
           return { id: s.id, name: s.name, kind: connectorFor(s.kind)?.label ?? s.kind, connection: s.connection_name ?? null, audience: a, audience_label: AUDIENCE_LABEL[a], enabled: !!s.enabled, schedule_minutes: s.schedule_minutes, last_sync_at: s.last_sync_at, last_status: s.last_status, pages: s.pages };
         }),
       });
+    });
+    // Why players may see nothing, a key the site refuses for content, a wait for the site: for the DM's library and the world page.
+    r.get('/status', (_req, res) => {
+      if (!isDM(res)) return res.json({ pages: 0, levels: { party: 0, broker: 0, dm: 0, classified: 0 }, dmOnly: null, refused: [], waiting: null });
+      res.json(worldStatus(d, ctx(res).world.id));
     });
     // Pages not yet read in full: for the DM's depth badge.
     r.get('/depths', (_req, res) => {

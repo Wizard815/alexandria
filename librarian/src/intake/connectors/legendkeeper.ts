@@ -491,7 +491,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
         blocks,
         position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (idn.first ? 0 : (1 + tabOrder.indexOf(String(d.id))) / (pages.length + 1)) : null,
         url: lkUrl(cfg, String(r.id), String(d.id)),
-        visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm',
+        visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm', sourceShared: !isHidden,
         updatedAt: dd.updatedAt ?? r.updatedAt ?? null,
         sourceUpdatedAt: r.updatedAt ?? detail.updatedAt ?? null,
         depth: 'full',
@@ -687,10 +687,12 @@ async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean,
 }
 
 // The v3 API (OpenAPI description, "Rate limits"): per key 300 requests a minute, 6,000 an hour, 60,000 a day; writes 120 a minute and 3,000 an hour;
-// 12,000 an hour per project across keys. A sustained 6,000 an hour is 100 a minute, so the default is 60 a minute (3,600 an hour) with
-// at most 2 a second (the docs advise writes at least half a second apart), and the background budget is 80% of that.
+// 12,000 an hour per project across keys. A real key answered `X-RateLimit-Limit: 200` (the tightest tier), so the default is 200 a minute and
+// 6,000 an hour (the limiter adopts a lower limit the site reports, and shares a 12,000 an hour allowance across the keys of one project),
+// at most 2 a second (the docs advise writes at least half a second apart). Background reads may use 80% of each; the rest is for pages
+// somebody opens. The background reader's default is 40 a minute.
 const LK_TIERED = (transport: (cfg: Record<string, any>, ctx: ConnectorContext) => Transport) => (): Tiered => ({
-  budgetPerMinute: 60,
+  budgetPerMinute: 160, budgetDefault: 40,
   index: (cfg, ctx) => lkIndex(transport(cfg, ctx), ctx, cfg),
   detail: (cfg, ctx, ids) => lkDetail(transport(cfg, ctx), ctx, cfg, ids),
 });

@@ -222,19 +222,22 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
           run(d.db, 'DELETE FROM search_chunk_state WHERE world_id = ?', worldId);
         }
         pruneChunks(d.db);
+        // Pages, not copies: a page with a DM copy and a party copy is one page, so "done" never passes "of".
         P.embedding.pagesTotal = embeddingCoverage(d, worldId).pages.pending;
+        const donePages = new Set<string>();
         P.embedding.state = 'running';
         log(`Embedding ${P.embedding.pagesTotal} pages with ${cov.model}`);
         publish(true);
         const res = await syncEmbeddings(d, {
           maxPages: 1_000_000, worldId, signal: ctl.signal,
-          onPage: (x) => { P.embedding.pagesDone = x.pages; P.embedding.chunks = x.embedded; publish(); },
+          onPage: (x) => { donePages.add(x.id); P.embedding.pagesDone = donePages.size; P.embedding.pagesTotal = Math.max(P.embedding.pagesTotal, donePages.size); P.embedding.chunks = x.embedded; publish(); },
         });
-        P.embedding.pagesDone = res.pages;
+        P.embedding.pagesDone = donePages.size;
+        P.embedding.pagesTotal = Math.max(P.embedding.pagesTotal, donePages.size);
         P.embedding.chunks = res.embedded;
         if (ctl.signal.aborted) { P.embedding.state = 'cancelled'; status = 'stopped'; log('Crawl cancelled during embedding. The library part is finished.'); }
         else if (res.error) { P.embedding.state = 'error'; failure(`Embeddings: ${res.error}`); log(`Embedding stopped: ${res.error}. Press Re-index to continue.`); }
-        else { P.embedding.state = 'done'; log(`Embedded ${res.embedded} chunks from ${res.pages} pages`); }
+        else { P.embedding.state = 'done'; log(`Embedded ${res.embedded} chunks from ${donePages.size} pages`); }
       }
       // The story bible reads new and changed pages too (in the background, with the chat model; nothing happens without one).
       if (!ctl.signal.aborted && hasJob(d, 'chat')) { log('Reading the library into the story bible in the background'); void syncBible(d, { maxPages: 1_000_000, worldId }).catch(() => {}); }
