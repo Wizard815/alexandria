@@ -46,7 +46,7 @@ const model = {
   offered: [] as string[][],
 };
 
-const AGENT_SYSTEM = /^You are (the assistant of the Dungeon Master|a helpful guide for a player)/;
+const AGENT_SYSTEM = /^You are (Minerva, the assistant of the Dungeon Master|.+, the information broker)/;
 const reply = (message: any) => new Response(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 const fakes = await startFakeModels(0);
@@ -137,6 +137,7 @@ await dm('POST', '/sound/scenes', { name: 'Rainy night', layers: [{ kind: 'rain'
 await dm('POST', '/voice/presets', { name: 'Narrator', voice: 'af_heart', speed: 1, effect: 'none', target: 'table' });
 await dm('PUT', '/worldlore/config', { kind: 'library', root: 'WorldLore', defaultLevel: 'party' });
 await dm('PATCH', '/settings', { agentAutoApprove: [] });
+await dm('POST', '/minerva/enable', {});
 // Three players asked the broker; the requests are set to the states the DM's tools act on.
 for (const [who, q] of [['jess', 'Who rules Saltmarsh?'], ['tom', 'How much is the ferry?'], ['ana', 'Where is the lighthouse?']] as const) {
   const quote = await as(who)('POST', '/broker/quote', { question: q });
@@ -266,6 +267,18 @@ const ARGS: Record<string, Maker> = {
   lore_move: async () => ({ id: await lorePage('Move'), to: 'Moved' }),
   lore_delete: async () => ({ id: await lorePage('Delete') }),
   list_map_marks: () => ({ mapId: 'world' }),
+  who_is: () => ({ name: 'Saltmarsh' }),
+  conversation_log: () => ({ lines: [{ speaker: 'jess', text: 'We should ask the keeper about the lamp.' }] }),
+  status_update: () => ({ section: 'Now', text: 'The party is in Saltmarsh.' }),
+  revelation_create: () => ({ title: 'Who darkened the lamp?', conclusion: 'The keeper did.', clues: ['A ledger page', 'Oil on his hands', 'A boat at night'] }),
+  revelation_mark: () => once('mystery', async () => (await dm('POST', '/minerva/revelations', { title: 'Who sank the ferry?', conclusion: 'The harbour council.', clues: ['A cut rope', 'A silent captain', 'A paid witness'] })).slug as string).then(() => ({ mystery: 'Who sank the ferry?', clue: 1, player: 'jess' })),
+  codex_upsert: () => ({ name: 'Odo Fennick', section: 'notes', text: 'Keeps the harbour ledgers.' }),
+  promote: () => ({ name: 'Harbour Master Pell' }),
+  arc_start: async () => { await call('POST', w('/minerva/arcs/open/close'), T.dm, {}); return { title: 'Coverage arc' }; },
+  arc_close: async () => { await call('POST', w('/minerva/arcs'), T.dm, { title: 'Closing arc' }); return { arc: 'open' }; },
+  goal_update: () => ({ player: 'jess', goal: 'Find the keeper', heat: 'on', text: 'Seen at the quay.' }),
+  my_who_is: () => ({ name: 'jess' }),
+  my_goal_update: () => ({ goal: 'Find my brother', heat: 'on' }),
 };
 
 /** Values from a tool's own schema for any tool without an entry in ARGS. */
