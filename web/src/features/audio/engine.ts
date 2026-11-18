@@ -2,10 +2,13 @@
 // the DM or a player moves between pages; the transcript island (an overlay
 // on every page) keeps it attached to the signed-in world.
 //
-// Each mic is one MediaRecorder that is restarted every 5 seconds so every
-// uploaded chunk is a whole, playable file. Chunks carry their start and end
-// (ms since the session began, on the server's clock) and the average signal
-// level. Hold keys (and on-screen buttons) are sent as hold windows; the
+// Each mic sends a chunk every 5 seconds. A chunk is its own MediaRecorder (so
+// it is a whole, playable file) that starts 3 seconds before its 5-second hop:
+// two recorders overlap by 3 s, and the speech model hears each stretch with a
+// little of what came before (5 s pieces alone cost about ten points of word
+// error). The server uses each stretch from the chunk it is most central in.
+// Chunks carry their start and end (ms since the session began, on the
+// server's clock) and the average signal level. Hold keys (and on-screen buttons) are sent as hold windows; the
 // server honours them. Hold keys only work while this tab is focused.
 import { useSyncExternalStore } from 'react';
 
@@ -33,7 +36,9 @@ export interface EngineState {
   error: string | null;
 }
 
-const CHUNK_MS = 5000;
+/** One chunk is sent every HOP_MS and carries OVERLAP_MS of the audio before it (except the first). */
+const HOP_MS = 5000;
+const OVERLAP_MS = 3000;
 const safe = <T,>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
 
 interface Cfg { baseUrl: string; token: string; worldId: string; isDM: boolean }
@@ -43,16 +48,17 @@ class Runner {
   s: MicSetting;
   stream: MediaStream | null = null;
   ctxA: AudioContext | null = null;
-  rec: MediaRecorder | null = null;
+  recs = new Set<MediaRecorder>();
   active = false;
   seq = 0;
   timer: ReturnType<typeof setTimeout> | undefined;
   meter: ReturnType<typeof setInterval> | undefined;
-  levelSum = 0; levelN = 0;
+  /** Level samples (time in ms, rms), kept for the last 12 s. */
+  samples: { t: number; v: number }[] = [];
   /** Hold spans in session ms; end null while the key is down. */
   holds: { start: number; end: number | null }[] = [];
   queue: Promise<void> = Promise.resolve();
-  stopped: Promise<void> = Promise.resolve();
+  stopped: Promise<void>[] = [];
 
   constructor(e: Engine, s: MicSetting) { this.e = e; this.s = s; }
 
@@ -69,11 +75,21 @@ class Runner {
       let sum = 0;
       for (const v of buf) sum += v * v;
       const rms = Math.sqrt(sum / buf.length);
-      this.levelSum += rms; this.levelN++;
+      const now = Date.now();
+      this.samples.push({ t: now, v: rms });
+      while (this.samples.length && this.samples[0].t < now - 12_000) this.samples.shift();
       this.e.patchMic(this.s.serverId!, { level: Math.min(1, rms * 5) });
     }, 100);
     this.active = true;
-    this.cycle();
+    this.begin(HOP_MS);
+    this.timer = setTimeout(() => this.tick(), HOP_MS - OVERLAP_MS);
+  }
+
+  /** Every hop, a recorder that covers the hop and the OVERLAP_MS before it. */
+  private tick() {
+    if (!this.active) return;
+    this.begin(HOP_MS + OVERLAP_MS);
+    this.timer = setTimeout(() => this.tick(), HOP_MS);
   }
 
   private mime() {
@@ -81,27 +97,29 @@ class Runner {
     return '';
   }
 
-  private cycle() {
+  private begin(durMs: number) {
     if (!this.active || !this.stream) return;
     const m = this.mime();
     const rec = new MediaRecorder(this.stream, m ? { mimeType: m } : undefined);
     const parts: Blob[] = [];
     const startMs = this.e.sessionMs();
-    this.levelSum = 0; this.levelN = 0;
+    const startWall = Date.now();
     rec.ondataavailable = (ev) => { if (ev.data.size) parts.push(ev.data); };
     let done!: () => void;
-    this.stopped = new Promise((r) => { done = r; });
+    if (this.stopped.length > 8) this.stopped = this.stopped.slice(-4);
+    this.stopped.push(new Promise<void>((r) => { done = r; }));
     rec.onstop = () => {
+      this.recs.delete(rec);
       const endMs = this.e.sessionMs();
-      const level = this.levelN ? this.levelSum / this.levelN : 0;
+      const mine = this.samples.filter((x) => x.t >= startWall);
+      const level = mine.length ? mine.reduce((a, x) => a + x.v, 0) / mine.length : 0;
       const blob = new Blob(parts, { type: rec.mimeType || 'audio/webm' });
-      if (this.active) this.cycle();
       this.maybeSend(blob, startMs, endMs, level);
       done();
     };
-    this.rec = rec;
+    this.recs.add(rec);
     rec.start();
-    this.timer = setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, CHUNK_MS);
+    setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, durMs);
   }
 
   private maybeSend(blob: Blob, start: number, end: number, level: number) {
@@ -144,12 +162,12 @@ class Runner {
     this.active = false;
     clearTimeout(this.timer);
     clearInterval(this.meter);
-    if (this.rec && this.rec.state !== 'inactive') this.rec.stop();
-    await this.stopped;
+    for (const r of this.recs) if (r.state !== 'inactive') r.stop();
+    await Promise.all(this.stopped);
     await this.queue;
     this.stream?.getTracks().forEach((t) => t.stop());
     void this.ctxA?.close();
-    this.stream = null; this.ctxA = null; this.rec = null;
+    this.stream = null; this.ctxA = null; this.recs.clear(); this.stopped = [];
     this.e.patchMic(this.s.serverId!, { recording: false, level: 0, held: false });
   }
 }

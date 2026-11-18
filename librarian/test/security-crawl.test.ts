@@ -607,6 +607,10 @@ test('TestSecurityAI_NoModelRequestOrMcpAnswerHasClassifiedContent', async () =>
   const chunk = await call('POST', `${W}/audio/sessions/${rec.json.id}/chunks?mic=${mic.json.id}&seq=0&start=0&end=3000`, S.T.dm, new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3, 4]), { 'Content-Type': 'audio/webm' });
   assert.ok(chunk.status < 300, `${chunk.status} ${chunk.text}`);
   await dm('POST', `/audio/sessions/${rec.json.id}/stop`, {});
+  {
+    const sent = models.calls.filter((c) => c.path.endsWith('/audio/transcriptions')).map((c) => c.body).join('\n');
+    for (const id of ['dm_title_hint', 'dm_page', 'broker_page', 'classified_page']) assert.ok(!sent.includes(tok(id)), `the transcription prompt carried "${id}"`);
+  }
 
   // 6. Embeddings: index every page.
   const re = await dm('POST', '/search/reindex');

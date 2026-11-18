@@ -21,11 +21,13 @@ export default function AudioSetup() {
   const [name, setName] = useState('');
   const [text, setText] = useState<string | null>(null);
   const [days, setDays] = useState<string>('');
+  const [hintOn, setHintOn] = useState(true);
+  const [refine, setRefine] = useState(false);
   const { busy, error, run } = useAction();
   const { toast, toastNode } = useToast();
   const textRef = useRef(false);
 
-  useEffect(() => { if (status.data && !textRef.current) { textRef.current = true; setText(status.data.consent.text); setDays(status.data.retentionDays === null ? '' : String(status.data.retentionDays)); } }, [status.data]);
+  useEffect(() => { if (status.data && !textRef.current) { textRef.current = true; setText(status.data.consent.text); setDays(status.data.retentionDays === null ? '' : String(status.data.retentionDays)); setHintOn(status.data.transcription?.hint !== 'off'); setRefine(status.data.transcription?.refine === 'on'); } }, [status.data]);
   // The aside key is read by the engine; load it once the world is attached.
   useEffect(() => { setSettings(engine.loadMics()); setAsideKey(engine.loadAsideKey()); }, [info.id]);
 
@@ -69,6 +71,8 @@ export default function AudioSetup() {
     await run(async () => {
       const patch: Record<string, unknown> = { recordingConsentText: text ?? '' };
       patch.audioRetentionDays = days.trim() === '' ? null : Number(days);
+      patch.transcriptHint = hintOn ? 'on' : 'off';
+      patch.transcriptRefine = refine ? 'on' : 'off';
       await w.updateSettings(patch);
       toast('Saved');
     });
@@ -136,6 +140,8 @@ export default function AudioSetup() {
           <>
             <Field label="What players are asked to agree to"><textarea value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} /></Field>
             <Field label="Keep raw audio for (days)" help="Blank keeps it forever. Transcripts are always kept until deleted."><input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ''))} placeholder="30" /></Field>
+            <div className="field"><span className="label">Name hints for the speech model</span><label className="row" style={{ gap: 8 }}><Switch checked={hintOn} onChange={setHintOn} label="Send a short list of names the players can read to the speech model" /><span className="tiny">{hintOn ? 'Player and character names, dice words' : 'Off: the model hears no hint (try this if names come out wrong in odd places)'}</span></label></div>
+            <div className="field"><span className="label">Listen again after the session</span><label className="row" style={{ gap: 8 }}><Switch checked={refine} onChange={setRefine} label="Re-transcribe the kept audio in long windows when the audio model has a refine model" /><span className="tiny">{refine ? 'Needs a refineModel on the audio job (Admin → Models)' : 'Off'}</span></label></div>
             <div className="row"><button type="button" className="btn primary" disabled={busy} onClick={() => void saveWorld()}>Save</button></div>
           </>
         )}
