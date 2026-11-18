@@ -35,8 +35,37 @@ function dockEl(): HTMLElement | null {
     el.appendChild(toggle);
     // Inside the themed shell, so the theme's colour variables apply.
     (document.querySelector('.t-fantasy, .t-admin') ?? document.body).appendChild(el);
+    watchCanvases(el);
   }
   return el;
+}
+
+/**
+ * A map, whiteboard or any canvas marks itself with `data-no-dock`. When the dock would sit on one it moves to the first corner that does not
+ * (bottom right, top right, bottom left); with no such corner it stays where it is. Checked on scroll, resize and when the page changes.
+ */
+export const NO_DOCK = { 'data-no-dock': '' } as const;
+const CORNERS: string[][] = [[], ['at-top'], ['at-left'], ['at-top', 'at-left']];
+function watchCanvases(el: HTMLElement) {
+  let queued = false;
+  const overlaps = (a: DOMRect, b: DOMRect) => !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+  const place = () => {
+    queued = false;
+    const canvases = [...document.querySelectorAll('[data-no-dock]')].map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight);
+    for (const c of CORNERS) {
+      el.classList.remove('at-top', 'at-left');
+      c.forEach((k) => el.classList.add(k));
+      const box = el.getBoundingClientRect();
+      if (!canvases.some((r) => overlaps(box, r))) return;
+    }
+    el.classList.remove('at-top', 'at-left');
+  };
+  const queue = () => { if (!queued) { queued = true; requestAnimationFrame(place); } };
+  window.addEventListener('scroll', queue, { passive: true, capture: true });
+  window.addEventListener('resize', queue);
+  new MutationObserver(queue).observe(document.body, { childList: true, subtree: true });
+  el.addEventListener('click', queue);
+  queue();
 }
 
 /** Put anything in the dock. `order` sorts left to right (lower first). */
