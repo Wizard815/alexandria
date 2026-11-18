@@ -1,6 +1,7 @@
 // Confirm cards (an "ask" action waiting for a tap) and the undo toast for what
 // ran by itself. Used on the desktop (an overlay) and the DM phone.
 import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { useAction } from '../../ui/index.tsx';
 import { seesText, useActive, useActiveLog, type LogRow } from './shared.tsx';
@@ -59,6 +60,7 @@ export function UndoToasts({ phone = false }: { phone?: boolean }) {
 
 export default function ActiveOverlay() {
   const { info } = useWorld();
-  if (info?.role !== 'dm') return null;
+  const loc = useLocation();
+  if (info?.role !== 'dm' || /\/dm\/phone\/?$/.test(loc.pathname)) return null;
   return <><ConfirmCards /><UndoToasts /></>;
 }

@@ -15,6 +15,10 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
+  { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
+  { re: /\b(own (codex )?page|keeps? coming up|promote (him|her|them|it)|give (him|her|them) (a |his |her |their )?(own )?(codex )?page)\b/i, tools: ['promote', 'who_is', 'codex_upsert', 'context_for'] },
+  { re: /\blink\b.*\b(to|with)\b.*\b(page|item)\b|\b(item|dagger|sword|ring)\b.*\bown (library )?page\b/i, tools: ['link_item_page', 'get_inventory', 'get_item_card'] },
   { re: /\b(goals?|heat|ongoing|simmering)\b.*\b(goal|heat|ongoing|simmering|bump|raise|mark|update|cool)|\b(bump|raise|cool|mark)\b.*\bgoal\b/i, tools: ['goal_update', 'context_for', 'who_is'] },
   { re: /\b(show|put|bring up|display|throw)\b.*\b(whole table|to everyone|for everyone|to the (players|table|party)|on the (stage|screen))\b|\b(cards?|what('s| is)) (is )?on the (table )?(screen|stage|board)\b|\b(table|stage) screen\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card'] },
   { re: /\b(tell|message|post to|say to|announce to|let)\b.*\b(the table|the players|everyone|the party)\b.*\b(chat|know|that)\b|\bover (the )?(table )?chat\b/i, tools: ['send_table_chat', 'read_table_chat'] },

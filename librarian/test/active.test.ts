@@ -479,4 +479,8 @@ test('TestActive_CueRegressions', () => {
   assert.deepEqual(dm('Next turn.').map((c) => c.kind), ['next_turn']);
   assert.deepEqual((dm('Goblin 2 stands up again, no longer prone.')[0] as any).remove, ['Prone']);
   assert.deepEqual((dm('Tomas, you are poisoned by the spear.')[0] as any).add, ['Poisoned']);
+  assert.deepEqual(dm('Goblin 2 takes 9 damage and falls to the floor, dead.').map((c) => c.kind), ['damage', 'remove_creature']);
+  const pl = allCues({ id: 'x', text: 'Twelve for initiative.', speaker: 'tom', role: 'player', accountId: 'a', aside: false }, ctx);
+  assert.deepEqual(pl.map((c) => c.kind), ['initiative']);
+  assert.equal((pl[0] as any).value, 12);
 });

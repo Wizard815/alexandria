@@ -17,7 +17,7 @@ import { indexOf } from '../sound/index.ts';
 import { PLAYER } from '../stage/cards.ts';
 import { suggestionPass } from '../minerva/live.ts';
 import { ASIDE_OK, build, type Call, type Candidate } from './intents.ts';
-import { allCues, norm, wakeCommand, type CueCtx, type Intent, type LineIn, type Scored } from './cues.ts';
+import { allCues, layersOf, norm, wakeCommand, type CueCtx, type Intent, type LineIn, type Scored } from './cues.ts';
 import { execCalls, callOne, dmAuth, portOf } from './exec.ts';
 import { addLog, addRule, effectiveMode, expireCards, getLog, getState, hasRule, listLog, setLog, undoOf, type LogRow } from './store.ts';
 import { parseCommand, runCommand } from './commands.ts';
@@ -222,7 +222,7 @@ async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wst
   const sys = `You are the stage hand of a tabletop RPG Dungeon Master. You read what the DM says and pick table actions ONLY when the DM clearly narrates or asks for them. Most lines need nothing: then return []. Never invent. Allowed actions (JSON objects):
 {"line":N,"cat":"music","mood":"calm|tense|sneaky|combat"}  (ONLY when the party arrives somewhere new with a clearly different atmosphere, or the scene's mood clearly turns; never for a sound, a creature, a moment of suspense or a line inside a fight; not if the music already fits; current music mood: ${cur?.mood ?? cur?.name ?? 'none'})
 {"line":N,"cat":"ambience","layers":[${layers.map((l) => `"${l}"`).join(',')}]}  (ONLY when the party arrives at a place with a distinct sound, or the weather or time of day clearly changes; not for travelling, a sound or a creature)
-{"line":N,"cat":"sfx","name":"creak|thunder|roar|howl|crash|clash|bell|scream|knock|splash|slam|growl|explosion"}  (ONE distinct sound event the DM narrates as just happening: a door, a bell, thunder, a crash; not voices, shouting or the noise of a fight, and not the aftermath of a sound)
+{"line":N,"cat":"sfx","name":"creak|thunder|roar|howl|crash|clash|bell|knock|splash|slam|explosion"}  (ONE distinct sound event the DM narrates as just happening: a door, a bell, thunder, a crash; not voices, shouting or the noise of a fight, and not the aftermath of a sound)
 {"line":N,"cat":"item","name":"silver key","qty":1}  (the party finds or is given a portable item)
 {"line":N,"cat":"coins","gp":0,"sp":0,"cp":0}  (the party finds or is given coins)
 {"line":N,"cat":"clock","preset":"short-rest|long-rest|next-day"} or {"line":N,"cat":"clock","minutes":120}  (time passes or the party rests)
@@ -239,7 +239,7 @@ Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
     const mk = (i: Intent, conf = 0.8): Scored => ({ ...i, confidence: conf }) as Scored;
     let intent: Scored | null = null;
     if (a.cat === 'music' && ['calm', 'tense', 'sneaky', 'combat'].includes(a.mood)) intent = mk({ kind: 'music', mood: a.mood, why: it.line.text.slice(0, 60) }, 0.85);
-    else if (a.cat === 'ambience' && Array.isArray(a.layers) && a.layers.length) intent = mk({ kind: 'ambience', layers: a.layers.map(String).slice(0, 3), why: it.line.text.slice(0, 60) }, 0.85);
+    else if (a.cat === 'ambience' && Array.isArray(a.layers) && a.layers.length) { const said = layersOf(it.line.text); const keep = a.layers.map(String).filter((l: string) => said.includes(l === 'hearth' ? 'fire' : l === 'chatter' ? 'tavern' : l)).slice(0, 3); if (keep.length) intent = mk({ kind: 'ambience', layers: keep, why: it.line.text.slice(0, 60) }, 0.85); }
     else if (a.cat === 'sfx' && typeof a.name === 'string') { if (!ctx.sfx.length || ctx.sfx.some((n) => norm(n).includes(norm(a.name)))) intent = mk({ kind: 'sfx', name: a.name.slice(0, 30), why: it.line.text.slice(0, 60) }, 0.85); }
     else if (a.cat === 'item' && typeof a.name === 'string' && a.name.trim()) intent = mk({ kind: 'item', owner: 'party', ownerName: 'the party', name: a.name.trim().slice(0, 80), qty: Math.max(1, Math.min(99, Number(a.qty) || 1)), why: it.line.text.slice(0, 60) }, 0.8);
     else if (a.cat === 'coins') { const cp = (Number(a.gp) || 0) * 100 + (Number(a.sp) || 0) * 10 + (Number(a.cp) || 0); if (cp > 0 && cp <= 1_000_000) intent = mk({ kind: 'coins', owner: 'party', ownerName: 'the party', cp, why: it.line.text.slice(0, 60) }, 0.8); }
