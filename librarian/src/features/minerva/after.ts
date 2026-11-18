@@ -212,8 +212,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
     if (next_ !== heat) add('heat', `Goal "${g.title}": ${heat} to ${next_}`, { op: 'heat', rel: g.rel, heat: next_ as any }, null);
   }
   if (threads.length) {
-    const rank: Record<string, number> = { on: 0, ongoing: 1, simmering: 2, sleeping: 3 };
-    add('status', 'Status: active threads', STATUS_SECTION_OPS(threads.sort((a, b) => rank[a.heat] - rank[b.heat]).map((t) => `- [${t.heat}] [[${t.title}]]`).join('\n'), 'Active threads'));
+    add('status', 'Status: active threads', { op: 'threads', rel: STATUS_PATH, items: threads.map((t) => ({ title: t.title, heat: t.heat as any })) });
   }
 
   // 3. Codex: who appeared again; who now deserves a page.
