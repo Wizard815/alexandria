@@ -487,7 +487,7 @@ test('Agent: the system prompt is static and first, so a server can cache it; th
   e.model.queue.push(() => say('Player.'));
   await ask(e, e.T.jess, 'Tell me about Saltmarsh');
   assert.notEqual(e.model.seen[p].messages[0].content, a.messages[0].content, 'each harness has its own prompt');
-  assert.match(e.model.seen[p].messages[0].content, /cannot change anything/);
+  assert.match(e.model.seen[p].messages[0].content, /information broker/);
 });
 
 test('Agent: the combat state rides along for the DM only, while a fight is running', async () => {

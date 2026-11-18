@@ -92,7 +92,8 @@ export function writePage(d: Deps, worldId: string, rel: string, a: WriteArgs): 
   if (!fm.level) fm.level = defaultLevel(r, String(fm.type));
   fm.status = 'approved';
   fm.updated = today();
-  const title = (a.title ?? cur?.title ?? r.split('/').pop()!.replace(/\.md$/i, '')).slice(0, 200);
+  const heading = /^#\s+(.+)$/m.exec(a.body ?? '')?.[1]?.trim();
+  const title = (a.title ?? heading ?? cur?.title ?? r.split('/').pop()!.replace(/\.md$/i, '')).slice(0, 200);
   const body = a.body ?? cur?.body ?? '';
   const level = vaultLevel(fm);
   // Saved in batch mode and rebuilt for this one page: a vault page is never linked from the rest of the library, so no other page's copy changes.
