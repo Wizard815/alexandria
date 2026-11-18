@@ -71,6 +71,7 @@ export async function harnessTools(harness: 'dm' | 'player'): Promise<McpTool[]>
   return harness === 'dm' ? tools : tools.filter((t) => !t.write);
 }
 
+const SOUND_TOOLS = new Set(['play_music', 'play_ambience', 'play_sfx', 'list_sound_library', 'get_sound_now']);
 const asChatTool = (t: McpTool): ChatTool => ({ type: 'function', function: { name: t.name, description: t.description, parameters: { type: 'object', properties: t.props, required: t.required ?? [] } } });
 
 /** What a call will do, in words, for the DM to confirm. */
@@ -87,6 +88,7 @@ export function describeCall(tool: string, a: any): string {
     case 'next_turn': return 'Advance combat to the next turn';
     case 'make_statblock': return `Make a statblock from ${a.moduleTermId ? `module monster ${a.moduleTermId}` : a.pageId ? `page ${a.pageId}` : `"${n(a.prompt).slice(0, 80)}"`}${a.addToCombat ? ' and add it to combat' : ''}`;
     case 'save_page': return `Save library page ${n(a.path)}${a.visibility === 'party' ? ' (shared with the party)' : ' (DM only)'}`;
+    case 'create_template': return `Create sculpting template "${n(a.name)}" (${Array.isArray(a.fields) ? a.fields.length : 0} fields, ${n(a.perspective ?? 'dm')} perspective)`;
     case 'add_person': return `Add ${n(a.name)} to People`;
     case 'add_item': return `Give ${n(a.qty ?? 1)} x ${n(a.name)} to ${n(a.owner)}`;
     case 'add_coin': return `Change ${n(a.owner)} coin by ${n(a.amountCp)} cp`;
@@ -484,7 +486,9 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const dmHarness = c.harness === 'dm';
     const names = tools.map((t) => t.name);
     const picked = new Set(selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, names, undefined, dmHarness));
-    const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map(asChatTool), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
+    // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
+    const soundMod = dmHarness ? await import('../sound/index.ts') : null;
+    const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
     T.toolsOffered = offerNow().length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
     const base = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...playerTexts(d, c.worldId, c.accountId), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;

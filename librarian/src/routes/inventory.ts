@@ -135,7 +135,7 @@ export default function inventoryRoutes(d: Deps) {
   }
   function dmReason(res: Response, b: any, ownerId: string) {
     const reason = str(b?.reason, 'reason', { max: 300, optional: true });
-    if (isDM(res) && ownerId !== me(res) && settings(res).dmChangeReason && !reason.trim()) throw new HttpError(400, 'Say why you are changing this player’s items (reason)');
+    if (isDM(res) && ownerId !== 'party' && ownerId !== me(res) && settings(res).dmChangeReason && !reason.trim()) throw new HttpError(400, 'Say why you are changing this player’s items (reason)');
     return reason;
   }
   const needsApproval = (res: Response) => !isDM(res) && settings(res).playerChangesNeedApproval;

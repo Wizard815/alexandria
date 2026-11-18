@@ -16,7 +16,7 @@ import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, names } from '../../routes/_shared.ts';
 import { dmOnly } from '../../core/events.ts';
 import { MIME, sniff, serveFile } from './files.ts';
-import { scan, withOverrides, nearest, CORNERS, type Index, type Track } from './library.ts';
+import { scan, withOverrides, nearest, nearestLayer, libraryHint, CORNERS, type Index, type Track } from './library.ts';
 import { sendSound, TARGETS, toPlayers, type Target } from './send.ts';
 import * as spotify from './spotify.ts';
 import { mintTicket, readTicket } from './ticket.ts';
@@ -96,11 +96,25 @@ const cleanName = (v: unknown, f: string) => {
 
 // One index per app, rescanned on demand or after a minute.
 const indexes = new WeakMap<Deps, Index>();
-function indexOf(d: Deps, force = false): Index {
+export function indexOf(d: Deps, force = false): Index {
   let i = indexes.get(d);
   if (force || !i || Date.now() - i.scannedAt > 60_000) { i = scan(d.dataDir); indexes.set(d, i); }
   return i;
 }
+
+/** What the sound library really holds, as a sentence the sound tools carry (the moods that have a track, the music areas, the ambience layer kinds). */
+export function soundHint(d: Deps, worldId: string): string {
+  const i = indexOf(d);
+  const over = new Map(all<any>(d.db, 'SELECT track_id, x, y FROM sound_moods WHERE world_id = ?', worldId).map((m) => [m.track_id, { x: m.x, y: m.y }]));
+  return libraryHint(i, withOverrides(i.music, over));
+}
+
+/** How many players have the sound channel switched on (the DM's own devices do not count). */
+function listeningPlayers(d: Deps, worldId: string, channel: 'music' | 'ambience' | 'sfx'): number {
+  const col = channel;
+  return one<{ n: number }>(d.db, `SELECT COUNT(DISTINCT l.account_id) AS n FROM sound_listeners l JOIN members m ON m.account_id = l.account_id AND m.world_id = l.world_id WHERE l.world_id = ? AND m.role <> 'dm' AND l.${col} = 1`, worldId)?.n ?? 0;
+}
+const NO_ONE = 'No player has "Allow sound" switched on, so players will not hear this. Tell the DM.';
 
 /** May this person fetch this file now? A DM: any file. A player: only what is playing for them or was sent to devices. */
 function fileFor(d: Deps, worldId: string, dm: boolean, kind: string, fid: string) {
@@ -128,17 +142,17 @@ const feature: Feature = {
   mcpTools: [
     { name: 'list_sound_library', dmOnly: true, description: "DM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
     { name: 'list_sound_scenes', dmOnly: true, description: 'DM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
-    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players).', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
+    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players). For the DM it also says how many players have each sound channel on.', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
     {
       name: 'play_music', write: true,
-      description: "DM: play background music. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the DM's device, default), players or both.",
+      description: "DM: play background music. If the result has a note that no player has Allow sound on, tell the DM. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the DM's device, default), players or both.",
       props: { mood: { type: 'string', enum: ['calm', 'tense', 'sneaky', 'combat'] }, area: { type: 'string', description: 'Music folder, e.g. dungeon' }, trackId: { type: 'string' }, volume: { type: 'number', description: '0 to 1' }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => (a.trackId ? { method: 'POST', path: '/sound/music/play', body: { trackId: a.trackId, volume: a.volume, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/music/mood', body: { mood: a.mood ?? 'calm', area: a.area, volume: a.volume, fadeMs: a.fadeMs, target: a.target } }),
     },
     { name: 'stop_music', write: true, description: 'DM: fade out the background music.', props: { fadeMs: { type: 'integer' } }, call: (a) => ({ method: 'POST', path: '/sound/music/stop', body: { fadeMs: a.fadeMs } }) },
     {
       name: 'play_ambience', write: true,
-      description: "DM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}]. With neither, the ambience stops.",
+      description: "DM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}] (the kinds are listed in list_sound_library; an unknown kind plays the nearest). With neither, the ambience stops. If the result has a note that no player has Allow sound on, tell the DM.",
       props: { scene: { type: 'string', description: 'Saved scene name or id' }, layers: { type: 'array', items: { type: 'object' } }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => (a.scene || a.layers?.length ? { method: 'POST', path: '/sound/ambience/scene', body: { scene: a.scene, layers: a.layers, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/ambience/stop', body: { fadeMs: a.fadeMs, target: a.target } }),
     },
@@ -160,6 +174,12 @@ const feature: Feature = {
     const getState = (worldId: string) => {
       const s = one<any>(db, 'SELECT * FROM sound_state WHERE world_id = ?', worldId);
       return { music: s?.music ? JSON.parse(s.music) : null, ambience: s?.ambience ? JSON.parse(s.ambience) : null };
+    };
+    /** What to tell the DM about who can hear a sound aimed at players. */
+    const hearing = (worldId: string, channel: 'music' | 'ambience' | 'sfx', t: Target) => {
+      if (!toPlayers(t)) return {};
+      const n = listeningPlayers(d, worldId, channel);
+      return n ? { playersHearing: n } : { playersHearing: 0, note: NO_ONE };
     };
     const setState = (worldId: string, patch: { music?: unknown; ambience?: unknown }) => {
       run(db, 'INSERT OR IGNORE INTO sound_state (world_id) VALUES (?)', worldId);
@@ -234,7 +254,7 @@ const feature: Feature = {
     // What is playing now. Players see only what is aimed at them.
     r.get('/now', (_req, res) => {
       const s = getState(wid(res));
-      if (isDM(res)) return res.json(s);
+      if (isDM(res)) return res.json({ ...s, playersListening: { music: listeningPlayers(d, wid(res), 'music'), ambience: listeningPlayers(d, wid(res), 'ambience'), sfx: listeningPlayers(d, wid(res), 'sfx') } });
       res.json({
         music: s.music && toPlayers(s.music.target) ? s.music : null,
         ambience: s.ambience && toPlayers(s.ambience.target) ? s.ambience : null,
@@ -258,7 +278,7 @@ const feature: Feature = {
       const t = idx().music.find((x) => x.id === String(req.body?.trackId));
       if (!t) throw new HttpError(404, 'Track not found');
       const ev = playTrack(res, tracks(wid(res)).find((x) => x.id === t.id)!, { volume: vol(req.body?.volume, 'volume', 0.7), fadeMs: fade(req.body?.fadeMs, 1500), target: target(req.body?.target, 'table') });
-      res.json({ track: t, event: ev });
+      res.json({ track: t, event: ev, ...hearing(wid(res), 'music', ev.target) });
     });
     r.post('/music/mood', requireDM, (req, res) => {
       // A corner name (calm, tense, sneaky, combat) stands for its spot on the map.
@@ -273,7 +293,7 @@ const feature: Feature = {
       // Same track as now, for the same listeners: leave it playing, no new event. (A new target is a change.)
       if (cur?.id === pick.id && (req.body?.target === undefined || req.body.target === cur.target)) return res.json({ track: pick, changed: false, fadeMs: 0 });
       const ev = playTrack(res, pick, { volume: vol(req.body?.volume, 'volume', cur?.volume ?? 0.7), fadeMs, target: target(req.body?.target, cur?.target ?? 'table') });
-      res.json({ track: pick, changed: true, fadeMs, event: ev });
+      res.json({ track: pick, changed: true, fadeMs, event: ev, ...hearing(wid(res), 'music', ev.target) });
     });
     r.post('/music/stop', requireDM, (req, res) => {
       const w = wid(res);
@@ -295,10 +315,20 @@ const feature: Feature = {
       const prev: any[] = getState(w).ambience?.layers ?? [];
       const next: any[] = [];
       const missing: string[] = [];
+      const kinds = [...new Set(i.ambience.map((a) => a.layer))];
+      const matched: { asked: string; used: string }[] = [];
       for (const l of layers) {
-        const f = (l.file && i.ambience.find((a) => a.id === l.file && a.layer === l.kind)) || i.ambience.find((a) => a.layer === l.kind);
+        let f = (l.file && i.ambience.find((a) => a.id === l.file && a.layer === l.kind)) || i.ambience.find((a) => a.layer === l.kind);
+        let kind = l.kind;
+        if (!f) {
+          // An unknown layer name plays the nearest layer the library has.
+          const near = nearestLayer(l.kind, kinds);
+          f = near ? i.ambience.find((a) => a.layer === near) : undefined;
+          if (f) { kind = f.layer; matched.push({ asked: l.kind, used: kind }); }
+        }
         if (!f) { missing.push(l.kind); continue; }
-        next.push({ kind: l.kind, id: f.id, volume: l.volume, url: url(res, 'ambience', f.id) });
+        if (next.some((n) => n.kind === kind)) continue;
+        next.push({ kind, id: f.id, volume: l.volume, url: url(res, 'ambience', f.id) });
       }
       clearAllowed(w, 'ambience');
       if (toPlayers(o.target)) for (const l of next) allow(w, 'ambience', l.id, null);
@@ -309,7 +339,7 @@ const feature: Feature = {
         const was = prev.find((p) => p.kind === l.kind && p.id === l.id);
         events.push(sendSound(d, w, { channel: 'ambience', action: was ? 'set' : 'play', url: l.url, volume: l.volume, loop: true, fadeMs: o.fadeMs, target: o.target, layer: l.kind, id: l.id }));
       }
-      return { layers: next.map((l) => ({ kind: l.kind, volume: l.volume })), missing, events };
+      return { layers: next.map((l) => ({ kind: l.kind, volume: l.volume })), missing, ...(matched.length ? { matched } : {}), ...(missing.length ? { available: kinds } : {}), events, ...(next.length ? hearing(w, 'ambience', o.target) : {}) };
     };
     r.post('/ambience/scene', requireDM, (req, res) => {
       // A saved scene by id or name, or the layers themselves.
@@ -368,7 +398,7 @@ const feature: Feature = {
         channel: 'sfx', action: 'play', url: url(res, 'sfx', f.id), id: f.id, name: f.name,
         volume: vol(req.body?.volume, 'volume', pad?.volume ?? 0.8), loop: req.body?.loop !== undefined ? !!req.body.loop : !!pad?.loop, fadeMs: 0, target: tg,
       });
-      res.json({ ok: true, event: ev });
+      res.json({ ok: true, event: ev, ...hearing(w, 'sfx', tg) });
     });
     r.post('/sfx/stop', requireDM, (req, res) => {
       const f = idx().sfx.find((s) => s.id === String(req.body?.id ?? ''));
