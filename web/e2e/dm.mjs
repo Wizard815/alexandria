@@ -54,7 +54,7 @@ async function signIn(user, viewport, mobile) {
 }
 const go = async (page, p) => { await page.goto(`${W}/dm/${p}`); await page.locator('main').waitFor(); await page.waitForTimeout(500); };
 
-const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'worldlore', 'settings', 'connect'];
+const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'settings', 'connect'];
 
 /** The dock buttons must not overlap each other or the page's main controls, and each must be the top element where it is. */
 async function dockCheck(page, label) {
@@ -138,6 +138,23 @@ try {
   const people = await api('GET', '/people');
   check(JSON.stringify(people.json).includes('Mira Vossle'), 'sculpt: the saved NPC is not in People');
   note('NPC sculpted and saved');
+
+  // Generators hub: an NPC, then a dungeon map, each saved
+  await go(dm, 'generators');
+  await dm.getByRole('button', { name: /^Villain/ }).click();
+  await dm.getByTestId('gen-title').waitFor({ timeout: 15000 });
+  check((await dm.locator('main').innerText()).includes('DM only'), 'generators: the NPC secret is not marked DM only');
+  await dm.getByRole('button', { name: 'Save', exact: true }).click();
+  await dm.getByText(/Saved .*Generated\/NPCs/).waitFor({ timeout: 15000 });
+  await go(dm, 'generators');
+  await dm.getByRole('tab', { name: 'Maps' }).click();
+  await dm.getByRole('button', { name: /^Dungeon/ }).click();
+  await dm.locator('.gen-map img').waitFor({ timeout: 15000 });
+  await dm.getByRole('button', { name: 'Save', exact: true }).click();
+  await dm.getByText(/Saved .*Generated\/Maps/).waitFor({ timeout: 15000 });
+  const mapsList = (await api('GET', '/files/maps')).json ?? [];
+  check(mapsList.some((m) => /\(DM\)\.png$/.test(m.name)), 'generators: the saved dungeon map is not on the Map page list');
+  note('generators: NPC and dungeon map generated and saved');
 
   // Stage: show a staged card, and a player sees it.
   await go(dm, 'stage');
