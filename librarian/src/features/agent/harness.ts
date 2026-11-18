@@ -41,6 +41,7 @@ import { brokerContext, brokerPersona, personaGiveaway, playerTexts } from '../m
 import { agentName } from '../minerva/store.ts';
 import { minervaBrief, minervaPrep } from '../minerva/context.ts';
 import { liveLines } from '../minerva/live.ts';
+import { readTemplate } from '../sculpt/schema.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 /** Tool calls one message may make; past it the model must answer from what it has. */
@@ -389,6 +390,8 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
   try {
     // The player harness never lists write tools, and a call to one is refused here too.
     if (!tool) return { content: `Unknown tool "${name}".`, cites: [] };
+    // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
+    if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
     if (tool.write && !auto.has(name)) {
       const aid = proposeAction(d, c, chatId, tool, args);
       return { content: `Proposed to the DM as action ${aid}: ${describeCall(name, args)}. It has NOT run; it waits for the DM to approve it.`, proposed: aid, cites: [], summary: describeCall(name, args) };
