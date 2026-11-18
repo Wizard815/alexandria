@@ -170,6 +170,7 @@ export function cuesOf(line: LineIn, ctx: CueCtx, opts: { explicit?: boolean } =
     const mood = moodOf(`${m[1] ?? ''} ${m[2] ?? ''} ${m[3] ?? ''} ${m[4] ?? ''}`);
     if (mood) push({ kind: 'music', mood, why: m[0] }, 0.9);
   }
+  if (opts.explicit && !out.some((x) => x.kind === 'music') && /\b(play|put on|something|give me|switch to|start|cue)\b/.test(low) && !/\b(stop|off|silence)\b/.test(low)) { const mood = moodOf(low); if (mood && !/\b(rain|storm|wind|fire|tavern chatter)\b/.test(low)) push({ kind: 'music', mood, why: low.slice(0, 60) }, 0.9); }
   if ((m = low.match(/\b(?:ambience|ambient|atmosphere)\s*[:\-–,]\s*(.{2,60})/))) { const l = layersOf(m[1]); if (l.length) push({ kind: 'ambience', layers: l, why: m[0] }, 0.95); }
   else if ((m = low.match(/\b(?:add|put on|play|start|bring in|with)\s+(?:the\s+)?(?:sound|sounds|noise|noises)\s+of\s+(.{2,40})/))) { const l = layersOf(m[1]); if (l.length) push({ kind: 'ambience', layers: l, why: m[0] }, 0.9); }
   else if ((m = low.match(/\b(?:it |rain |snow )?(?:starts?|begins?|began|starts to|begins to)\s+(?:to\s+)?(?:rain|pour|storm)\b|\b(?:rain|a storm|thunder)\s+(?:begins|starts|breaks|rolls in|falls)\b|\bthe\s+(?:rain|storm)\s+(?:hammers|pelts|lashes|pours)\b|\bit(?:'s| is)\s+(?:pouring|raining)\b/))) push({ kind: 'ambience', layers: ['rain'], why: m[0] }, 0.8);
@@ -281,7 +282,7 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
   if (c.active && !q && (m = low.match(/\b(?:end|ends|ending|stop)\s+(?:the\s+)?(?:combat|fight|battle|encounter)\b|\b(?:combat|the fight|the battle|the encounter)\s+(?:is\s+|has\s+)?(?:over|ends|ended|finished|done)\b|\bthe (?:last|final)\s+(?:\w+\s+){0,2}(?:falls|dies|drops|is dead|is down)\b|\bsilence (?:returns|settles)\b.*\b(?:fight|battle)\b/))) push({ kind: 'combat_end', why: m[0] }, /last|final|silence/.test(m[0]) ? 0.6 : 0.93);
   if (!c.active || !c.combatants.length) return out;
 
-  if (!q && /\b(?:next turn|next up|top of the (?:next )?round|moving on to the next|on to the next (?:turn|combatant))\b/.test(low)) push({ kind: 'next_turn', why: 'next turn' }, 0.86);
+  if (!q && sentences(low).some((x) => /^\W*(?:(?:ok|okay|alright|all right|so|right|and|then|now)[,.]?\s+)*(?:next turn|next up|top of the (?:next )?round|moving on to the next (?:turn|combatant)|on to the next (?:turn|combatant))\b/.test(x) && x.split(' ').length <= 9)) push({ kind: 'next_turn', why: 'next turn' }, 0.86);
   const list = c.combatants;
   const nxt = list[(c.turn + 1) % list.length];
   if (nxt && !q) {
@@ -322,9 +323,13 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
       if (hl === null && /\b(?:heal|heals|healing|cure|cures|mend|mends)\s+(?:the\s+)?$/.test(before)) hl = num(/^\s+(?:for\s+)?(\d{1,4})\b/, after);
       if (hl !== null) { push({ kind: 'heal', ids: mt.ids, amount: hl, why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.9 : 0.55); continue; }
       // conditions
+      const vocative = after.match(new RegExp(`^[,]?\\s+you(?:'re| are)\\s+(?:now\\s+|also\\s+)?(${CONDS})\\b`));
+      if (vocative) { push({ kind: 'condition', id: mt.ids[0], add: [cap(vocative[1])], remove: [], why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.88 : 0.5); continue; }
+      const looseGone = after.match(new RegExp(`^[^.;]{0,40}?\\bno longer\\s+(${CONDS})\\b`));
+      if (looseGone && mt.ids.length === 1) { push({ kind: 'condition', id: mt.ids[0], add: [], remove: [cap(looseGone[1])], why: s.slice(0, 80) }, 0.85); continue; }
       const gone = after.match(new RegExp(`^\\W*(?:is|are)\\s+no longer\\s+(${CONDS})\\b|^\\W*(?:shakes? off|recovers? from|is cured of|breaks? free of|is freed from|throws? off)\\s+(?:the\\s+)?(${CONDS})\\b`));
       if (gone) { push({ kind: 'condition', id: mt.ids[0], add: [], remove: [cap(gone[1] ?? gone[2])], why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.88 : 0.5); continue; }
-      const cd = after.match(new RegExp(`^\\W*(?:(?:is|are|falls?|gets?|becomes?|now|go(?:es)?|has been|was|were)\\s+)*(?:knocked\\s+|now\\s+)?(${CONDS})\\b`));
+      const cd = after.match(new RegExp(`^\\W*(?:(?:is|are|falls?|gets?|becomes?|now|also|still|go(?:es)?|has been|was|were)\\s+)*(?:knocked\\s+|now\\s+)?(${CONDS})\\b`));
       if (cd && !/\bnot\b/.test(after.slice(0, (cd.index ?? 0) + 12))) { push({ kind: 'condition', id: mt.ids[0], add: [cap(cd[1])], remove: [], why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.88 : 0.5); continue; }
       // dies: only a creature, never a player character
       if (!pcOnly && mt.ids.length === 1 && /^\W*(?:dies|is dead|is slain|is defeated|drops dead|falls dead|is killed|collapses dead|slumps lifeless|is down for good|crumples and (?:dies|is still)|dies on the spot)\b/.test(after)) push({ kind: 'remove_creature', id: mt.ids[0], why: s.slice(0, 80) }, 0.82);

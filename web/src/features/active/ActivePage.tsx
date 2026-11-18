@@ -3,16 +3,14 @@
 import { useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
-import { ConfirmCards } from './Cards.tsx';
 import { CATEGORY_INFO, seesText, triggerText, useActive, useActiveLog, when, type Setting } from './shared.tsx';
 import './active.css';
 
 export default function ActivePage() {
   const [tab, setTab] = useState<'settings' | 'log' | 'rules'>('settings');
   return (
-    <div className="stack loose">
+    <div className="page wide stack loose">
       <PageHead title="Active mode" lead="Assistant mode: I act only when you ask. Active mode: while a session records I listen to the table and act on what I hear. Players just see the table change." />
-      <ConfirmCards phone />
       <Tabs label="Active mode" value={tab} onChange={setTab} items={[['settings', 'Settings'], ['log', 'Log'], ['rules', 'Never again']]} />
       {tab === 'settings' && <Settings />}
       {tab === 'log' && <Log />}

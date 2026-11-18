@@ -15,6 +15,17 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\b(goals?|heat|ongoing|simmering)\b.*\b(goal|heat|ongoing|simmering|bump|raise|mark|update|cool)|\b(bump|raise|cool|mark)\b.*\bgoal\b/i, tools: ['goal_update', 'context_for', 'who_is'] },
+  { re: /\b(show|put|bring up|display|throw)\b.*\b(whole table|to everyone|for everyone|to the (players|table|party)|on the (stage|screen))\b|\b(cards?|what('s| is)) (is )?on the (table )?(screen|stage|board)\b|\b(table|stage) screen\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card'] },
+  { re: /\b(tell|message|post to|say to|announce to|let)\b.*\b(the table|the players|everyone|the party)\b.*\b(chat|know|that)\b|\bover (the )?(table )?chat\b/i, tools: ['send_table_chat', 'read_table_chat'] },
+  { re: /\b(recap|summary)\b.*\b(draft|session)\b|\bdraft\b.*\b(recap|summary)\b/i, tools: ['draft_session_summary', 'list_session_log_drafts', 'list_session_log'] },
+  { re: /\b(quickly note|note this (idea|down)|jot this|an idea\b|idea:)/i, tools: ['memory_capture', 'memory_log'] },
+  { re: /\b(close in theme|similar (in theme )?to|like the .* page|read like|same vibe)\b/i, tools: ['related_pages', 'search_world', 'read_page'] },
+  { re: /\b(magic items?|a few items|some items|items? (suitable|for) (a )?level|loot (table|roll))\b/i, tools: ['generate_items', 'generate_coins', 'add_item'] },
+  { re: /\b(next (real[- ]life )?(game|session)|game session scheduled|session scheduled|when (is|are) (we|the next))\b/i, tools: ['list_calendar', 'schedule_session'] },
+  { re: /\b(trad(e|ed|es|ing)|swapp?(ed)?|exchang(e|ed))\b/i, tools: ['list_transfers', 'list_my_trades', 'get_inventory'] },
+  { re: /\b(all (our|the) players|players and (the )?characters|who plays|characters (they|the players) play|list (the )?(players|members))\b/i, tools: ['list_members', 'get_live'] },
+  { re: /\b(sign[- ]?off|pending|waiting (for|on) (me|my)|needs? my (ok|ok|approval|attention))\b/i, tools: ['list_approvals', 'list_requests', 'list_broker_requests'] },
   { re: /\b(release|deliver|hand over|let (it|that|the answer) (through|out|go)|waiting for (my )?review|needs my review|refuse|decline)\b.*\b(broker|answer|question)|\bbroker (answer|question)s?\b.*\b(release|deliver|review|refuse|decline)/i, tools: ['broker_deliver', 'broker_refuse', 'list_broker_requests', 'broker_answer'] },
   { re: /\b(ally|rival|neutral|attitude|let the (whole )?party (see|know)|make \w+( \w+)? (an? )?(ally|rival)|has been met|mark .* as met)\b/i, tools: ['update_person', 'list_people', 'add_person'] },
   { re: /\b(journal draft|draft (my|a) journal|write up (my|the) (session|journal)|(summari[sz]e|write) (the|my) (session|night) for my (journal|notes))\b/i, tools: ['my_journal_draft', 'my_memory_log', 'my_context'] },

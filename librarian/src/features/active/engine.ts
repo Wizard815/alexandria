@@ -12,6 +12,7 @@ import { dmOnly } from '../../core/events.ts';
 import { parseJson } from '../../core/util.ts';
 import { listSessions } from '../audio/api.ts';
 import { onTranscriptLine } from '../audio/hooks.ts';
+import { engine } from '../audio/engine.ts';
 import { indexOf } from '../sound/index.ts';
 import { PLAYER } from '../stage/cards.ts';
 import { suggestionPass } from '../minerva/live.ts';
@@ -125,7 +126,7 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
     const t0 = performance.now();
     // Wake word: the DM's own mic only. The rest of the line is a direct request.
     const cmd = line.role === 'dm' && line.dmMic ? wakeCommand(line.text, state.wakeWord) : null;
-    if (cmd) { await handleWake(d, worldId, line, cmd, sess.id, mode); continue; }
+    if (cmd) { hideWake(d, worldId, r); await handleWake(d, worldId, line, cmd, sess.id, mode); continue; }
     if (mode !== 'active') continue;
     const cues = allCues(line, ctx);
     stat.rulesMs.push(performance.now() - t0);
@@ -219,9 +220,9 @@ async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wst
   const cur = snap?.music ? parseJson<any>(snap.music, {}) : null;
   const layers = [...new Set(indexOf(d).ambience.map((a) => a.layer))].slice(0, 20);
   const sys = `You are the stage hand of a tabletop RPG Dungeon Master. You read what the DM says and pick table actions ONLY when the DM clearly narrates or asks for them. Most lines need nothing: then return []. Never invent. Allowed actions (JSON objects):
-{"line":N,"cat":"music","mood":"calm|tense|sneaky|combat"}  (a new scene with a clearly different atmosphere; not if the music already fits; current music mood: ${cur?.mood ?? cur?.name ?? 'none'})
-{"line":N,"cat":"ambience","layers":[${layers.map((l) => `"${l}"`).join(',')}]}  (a place or weather with a distinct sound)
-{"line":N,"cat":"sfx","name":"creak|thunder|roar|howl|crash|clash|bell|scream|knock|splash|slam|growl|explosion"}  (a sound that just happened in the scene)
+{"line":N,"cat":"music","mood":"calm|tense|sneaky|combat"}  (ONLY when the party arrives somewhere new with a clearly different atmosphere, or the scene's mood clearly turns; never for a sound, a creature, a moment of suspense or a line inside a fight; not if the music already fits; current music mood: ${cur?.mood ?? cur?.name ?? 'none'})
+{"line":N,"cat":"ambience","layers":[${layers.map((l) => `"${l}"`).join(',')}]}  (ONLY when the party arrives at a place with a distinct sound, or the weather or time of day clearly changes; not for travelling, a sound or a creature)
+{"line":N,"cat":"sfx","name":"creak|thunder|roar|howl|crash|clash|bell|scream|knock|splash|slam|growl|explosion"}  (ONE distinct sound event the DM narrates as just happening: a door, a bell, thunder, a crash; not voices, shouting or the noise of a fight, and not the aftermath of a sound)
 {"line":N,"cat":"item","name":"silver key","qty":1}  (the party finds or is given a portable item)
 {"line":N,"cat":"coins","gp":0,"sp":0,"cp":0}  (the party finds or is given coins)
 {"line":N,"cat":"clock","preset":"short-rest|long-rest|next-day"} or {"line":N,"cat":"clock","minutes":120}  (time passes or the party rests)
@@ -233,6 +234,8 @@ Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
   for (const a of acts.slice(0, 6)) {
     const it = batch[Number(a?.line)];
     if (!it) continue;
+    // In a fight the rules and the DM's explicit words steer the sound; the scan does not guess.
+    if (ctx.combat.active && ['music', 'ambience', 'sfx'].includes(String(a?.cat))) continue;
     const mk = (i: Intent, conf = 0.8): Scored => ({ ...i, confidence: conf }) as Scored;
     let intent: Scored | null = null;
     if (a.cat === 'music' && ['calm', 'tense', 'sneaky', 'combat'].includes(a.mood)) intent = mk({ kind: 'music', mood: a.mood, why: it.line.text.slice(0, 60) }, 0.85);
@@ -323,6 +326,11 @@ export async function markWrong(d: Deps, worldId: string, logId: string): Promis
   setLog(d, worldId, logId, { wrong: true });
   addRule(d, worldId, row.ruleKey);
   return getLog(d, worldId, logId)!;
+}
+
+/** A spoken command to the assistant is for the DM only: take the line out of the players' transcript. */
+function hideWake(d: Deps, worldId: string, r: LineRow) {
+  try { if (r.audience === 'players') engine(d).setAudience(r as any, 'dm', worldId); } catch (e) { console.error('active: could not hide a wake line', e); }
 }
 
 // ---- the wake word ------------------------------------------------------------------------------
