@@ -15,12 +15,13 @@ interface Trigger { id: string; macroName: string; label: string; prefix: string
 const blank = (): Macro => ({ id: '', name: '', description: '', steps: [], params: [], playerRun: false, pinned: false });
 
 export default function MacrosPage() {
-  const [tab, setTab] = useState<'macros' | 'keys' | 'triggers' | 'actions'>('macros');
+  const [tab, setTab] = useState<'macros' | 'templates' | 'keys' | 'triggers' | 'actions'>('macros');
   return (
     <div className="stack loose">
       <PageHead title="Macros" lead="Named sequences of actions, run from a button, a key or a web request." />
-      <Tabs label="Macros" value={tab} onChange={setTab} items={[['macros', 'Macros'], ['keys', 'Key bindings'], ['triggers', 'Trigger URLs'], ['actions', 'Actions']]} />
+      <Tabs label="Macros" value={tab} onChange={setTab} items={[['macros', 'Macros'], ['templates', 'Templates'], ['keys', 'Key bindings'], ['triggers', 'Trigger URLs'], ['actions', 'Actions']]} />
       {tab === 'macros' && <Builder />}
+      {tab === 'templates' && <Templates />}
       {tab === 'keys' && <Keys />}
       {tab === 'triggers' && <Triggers />}
       {tab === 'actions' && <Actions />}
@@ -139,7 +140,8 @@ function Builder() {
                     <button type="button" className="btn small ghost" aria-label="Remove step" onClick={() => setEdit({ ...edit, steps: edit.steps.filter((_, k) => k !== i) })}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
                   </span>
                 </div>
-                <div className="row">{def?.args.map((a) => <ArgInput key={a.name} spec={a} value={s.args[a.name]} onChange={(v) => setStep(i, { args: { ...s.args, [a.name]: v } })} />)}</div>
+                {s.action === 'minerva.run' && <MinervaStep step={s} onChange={(args) => setStep(i, { args })} />}
+                {s.action !== 'minerva.run' && <div className="row">{def?.args.map((a) => <ArgInput key={a.name} spec={a} value={s.args[a.name]} onChange={(v) => setStep(i, { args: { ...s.args, [a.name]: v } })} />)}</div>}
                 <div className="row">
                   <Field label="Wait first (ms)"><input type="number" min={0} max={10000} value={s.delayMs} onChange={(e) => setStep(i, { delayMs: Number(e.target.value) || 0 })} /></Field>
                   <label className="row"><input type="checkbox" checked={s.continueOnError} onChange={(e) => setStep(i, { continueOnError: e.target.checked })} /> Carry on if this fails</label>
@@ -253,6 +255,47 @@ function Triggers() {
         <Field label="Runs per minute"><input type="number" min={1} max={60} value={perMinute} onChange={(e) => setPerMinute(Number(e.target.value) || 6)} /></Field>
         <button type="button" className="btn primary" disabled={act.busy || !macros.data.length} onClick={() => void make()}>Create URL</button>
       </div>
+    </div>
+  );
+}
+
+const TOOL_CHOICES: [string, string][] = [['play_music', 'Music'], ['play_ambience', 'Ambience'], ['play_sfx', 'Sound effects'], ['show_on_stage', 'Stage'], ['send_quick_event', 'Quick events'], ['set_combat', 'Combat on/off'], ['add_combatant', 'Add creatures'], ['damage_combatant', 'Damage'], ['set_conditions', 'Conditions'], ['next_turn', 'Next turn'], ['add_item', 'Give items'], ['add_coin', 'Give coins'], ['advance_world_time', 'World clock'], ['send_table_chat', 'Table chat'], ['search_library', 'Search the library']];
+
+/** A Minerva step: a prompt with {parameters}, the tools she may use, and whether she does it or proposes it. */
+function MinervaStep({ step, onChange }: { step: Step; onChange: (args: Record<string, any>) => void }) {
+  const a = step.args;
+  const picked = new Set(String(a.tools ?? '').split(',').map((x) => x.trim()).filter(Boolean));
+  const toggle = (t: string) => { const n = new Set(picked); if (n.has(t)) n.delete(t); else n.add(t); onChange({ ...a, tools: [...n].join(',') }); };
+  return (
+    <div className="stack" data-testid="minerva-step">
+      <Field label="What Minerva should do" help="Write it as you would say it. Use {{name}} (or {name}) for the macro's parameters, e.g. Start an ambush at {{place}}: tense music, show {{map}}, start combat with {{monsters}}."><textarea rows={4} value={a.prompt ?? ''} onChange={(e) => onChange({ ...a, prompt: e.target.value })} /></Field>
+      <div className="row">
+        <Field label="Mode"><select value={a.mode ?? 'do'} onChange={(e) => onChange({ ...a, mode: e.target.value })}><option value="do">Do it now</option><option value="propose">Propose (I confirm each change)</option></select></Field>
+      </div>
+      <div><span className="small muted">Tools she may use (none ticked: the usual table tools)</span>
+        <div className="row">{TOOL_CHOICES.map(([t, l]) => <label key={t} className="row small"><input type="checkbox" checked={picked.has(t)} onChange={() => toggle(t)} /> {l}</label>)}</div></div>
+    </div>
+  );
+}
+
+interface Template { id: string; name: string; description: string; params: { name: string; label?: string }[] }
+function Templates() {
+  const { w } = useWorld();
+  const list = useLoad(() => w.call<Template[]>('GET', '/actions/macro-templates'), [w]);
+  const act = useAction();
+  const { toast, toastNode } = useToast();
+  if (!list.data) return <Loading />;
+  return (
+    <div className="stack">
+      <p className="small muted" style={{ margin: 0 }}>Ready-made agent macros. Copy one, then edit its words and tools on the Macros tab. Each is a single Minerva step.</p>
+      <ErrorBox error={list.error || act.error} />
+      {list.data.map((t) => (
+        <div key={t.id} className="card row between" data-testid="macro-template">
+          <span><strong>{t.name}</strong> <span className="tiny muted">{t.description}{t.params.length ? ` Parameters: ${t.params.map((p) => p.name).join(', ')}.` : ''}</span></span>
+          <button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { const m = await w.call<any>('POST', `/actions/macro-templates/${t.id}/copy`, {}); toast(`Copied as “${m.name}”`); })}>Copy to my macros</button>
+        </div>
+      ))}
+      {toastNode}
     </div>
   );
 }
