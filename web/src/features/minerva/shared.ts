@@ -12,7 +12,7 @@ export interface State {
   arc?: Arc | null; arcs?: Arc[]; threads?: Thread[]; pending?: number; promotions?: Candidate[]; mysteries?: Mystery[]; players?: PlayerRow[];
 }
 export interface Op { op: string; rel?: string; text?: string; body?: string; section?: string; mode?: string }
-export interface Draft { id: string; review: string; kind: string; title: string; op: Op; byAccount: string | null; createdAt: string; preview: { rel: string; where: string; before: string; after: string } | null }
+export interface Draft { id: string; review: string; kind: string; title: string; op: Op; byAccount: string | null; createdAt: string; preview: { rel: string; where: string; before: string; after: string; level?: string; visibleToPlayers?: boolean } | null }
 export interface ReviewState { drafts: Draft[]; actions: { id: string; tool: string; summary: string; createdAt: string }[]; recent: { id: string; title: string; kind: string; status: string; note: string }[] }
 
 export interface View { key: string; title: string; body: string; heat?: string; updatedAt: string }
