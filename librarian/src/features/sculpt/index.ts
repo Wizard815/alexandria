@@ -483,7 +483,7 @@ const feature: Feature = {
   worldRoutes: routes,
   mcpTools: [{
     name: 'sculpt', write: true,
-    description: 'DM: make something from a template (an NPC, a shop, a statblock, an encounter, a rumour table, a trap, loot, a letter ...). Give a template name or id (see list_templates) and any values you have ("make me a rumour table for Saltmarsh": template "Rumour table", values {place: "Saltmarsh"}); the blanks are filled to fit the world. count makes several at once in one go (6 rumours, 10 tavern names). outputs picks what happens with the result: page, stage (shown to players: only the player-safe parts), combat (adds monsters to initiative), send (player templates), broker. DM-only parts become secret blocks and never reach the stage, players or the broker.',
+    description: 'DM: make something from a template (an NPC, a shop, a statblock, an encounter, a rumour table, a trap, loot, a letter ...). Give a template name or id (see list_templates; do not use it for a plain NPC, monster or loot request: use generate, generate_names or generate_coins unless the DM names a template) and any values you have ("make me a rumour table for Saltmarsh": template "Rumour table", values {place: "Saltmarsh"}); the blanks are filled to fit the world. count makes several at once in one go (6 rumours, 10 tavern names). outputs picks what happens with the result: page, stage (shown to players: only the player-safe parts), combat (adds monsters to initiative), send (player templates), broker. DM-only parts become secret blocks and never reach the stage, players or the broker.',
     props: {
       template: { type: 'string', description: 'Template name or id, e.g. "NPC for quick RP"' },
       values: { type: 'object', description: 'Field values you already know, by field key' },
@@ -507,6 +507,19 @@ const feature: Feature = {
     description: 'DM: the sculpting templates for this world, with their fields.',
     props: {},
     call: () => ({ method: 'GET', path: '/sculpt/templates' }),
+  }, {
+    name: 'create_template', write: true,
+    description: 'DM: draft a new sculpting template; the DM approves it before it is saved. Give name, description, perspective (dm or player), category (Combat, NPCs, Places, Loot, Story or Prep), fields (each: key lowercase_with_underscores, label, type text|longtext|number|select|list|name|item|coins|page|statblock|dice|table|rollTable, options for select, optional gen like "gen:name.human" or "dice:2d6" or "pick:a|b|c", dmOnly, hint) and body (text using {{field_key}}, {{#if key}}...{{/if}}, {{#each key}}...{{/each}}, {{#dm}}...{{/dm}} for DM-only parts, {{gen:...}}, {{dice:...}}, {{pick:a|b}}). Check list_templates first so you do not duplicate one. For a one-off NPC use generate (kind npc), not a template.',
+    props: {
+      name: { type: 'string' }, description: { type: 'string' },
+      perspective: { type: 'string', enum: ['dm', 'player'] }, category: { type: 'string', enum: [...CATEGORIES] },
+      fields: { type: 'array', items: { type: 'object' }, description: 'Field objects: {key, label, type, options?, gen?, dmOnly?, hint?, required?, optional?, default?}' },
+      body: { type: 'string', description: 'The template text' },
+      target: { type: 'object', description: 'Optional where results are saved, as the template editor has it' },
+      outputs: { type: 'object', description: 'Optional booleans: page, stage, combat, send, broker' },
+    },
+    required: ['name', 'fields', 'body'],
+    call: (a) => ({ method: 'POST', path: '/sculpt/templates', body: { name: a.name, description: a.description, perspective: a.perspective, category: a.category, fields: a.fields, body: a.body, target: a.target, outputs: a.outputs } }),
   }, {
     name: 'list_templates', dmOnly: true,
     description: 'DM: find a sculpting template by what you need ("rumour", "trap", "encounter"). Returns a short list: name, category, what it does and its field keys, so you can call sculpt with partial values.',
