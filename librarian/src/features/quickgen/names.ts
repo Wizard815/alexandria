@@ -8,7 +8,8 @@ export const RACES = ['human', 'elf', 'half-elf', 'dwarf', 'halfling', 'gnome', 
 export const GENDERS = ['male', 'female'] as const;
 export type Race = (typeof RACES)[number];
 export type Gender = (typeof GENDERS)[number];
-export type NameStyle = 'default' | 'virtue';
+export type NameStyle = 'default' | 'virtue' | 'dark';
+export const NAME_STYLES = ['default', 'virtue', 'dark'] as const;
 
 export interface GeneratedName { name: string; given: string; family: string; race: Race; gender: Gender }
 export interface NamesResult { seed: string; race: string; gender: string; names: GeneratedName[] }
@@ -84,6 +85,79 @@ const AASIMAR = {
   female: { a: ['aur', 'cael', 'ede', 'gab', 'hel', 'ilu', 'lum', 'mir', 'ser', 'sol', 'uri', 'zel', 'ana', 'ori'], m: ['a', 'e', 'i', 'io', 'el', 'ri'], z: ['iel', 'ia', 'ael', 'ena', 'ina', 'ora', 'ea', 'ith', 'elle'], mid: 0.4 },
 };
 
+
+// ---- dark fantasy ---------------------------------------------------------
+// A grimmer register for every race: harder consonants, heavier endings and
+// family names that sound like a curse or a trade nobody wants. Chosen with
+// style "dark".
+const S = (a: string, m: string, z: string, mid: number): Syl => ({ a: a.split(' '), m: m.split(' '), z: z.split(' '), mid });
+const DARK: Record<Race, { male: Syl; female: Syl; fam: { a: string[]; z: string[] } | null }> = {
+  human: {
+    male: S('mor vor kel dra gor thal vel ash crow mal sev nox hag bryn', 'a e o ul ar en', 'gar dric mourn thar vane gath ric sorn vek dun', 0.35),
+    female: S('mor ser vel lil ysa ann mal cor nyx hel ves thal', 'a i e ra el', 'wyn eth ia ssa thea vaine dra la rys ira', 0.35),
+    fam: { a: 'grave night raven bone ash black blood grim pale sorrow dread cinder'.split(' '), z: 'hollow weaver warden bane born wick thorn mourn fall reave shade crow'.split(' ') },
+  },
+  elf: {
+    male: S('vel zyl nyr xan mal ilz kar shae vhar zir eld ruth', 'a e i ae y', 'ion eth ael ris thir vyr oth iel', 0.5),
+    female: S('vel zyl nyr xan sha ilz kae shae nal zir lur', 'a e i ae y', 'ra ria sha thia lis eth ael ine', 0.5),
+    fam: { a: 'night ember dusk ash thorn gloom frost wither pale ruin'.split(' '), z: 'weave song shade veil whisper bough fall cry gleam mourn'.split(' ') },
+  },
+  'half-elf': {
+    male: S('mor vel kel dra thal ash nyr mal sev', 'a e i o', 'ric thar eth ion vane dun', 0.4),
+    female: S('mor ser vel ysa nyx hel thal lil', 'a i e ra', 'wyn eth ia thea la ira', 0.4),
+    fam: { a: 'grave night raven ash black pale sorrow'.split(' '), z: 'hollow song weaver born wick shade mourn'.split(' ') },
+  },
+  dwarf: {
+    male: S('kaz grim dur mor thrak bor drak vul krag gorm hrod', 'a o u ur ak', 'dun gar mok rak thul grim bek dak', 0.3),
+    female: S('hild vig kra dag bruna gund thra mor grim ros', 'a i u ur', 'da gret rid mund hild na ka', 0.3),
+    fam: { a: 'black deep coal iron grudge slag ember gloom ash war'.split(' '), z: 'fist maw hammer vein beard anvil delve forge grip breaker'.split(' ') },
+  },
+  halfling: {
+    male: S('mor gar nib sneak wil crum pip hob dod tom', 'o e i a', 'by bo kin wick rin gle ton', 0.2),
+    female: S('mar nel dot pru wil sly tan fen mol', 'e i a o', 'ly bell dy sy ra wick', 0.2),
+    fam: { a: 'crook night under bramble thistle sly pale hollow'.split(' '), z: 'foot barrel pocket hill wick thorn cellar'.split(' ') },
+  },
+  gnome: {
+    male: S('ziz grik nib mal dre quill skit vex fiz rok', 'a i o e', 'wick nik zle dab kin bit', 0.55),
+    female: S('zin grel nix mal sib dree quil skit vex', 'a i o e', 'bell wick zel dilly nia ie', 0.55),
+    fam: { a: 'cog rust sprocket gloom spark fuse sour snap'.split(' '), z: 'wheel spring whirl latch pocket fizzle widget snare'.split(' ') },
+  },
+  'half-orc': {
+    male: S('gruk mog thrak vrok skar uzg bol dreg krul hak', 'a o u ug ak', 'gash nak tuk rok bog gor dak', 0.3),
+    female: S('gru mor shag vra kra ug ruk', 'a u o ug', 'ga ka za ush ra tha', 0.3),
+    fam: { a: 'skull bone gore ash grim rot blood storm'.split(' '), z: 'cleaver render fang hide howl maw gnash scar'.split(' ') },
+  },
+  orc: {
+    male: S('gruk mog thrak vrok skar uzg bol dreg krul hak rotz', 'a o u ug ak', 'gash nak tuk rok bog gor dak', 0.3),
+    female: S('gru mor shag vra kra ug ruk zag', 'a u o ug', 'ga ka za ush ra tha', 0.3),
+    fam: { a: 'skull bone gore ash grim rot blood storm'.split(' '), z: 'cleaver render fang hide howl maw gnash scar'.split(' ') },
+  },
+  tiefling: {
+    male: S('mal vor zeph ak bal kar skor mor nex dis ras', 'a e i o ex ar', 'os eth ius mox oth ax eus ael', 0.4),
+    female: S('ver ly mor lil nyx sar zae mal ere kal', 'a i e ia ri', 'ia ith ena isse eth ira ys ara', 0.4),
+    fam: null,
+  },
+  dragonborn: {
+    male: S('vrak thar zor drak kesh ghor skar ur nak bhar', 'a o ak ar ik', 'ash rath gar jin kar nok tuk', 0.3),
+    female: S('vyr thas zir kes ghe skar ur nis bha', 'a i ar ik ra', 'sha ra ith nys ka la', 0.3),
+    fam: { a: 'vor kor drak sar nar zhar mor thun'.split(' '), z: 'ath ruk dal zor mir thas kul ghar'.split(' ') },
+  },
+  goliath: {
+    male: S('vor krag thar gro mal dur ulg tor zal', 'a o u ra lo', 'thi ek ak oth oun rim ur', 0.35),
+    female: S('vae kra thae gro mal ura sal zel', 'a o e ri', 'ia ala tha lo nae ira', 0.35),
+    fam: { a: 'storm thunder grim cairn bone crag winter grave'.split(' '), z: 'breaker bearer stone fall hand walker watcher render'.split(' ') },
+  },
+  aasimar: {
+    male: S('mor vel zad raz ser aeth cor nox hel ior', 'a e i io el ar', 'iel ion ael ius ias ar on', 0.4),
+    female: S('mor vel zel ser aeth cor nyx hel ori', 'a e i io el ri', 'iel ia ael ena ina ora ith', 0.4),
+    fam: { a: 'fallen ash dim grey pale sorrow dusk'.split(' '), z: 'light wing flame halo veil fall oath'.split(' ') },
+  },
+};
+const darkMaker = (race: Race, r: Rng, g: Gender) => {
+  const d = DARK[race];
+  return { given: build(r, d[g]), family: d.fam && chance(r, race === 'tiefling' ? 0.4 : 0.8) ? compound(r, d.fam.a, d.fam.z) : '' };
+};
+
 // ---- the filter ---------------------------------------------------------
 // Fragments that must never appear in a generated name (checked with spaces,
 // apostrophes and hyphens removed). Short on purpose: a rare false hit only
@@ -129,7 +203,8 @@ export function genNames(opts: NamesOpts = {}): NamesResult {
   const gender = String(opts.gender ?? 'any').toLowerCase();
   if (race !== 'any' && !isRace(race)) throw new RangeError(`race must be any or one of ${RACES.join(', ')}`);
   if (gender !== 'any' && gender !== 'male' && gender !== 'female') throw new RangeError('gender must be any, male or female');
-  const style: NameStyle = opts.style === 'virtue' ? 'virtue' : 'default';
+  const style: NameStyle = opts.style === 'virtue' ? 'virtue' : opts.style === 'dark' ? 'dark' : 'default';
+  if (opts.style !== undefined && opts.style !== null && opts.style !== '' && !(NAME_STYLES as readonly string[]).includes(String(opts.style))) throw new RangeError(`style must be one of ${NAME_STYLES.join(', ')}`);
   const count = Math.max(1, Math.min(2000, Math.floor(Number(opts.count ?? 10)) || 10));
   const seed = seedOf(opts.seed);
   const r = makeRng(seed);
@@ -139,7 +214,7 @@ export function genNames(opts: NamesOpts = {}): NamesResult {
   for (let i = 0; names.length < count && i < maxTries; i++) {
     const rc = race === 'any' ? pick(r, RACES) : (race as Race);
     const g: Gender = gender === 'any' ? (chance(r, 0.5) ? 'male' : 'female') : (gender as Gender);
-    const { given: gv, family } = MAKERS[rc](r, g, style);
+    const { given: gv, family } = style === 'dark' ? darkMaker(rc, r, g) : MAKERS[rc](r, g, style);
     const name = full(gv, family);
     const key = name.toLowerCase();
     if (seen.has(key) || isOffensive(name)) continue;
