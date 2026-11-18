@@ -70,11 +70,11 @@ const clipText = (s: string, n = 160) => (s.length > n ? s.slice(0, n - 1) + 'â€
 // ---- kinds -------------------------------------------------------------------
 
 /** The index a viewer searches: players the party index, a model the AI copy, the DM their own screen. */
-export const scopeFor = (v: Viewer): 'dm' | 'party' | 'ai' => (v.role !== 'dm' ? 'party' : v.audience === 'ai' ? 'ai' : 'dm');
+export const scopeFor = (v: Viewer): 'dm' | 'party' | 'ai' | 'broker' => (v.role !== 'dm' ? 'party' : v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'dm');
 
 async function pages(d: Deps, worldId: string, v: Viewer, q: string, limit: number, semantic: boolean): Promise<GlobalHit[]> {
   const scope = scopeFor(v);
-  const hits = semantic ? await hybridPages(d, worldId, q, scope, limit) : (d.library.search(worldId, q, v, limit) as any[]);
+  const hits = semantic ? await hybridPages(d, worldId, q, scope, limit, v) : (d.library.search(worldId, q, v, limit) as any[]);
   logSearch(d.db, { worldId, role: roleOf(v), origin: 'global', q, hitIds: hits.map((h: any) => h.id) });
   const base = v.role === 'dm' ? 'dm/library' : 'library';
   return finish('page', hits.map((h: any) => ({

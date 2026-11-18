@@ -182,6 +182,13 @@ export function fakeModels(real: typeof fetch) {
           return json({ choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: asks.map((a, i) => ({ id: `call_${i}`, type: 'function', function: { name: a.name, arguments: JSON.stringify(a.args) } })) } }] });
         }
       }
+      // The story bible's extraction: one fact per line of the page it was given (so a marker in the text reaches the facts).
+      if (/story bible/i.test(String(msgs[0]?.content ?? ''))) {
+        const u = String(msgs[msgs.length - 1]?.content ?? '');
+        const title = /^Page: (.*)$/m.exec(u)?.[1] ?? 'Page';
+        const lines = u.split('\n').slice(1).map((l) => l.trim()).filter((l) => l.length > 8);
+        return json({ choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ facts: lines.slice(0, 6).map((fact) => ({ subject: title, kind: 'lore', fact: fact.slice(0, 280) })) }) } }] });
+      }
       const wantsJson = !!b.response_format || /valid JSON object/i.test(body);
       const content = wantsJson ? JSON.stringify({ flavour: 'A short vivid line.', summary: 'A quiet night.', topic: null, topics: [], values: {}, markdown: '## Recap\n- Nothing happened.' }) : 'Here is a short answer.';
       return json({ choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content } }], usage: { prompt_tokens: 1, completion_tokens: 1 } });

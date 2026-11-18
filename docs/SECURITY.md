@@ -146,6 +146,17 @@ every world.
   that used it stop showing it.
 - A broker-level answer waits for the DM.
 
+Semantic rows (`search_chunks`, `bible_facts`, see `docs/MEMORY.md`) have four
+scopes: `dm` (AI copy), `broker`, `party` and `lifted` (the player copy of a
+DM-level page that some account may open through its own key, a grant or a
+share). Each viewer reads only their own: players `party` plus the `lifted`
+rows of the pages they may open right now. Unsharing, revoking a key,
+demoting a page at the source, a level change, a source audience change and a
+removal delete the rows they make wrong in the same step
+(`Library.changed`), and every read checks the page again.
+`memory.test.ts` and the markers `bible_dm`, `share_revoked` and
+`demoted_page` in `security-world.ts` cover this.
+
 ## Adding a feature: how it gets covered
 
 1. Your routes are crawled automatically. If a player may call one of your
