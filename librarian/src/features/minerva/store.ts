@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS minerva_found (
   UNIQUE (world_id, slug, clue_n, account_id, kind, text)
 );
 CREATE INDEX IF NOT EXISTS minerva_found_player ON minerva_found(world_id, account_id);
+-- Where the live suggestion pass got to in the session being recorded.
+CREATE TABLE IF NOT EXISTS minerva_live (
+  world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  seen_at TEXT NOT NULL,
+  last_at TEXT
+);
 `;
 
 export const audit = (d: Deps, worldId: string, who: string | null, action: string, detail = '') =>
@@ -124,9 +131,19 @@ export function findArc(db: DB, worldId: string, ref: string): Arc | null {
   return listArcs(db, worldId).find((a) => a.id === ref || a.slug.toLowerCase() === q || String(a.n) === q || a.title.toLowerCase() === q || a.slug.toLowerCase().endsWith(`-${q}`)) ?? null;
 }
 
-/** The session number now in progress: the one after the last session log published. */
+/**
+ * The session number now in progress: the one after the last session log published, or the number the table gave the
+ * session being recorded (a recording named "Session 22" is session 22, whatever the log count says).
+ */
 export function currentSession(db: DB, worldId: string): number {
   const logged = one<any>(db, 'SELECT MAX(number) AS n FROM sessionlog_entries WHERE world_id = ?', worldId)?.n ?? 0;
   const filed = one<any>(db, 'SELECT MAX(number) AS n FROM minerva_sessions WHERE world_id = ?', worldId)?.n ?? 0;
-  return Math.max(logged, filed) + 1;
+  const next = Math.max(logged, filed) + 1;
+  let named = 0;
+  try {
+    const rec = one<any>(db, 'SELECT name FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC LIMIT 1', worldId);
+    const m = /\bsession\s+#?(\d{1,4})\b/i.exec(String(rec?.name ?? ''));
+    if (m) named = Number(m[1]);
+  } catch { /* no recordings */ }
+  return named > Math.max(logged, filed) ? named : next;
 }
