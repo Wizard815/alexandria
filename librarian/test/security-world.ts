@@ -4,6 +4,8 @@
 import { one, run } from '../src/core/db.ts';
 import { CAMPAIGN, KANKA_API, TOKENS, type FakeEntity } from './sourcekeys-fake.ts';
 import { mark, markNum, tok, type Who } from './security-kit.ts';
+import { syncEmbeddings } from '../src/features/search/embeddings.ts';
+import { syncBible } from '../src/features/bible/extract.ts';
 
 export interface H {
   call: (method: string, url: string, token?: string | null, body?: unknown, headers?: Record<string, string>) => Promise<any>;
@@ -359,6 +361,26 @@ export async function seedContent(h: H, S: Seed) {
   // ---- the search log: a DM's own search about a secret is kept for the DM's admin pages, never for players or a non-DM admin ----------
   await dm('GET', `/library/search?q=${encodeURIComponent(`who really killed the harbour master ${mark('dm_search_query', ['dm'], 'the words of a DM search about a secret (the admin search log)')}`)}`);
   await h.ok('GET', `/api/worlds/${W}/library/search?q=${encodeURIComponent('smuggler queen')}`, T.jess);
+
+  // ---- semantic index and story bible: rows that must vanish when a permission changes ------------------------------------------------
+  // Everything is embedded and extracted (as the background jobs do), then a share is revoked and a page is hidden at its source:
+  // the party vectors and facts of the demoted page and the lifted ones of the revoked share must be gone at once, before any read.
+  const indexAll = async () => { await syncEmbeddings(h.deps, { maxPages: 5000 }); await syncBible(h.deps, { maxPages: 5000 }); };
+  await page('bible_party', 'bible/Harbour Ledger.md', 'party', `# Harbour Ledger\nThe harbour ledger lists every ship that docked this year ${mark('bible_party', ['dm', 'jess', 'tom'], 'a shared page the story bible and related pages read (control)')}.\n`);
+  await page('bible_dm', 'bible/Ledger Cheat.md', 'dm', `# Ledger Cheat\nThe harbour ledger is forged by the smuggler queen ${mark('bible_dm', ['dm'], 'a DM-only page whose text must never reach a player related reason or bible')}.\n`);
+  const revoked = await page('share_revoked', 'bible/Revoked Share.md', 'dm', `# Revoked Share\nThe harbour ledger hides a second book ${mark('share_revoked', ['dm'], 'a DM page shared with jess and then unshared (its lifted vectors and facts must be gone)')}.\n`);
+  await dm('POST', `/library/pages/${revoked.id}/share`, { to: [ID.jess] });
+  const pushEntry = (visibility: string) => h.ok('POST', `/api/intake/${sid}/entries`, key, { entries: [{ externalId: 'imp-demote', title: 'Demoted Ledger', visibility, type: 'page', blocks: [p(`The harbour ledger was once public ${mark('demoted_page', ['dm'], 'a page hidden at its source after it was shared (its party vectors and facts must be gone at once)')}.`)] }] });
+  await pushEntry('party');
+  await indexAll();
+  const seesLifted = (await h.ok('GET', `/api/worlds/${W}/bible?q=harbour`, T.jess)).subjects.some((x: any) => JSON.stringify(x).includes(tok('share_revoked')));
+  if (!seesLifted) throw new Error('seed: the shared page should be in jess\'s story bible before it is revoked');
+  await dm('DELETE', `/library/pages/${revoked.id}/share`);
+  await pushEntry('dm');
+  const demoted = one<any>(h.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', W, 'imp-demote')!.id as string;
+  const rows = Number(one<any>(h.deps.db, `SELECT (SELECT count(*) FROM search_chunks WHERE page_id IN (?, ?) AND scope IN ('party', 'lifted')) + (SELECT count(*) FROM bible_facts WHERE page_id IN (?, ?) AND scope IN ('party', 'lifted')) AS n`, revoked.id, demoted, revoked.id, demoted)!.n);
+  if (rows !== 0) throw new Error(`seed: ${rows} vectors or facts of an unshared and a hidden page are still there`);
+  await indexAll();
 
   // ---- another world: nothing of it reaches this one ---------------------------------------------------------------------
   const dm2 = (m: string, u: string, b?: unknown) => h.ok(m, `/api/worlds/${S.W2}${u}`, T.dm2, b);
