@@ -340,6 +340,18 @@ async function lkListResources(t: Transport, ctx: ConnectorContext): Promise<any
 const LK_TYPE_TAGS = ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'];
 const lkType = (r: any, d: any) => (d.type === 'map' ? 'map' : (r.tags ?? []).find((x: string) => LK_TYPE_TAGS.includes(x)) ?? 'page');
 
+/**
+ * The documents of a resource that become pages: its pages and maps. A resource that has only blank documents (an empty folder-like entry
+ * other pages link to) still gets one page, so it is in the library tree and its links resolve; it has no text to read.
+ */
+export function lkPageDocs(r: any): any[] {
+  const docs = Array.isArray(r.documents) ? r.documents : [];
+  const pages = docs.filter((d: any) => d.type === 'page' || d.type === 'map');
+  if (pages.length || docs.some((d: any) => d.type === 'time')) return pages;
+  const blank = docs.find((d: any) => d.type === 'blank');
+  return blank ? [blank] : [];
+}
+
 /** A page's external id, title and parent: the same from a list item and from a detail. */
 function lkIdentity(r: any, pages: any[], d: any) {
   const multi = pages.length > 1;
@@ -351,6 +363,11 @@ function lkIdentity(r: any, pages: any[], d: any) {
     first, multi,
   };
 }
+
+const ANCESTOR_TTL_MS = 5 * 60_000;
+const ANCESTOR_MEMO = new Map<string, { d: any; until: number }>();
+/** Tests only. */
+export const resetAncestorMemo = () => ANCESTOR_MEMO.clear();
 
 /** What is kept between listings: each resource's parent, hidden flag and tree position, so one page can be read alone later. */
 const lkCache = (all: any[], positions: Map<string, number>) => ({ res: Object.fromEntries(all.map((r) => [String(r.id), [r.parentId ? String(r.parentId) : '', r.isHidden === false ? 0 : 1, positions.get(String(r.id)) ?? -1]])) });
@@ -385,6 +402,16 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
     if (!details.has(rid)) details.set(rid, t.get(`/resources/${rid}`).catch((err: any) => { ctx.log(`Could not read ${byId.get(rid)?.name ?? rid}: ${err.message}`); return null; }));
     return details.get(rid)!;
   };
+  // An ancestor's detail is only read for its permissions, and a folder with many pages under it is asked about by each of them (one
+  // session per page when pages are read one at a time): remember it for a few minutes, per project. Only successful reads are kept.
+  const ancestorDetail = async (rid: string) => {
+    const key = `${String(cfg.apiUrl ?? '')}|${rid}`;
+    const hit = ANCESTOR_MEMO.get(key);
+    if (hit && hit.until > Date.now() && !details.has(rid)) return hit.d;
+    const d = await detailOf(rid);
+    if (d) { ANCESTOR_MEMO.set(key, { d, until: Date.now() + ANCESTOR_TTL_MS }); if (ANCESTOR_MEMO.size > 5000) ANCESTOR_MEMO.clear(); }
+    return d;
+  };
   // Resource permissions: { MEMBER | ADMIN | OWNER | <user id>: 0..5 }, 0 = No Access.
   // A No Access entry for players (the MEMBER role or any one user) on the
   // resource or any ancestor keeps it from the party. An unreadable detail or
@@ -393,7 +420,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
   const deniesPlayers = (rid: string, depth = 0): Promise<boolean> => {
     if (!denied.has(rid)) denied.set(rid, (async () => {
       if (depth > 64) return true;
-      const d = await detailOf(rid);
+      const d = depth > 0 ? await ancestorDetail(rid) : await detailOf(rid);
       const perms = d?.permissions;
       if (!perms || typeof perms !== 'object' || Array.isArray(perms)) return true;
       for (const [who, level] of Object.entries(perms)) {
@@ -411,7 +438,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     if (r.isTemplate === true) return;
     // Pages and maps become pages of their own; timelines become records.
-    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
+    const pages = lkPageDocs(r);
     const timelines = (r.documents ?? []).filter((d: any) => d.type === 'time');
     if (!pages.length && !timelines.length) return;
     const detail = await detailOf(String(r.id));
@@ -435,11 +462,15 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
           ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
           continue;
         }
+      } else if (d.type === 'blank') {
+        blocks = [];
       } else {
         let doc: any;
         try {
           doc = await t.get(`/resources/${r.id}/docs/${d.id}/blocks`);
         } catch (err: any) {
+          // The key is not accepted for page content at all: say so (every page would be skipped the same way, silently), instead of logging a skip.
+          if (/answered 401\b/.test(String(err?.message))) throw new Error('LegendKeeper refused this key for page content (401). Check the key and its role.');
           ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
           continue;
         }
@@ -533,7 +564,7 @@ async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string,
   for (const r of all) {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     if (r.isTemplate === true) continue;
-    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
+    const pages = lkPageDocs(r);
     const restricted = session.hidden(String(r.id));
     for (const d of pages) {
       const idn = lkIdentity(r, pages, d);
