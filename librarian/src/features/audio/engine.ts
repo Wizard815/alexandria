@@ -2,15 +2,19 @@
 // lines with an audience. Everything that decides who may read a line is in
 // flush(): it fails closed (a line is DM-only unless every rule lets
 // players have it).
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
-import { ModelUnavailable, transcribe } from '../../core/ai.ts';
+import { jobConfig, ModelUnavailable, transcribe } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { everyone, type Audience } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
 import { id as newId, now, parseJson } from '../../core/util.ts';
-import { groupUtterances, mergeGroup, similarity, token, utterances, type Word } from './merge.ts';
+import { groupUtterances, MAX_UTTERANCE_MS, mergeGroup, similarity, token, utterances, type Word } from './merge.ts';
+import { cleanWords, echoesPrompt, junkReason, QUIET_LEVEL, type Pw } from './clean.ts';
+import { buildHint, containsTerm, dmOnlyTerms } from './hint.ts';
 import { notifyLine } from './hooks.ts';
 
 export const SCHEMA = `
@@ -115,7 +119,10 @@ function splitAt<U extends { start: number; end: number; words: Word[] }>(u: U, 
   }
   return out;
 }
-const CONTEXT = 20_000;
+const CONTEXT = 30_000;
+/** A personal mic is credited with a line only when it is this much louder than every other mic that heard it. */
+const CLOSE_RATIO = 1.5;
+export const TABLE = 'Table';
 const overlaps = (a0: number, a1: number, b0: number, b1: number) => a0 < b1 && a1 > b0;
 
 /** What each kind of viewer is sent for a line. Players never get sources, words or the audience field. */
@@ -134,6 +141,9 @@ export class Engine {
   private dirty = new Map<string, { from: number; to: number; timer?: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<string>();
   private hints = new Map<string, { at: number; text: string }>();
+  private terms = new Map<string, { at: number; list: string[][] }>();
+  /** Segments thrown away since the server started, by reason (hallucinations and echoes). */
+  dropped: Record<string, number> = {};
 
   constructor(d: Deps) { this.d = d; }
 
@@ -141,40 +151,30 @@ export class Engine {
 
   // ---- hints for the speech model --------------------------------------
 
-  /** Library titles and aliases (the DM sees everything) and, when the modules feature is there, its term names. */
+  /** What a world's players may read: see hint.ts. Never a DM-only, broker or classified title. */
   hint(worldId: string): string {
     const c = this.hints.get(worldId);
-    if (c && Date.now() - c.at < 60_000) return c.text;
-    const names = new Set<string>();
-    try {
-      for (const p of all<any>(this.d.db, "SELECT title, frontmatter FROM pages WHERE world_id = ? AND visibility <> 'classified' ORDER BY updated_at DESC LIMIT 400", worldId)) {
-        if (p.title && p.title.length <= 40) names.add(p.title);
-        const al = parseJson<any>(p.frontmatter, {}).aliases;
-        for (const a of Array.isArray(al) ? al : typeof al === 'string' ? [al] : []) if (typeof a === 'string' && a.length <= 40) names.add(a);
-      }
-    } catch { /* no pages table yet */ }
-    try {
-      const tables = all<any>(this.d.db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'modules\\_%' ESCAPE '\\'");
-      for (const t of tables) {
-        if (!/^[a-z0-9_]+$/.test(t.name)) continue;
-        const cols = all<any>(this.d.db, `PRAGMA table_info(${t.name})`).map((x) => x.name);
-        const col = ['term', 'name', 'title'].find((x) => cols.includes(x));
-        if (!col) continue;
-        const hasWorld = cols.includes('world_id');
-        try {
-          for (const r of all<any>(this.d.db, `SELECT DISTINCT ${col} AS n FROM ${t.name} ${hasWorld ? 'WHERE world_id = ?' : ''} LIMIT 300`, ...(hasWorld ? [worldId] : []))) {
-            if (typeof r.n === 'string' && r.n.length <= 40) names.add(r.n);
-          }
-        } catch { /* a different shape: skip it */ }
-      }
-    } catch { /* modules feature not present */ }
+    if (c && Date.now() - c.at < 15_000) return c.text;
     let text = '';
-    for (const n of [...names].sort((a, b) => a.length - b.length)) {
-      if ((text + n).length > 800) break;
-      text += (text ? ', ' : 'Names and terms: ') + n;
-    }
+    try { text = buildHint(this.d.db, worldId); } catch (err) { console.error('audio: hint failed', err); }
     this.hints.set(worldId, { at: Date.now(), text });
     return text;
+  }
+  resetHint(worldId?: string) { if (worldId) this.hints.delete(worldId); else this.hints.clear(); this.terms.clear(); }
+
+  /** DM-only titles and aliases of a world, as token lists (cached for a short while). */
+  private dmTerms(worldId: string): string[][] {
+    const c = this.terms.get(worldId);
+    if (c && Date.now() - c.at < 15_000) return c.list;
+    let list: string[][] = [];
+    try { list = dmOnlyTerms(this.d.db, worldId); } catch { /* none */ }
+    this.terms.set(worldId, { at: Date.now(), list });
+    return list;
+  }
+
+  private worldSetting(worldId: string, key: string): unknown {
+    const w = one<any>(this.d.db, 'SELECT settings FROM worlds WHERE id = ?', worldId);
+    return featureSetting({ ...DEFAULT_SETTINGS, ...parseJson<any>(w?.settings, {}) }, key);
   }
 
   // ---- chunks ------------------------------------------------------------
@@ -188,30 +188,125 @@ export class Engine {
     try {
       let bytes: Buffer;
       try { bytes = fs.readFileSync(path.join(this.d.dataDir, ch.file)); } catch { run(this.d.db, "UPDATE audio_chunks SET status = 'failed' WHERE id = ?", chunkId); return 'skipped'; }
+      const hintOn = this.worldSetting(ch.world_id, 'transcriptHint') !== 'off';
+      // A quiet chunk gets no vocabulary: a prompt on near silence is what the model repeats back.
+      const hint = hintOn && ch.level >= QUIET_LEVEL ? this.hint(ch.world_id) : '';
+      const context = this.worldSetting(ch.world_id, 'transcriptContext') === 'on' ? this.contextFor(ch) : '';
+      const prompt = [hint, context].filter(Boolean).join(' ');
       let t;
       try {
-        t = await transcribe(this.d, bytes, ch.mime, { prompt: this.hint(ch.world_id) });
+        t = await transcribe(this.d, bytes, ch.mime, { prompt });
+        // A loop or made-up text on a chunk with signal: once more, a little warmer.
+        if (ch.level >= 0.1 && t.segments.length && t.segments.every((s) => ['compression', 'logprob'].includes(junkReason(s) ?? ''))) {
+          try { t = await transcribe(this.d, bytes, ch.mime, { prompt, temperature: 0.4 }); } catch { /* keep the first answer */ }
+        }
       } catch (err) {
         if (!(err instanceof ModelUnavailable)) console.error('audio: transcription failed', err);
         const attempts = ch.attempts + 1;
         run(this.d.db, 'UPDATE audio_chunks SET status = ?, attempts = ? WHERE id = ?', attempts >= 60 ? 'failed' : 'pending', attempts, chunkId);
         return 'pending';
       }
-      const words: [string, number, number, number][] = [];
-      for (const seg of t.segments) {
-        if ((seg.noSpeechProb ?? 0) > 0.8) continue;
-        const segConf = seg.avgLogprob !== undefined ? Math.exp(seg.avgLogprob) : 0.6;
-        const ws = seg.words?.length ? seg.words : synth(seg.text, seg.start, seg.end);
-        for (const w of ws) {
-          if (!token(w.word)) continue;
-          const conf = Math.min(1, Math.max(0, w.probability ?? segConf));
-          words.push([w.word.trim(), Math.round(ch.start_ms + w.start * 1000), Math.round(ch.start_ms + Math.max(w.end, w.start + 0.05) * 1000), Math.round(conf * 1000) / 1000]);
-        }
-      }
+      const words = this.wordsOf(t.segments, ch.start_ms, hint);
       run(this.d.db, "UPDATE audio_chunks SET status = 'done', words = ?, attempts = attempts + 1 WHERE id = ?", JSON.stringify(words), chunkId);
       await this.touch(ch.session_id, ch.start_ms, ch.end_ms);
       return 'done';
     } finally { this.inflight.delete(chunkId); }
+  }
+
+  /** Speech-model segments -> the words we keep: hallucinations, prompt echoes and loops removed, dice written the table's way. */
+  wordsOf(segments: { start: number; end: number; text: string; avgLogprob?: number; noSpeechProb?: number; compressionRatio?: number; words?: { word: string; start: number; end: number; probability?: number }[] }[], startMs: number, hint: string): Pw[] {
+    const words: Pw[] = [];
+    const drop = (why: string) => { this.dropped[why] = (this.dropped[why] ?? 0) + 1; };
+    for (const seg of segments) {
+      const why = junkReason(seg);
+      if (why) { drop(why); continue; }
+      if (echoesPrompt(seg.text, hint)) { drop('hint-echo'); continue; }
+      const segConf = seg.avgLogprob !== undefined ? Math.exp(seg.avgLogprob) : 0.6;
+      const ws = seg.words?.length ? seg.words : synth(seg.text, seg.start, seg.end);
+      for (const w of ws) {
+        if (!token(w.word)) continue;
+        const conf = Math.min(1, Math.max(0, w.probability ?? segConf));
+        words.push([w.word.trim(), Math.round(startMs + w.start * 1000), Math.round(startMs + Math.max(w.end, w.start + 0.05) * 1000), Math.round(conf * 1000) / 1000]);
+      }
+    }
+    const kept = cleanWords(words);
+    if (kept.length < words.length) drop('repeat');
+    return kept;
+  }
+
+  /** The last few words this mic said before the chunk: what the model is told came just before. */
+  private contextFor(ch: any): string {
+    const prev = all<any>(this.d.db, "SELECT words FROM audio_chunks WHERE mic_id = ? AND session_id = ? AND status = 'done' AND end_ms <= ? AND end_ms >= ? ORDER BY end_ms DESC LIMIT 2", ch.mic_id, ch.session_id, ch.end_ms, ch.start_ms - 15_000);
+    const ws: string[] = [];
+    for (const p of prev.reverse()) for (const [w, , e] of parseJson<[string, number, number, number][]>(p.words, [])) if (e <= ch.start_ms) ws.push(w);
+    const text = ws.join(' ');
+    return text.length > 100 ? text.slice(text.length - 100).replace(/^\S*\s/, '') : text;
+  }
+
+  // ---- the second listen -----------------------------------------------------------
+
+  /** Glue chunk files (each minus the start it repeats from the one before) into one wav. Null when it cannot (no ffmpeg). */
+  joiner: (files: { path: string; trimMs: number }[]) => Promise<Buffer | null> = ffmpegJoin;
+
+  scheduleRefine(sessionId: string) {
+    const n = Number(this.d.env.ALX_AUDIO_REFINE_DELAY_MS ?? 20_000);
+    const t = setTimeout(() => { void this.refine(sessionId).catch((e) => console.error('audio: refine failed', e)); }, Number.isFinite(n) ? n : 20_000);
+    t.unref?.();
+  }
+
+  /**
+   * After a recording stops: listen to the kept audio again in windows of up to 60 s with the audio job's `refineModel`
+   * (a bigger model; longer context is worth about ten points of word error over 5 s pieces) and replace the words. Lines
+   * keep their ids and DM-only flags, and a line that was DM-only stays DM-only (nothing is loosened). Off unless the
+   * world's transcriptRefine is on and the job names a refineModel. Returns how many windows were redone.
+   */
+  async refine(sessionId: string): Promise<number> {
+    const { db, dataDir } = this.d;
+    const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
+    if (!session || !session.stopped_at || !dataDir) return 0;
+    if (this.worldSetting(session.world_id, 'transcriptRefine') !== 'on') return 0;
+    const model = jobConfig(this.d, 'audio')?.options?.refineModel;
+    if (typeof model !== 'string' || !model) return 0;
+    const hint = this.hint(session.world_id);
+    let redone = 0;
+    const mics = all<any>(db, "SELECT DISTINCT mic_id FROM audio_chunks WHERE session_id = ? AND status = 'done' AND file IS NOT NULL", sessionId);
+    for (const { mic_id } of mics) {
+      const chunks = all<any>(db, "SELECT id, file, mime, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND status = 'done' AND file IS NOT NULL ORDER BY start_ms", sessionId, mic_id);
+      const windows: { chunk: any; trim: number; from: number }[][] = [];
+      let cur: { chunk: any; trim: number; from: number }[] = [];
+      let covered = 0;
+      for (const c of chunks) {
+        const from = Math.max(c.start_ms, covered);
+        if (cur.length && (c.start_ms > covered + 300 || c.end_ms - cur[0].from > 60_000)) { windows.push(cur); cur = []; }
+        const first = !cur.length;
+        const f = first ? c.start_ms : Math.max(c.start_ms, covered);
+        if (c.end_ms <= covered && !first) continue;
+        cur.push({ chunk: c, trim: f - c.start_ms, from: f });
+        covered = Math.max(covered, c.end_ms);
+        void from;
+      }
+      if (cur.length) windows.push(cur);
+      for (const win of windows) {
+        const start = win[0].from;
+        const end = win[win.length - 1].chunk.end_ms;
+        const wav = await this.joiner(win.map((x) => ({ path: path.join(dataDir, x.chunk.file), trimMs: x.trim })));
+        if (!wav) return redone;
+        let t;
+        try { t = await transcribe(this.d, wav, 'audio/wav', { prompt: hint, model }); } catch (err) { if (!(err instanceof ModelUnavailable)) console.error('audio: refine failed', err); return redone; }
+        const words = this.wordsOf(t.segments, start, hint);
+        // Each word goes back to the chunk that owns that moment.
+        const owned = new Map<string, Pw[]>(win.map((x) => [x.chunk.id, []]));
+        for (const w of words) {
+          const mid = (w[1] + w[2]) / 2;
+          const x = win.find((y) => mid >= y.from && mid <= y.chunk.end_ms) ?? win[win.length - 1];
+          owned.get(x.chunk.id)!.push(w);
+        }
+        for (const [id, ws] of owned) run(db, 'UPDATE audio_chunks SET words = ? WHERE id = ?', JSON.stringify(ws), id);
+        this.merge(sessionId, start, end, true);
+        redone++;
+      }
+    }
+    return redone;
   }
 
   async retryPending(limit = 25): Promise<number> {
@@ -245,7 +340,7 @@ export class Engine {
   }
   flushAll() { for (const k of [...this.dirty.keys()]) this.flush(k); }
 
-  private merge(sessionId: string, from: number, to: number) {
+  private merge(sessionId: string, from: number, to: number, keepDm = false) {
     const { db } = this.d;
     const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
     if (!session) return;
@@ -253,14 +348,24 @@ export class Engine {
     const hi = to + CONTEXT;
     const mics = new Map(all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ?', session.world_id).map((m) => [m.id, m]));
     const roles = new Map(all<any>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', session.world_id).map((m) => [m.account_id, m.role as string]));
-    const chunks = all<any>(db, "SELECT mic_id, level, words FROM audio_chunks WHERE session_id = ? AND status = 'done' AND end_ms >= ? AND start_ms <= ?", sessionId, lo, hi);
+    const chunks = all<any>(db, "SELECT mic_id, level, words, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND status = 'done' AND end_ms >= ? AND start_ms <= ?", sessionId, lo, hi);
     const holds = all<any>(db, 'SELECT mic_id, kind, start_ms, end_ms FROM audio_holds WHERE session_id = ? AND end_ms >= ? AND start_ms <= ?', sessionId, lo, hi);
 
-    // Every mic's words in the window, before any hold rules.
+    // Every mic's words in the window, before any hold rules. Chunks overlap (each carries a little of the one before for
+    // context): a stretch of time belongs to the chunk whose middle is nearest it, so no word is counted twice.
     const raw = new Map<string, Word[]>();
+    const spans = new Map<string, { s: number; e: number }[]>();
+    for (const c of chunks) { const l = spans.get(c.mic_id) ?? []; l.push({ s: c.start_ms, e: c.end_ms }); spans.set(c.mic_id, l); }
     for (const c of chunks) {
       const list = raw.get(c.mic_id) ?? [];
-      for (const [w, s, e, p] of parseJson<[string, number, number, number][]>(c.words, [])) list.push({ w, s, e, c: p, l: Math.max(0.02, Math.min(1, c.level)) });
+      const mine = spans.get(c.mic_id)!;
+      const edge = (x: { s: number; e: number }, t: number) => Math.min(t - x.s, x.e - t);
+      for (const [w, s, e, p] of parseJson<[string, number, number, number][]>(c.words, [])) {
+        const mid = (s + e) / 2;
+        const own = edge({ s: c.start_ms, e: c.end_ms }, mid);
+        if (mine.some((x) => (x.s !== c.start_ms || x.e !== c.end_ms) && mid >= x.s && mid <= x.e && (edge(x, mid) > own || (edge(x, mid) === own && x.s < c.start_ms)))) continue;
+        list.push({ w, s, e, c: p, l: Math.max(0.02, Math.min(1, c.level)) });
+      }
       raw.set(c.mic_id, list);
     }
 
@@ -297,39 +402,44 @@ export class Engine {
         if (mute.some((h) => mid >= h.start_ms - 100 && mid <= h.end_ms + 100)) return false;
         return true;
       });
-      utts.push(...utterances(micId, kept).flatMap((u) => splitAt(u, cuts)));
+      utts.push(...utterances(micId, kept, 700, MAX_UTTERANCE_MS).flatMap((u) => splitAt(u, cuts)));
     }
 
     const lines = groupUtterances(utts).map(mergeGroup).filter((l) => l.words.length && l.end >= from && l.start <= to);
-    const existing = all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ? AND end_ms >= ? AND start_ms <= ? ORDER BY start_ms', sessionId, from, to);
+    // Lines already stored are looked for over what was produced, not just the chunk's own range: a line that began in an
+    // earlier chunk and has grown into this one is the same line (it used to be inserted again).
+    const lowest = Math.min(from, ...lines.map((l) => l.start)) - 500;
+    const highest = Math.max(to, ...lines.map((l) => l.end)) + 500;
+    const existing = all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ? AND end_ms >= ? AND start_ms <= ? ORDER BY start_ms', sessionId, lowest, highest);
     const used = new Set<string>();
     const nm = this.nameOf(session.world_id);
+    const terms = this.dmTerms(session.world_id);
 
     for (const l of lines) {
-      // Speaker: the strongest close signal. A player's own mic beats a room mic for that player's voice.
-      let best = ''; let bestScore = -1;
-      for (const [micId, st] of Object.entries(l.stats)) {
-        const m = mics.get(micId);
-        const own = m && !m.room && roles.get(m.account_id) === 'player' ? 1.5 : 1;
-        const sc = st.level * (0.5 + st.conf) * own;
-        if (sc > bestScore) { best = micId; bestScore = sc; }
+      // Speaker: a personal mic is credited only when it is clearly the close one; otherwise it is the table.
+      const heard = Object.entries(l.stats).map(([id, st]) => ({ id, m: mics.get(id), level: st.level, conf: st.conf })).filter((x) => x.m);
+      const personal = heard.filter((x) => !x.m!.room).sort((a, b) => b.level * (0.5 + b.conf) - a.level * (0.5 + a.conf));
+      let speakerAccount: string | null = null;
+      let speakerLabel = TABLE;
+      if (personal.length) {
+        const top = personal[0];
+        const rest = Math.max(0, ...heard.filter((x) => x !== top).map((x) => x.level));
+        if (top.level >= rest * CLOSE_RATIO) { speakerAccount = top.m!.account_id; speakerLabel = top.m!.label; }
       }
-      const bm = mics.get(best);
-      const personal = !!bm && !bm.room;
-      const speakerAccount = personal ? bm!.account_id : null;
-      const speakerLabel = bm?.label ?? '';
 
       // Audience: fail closed.
       const inAside = aside.some(([a, b]) => overlaps(l.start - ASIDE_PAD, l.end + ASIDE_PAD, a, b));
       const anyPlayersMic = l.mics.some((id) => mics.get(id)?.players_transcript === 1);
-      const computed: 'players' | 'dm' = !anyPlayersMic || inAside ? 'dm' : 'players';
+      // A DM-only title in a line that only one mic heard may be the speech model repeating something it was given: DM-only.
+      const echoRisk = l.mics.length < 2 && containsTerm(l.text, terms);
+      const computed: 'players' | 'dm' = !anyPlayersMic || inAside || echoRisk ? 'dm' : 'players';
 
       const match = this.findExisting(existing, used, l.start, l.end, l.text);
       const sources = JSON.stringify(l.mics);
       const words = JSON.stringify(l.words.map((w) => ({ w: w.w, s: w.s, e: w.e, c: Math.round(w.c * 1000) / 1000, mic: w.mic })));
       if (match) {
         used.add(match.id);
-        const audience = match.audience_override ?? computed;
+        const audience = match.audience_override ?? (keepDm && match.audience === 'dm' ? 'dm' : computed);
         if (match.text === l.text && match.start_ms === l.start && match.end_ms === l.end && match.audience === audience && match.speaker_account === speakerAccount && match.speaker_label === speakerLabel && match.sources === sources) continue;
         const next: LineRow = { ...match, start_ms: l.start, end_ms: l.end, text: l.text, words, sources, speaker_account: speakerAccount, speaker_label: speakerLabel, audience, rev: match.rev + 1, updated_at: now() };
         run(db, 'UPDATE audio_lines SET start_ms = ?, end_ms = ?, text = ?, words = ?, sources = ?, speaker_account = ?, speaker_label = ?, audience = ?, rev = ?, updated_at = ? WHERE id = ?',
@@ -345,6 +455,10 @@ export class Engine {
     // A line that nothing produces any more (a mute window arrived late) goes away.
     for (const old of existing) {
       if (used.has(old.id)) continue;
+      // Only lines this merge could have produced go away (in its range, or taken over by a line that grew into them).
+      const len = Math.max(1, old.end_ms - old.start_ms);
+      const inRange = old.end_ms >= from && old.start_ms <= to;
+      if (!inRange && !lines.some((l) => Math.min(l.end, old.end_ms) - Math.max(l.start, old.start_ms) > 0.3 * len)) continue;
       run(db, 'DELETE FROM audio_lines WHERE id = ?', old.id);
       this.emitLine({ ...old, rev: old.rev + 1 }, old.audience, nm, true);
     }
@@ -421,6 +535,22 @@ export class Engine {
     }
     return n;
   }
+}
+
+/** ffmpeg: every chunk trimmed of the start it shares with the one before, end to end, as 16 kHz mono wav. */
+function ffmpegJoin(files: { path: string; trimMs: number }[]): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const out = path.join(os.tmpdir(), `alx-refine-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`);
+    const inputs = files.flatMap((f) => ['-i', f.path]);
+    const trims = files.map((f, i) => `[${i}:a]atrim=start=${(f.trimMs / 1000).toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`);
+    const graph = `${trims.join(';')};${files.map((_, i) => `[a${i}]`).join('')}concat=n=${files.length}:v=0:a=1[out]`;
+    execFile('ffmpeg', ['-hide_banner', '-v', 'error', '-y', ...inputs, '-filter_complex', graph, '-map', '[out]', '-ar', '16000', '-ac', '1', out], { timeout: 120_000 }, (err) => {
+      let b: Buffer | null = null;
+      if (!err) { try { b = fs.readFileSync(out); } catch { /* none */ } }
+      try { fs.rmSync(out, { force: true }); } catch { /* gone */ }
+      resolve(b);
+    });
+  });
 }
 
 function synth(text: string, start: number, end: number) {

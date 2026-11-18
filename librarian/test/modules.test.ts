@@ -412,3 +412,11 @@ test('Modules: MCP tools lookup_rule and lookup_term', async () => {
   const full = await rpc('read_term', { id: hits[0].id });
   assert.match(JSON.parse(full.result.content[0].text).text, /8d6/);
 });
+
+test('Modules: a rules word that is also plain English only lights up capitalised mid-sentence; the full name always does', async () => {
+  await importJson({ id: 'plainw', name: 'Plain words', terms: [{ term: 'Fire', kind: 'damage', text: 'x' }, { term: 'Fire Bolt', kind: 'spell', text: 'y' }] });
+  const text = 'The fire burned. Fire everywhere, and a cold fire; she cast Fire Bolt, then the Fire spread.';
+  const ms = (await call('POST', `${M()}/match`, T.jess, { text })).body as any[];
+  assert.deepEqual(ms.map((m) => text.slice(m.start, m.end)), ['Fire Bolt', 'Fire']);
+  await ok('DELETE', `${M()}/imported/plainw`, T.dm);
+});
