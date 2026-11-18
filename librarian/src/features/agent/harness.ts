@@ -31,7 +31,7 @@ import { DM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type
 import { agentOptions } from './options.ts';
 import { CONCISE } from './descriptions.ts';
 import { nearestTools } from './toolselect.ts';
-import { rrf, semanticPages } from '../search/embeddings.ts';
+import { semanticPages } from '../search/embeddings.ts';
 import { MORE_TOOLS_TOOL, claimsChange, describeTools, matchTools, rewriteClaim } from './moretools.ts';
 import { BLOCKED_REPLY, SentenceGate, leakChecker, treeText } from './leak.ts';
 import { LOOKING } from '../sourcekeys/escalation.ts';
@@ -162,9 +162,23 @@ export interface Persona { agentName?: string; brokerName?: string; brokerTitle?
  * the world's information broker: it has the broker's own name and voice and is
  * never told Minerva exists, and never says it works for the DM.
  */
-export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}, skills = true): string {
+export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}, skills: 'full' | 'lite' | 'off' | boolean = 'full'): string {
   const dm = c.harness === 'dm';
-  const L: string[] = dm && !skills
+  const mode = skills === true ? 'full' : skills === false ? 'off' : skills;
+  const L: string[] = dm && mode === 'lite'
+    ? [
+      `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      'Your character: wise, concise and proactive about long-term threads; you keep the campaign\'s memory.',
+      'How to work:',
+      '- The message starts with a context block: library matches, the page on screen, combat, the date. Use it first; most questions need no tool.',
+      '- When the DM asks you to DO something, call the tool that does exactly that, right away: the write tools only propose, the DM approves. Do not look things up first unless you need an id, and do not ask what you could just do. Say what you proposed, never that it is done; say it only after a write tool call this turn.',
+      '- Pick the specific tool for the job (update_person, add_recall, add_quote, set_conditions, start_game_session, play_music ...). Use codex_upsert only to record long-term notes about someone the DM asks you to record.',
+      '- When the DM asks a question about people, places or what is going on, use who_is or context_for and the library. Facts about this world come only from the context, the transcript and tools: never invent names, places, numbers or events; say what is unknown.',
+      '- Cite pages inline as [Page title]. Answer rules questions with lookup_rule, never from memory.',
+      '- If you think you have no tool for what the DM asks, call more_tools with a few words about it first.',
+      '- Be brief. Lead with the answer; short paragraphs or bullets in Markdown; no preamble.',
+    ]
+    : dm && mode === 'off'
     ? [
       `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
       'Be brief. Lead with the answer.',
@@ -241,14 +255,18 @@ export function prefetchLibrary(d: Deps, c: Caller, text: string, max = 5): Hit[
 }
 
 /**
- * Library matches from the keyword search and from the embeddings (the nearest chunks), merged by reciprocal rank fusion.
- * A page whose title is named in the question stays on top. With no embeddings model, or if it fails, the keyword matches alone.
+ * Library matches from the keyword search and from the embeddings (the nearest chunks), merged by weighted reciprocal rank
+ * fusion: the five nearest pages by meaning count 1.5 times a keyword hit (an embeddings model finds a paraphrase that shares
+ * no word, and a keyword list of loose word matches is noisy). A page whose title is named in the question stays on top.
+ * With no embeddings model, or if it fails, the keyword matches alone.
  */
+export const SEMANTIC_WEIGHT = 1.5;
+export const SEMANTIC_TOP = 5;
 export async function prefetchHybrid(d: Deps, c: Caller, text: string, max = 5): Promise<Hit[]> {
   const kw = prefetchLibrary(d, c, text, 20);
   if (!hasJob(d, 'extra') || !text.trim()) return kw.slice(0, max);
   let sem: Awaited<ReturnType<typeof semanticPages>> = [];
-  try { sem = await semanticPages(d, c.worldId, c.harness === 'dm' ? 'ai' : 'party', text, 20, forModel(c.viewer)); } catch { return kw.slice(0, max); }
+  try { sem = (await semanticPages(d, c.worldId, c.harness === 'dm' ? 'ai' : 'party', text, SEMANTIC_TOP, forModel(c.viewer))).slice(0, SEMANTIC_TOP); } catch { return kw.slice(0, max); }
   if (!sem.length) return kw.slice(0, max);
   const byId = new Map(kw.map((h) => [h.id, h]));
   const missing = sem.filter((s) => !byId.has(s.id));
@@ -258,10 +276,12 @@ export async function prefetchHybrid(d: Deps, c: Caller, text: string, max = 5):
     const info = new Map(rows.map((r) => [r.id, r]));
     for (const m of missing) { const r = info.get(m.id); if (r) byId.set(m.id, { id: r.id, path: r.path, title: r.title, snippet: m.text.replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200) }); }
   }
-  const fused = rrf([kw.map((h) => h.id), sem.map((s) => s.id)]);
+  const score = new Map<string, number>();
+  kw.forEach((h, i) => score.set(h.id, (score.get(h.id) ?? 0) + 1 / (60 + i + 1)));
+  sem.forEach((s, i) => score.set(s.id, (score.get(s.id) ?? 0) + SEMANTIC_WEIGHT / (60 + i + 1)));
   const low = text.toLowerCase();
   const named = (h: Hit) => (h.title.length >= 4 && low.includes(h.title.toLowerCase()) ? 1 : 0);
-  return [...fused].filter(([id]) => byId.has(id)).sort((a, b) => named(byId.get(b[0])!) - named(byId.get(a[0])!) || b[1] - a[1]).slice(0, max).map(([id]) => byId.get(id)!);
+  return [...score].filter(([id]) => byId.has(id)).sort((a, b) => named(byId.get(b[0])!) - named(byId.get(a[0])!) || b[1] - a[1]).slice(0, max).map(([id]) => byId.get(id)!);
 }
 
 /** A request to prepare a session: the context carries the status, the active arc and the last session so few searches are needed. */

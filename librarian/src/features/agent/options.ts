@@ -24,13 +24,16 @@ export interface AgentOptions {
   status: boolean;
   /** Offer story_bible (and related_pages). */
   bible: boolean;
-  /** The rules and working order in the system prompt. Off: only who the assistant is and to be brief. */
-  skills: boolean;
+  /**
+   * The rules in the DM system prompt: full (the working order and the codex rules), lite (do what is asked with the matching
+   * tool, no look-up first, facts only from what you were given) or off (only who the assistant is, and to be brief).
+   */
+  skills: 'full' | 'lite' | 'off';
   /** Library matches in the first message: keyword search alone, or keyword plus embeddings (reciprocal rank fusion). */
   retrieval: 'keyword' | 'hybrid';
 }
 
-export const DEFAULTS: AgentOptions = { tools: 'keywords', embedK: 10, desc: 'current', status: true, bible: true, skills: true, retrieval: 'keyword' };
+export const DEFAULTS: AgentOptions = { tools: 'hybrid', embedK: 10, desc: 'concise', status: true, bible: true, skills: 'lite', retrieval: 'hybrid' };
 
 const cache = new WeakMap<object, { raw: string; opts: AgentOptions }>();
 
@@ -38,7 +41,7 @@ export function agentOptions(d: Pick<Deps, 'env'>): AgentOptions {
   const raw = String(d.env?.ALX_AGENT_OPTS ?? '');
   const hit = cache.get(d.env as object);
   if (hit && hit.raw === raw) return hit.opts;
-  let o: Partial<AgentOptions> = {};
+  let o: Record<string, unknown> = {};
   if (raw) { try { const j = JSON.parse(raw); if (j && typeof j === 'object') o = j; } catch { /* the defaults */ } }
   const pick = <T extends string>(v: unknown, ok: readonly T[], def: T): T => (ok.includes(v as T) ? (v as T) : def);
   const opts: AgentOptions = {
@@ -47,7 +50,7 @@ export function agentOptions(d: Pick<Deps, 'env'>): AgentOptions {
     desc: pick(o.desc, ['current', 'concise'] as const, DEFAULTS.desc),
     status: typeof o.status === 'boolean' ? o.status : DEFAULTS.status,
     bible: typeof o.bible === 'boolean' ? o.bible : DEFAULTS.bible,
-    skills: typeof o.skills === 'boolean' ? o.skills : DEFAULTS.skills,
+    skills: o.skills === true ? 'full' : o.skills === false ? 'off' : pick(o.skills as unknown, ['full', 'lite', 'off'] as const, DEFAULTS.skills),
     retrieval: pick(o.retrieval, ['keyword', 'hybrid'] as const, DEFAULTS.retrieval),
   };
   cache.set(d.env as object, { raw, opts });
