@@ -68,7 +68,7 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   jsonMode        'auto' | 'schema' | 'object' | 'off' (how structured output is asked for)
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback'] as const;
 /**
  * Output-token floor per job. A reasoning model spends part of the budget on thinking, so a small max_tokens
  * can leave an empty answer. Chat and audit requests never ask for fewer than this many tokens unless the
@@ -155,7 +155,9 @@ function envResolver(d: Deps, job: Job): JobConfig | null {
   const base = own || (job === 'rerank' ? '' : e.MODEL_BASE_URL || e.OPENAI_BASE_URL || (e.LOCAL_LLM_URL ? `${e.LOCAL_LLM_URL.replace(/\/$/, '')}/v1` : ''));
   const model = e[`ALX_MODEL_${J}_MODEL`] || (job === 'chat' || job === 'audit' ? e.MODEL_NAME || '' : '');
   if (!base) return null;
-  return { baseUrl: base.replace(/\/$/, ''), apiKey: e[`ALX_MODEL_${J}_KEY`] || e.MODEL_API_KEY || e.OPENAI_API_KEY || undefined, model: model || 'default' };
+  let options: Record<string, unknown> | undefined;
+  try { const o = JSON.parse(e[`ALX_MODEL_${J}_OPTIONS`] || 'null'); if (o && typeof o === 'object' && !Array.isArray(o)) options = o; } catch { /* not JSON: ignored */ }
+  return { baseUrl: base.replace(/\/$/, ''), apiKey: e[`ALX_MODEL_${J}_KEY`] || e.MODEL_API_KEY || e.OPENAI_API_KEY || undefined, model: model || 'default', ...(options ? { options } : {}) };
 }
 
 let resolver: Resolver = envResolver;
@@ -708,28 +710,39 @@ export async function chatJson<T = any>(d: Deps, job: 'chat' | 'audit', messages
 // ---- audio: speech to text -------------------------------------------------
 
 export interface TranscriptWord { word: string; start: number; end: number; probability?: number }
-export interface TranscriptSegment { start: number; end: number; text: string; avgLogprob?: number; noSpeechProb?: number; words?: TranscriptWord[] }
+export interface TranscriptSegment { start: number; end: number; text: string; avgLogprob?: number; noSpeechProb?: number; compressionRatio?: number; words?: TranscriptWord[] }
 export interface Transcript { text: string; language?: string; segments: TranscriptSegment[] }
 
-export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts: { prompt?: string; language?: string; filename?: string } = {}, signal?: AbortSignal): Promise<Transcript> {
+/**
+ * Speech to text. Asks for verbose_json (segments with their log probability, no-speech probability and compression
+ * ratio, which the audio engine uses to drop hallucinations). `temperature` is left out unless set, so the server's own
+ * fallback schedule runs (a fixed 0 makes some servers loop on noise); a list is sent only to a job that says
+ * `temperatureFallback: true`. `model` overrides the job's model (the post-session refine pass).
+ */
+export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts: TranscribeOpts = {}, signal?: AbortSignal): Promise<Transcript> {
   return viaChain(d, 'audio', () => screenOutgoing(d, 'audio', [opts.prompt]), (c) => transcribeOne(d, c, audio, mime, opts, signal));
 }
 
-async function transcribeOne(d: Deps, c: JobConfig, audio: Uint8Array, mime: string, opts: { prompt?: string; language?: string; filename?: string }, signal?: AbortSignal): Promise<Transcript> {
+export interface TranscribeOpts { prompt?: string; language?: string; filename?: string; temperature?: number | number[]; model?: string }
+
+async function transcribeOne(d: Deps, c: JobConfig, audio: Uint8Array, mime: string, opts: TranscribeOpts, signal?: AbortSignal): Promise<Transcript> {
   const fd = new FormData();
   fd.append('file', new Blob([audio], { type: mime }), opts.filename ?? `chunk.${mime.includes('ogg') ? 'ogg' : mime.includes('wav') ? 'wav' : 'webm'}`);
-  fd.append('model', c.model);
+  fd.append('model', opts.model || c.model);
   fd.append('response_format', 'verbose_json');
   fd.append('timestamp_granularities[]', 'word');
   fd.append('timestamp_granularities[]', 'segment');
   if (opts.prompt) fd.append('prompt', opts.prompt.slice(0, 900));
   if (opts.language) fd.append('language', opts.language);
+  if (typeof opts.temperature === 'number') fd.append('temperature', String(opts.temperature));
+  else if (Array.isArray(opts.temperature) && opt(c, 'temperatureFallback') === true) fd.append('temperature', opts.temperature.join(','));
   const r = await post(d, 'audio', c, '/audio/transcriptions', fd, signal);
   const j: any = await r.json().catch(() => ({}));
   const segs: TranscriptSegment[] = (Array.isArray(j.segments) ? j.segments : []).map((s: any) => ({
     start: Number(s.start) || 0, end: Number(s.end) || 0, text: String(s.text ?? '').trim(),
     avgLogprob: typeof s.avg_logprob === 'number' ? s.avg_logprob : undefined,
     noSpeechProb: typeof s.no_speech_prob === 'number' ? s.no_speech_prob : undefined,
+    compressionRatio: typeof s.compression_ratio === 'number' ? s.compression_ratio : undefined,
     words: Array.isArray(s.words) ? s.words.map((w: any) => ({ word: String(w.word ?? ''), start: Number(w.start) || 0, end: Number(w.end) || 0, probability: typeof w.probability === 'number' ? w.probability : undefined })) : undefined,
   }));
   // Some servers put words at the top level only.

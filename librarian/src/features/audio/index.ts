@@ -40,6 +40,12 @@ const feature: Feature = {
   settings: {
     recordingConsentText: { type: 'string', default: DEFAULT_CONSENT_TEXT, max: 2000 },
     audioRetentionDays: { type: 'int', default: 30, min: 1, max: 3650, nullable: true },
+    // A short vocabulary prompt (names the players can read, dice words) sent with each chunk to the speech model.
+    transcriptHint: { type: 'enum', values: ['on', 'off'], default: 'on' },
+    // The words just before a chunk, sent as its prompt, for continuity across chunks.
+    transcriptContext: { type: 'enum', values: ['on', 'off'], default: 'off' },
+    // After a recording stops, listen again in 60 s windows with the audio job's `refineModel` (off unless the job names one).
+    transcriptRefine: { type: 'enum', values: ['on', 'off'], default: 'off' },
   },
   worldMount: 'audio',
   dataDirs: ['audio'],
@@ -72,6 +78,8 @@ const feature: Feature = {
         serverNow: now(),
         consent: { text: String(featureSetting(settings(res), 'recordingConsentText') ?? ''), agreed: dm || consentOf(c.world.id, me(res)), required: !dm },
         retentionDays: featureSetting(settings(res), 'audioRetentionDays'),
+        transcription: { hint: featureSetting(settings(res), 'transcriptHint'), context: featureSetting(settings(res), 'transcriptContext'), refine: featureSetting(settings(res), 'transcriptRefine') },
+        ...(dm ? { dropped: eng.dropped } : {}),
       });
     });
 
@@ -168,6 +176,7 @@ const feature: Feature = {
       audit(db, c.world.id, me(res), 'audio.stop', s.id);
       eng.flush(s.id);
       eng.broadcastRecording(c.world.id, false, null);
+      eng.scheduleRefine(s.id);
       res.json(sessionOut(one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', s.id)));
     });
 
