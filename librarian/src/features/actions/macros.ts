@@ -67,7 +67,9 @@ export function cleanMacro(input: any): { name: string; description: string; ste
     const a = typeof s?.action === 'string' ? actionById(s.action) : undefined;
     if (!a) throw new HttpError(400, `Step ${i + 1}: unknown action "${s?.action}"`);
     if (playerRun && !a.roles.includes('player')) throw new HttpError(400, `Step ${i + 1}: players may not run "${a.id}", so a macro players can run cannot use it`);
-    const args = s.args && typeof s.args === 'object' && !Array.isArray(s.args) ? s.args : {};
+    let args = s.args && typeof s.args === 'object' && !Array.isArray(s.args) ? s.args : {};
+    // A Minerva prompt may write {place} for a parameter called place.
+    if (a.id === 'minerva.run' && typeof args.prompt === 'string') args = { ...args, prompt: args.prompt.replace(/(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})/g, (m: string, n: string) => (params.some((p) => p.name === n) ? `{{${n}}}` : m)) };
     for (const n of refs(args)) if (!params.some((p) => p.name === n)) throw new HttpError(400, `Step ${i + 1}: {{${n}}} is not one of the macro's parameters`);
     // Check what can be checked now: every argument that is not a template.
     const literal = Object.fromEntries(Object.entries(args).filter(([, v]) => refs(v).size === 0));
