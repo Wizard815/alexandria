@@ -549,7 +549,36 @@ export class Library {
    * the background. Never throws: the query paths check permissions again.
    */
   changed(worldId: string, ids?: string[]) {
+    try { this.pruneShares(worldId); } catch { /* sharing is not installed */ }
     try { reconcile(this, worldId, ids); } catch { /* the stores are not there yet */ }
+  }
+
+  /**
+   * Delete shares that no longer hold, so they cannot come back on their own:
+   * the page is no longer DM-level, the sharer lost sight of it (unshared, a
+   * key revoked, left the world), or the recipient is no longer a player.
+   * One person's loss ends what they shared onward, and so on down the chain.
+   * Returns how many rows went.
+   */
+  pruneShares(worldId: string): number {
+    let removed = 0;
+    for (let round = 0; round < 8; round++) {
+      let n = 0;
+      const rows = all<any>(this.db, `SELECT s.page_id, s.from_id, s.to_id, s.kind, p.visibility, p.marker_level FROM sourcekeys_shares s
+        LEFT JOIN pages p ON p.id = s.page_id AND p.world_id = s.world_id WHERE s.world_id = ?`, worldId);
+      for (const s of rows) {
+        const role = (acc: string) => one<{ role: string }>(this.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, acc)?.role ?? null;
+        let ok = s.visibility !== null && normLevel(s.visibility) === 'dm' && (s.marker_level == null || s.marker_level === 'party');
+        if (ok && s.to_id !== '*' && role(s.to_id) !== 'player') ok = false;
+        if (ok) ok = s.kind === 'dm' ? role(s.from_id) === 'dm' : role(s.from_id) === 'player' && this.liftedInfo(worldId, s.from_id, s.page_id).has(s.page_id);
+        if (ok) continue;
+        run(this.db, 'DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? AND from_id = ? AND to_id = ?', worldId, s.page_id, s.from_id, s.to_id);
+        n++;
+      }
+      removed += n;
+      if (!n) break;
+    }
+    return removed;
   }
 
   /** A page's player copy as an account lifted to it would read it (built now, never stored), or null if there is none. For the semantic index. */

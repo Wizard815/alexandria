@@ -12,7 +12,7 @@ import { ctx, isDM, me } from '../../routes/_shared.ts';
 import { addEvent, advance, deleteEvent, formatDate, getCalendar, getClock, updateEvent } from '../clock/api.ts';
 import type { Feature } from '../types.ts';
 import { cleanProposal, draftOut, draftSummary, entryOut, gather, dmNotes, resolveRange, reviseSummary, type DateProposal } from './api.ts';
-import { leakCheck } from './leak.ts';
+import { fullLeakCheck } from './leak.ts';
 
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 const MAX_MD = 100_000;
@@ -209,19 +209,19 @@ const feature: Feature = {
       res.json(draftOut(db, draftRow(c.world.id, row.id), true));
     });
 
-    r.get('/drafts/:id/leakcheck', requireDM, (req, res) => {
+    r.get('/drafts/:id/leakcheck', requireDM, async (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
-      const overlaps = leakCheck(db, c.world.id, draftOut(db, row).markdown);
-      res.json({ overlaps, blocked: overlaps.some((o) => o.aside) });
+      const { overlaps, audited } = await fullLeakCheck(d, c.world.id, draftOut(db, row).markdown);
+      res.json({ overlaps, blocked: overlaps.some((o) => o.aside), audited });
     });
 
-    r.post('/drafts/:id/publish', requireDM, (req, res) => {
+    r.post('/drafts/:id/publish', requireDM, async (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       const draft = draftOut(db, row);
       if (!draft.markdown.trim()) throw new HttpError(400, 'The summary is empty');
-      const overlaps = leakCheck(db, c.world.id, draft.markdown);
+      const { overlaps } = await fullLeakCheck(d, c.world.id, draft.markdown);
       const asides = overlaps.filter((o) => o.aside);
       if (asides.length) {
         res.status(409).json({ error: 'The summary repeats words from an aside. Asides are never published; remove these passages.', overlaps, blocked: true, forceAllowed: false });

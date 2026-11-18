@@ -32,7 +32,7 @@ export function shareRoutes(d: Deps) {
     const nm = names(d.db, W(res));
     const rows = all<any>(d.db, 'SELECT from_id, to_id, kind, created_at FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? ORDER BY created_at', W(res), pageId)
       .filter((x) => isDM(res) || x.from_id === me(res) || x.to_id === me(res) || x.to_id === '*');
-    return { shares: rows.map((x) => ({ from: x.from_id, fromName: nm[x.from_id] ?? 'Someone', to: x.to_id === '*' ? 'party' : x.to_id, toName: x.to_id === '*' ? 'Everyone' : nm[x.to_id] ?? 'Someone', kind: x.kind, createdAt: x.created_at })) };
+    return { shares: rows.map((x) => ({ from: x.from_id, fromName: nm[x.from_id] ?? 'Someone', to: x.to_id === '*' ? 'party' : x.to_id, toName: x.to_id === '*' ? 'Everyone' : nm[x.to_id] ?? 'Someone', kind: x.kind, createdAt: x.created_at, mine: x.from_id === me(res) })) };
   };
 
   r.get('/', (req, res) => {
@@ -68,9 +68,15 @@ export function shareRoutes(d: Deps) {
     if (!raw) throw new HttpError(404, 'Page not found');
     const q = String((req.query.to ?? req.body?.to ?? '') || '');
     const to = q === 'party' ? '*' : q;
+    if (!isDM(res)) {
+      // Only your own shares can be ended by you: say so, rather than doing nothing.
+      const others = all<any>(d.db, `SELECT from_id FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? ${to ? 'AND to_id = ?' : ''}`, w, raw.id, ...(to ? [to] : []));
+      if (others.length && !others.some((x) => x.from_id === me(res))) throw new HttpError(403, 'You did not make that share, so only the person who did can end it.');
+    }
     run(d.db, `DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? ${isDM(res) ? '' : 'AND from_id = ?'} ${to ? 'AND to_id = ?' : ''}`, w, raw.id, ...(isDM(res) ? [] : [me(res)]), ...(to ? [to] : []));
     auditKey(d.db, w, me(res), 'unshare', `${raw.id} ${q || 'all'}`);
     d.library.touchClassified();
+    // Unsharing ends what the recipient shared onward (changed() prunes the chain).
     d.library.changed(w, [raw.id]);
     res.json(rowsOf(res, raw.id));
   });
