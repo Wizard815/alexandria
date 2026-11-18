@@ -188,3 +188,17 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 
 /* Feature slots in the top bar (e.g. the world date). */
 .feature-topbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 28px 0; }
+
+/* The party pack: on a phone each item is a small card instead of a five-column table. */
+@media (max-width: 640px) {
+  .pack-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .pack-table, .pack-table tbody { display: block; width: 100%; }
+  .pack-table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .pack-table td { display: block; border: 0; padding: 0; }
+  .pack-table td:first-child, .pack-table td.small, .pack-table td:last-child { flex: 1 1 100%; }
+  .pack-table td[data-label]::before { content: attr(data-label) ' '; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .pack-table td:last-child { margin-top: 4px; }
+}
+
+/* Anything scrolled or focused into view stops below the sticky top bar. */
+html { scroll-padding-top: 76px; scroll-padding-bottom: calc(var(--dock-reserve, 0px) + 16px); }

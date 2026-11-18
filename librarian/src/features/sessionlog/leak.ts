@@ -161,7 +161,8 @@ export function partyVocabulary(db: DB, worldId: string): Set<string> {
   const add = (text: string | null | undefined) => { for (const w of wordsOf(text ?? '')) out.add(stemOf(w)); };
   for (const p of all<any>(db, 'SELECT id, updated_at, path, title, aliases, player_body, player_blocks, player_properties, player_frontmatter, frontmatter FROM pages WHERE world_id = ?', worldId)) {
     const shared = partyBody(db, worldId, p);
-    const copy = shared ?? p.player_body;
+    // A player's own notebook in the vault (journal, knowledge, goals) is what that player knows.
+    const copy = shared ?? (String(p.path).startsWith('Minerva/players/') ? p.player_body ?? one<any>(db, 'SELECT body FROM pages WHERE id = ?', p.id)?.body : p.player_body);
     if (copy === null || copy === undefined) continue; // a DM-only page: not even its title is known
     add(copy); add(p.title); add(jsonText(p.player_blocks)); add(jsonText(p.player_properties)); add(jsonText(p.player_frontmatter)); add(String(p.aliases ?? ''));
   }
@@ -174,12 +175,32 @@ export function partyVocabulary(db: DB, worldId: string): Set<string> {
   return out;
 }
 
+/** Stems that DM-only text writes as names: capitalized somewhere and never in lower case (so "Sister" in a title is not a name when the notes say "the sister of"). */
+function dmNames(db: DB, worldId: string): Set<string> {
+  const upper = new Set<string>();
+  const lower = new Set<string>();
+  const scan = (text: string | null | undefined) => {
+    for (const tok of String(text ?? '').replace(MARKS, ' ').split(/[^\p{L}\p{N}']+/u)) {
+      if (tok.length < 3) continue;
+      if (/^\p{Lu}/u.test(tok)) upper.add(stemOf(tok)); else lower.add(stemOf(tok));
+    }
+  };
+  for (const p of all<any>(db, 'SELECT title, body, blocks, properties FROM pages WHERE world_id = ?', worldId)) { scan(p.title); scan(p.body); scan(jsonText(p.blocks)); scan(jsonText(p.properties)); }
+  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'dm'", worldId)) { scan(b.title); scan(b.body); }
+  for (const i of all<any>(db, "SELECT name, dm_note FROM items WHERE world_id = ? AND dm_note != ''", worldId)) { scan(i.name); scan(i.dm_note); }
+  for (const r of all<any>(db, "SELECT dm_note FROM broker_requests WHERE world_id = ? AND dm_note IS NOT NULL AND dm_note != ''", worldId)) scan(r.dm_note);
+  for (const l of all<any>(db, "SELECT text FROM audio_lines WHERE world_id = ? AND audience = 'dm'", worldId)) scan(l.text);
+  return new Set([...upper].filter((w) => !lower.has(w)));
+}
+
 /** Sentences of a summary that carry distinctive terms only DM-only text has. */
 export function rareTermCheck(db: DB, worldId: string, summary: string, phrases: Overlap[] = []): Overlap[] {
   const vocab = partyVocabulary(db, worldId);
+  const names = dmNames(db, worldId);
   // Which sources have which stems (all DM-only text: pages, notes, DM and aside lines).
   const sources = new Map<string, Set<string>>();
   for (const c of dmCorpus(db, worldId)) {
+    if (c.source.startsWith('DM page: Minerva/players/')) continue; // what one player knows, not a DM secret
     const set = sources.get(c.source) ?? new Set<string>();
     for (const w of c.words) if (w !== GAP) set.add(stemOf(w));
     sources.set(c.source, set);
@@ -194,7 +215,8 @@ export function rareTermCheck(db: DB, worldId: string, summary: string, phrases:
       const st = stemOf(tok);
       if (st.length < 3 || vocab.has(st) || COMMON.has(tok.toLowerCase()) || COMMON.has(st)) return;
       const capital = /^\p{Lu}/u.test(tok) && !/^\p{Lu}+$/u.test(tok);
-      if (capital && (i > 0 || tok.length >= 4)) proper.set(st, tok);
+      if (capital && i > 0 && names.has(st)) proper.set(st, tok);
+      else if (capital && i === 0 && names.has(st) && tok.length >= 4) proper.set(st, tok);
       else if (tok.length >= 5) keywords.set(st, tok);
     });
     if (!proper.size && keywords.size < 2) continue;

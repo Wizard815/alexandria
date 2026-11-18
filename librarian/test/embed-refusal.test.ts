@@ -104,12 +104,12 @@ test('TestEmbeddings_ScopesAreReadInTurnAndProgressIsReported', async () => {
   assert.equal(before.progress.indexed, 0);
   assert.ok(before.progress.pending >= 7);
   assert.equal(before.progress.etaSeconds, null, 'no pace known yet');
-  // Four pages: the DM copy goes first, but the party copy does not wait for all of the DM pages.
+  // Four pages: the party copy and the DM copy take turns, so the DM's pages do not wait for the whole party backlog.
   const r = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 4 });
   assert.equal(r.pages, 4);
   const cov = embeddingCoverage(h.deps, h.world);
-  assert.ok(cov.scopes.dm.indexed >= 3, 'the DM copy is first in the turn');
-  assert.ok(cov.scopes.party.indexed === 1, 'the party copy is not last');
+  assert.ok(cov.scopes.dm.indexed >= 3, 'the DM copy has its turn in the same round');
+  assert.ok(cov.scopes.party.indexed === 1, 'the party copy is not starved either');
   assert.ok(cov.scopes.dm.pending > 0 && cov.progress.pending > 0);
   assert.equal(cov.progress.indexed, cov.progress.eligible - cov.progress.pending);
   await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 50 });
