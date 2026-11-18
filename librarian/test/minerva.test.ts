@@ -423,7 +423,7 @@ test('TestMinerva_ExportAndImportRoundTrip', async () => {
   assert.equal(r.status, 200);
   const files = readZip(r.buf);
   const names = files.map((f) => f.name);
-  for (const need of ['HOME.md', 'dm/state/Campaign Status.md', `players/${ID.jess}/knowledge.md`, 'dm/revelations/who-darkened-the-lighthouse.md']) assert.ok(names.includes(need), `zip has ${need}`);
+  for (const need of ['HOME.md', 'dm/state/Campaign Status.md', 'players/jessamine/knowledge.md', 'dm/revelations/who-darkened-the-lighthouse.md']) assert.ok(names.includes(need), `zip has ${need}`);
   assert.ok(!names.some((n) => n.startsWith('Minerva/')), 'paths are relative to the vault');
   const status = files.find((f) => f.name === 'dm/state/Campaign Status.md')!.read().toString('utf8');
   assert.match(status, /^---\ntype: status\nlevel: dm/);
@@ -434,11 +434,68 @@ test('TestMinerva_ExportAndImportRoundTrip', async () => {
   const imp = await call('POST', w('/minerva/import'), T.dm, r.buf, true);
   assert.equal(imp.status, 200, imp.text);
   assert.equal(imp.body.created, 1);
-  assert.ok(imp.body.updated >= names.length - 1);
+  assert.ok(imp.body.updated >= names.filter((n) => !/\/arc\.md$/.test(n)).length - 1);
   assert.deepEqual(imp.body.skipped, []);
   assert.ok((await page('dm/hidden-lore/Queen.md')).body.includes('HIDDENMARK'));
   assert.equal((await page(`players/${ID.jess}/profile.md`)).fm.level, 'party');
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND kind = ?', W, 'clue').n, 3, 'clue marks survive an import of the same vault');
+});
+
+test('TestMinerva_ExportIntoAFreshWorldMapsPlayersAndRebuildsArcsAndClues', async () => {
+  const r = await call('GET', w('/minerva/export'), T.dm);
+  const files = readZip(r.buf);
+  const names = files.map((f) => f.name);
+  assert.ok(!names.some((n) => /^players\/acc_/.test(n) || n.includes(ID.jess)), 'player folders are readable names, not account ids');
+  assert.ok(names.includes('players/tomas/profile.md'));
+  const prof = files.find((f) => f.name === 'players/jessamine/profile.md')!.read().toString('utf8');
+  assert.match(prof, new RegExp(`player: ${ID.jess}`));
+  const arcsBefore = (await dm('GET', '/minerva/arcs')).arcs;
+
+  // A fresh world, same DM, players with other account ids. Tom signs in as another name, so his folder carries his old username.
+  const W2 = (await ok('POST', '/api/admin/worlds', T.ads, { name: 'Saltreach Two', dmAccountId: ID.dm })).id;
+  const w2 = (p: string) => `/api/worlds/${W2}${p}`;
+  const join = async (username: string, character: string) => {
+    const inv = await ok('POST', w2('/invites'), T.dm, { role: 'player' });
+    return (await ok('POST', '/api/join', undefined, { code: inv.code, username, password: 'player pass 123', characterName: character })).account.id as string;
+  };
+  const jess2 = await join('jess_two', 'Jessamine');
+  const tom2 = await join('tomfresh', 'Someone Else');
+  const newbie = await join('newbie', 'Newbie');
+  assert.notEqual(jess2, ID.jess);
+  await ok('POST', w2('/minerva/enable'), T.dm, {});
+  // Tom's pages say who he was by username; rewrite that to the new account's sign-in name.
+  const edited = makeZip(files.map((f) => {
+    let text = f.read().toString('utf8');
+    if (f.name.startsWith('players/tomas/')) text = text.replace(/^username: .*$/m, 'username: tomfresh').replace(/^character: .*$/m, 'character: Tomas');
+    return { name: f.name, data: Buffer.from(text, 'utf8') };
+  }).concat([{ name: 'players/the-stranger/notes/hello.md', data: Buffer.from('---\ntype: note\nlevel: party\nplayer: acc_unknown\ncharacter: The Stranger\n---\n# Hello\nA note from nobody known.\n') }]));
+  const imp = await call('POST', w2('/minerva/import'), T.dm, edited, true);
+  assert.equal(imp.status, 200, imp.text);
+  const how = Object.fromEntries(imp.body.mapped.map((m: any) => [m.folder, m.how]));
+  assert.equal(how.jessamine, 'character or name');
+  assert.equal(how.tomas, 'username');
+  assert.deepEqual(imp.body.unmatched.map((u: any) => u.folder), ['the-stranger']);
+  assert.ok(imp.body.players.some((p: any) => p.accountId === newbie), 'the UI is offered the world\'s players');
+  assert.equal(imp.body.skipped.filter((s: any) => /not a player/.test(s.why)).length, 0);
+  // Pages landed under the new account ids, with the new id in front matter.
+  const pg2 = async (rel: string) => (await ok('GET', w2(`/minerva/page?rel=${encodeURIComponent(rel)}`), T.dm));
+  assert.equal((await pg2(`players/${jess2}/profile.md`)).fm.player, jess2);
+  assert.ok((await pg2(`players/${tom2}/journal/session-1.md`)).body.length > 0);
+  // Arcs and mysteries come back with their rows.
+  const arcs = (await ok('GET', w2('/minerva/arcs'), T.dm)).arcs;
+  assert.equal(arcs.length, arcsBefore.length, 'arcs rebuilt from the chronicle folders');
+  assert.equal(imp.body.arcs, arcsBefore.length);
+  const foundNow = (wid: string) => one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND kind = 'clue'`, wid).n;
+  assert.equal(foundNow(W2), foundNow(W), 'clue found lists come back');
+  assert.ok(foundNow(W2) > 0);
+  assert.equal(one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND account_id = ? AND kind = 'clue'`, W2, jess2).n, one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND account_id = ? AND kind = 'clue'`, W, ID.jess).n);
+  // A second pass with a chosen mapping brings the stranger's pages in.
+  const again = await call('POST', w2(`/minerva/import?map=${encodeURIComponent(JSON.stringify({ 'the-stranger': newbie }))}`), T.dm, edited, true);
+  assert.equal(again.status, 200, again.text);
+  assert.deepEqual(again.body.unmatched, []);
+  assert.match((await pg2(`players/${newbie}/notes/hello.md`)).body, /nobody known/);
+  const skip = await call('POST', w2(`/minerva/import?map=${encodeURIComponent(JSON.stringify({ 'the-stranger': 'skip' }))}`), T.dm, edited, true);
+  assert.ok(skip.body.skipped.some((s: any) => /skipped by choice/.test(s.why)));
 });
 
 test('TestMinerva_ImportChecksPathsAndLevels', async () => {
