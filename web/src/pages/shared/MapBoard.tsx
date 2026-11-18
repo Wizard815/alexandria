@@ -7,6 +7,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { PageHead, ErrorBox, Field, VisChip, useAction, useToast } from '../../ui/index.tsx';
 import { ICONS, MarkLayer, RouteLayer, type Mark, type Pt } from '../player/mapParts.tsx';
+import { NO_DOCK } from '../../ui/Dock.tsx';
 
 interface ImportedMap { id: string; name: string; url: string; page: { id: string; title: string } | null }
 type Tool = 'select' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase';
@@ -39,13 +40,21 @@ export default function MapBoard() {
   const [bgs, setBgs] = store<Record<string, string>>(`alx.mapbg.${info.id}`, {});
   // Maps uploaded to the library (kind "map") that this viewer may see. A chosen one is kept as lib:<file id> and its ticket is looked up fresh.
   const libMaps = useLoad<{ id: string; name: string; url: string; pageTitle?: string }[]>(() => w.call('GET', '/files/maps').catch(() => []), [w], ['libfile']);
-  const chosen = bgs[mapId] ?? '';
   // Maps imported from the world's sources (Kanka, LegendKeeper, a JSON API): the list the viewer may open, each with a fresh signed address.
-  const imported = useLoad(() => w.call('GET', '/intake/map-images').catch(() => []) as Promise<ImportedMap[]>, [w]);
-  const [picked, setPicked] = store<Record<string, string>>(`alx.mapimport.${info.id}`, {});
-  const importedMap = (imported.data ?? []).find((m) => m.id === picked[mapId]) ?? null;
-  const bg = importedMap?.url ?? (chosen.startsWith('lib:') ? (libMaps.data ?? []).find((f) => `lib:${f.id}` === chosen)?.url ?? '' : chosen);
-  const setBg = (url: string) => setBgs({ ...bgs, [mapId]: url });
+  const imported = useLoad(() => w.call('GET', '/intake/map-images').catch(() => []) as Promise<ImportedMap[]>, [w], ['page']);
+  const [picked] = store<Record<string, string>>(`alx.mapimport.${info.id}`, {});
+  // One list of every map picture this viewer may use: the world's sources, then files in the library (generated maps are saved there too).
+  const options = useMemo(() => [
+    ...(imported.data ?? []).map((m) => ({ value: `imp:${m.id}`, group: 'source', label: `${m.name || 'Map'}${m.page ? ` (${m.page.title})` : ''}`, url: m.url })),
+    ...(libMaps.data ?? []).map((f) => ({ value: `lib:${f.id}`, group: 'library', label: `${f.name}${f.pageTitle ? ` (${f.pageTitle})` : ''}`, url: f.url })),
+  ], [imported.data, libMaps.data]);
+  const loadingPictures = imported.loading || libMaps.loading;
+  // Nothing chosen yet: the first map there is. The blank placeholder is only for a world with no map pictures at all, or when "Blank" is chosen.
+  const stored = bgs[mapId] ?? (picked[mapId] ? `imp:${picked[mapId]}` : '');
+  const choice = stored === '' && options.length ? options[0].value : stored;
+  const chosenOption = options.find((o) => o.value === choice) ?? null;
+  const bg = chosenOption?.url ?? (/^(https?:|\/)/.test(choice) ? choice : '');
+  const setChoice = (v: string) => setBgs({ ...bgs, [mapId]: v });
   const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed']);
   const [tool, setTool] = useState<Tool>('select');
   const [icon, setIcon] = useState(ICONS[0][0]);
@@ -163,7 +172,7 @@ export default function MapBoard() {
 
       <div className="cols">
         <div className="col-3 stack">
-          <div ref={area} role="application" aria-label={`Map ${mapId}. ${HINT[tool]} Arrow keys move the cursor, Enter places.`} tabIndex={0}
+          <div ref={area} {...NO_DOCK} role="application" aria-label={`Map ${mapId}. ${HINT[tool]} Arrow keys move the cursor, Enter places.`} tabIndex={0}
             onClick={onAreaClick} onDoubleClick={(e) => { if (tool === 'route') { e.preventDefault(); finishRoute(); } }} onKeyDown={onKey}
             onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
             style={{
@@ -188,7 +197,7 @@ export default function MapBoard() {
             <MarkPanel m={selected} author={selected.author_id === me ? 'You' : nameOf(selected.author_id)} canEdit={selected.author_id === me} canErase={canErase(selected)} isDM={isDM}
               onSave={(patch) => act.run(async () => { await w.call('PATCH', `/map/${encodeURIComponent(mapId)}/marks/${selected.id}`, patch); await marks.reload(); toast('Saved'); })}
               onErase={() => act.run(async () => { await w.removeMark(mapId, selected.id); setSel(null); await marks.reload(); })} />
-          ) : !pending && <div className="note small">{HINT[tool]}</div>}
+          ) : null}
 
           <section className="card" aria-labelledby="layers-h">
             <h3 id="layers-h">Layers</h3>
@@ -207,24 +216,18 @@ export default function MapBoard() {
               <input id="map-new" name="map" className="input grow" placeholder="Another map, e.g. old-kesh" style={{ minHeight: 32 }} />
               <button type="submit" className="btn small">Open</button>
             </form>
-            {(libMaps.data ?? []).length > 0 && (
-              <Field label="Map from the library" help="Maps uploaded to the library, shown to you as far as your level allows.">
-                <select value={chosen.startsWith('lib:') ? chosen : ''} onChange={(e) => { setBg(e.target.value); setPicked({ ...picked, [mapId]: '' }); }}>
-                  <option value="">None</option>
-                  {(libMaps.data ?? []).map((f) => <option key={f.id} value={`lib:${f.id}`}>{f.name}{f.pageTitle ? ` (${f.pageTitle})` : ''}</option>)}
+            <Field label="Map picture" help={options.length ? 'Maps from this world\'s sources and library, as far as your level allows. The marks are shared; which picture you look at is only your choice.' : undefined}>
+              {options.length ? (
+                <select value={options.some((o) => o.value === choice) ? choice : choice === 'none' ? 'none' : ''} onChange={(e) => setChoice(e.target.value)} aria-label="Map picture">
+                  {choice !== 'none' && !chosenOption && <option value="">Pick a map</option>}
+                  {options.some((o) => o.group === 'source') && <optgroup label="From your sources">{options.filter((o) => o.group === 'source').map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>}
+                  {options.some((o) => o.group === 'library') && <optgroup label="Library files and generated maps">{options.filter((o) => o.group === 'library').map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>}
+                  <option value="none">Blank map</option>
                 </select>
-              </Field>
-            )}
-            {(imported.data ?? []).length > 0 && (
-              <Field label="Imported map (this browser only)" help="A map from one of this world's sources. Marks are shared; the choice of picture is not.">
-                <select value={importedMap?.id ?? ''} onChange={(e) => setPicked({ ...picked, [mapId]: e.target.value })}>
-                  <option value="">None</option>
-                  {(imported.data ?? []).map((m) => <option key={m.id} value={m.id}>{m.name || 'Map'}{m.page ? ` (${m.page.title})` : ''}</option>)}
-                </select>
-              </Field>
-            )}
-            <Field label="Map image (this browser only)" help="Paste an image URL to draw over. Marks are shared; the image is not.">
-              <input value={chosen.startsWith('lib:') ? '' : chosen} onChange={(e) => setBg(e.target.value.trim())} placeholder="https://…/map.jpg" />
+              ) : <span className="small muted">{loadingPictures ? 'Looking for maps…' : 'No map pictures yet. Import a map from a source, add one to the library, or generate one; until then the map is blank.'}</span>}
+            </Field>
+            <Field label="Or an image address (this browser only)" help="Paste an image URL to draw over. Marks are shared; the image is not.">
+              <input value={/^https?:/.test(stored) ? stored : ''} onChange={(e) => setChoice(e.target.value.trim())} placeholder="https://…/map.jpg" />
             </Field>
           </section>
         </aside>

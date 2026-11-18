@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'rea
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { ErrorBox, Loading, Modal, PageHead, useAction } from '../../ui/index.tsx';
+import { NO_DOCK } from '../../ui/Dock.tsx';
 
 type Shape = { id: string; t: 'path' | 'text'; color: string; w?: number; pts?: [number, number][]; x?: number; y?: number; text?: string; by?: string };
 type Doc = { shapes: Shape[] };
@@ -95,7 +96,7 @@ export default function Whiteboard() {
       </div>
       <ErrorBox error={a.error} />
       {a.busy && !version && !doc.shapes.length ? <Loading /> : (
-        <svg ref={svg} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Shared whiteboard"
+        <svg ref={svg} {...NO_DOCK} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Shared whiteboard"
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}
           style={{ width: '100%', aspectRatio: `${W} / ${H}`, background: '#171C26', border: '1px solid var(--line-strong)', borderRadius: 10, touchAction: 'none', cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
           {[...shapes, ...(drawing ? [drawing] : [])].map((s) => s.t === 'path'
