@@ -13,6 +13,7 @@ import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkd
 import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts';
 import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelForAccountKey, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
 import { createHash } from 'node:crypto';
+import { reconcile } from '../features/search/scopes.ts';
 import { HttpError, id, now } from './util.ts';
 import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
 
@@ -182,6 +183,7 @@ export class Library {
       this.reindexDm(worldId, pid, title, body, [...aliases, ...dmOnlyAliases(fm)], '');
       this.saveRelations(worldId, pid, title, fm, visibility);
     });
+    this.changed(worldId, [pid]);
     if (!opts.batch) {
       // Hiding or renaming a page changes what other pages may say about it.
       const linksChanged = !existing || existing.title !== title || existing.visibility !== visibility;
@@ -251,6 +253,7 @@ export class Library {
       this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
+    this.changed(worldId, [pid!]);
     this.touchClassified();
     return { id: pid!, path: p };
   }
@@ -299,6 +302,7 @@ export class Library {
         run(this.db, 'DELETE FROM pages WHERE id = ?', g.id);
       }
     });
+    if (gone.length) this.changed(worldId, gone.map((g) => g.id));
     const dir = this.worldDir(worldId);
     if (dir) for (const g of gone) { for (const sub of ['vault', 'party']) fs.rmSync(path.join(dir, sub, g.path), { force: true }); fs.rmSync(path.join(dir, '_api', g.path.replace(/\.md$/i, '.json')), { force: true }); }
     this.touchClassified();
@@ -523,7 +527,27 @@ export class Library {
         this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc ? { fm: pc.fm, body: pc.body, blocks: pc.blocks, properties: pc.properties } : null);
       }
     });
+    this.changed(worldId, only?.length ? only : undefined);
     this.touchClassified();
+  }
+
+  /**
+   * Something that decides who may read a page changed (its level, text, a
+   * source audience, a key, a share, the page's removal): drop the semantic
+   * chunks and story-bible facts the change makes wrong, at once and before
+   * anything can read them (features/search/scopes.ts). They are made again in
+   * the background. Never throws: the query paths check permissions again.
+   */
+  changed(worldId: string, ids?: string[]) {
+    try { reconcile(this, worldId, ids); } catch { /* the stores are not there yet */ }
+  }
+
+  /** A page's player copy as an account lifted to it would read it (built now, never stored), or null if there is none. For the semantic index. */
+  liftedCopy(worldId: string, pageId: string): { title: string; body: string; props: PropertyGroup[]; updatedAt: string } | null {
+    const pg = one<any>(this.db, 'SELECT * FROM pages WHERE id = ? AND world_id = ?', pageId, worldId);
+    if (!pg) return null;
+    const c = this.buildCopy({ ...pg, visibility: 'party' }, JSON.parse(pg.frontmatter || '{}'), 'player', this.resolver(worldId), this.hiddenTitles(worldId, 'player'));
+    return c ? { title: pg.title, body: c.body, props: c.properties, updatedAt: pg.updated_at } : null;
   }
 
   remove(worldId: string, pageId: string) {
@@ -533,6 +557,7 @@ export class Library {
       for (const s of ALL_SCOPES) unindexPage(this.db, s, pageId);
       run(this.db, 'DELETE FROM pages WHERE id = ?', pageId);
     });
+    this.changed(worldId, [pageId]);
     const dir = this.worldDir(worldId);
     if (dir) for (const sub of ['vault', 'party']) fs.rmSync(path.join(dir, sub, pg.path), { force: true });
     if (dir) fs.rmSync(path.join(dir, '_api', pg.path.replace(/\.md$/i, '.json')), { force: true });

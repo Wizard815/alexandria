@@ -14,6 +14,7 @@ import { type DB, one, all, run, tx } from '../core/db.ts';
 import { type Auth, createAccount, requireAdmin, validatePassword, validateUsername } from '../core/auth.ts';
 import { DEFAULT_SETTINGS } from '../core/policy.ts';
 import { HttpError, id, now, oneOf, sha256, str } from '../core/util.ts';
+import { libraryOf } from '../core/library.ts';
 import { featureDataDirs } from '../features/registry.ts';
 import { tar, walk } from '../features/audio/tar.ts';
 
@@ -214,4 +215,5 @@ export function forgetMember(db: DB, worldId: string, accountId: string, by: str
     tryRun('DELETE FROM sourcekeys_shares WHERE world_id = ? AND (from_id = ? OR to_id = ?)', worldId, accountId, accountId);
     run(db, 'DELETE FROM thread_members WHERE account_id = ? AND thread_id IN (SELECT id FROM threads WHERE world_id = ?)', accountId, worldId);
   });
+  libraryOf(db)?.changed(worldId);
 }

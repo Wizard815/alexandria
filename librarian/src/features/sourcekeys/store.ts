@@ -14,6 +14,7 @@
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
 import { id, now, parseJson } from '../../core/util.ts';
+import { libraryOf } from '../../core/library.ts';
 
 export const USES = ['library', 'agent', 'broker'] as const;
 export type KeyUse = (typeof USES)[number];
@@ -135,6 +136,7 @@ export function insertKey(db: DB, a: { worldId: string; sourceId: string; ownerI
 export function revokeKey(db: DB, k: KeyRow, by: string) {
   run(db, `UPDATE sourcekeys_keys SET revoked = 1, revoked_at = ?, revoked_by = ?, secret = '' WHERE id = ?`, now(), by, k.id);
   run(db, 'DELETE FROM sourcekeys_access WHERE key_id = ?', k.id);
+  libraryOf(db)?.changed(k.world_id);
 }
 
 /** The key as an API client sees it: the secret is only ever a mask. */
