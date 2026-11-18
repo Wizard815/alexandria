@@ -159,6 +159,29 @@ export function setSection(body: string, heading: string, text: string): string 
   return `${body.slice(0, s.start)}${block}${body.slice(s.end)}`.replace(/\n{3,}/g, '\n\n');
 }
 
+export const THREADS_SECTION = 'Active threads';
+
+/**
+ * Apply heat changes to the "Active threads" lines. Only the `[heat]` token of a
+ * line changes; its link and description stay. Threads not listed yet are added.
+ */
+export function mergeThreads(text: string, items: { title: string; heat: string }[]): string {
+  const lines = text.split('\n');
+  const seen = new Set<string>();
+  const out = lines.map((line) => {
+    const m = /^(\s*[-*]\s+)(?:\[([a-z]+)\]\s*)?(\[\[([^\]|]+)(?:\|[^\]]*)?\]\])(.*)$/i.exec(line);
+    if (!m) return line;
+    const it = items.find((i) => norm(i.title) === norm(m[4]!));
+    if (!it) return line;
+    seen.add(norm(it.title));
+    return `${m[1]}[${it.heat}] ${m[3]}${m[5]}`;
+  });
+  const added = items.filter((i) => !seen.has(norm(i.title))).map((i) => `- [${i.heat}] [[${i.title}]]`);
+  const hasThread = out.some((l) => /^\s*[-*]\s/.test(l)) || added.length > 0;
+  const kept = hasThread ? out.filter((l) => !/^_.*_$/.test(l.trim())) : out;
+  return [...kept, ...added].join('\n').trim();
+}
+
 /** Add lines at the end of a section (or add the section). */
 export function appendToSection(body: string, heading: string, text: string): string {
   const s = sectionOf(body, heading);
