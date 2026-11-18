@@ -250,7 +250,7 @@ function kankaEntryOf(cfg: any, ctx: ConnectorContext, kc: ReturnType<typeof kan
     properties: kankaProperties(e, type, kc.lookup),
     blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared, (p) => postLevel(p, kc.tagOf))],
     // Kanka's own private flag always wins; a missing flag counts as private.
-    visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm',
+    visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm', sourceShared: e.is_private === false,
     url: (typeof e.urls?.view === 'string' && /^https?:\/\//i.test(e.urls.view) ? e.urls.view : null) ?? kankaEntityUrl(cfg, entityId),
     position: kc.positions.get(entityId) ?? null,
     updatedAt: e.updated_at ?? null,
@@ -572,7 +572,7 @@ async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Ent
         // are secret unless the admin trusts this server's post visibility.
         blocks: e ? [...kankaBlocks(e.entry), ...postBlocks(e.posts ?? [], (p) => trust && p.is_hidden === false)] : [],
         // Not loaded, or no explicit is_hidden=false: DM-only.
-        visibility: e && e.is_hidden === false && ctx.shareVisible ? 'party' : 'dm',
+        visibility: e && e.is_hidden === false && ctx.shareVisible ? 'party' : 'dm', sourceShared: !!e && e.is_hidden === false,
         url: /^\d+$/.test(String(cfg.campaignId ?? '')) && /^https?:\/\/\S+$/.test(appBase) ? `${appBase}/w/${cfg.campaignId}/entities/${id}` : null,
         position: mcpPos.get(String(id)) ?? null,
         updatedAt: e?.updated_at ?? null,
