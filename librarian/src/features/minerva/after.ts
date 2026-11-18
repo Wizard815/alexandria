@@ -15,7 +15,7 @@ import { findCodex, promotionCandidates, promotionDraft } from './codex.ts';
 import { createDraft, type Op } from './ops.ts';
 import { listMysteries } from './revelations.ts';
 import { refreshHome } from './seed.ts';
-import { audit, findArc, listArcs, openArc, requireEnabled, type Arc } from './store.ts';
+import { audit, currentSession, findArc, listArcs, openArc, requireEnabled, type Arc } from './store.ts';
 import { STATUS_PATH, appendToSection, listPages, norm, players, readPage, sectionOf, setSection, slug, writePage } from './vault.ts';
 
 const clean = (s: unknown, max: number) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -94,7 +94,7 @@ export function memoryLog(d: Deps, worldId: string, a: { text: string; about?: s
   requireEnabled(d.db, worldId);
   const text = clean(a.text, 2000);
   if (!text) throw new HttpError(400, 'text is required');
-  const n = a.session ?? (one<any>(d.db, 'SELECT MAX(number) AS n FROM sessionlog_entries WHERE world_id = ?', worldId)?.n ?? 0) + 1;
+  const n = a.session ?? currentSession(d.db, worldId);
   const arc = arcForSession(d, worldId, by);
   const filed = one<any>(d.db, 'SELECT rel FROM minerva_sessions WHERE world_id = ? AND number = ?', worldId, n)?.rel as string | undefined;
   const rel = filed ?? sessionRel(arc.slug, n);
@@ -113,7 +113,7 @@ export function conversationLog(d: Deps, worldId: string, a: { lines: { speaker:
   requireEnabled(d.db, worldId);
   const lines = (a.lines ?? []).map((l) => ({ speaker: clean(l?.speaker, 80), text: clean(l?.text, 1000) })).filter((l) => l.speaker && l.text).slice(0, 300);
   if (!lines.length) throw new HttpError(400, 'lines needs at least one { speaker, text }');
-  const n = a.session ?? (one<any>(d.db, 'SELECT MAX(number) AS n FROM sessionlog_entries WHERE world_id = ?', worldId)?.n ?? 0) + 1;
+  const n = a.session ?? currentSession(d.db, worldId);
   const ps = players(d, worldId);
   const byPlayer = new Map<string, string[]>();
   for (const l of lines) {
@@ -139,7 +139,21 @@ export function conversationLog(d: Deps, worldId: string, a: { lines: { speaker:
 
 export interface FileResult { number: number; rel: string; review: string; drafts: number; already?: boolean }
 
-const STATUS_SECTION_OPS = (text: string, section: string): Op => ({ op: 'section', rel: STATUS_PATH, section, text, mode: 'replace' });
+/** Status sections are added to, never replaced: what the DM wrote there stays. */
+const STATUS_SECTION_OPS = (text: string, section: string): Op => ({ op: 'section', rel: STATUS_PATH, section, text, mode: 'append' });
+
+/**
+ * Did a hook or goal come up in this session? Its whole title, or most of its words (a hook "The darkened lamp" is
+ * active when the table spoke of "the lamp" and "darkened"), in the summary, the notes or what the players said.
+ */
+export function hadActivity(title: string, corpus: string): boolean {
+  if (wordRe(title).test(corpus)) return true;
+  const keys = [...new Set(searchTerms(title, 8).filter((w) => w.length >= 4))];
+  if (!keys.length) return false;
+  const hay = norm(corpus);
+  const have = keys.filter((w) => hay.includes(w)).length;
+  return keys.length === 1 ? have === 1 : have >= 2 && have / keys.length >= 0.6;
+}
 
 async function modelStatus(d: Deps, worldId: string, summary: string): Promise<{ changed: string[]; next: string[] } | null> {
   if (!hasJob(d, 'chat') || !summary.trim()) return null;
@@ -195,19 +209,21 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
 
   // 2. Hooks and goals: heat follows what happened.
   const lines = sessionTexts(d, worldId, draft);
-  const corpus = `${summary}\n${[...lines.values()].flat().join('\n')}`;
+  // Everything this session produced: the recap, the DM's notes on it, what the players said, the log kept at the table.
+  const corpus = `${summary}\n${draft?.dm_notes ?? ''}\n${log}\n${conv}\n${[...lines.values()].flat().join('\n')}`;
   const threads: { title: string; heat: string }[] = [];
   const heatStep: Record<string, string> = { on: 'ongoing', ongoing: 'simmering', simmering: 'sleeping' };
   for (const h of listPages(d, worldId, 'dm/hooks/')) {
     const heat = String(h.fm.heat ?? 'ongoing');
-    const hit = wordRe(h.title).test(corpus);
+    // A hook that came up this session is never cooled; it is raised to on. One that did not cools a step if it was on.
+    const hit = hadActivity(h.title, corpus);
     const next_ = hit ? 'on' : heat === 'on' ? heatStep.on : heat;
     if (next_ !== heat) add('heat', `Hook "${h.title}": ${heat} to ${next_}`, { op: 'heat', rel: h.rel, heat: next_ as any });
     threads.push({ title: h.title, heat: next_ });
   }
   for (const g of listPages(d, worldId, 'players/').filter((p) => p.fm.type === 'goal')) {
     const heat = String(g.fm.heat ?? 'ongoing');
-    const hit = wordRe(g.title).test(corpus);
+    const hit = hadActivity(g.title, corpus);
     const next_ = hit ? 'on' : heat === 'on' ? heatStep.on : heat;
     if (next_ !== heat) add('heat', `Goal "${g.title}": ${heat} to ${next_}`, { op: 'heat', rel: g.rel, heat: next_ as any }, null);
   }
@@ -222,8 +238,17 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
     const page = findCodex(d, worldId, { name: nm }, pages);
     if (page && !page.body.includes(`[[session-${n}]]`)) add('codex', `${page.title}: appeared in session ${n}`, { op: 'codex', name: page.title, entity: String(page.fm.entity ?? '') || undefined, section: 'appearances', text: m.slice(0, 240), session: n });
   }
-  for (const c of promotionCandidates(d, worldId).slice(0, 8)) {
-    try { const p = promotionDraft(d, worldId, c.name, c.kind); add('promote', `Promote ${c.name} (${c.reasons.join(', ')})`, { op: 'create', ...p }); } catch { /* has a page now */ }
+  // Only people this session named: in its recap, the DM's notes, the log or what was said at the table.
+  const named = (nm: string) => wordRe(nm).test(corpus);
+  const promoted = new Set<string>();
+  for (const c of promotionCandidates(d, worldId).filter((x) => named(x.name)).slice(0, 8)) {
+    try { const p = promotionDraft(d, worldId, c.name, c.kind); add('promote', `Promote ${c.name} (${c.reasons.join(', ')})`, { op: 'create', ...p }); promoted.add(norm(c.name)); } catch { /* has a page now */ }
+  }
+  // People met for the first time have no codex page and may not be recurring yet: draft a page for each one the session named.
+  for (const m of met) {
+    const nm = /^\**([^*:—–,(-]+?)\**\s*(?:[:—–,(-]|$)/.exec(m)?.[1]?.trim() ?? m;
+    if (nm.length < 3 || promoted.has(norm(nm)) || findCodex(d, worldId, { name: nm }, pages) || players(d, worldId).some((p) => norm(p.character) === norm(nm))) continue;
+    try { const p = promotionDraft(d, worldId, nm); add('promote', `New in session ${n}: ${nm}`, { op: 'create', ...p }); promoted.add(norm(nm)); } catch { /* has a page now */ }
   }
 
   // 4. Each player's journal entry, and the clues their own words suggest they found.

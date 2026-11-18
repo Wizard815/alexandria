@@ -19,4 +19,4 @@ export interface View { key: string; title: string; body: string; heat?: string;
 export interface Mine { profile: View | null; shared: View | null; bonds: View | null; knowledge: View | null; goals: View[]; journal: View[]; notes: View[]; party: View[]; others: View[]; session: number }
 
 export const HEATS = ['on', 'ongoing', 'simmering', 'sleeping'] as const;
-export const KIND_LABEL: Record<string, string> = { status: 'Status', heat: 'Heat', codex: 'Codex', promote: 'New page', journal: 'Journal', knowledge: 'Clue', goal: 'Goal', note: 'Note', share: 'Shared', arc: 'Arc summary' };
+export const KIND_LABEL: Record<string, string> = { status: 'Status', heat: 'Heat', codex: 'Codex', promote: 'New page', journal: 'Journal', knowledge: 'Clue', goal: 'Goal', note: 'Note', share: 'Shared', arc: 'Arc summary', 'suggest-clue': 'Suggestion: clue', 'suggest-npc': 'Suggestion: new NPC', 'suggest-goal': 'Suggestion: promise or goal', 'suggest-hook': 'Suggestion: hook' };

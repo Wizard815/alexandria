@@ -39,7 +39,8 @@ import { describeMinerva, visibilityNote } from '../minerva/describe.ts';
 import { upsertTarget } from '../minerva/codex.ts';
 import { brokerContext, brokerPersona, personaGiveaway, playerTexts } from '../minerva/player.ts';
 import { agentName } from '../minerva/store.ts';
-import { minervaBrief } from '../minerva/context.ts';
+import { minervaBrief, minervaPrep } from '../minerva/context.ts';
+import { liveLines } from '../minerva/live.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 /** Tool calls one message may make; past it the model must answer from what it has. */
@@ -226,6 +227,8 @@ export function prefetchLibrary(d: Deps, c: Caller, text: string, max = 5): Hit[
   return hits.map((h) => ({ id: h.id, path: h.path, title: h.title, snippet: String(h.snippet ?? '').replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim() }));
 }
 
+/** A request to prepare a session: the context carries the status, the active arc and the last session so few searches are needed. */
+const WANTS_PREP = /\b(prep|prepare|preparation|next session|next game|strong start|session plan|plan (the|next|a) (session|game)|what should i)\b/i;
 const WANTS_TRANSCRIPT = /\b(session|last (time|session|game)|recap|transcript|happened|said|told|heard|earlier|just now|we (met|found|fought|saw|decided))\b/i;
 const WANTS_ITEMS = /\b(my items?|inventory|i (have|carry|own|bought)|my (gold|coins?|loot|stuff))\b/i;
 const WANTS_BROKER = /\b(broker|bought|purchased|paid for|information i)\b/i;
@@ -269,7 +272,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   if (mods) L.push(`Game modules: ${mods}.`);
   if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
   // The campaign status first (DM), or what this player knows (the broker): the retrieval order of the memory vault.
-  if (dm) { const brief = minervaBrief(d, c.worldId); if (brief) L.push(brief); }
+  if (dm) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
   else { const mine = brokerContext(d, c.worldId, c.accountId, text); if (mine) L.push(mine); }
   const cb = dm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
@@ -281,7 +284,10 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     });
     L.push(`Library matches for this message (page id in parentheses; cite by [title]):\n${hits.map((h, i) => `- [${h.title}] (${h.id}): ${h.snippet}${top[i] && i < 2 ? `\n  Starts: ${top[i]}` : ''}`).join('\n')}`);
   } else L.push('Library matches for this message: none.');
-  if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
+  // While a session is recording the last lines ride along (the DM's: everything DM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
+  const live = liveLines(d, c.worldId, dm);
+  if (live.session?.active && live.lines.length) L.push(`Live transcript of "${live.session.name}" (recording now, last ${live.lines.length} lines):\n${live.lines.map(lineText).join('\n')}`.slice(0, 4000));
+  else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
   if (!dm) {
     if (inv?.items?.length) L.push(`This player's items: ${inv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1500)}`);
     const bought = (brk?.requests ?? []).filter((q: any) => q.answer && ['answered', 'noted'].includes(q.status)).slice(0, 12);
