@@ -401,3 +401,34 @@ test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', 
   assert.ok(ensureFull);
   assert.ok(all);
 });
+
+// ---- the DM is told when a page they opened is waiting for the site ----------------------------------------------------------------
+
+test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheDm_AndABackgroundOnlyWaitDoesNot', async () => {
+  const clock = fakeClock();
+  const t = await boot();
+  site.now = () => clock.t;
+  const conn = await t.connection({ maxPerMinute: 10, maxPerSecond: 0, spreadMinutes: 0 });
+  const w = await t.world('Waiting world', conn);
+  await w.sync();
+  const src = one<any>(t.deps.db, 'SELECT * FROM sources WHERE id = ?', w.sid)!;
+  const lim = limiterFor(limitKeyOf(src, t.deps.db), limitsOf('api', { maxPerMinute: 10, maxPerSecond: 0, spreadMinutes: 0 }));
+  assert.equal(worldStatus(t.deps, w.wid).waiting, null, 'nothing to wait for');
+  // The site says slow down: the DM's Library says how long, whoever caused it.
+  lim.observe(new Headers({ 'Retry-After': '20' }), 429);
+  const waiting = worldStatus(t.deps, w.wid).waiting!;
+  assert.ok(waiting && waiting.seconds >= 19 && waiting.seconds <= 20 && waiting.reason === 'asked', JSON.stringify(waiting));
+  assert.equal((await t.ok('GET', `/api/worlds/${w.wid}/world-sources/status`)).waiting.reason, 'asked');
+  // A player is told nothing.
+  const p = await t.addPlayer(w.wid);
+  assert.equal((await t.call('GET', `/api/worlds/${w.wid}/world-sources/status`, p.token)).body.waiting, null);
+  // It clears with time.
+  clock.t += 25_000;
+  assert.equal(worldStatus(t.deps, w.wid).waiting, null);
+  // Background reads giving way to the reserve are not a wait the DM would share: a page they open goes straight through.
+  const lim2 = new Limiter('bg', { perMinute: 10, perSecond: 0, spreadMinutes: 0, perHour: 0 });
+  for (let i = 0; i < 8; i++) await lim2.acquire(undefined, 0, true);
+  clock.onSleep = () => assert.equal(lim2.throttle(), null, 'a background-only wait is not shown');
+  await lim2.acquire(undefined, 0, true);
+  clock.onSleep = undefined;
+});
