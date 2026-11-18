@@ -20,6 +20,13 @@ import { limitKeyOf, limiterState, limitsOf } from './ratelimit.ts';
 const busy = new Set<string>();
 const inflight = new Map<string, Promise<ReadOutcome>>();
 const onDemand = new Map<string, Bucket>();
+// A page that failed to read waits before the background tries it again (5 minutes, doubling, at most 6 hours), so one bad page never
+// holds the head of the queue. A refused key (401) pauses the whole source's background reads for 10 minutes.
+const failures = new Map<string, { n: number; until: number }>();
+const sourceBlocked = new Map<string, number>();
+const noteFailure = (id: string, at: number) => { const n = (failures.get(id)?.n ?? 0) + 1; failures.set(id, { n, until: at + Math.min(6 * 3600_000, 300_000 * 2 ** (n - 1)) }); };
+/** Tests only: forget every failure and block. */
+export function resetFailures() { failures.clear(); sourceBlocked.clear(); }
 
 export interface ReadOutcome { read: number; calls: number; failed: number; error?: string }
 
@@ -49,6 +56,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
       // Already read in full by an earlier page of the same resource (LegendKeeper tabs): nothing to fetch.
       const now = one<any>(d.db, `SELECT depth, visibility, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE id = ?`, p.id);
       if (!now || (now.depth === 'full' && !now.stale)) continue;
+      const readBefore = out.read;
       try {
         for await (const e of tier.detail(cfg, made.ctx, [p.external_id])) {
           // Records come with the listing, except the pictures of a page (a map's image): they are saved with the page.
@@ -56,13 +64,17 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
           const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
           if (before) levelBefore.set(before.id, before.visibility);
           const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
-          if (r.id) { readIds.push(r.id); out.read++; }
+          if (r.id) { readIds.push(r.id); out.read++; failures.delete(p.id); }
         }
+        // Nothing came back for this page (gone at the source, or its document could not be read): leave it alone for a while.
+        if (out.read === readBefore) noteFailure(p.id, Date.now());
       } catch (err: any) {
         if (ctl.signal.aborted) break;
         out.failed++;
         out.error = String(err?.message ?? err).slice(0, 200);
         made.limiter.outcome(false, err?.message ?? err);
+        noteFailure(p.id, Date.now());
+        if (/\(401\)|answered 401\b/.test(out.error)) { sourceBlocked.set(src.id, Date.now() + 600_000); break; }
         // A rate limit that did not clear: stop for now, the next tick tries again.
         if (/rate limit|rate-limit/i.test(out.error)) break;
       }
@@ -143,17 +155,19 @@ export async function detailTick(d: SyncDeps, opts: { at?: number } = {}): Promi
     const tier = tieredOf(src.kind, cfg);
     if (!tier) continue;
     const st = getState(d.db, src.id);
-    if (st.paused) continue;
+    if (st.paused || (sourceBlocked.get(src.id) ?? 0) > at) continue;
     const bucket = budgetBucket(src.id, budgetOf(st, tier), at);
     bucket.refill(at);
     const allowed = Math.floor(bucket.tokens);
     if (allowed < 1) continue;
-    const queue = detailQueue(d.db, src.id, { all: st.fetchAll, limit: allowed * 3, at });
-    if (!queue.length) {
+    const raw = detailQueue(d.db, src.id, { all: st.fetchAll, limit: allowed * 3 + failures.size, at });
+    if (!raw.length) {
       // "Fetch everything" is done when nothing is left to read.
       if (st.fetchAll) setSettings(d.db, src.id, { fetchAll: false });
       continue;
     }
+    const queue = raw.filter((q) => (failures.get(q.id)?.until ?? 0) <= at).slice(0, allowed * 3);
+    if (!queue.length) continue;
     busy.add(src.id);
     try {
       const r = await readPages(d, src, queue.map((q) => ({ id: q.id, external_id: q.external_id })), { maxCalls: allowed });
