@@ -16,6 +16,9 @@ import { ctx } from '../../routes/_shared.ts';
 import { KINDS, globalSearch, parseKinds } from './global.ts';
 import { SCHEMA, embeddingCoverage, migrateSearch, syncEmbeddings } from './embeddings.ts';
 import { vectorStore } from './vectorstore.ts';
+import { jobConfig } from '../../core/ai.ts';
+import { all, run } from '../../core/db.ts';
+import { bibleCoverage } from '../bible/assemble.ts';
 
 const feature: Feature = {
   id: 'search',
@@ -53,6 +56,34 @@ const feature: Feature = {
       res.json({ ok: true, ...embeddingCoverage(d, c.world.id) });
     });
 
+    return r;
+  },
+
+  // Admin > Models: the embeddings job and how much of each world it has read, per scope; re-embed one world.
+  adminMount: 'embeddings',
+  adminRoutes: (d: Deps) => {
+    const r = Router();
+    const worldRow = (id: string) => { const w = all<any>(d.db, 'SELECT id, name FROM worlds WHERE id = ?', id)[0]; if (!w) throw new HttpError(404, 'World not found'); return w; };
+    r.get('/', (_req, res) => {
+      const cfg = jobConfig(d, 'extra');
+      res.json({
+        configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, chat: hasJob(d, 'chat'),
+        worlds: all<any>(d.db, 'SELECT id, name FROM worlds ORDER BY name').map((w) => ({ id: w.id, name: w.name, embeddings: embeddingCoverage(d, w.id), bible: bibleCoverage(d, w.id) })),
+      });
+    });
+    r.post('/:world/reembed', (req, res) => {
+      const w = worldRow(String(req.params.world));
+      vectorStore(d.db).deleteWorld(w.id);
+      run(d.db, 'DELETE FROM bible_facts WHERE world_id = ?', w.id);
+      run(d.db, 'DELETE FROM bible_state WHERE world_id = ?', w.id);
+      d.library.changed(w.id);
+      res.json({ ok: true, embeddings: embeddingCoverage(d, w.id), bible: bibleCoverage(d, w.id) });
+    });
+    r.post('/:world/run', async (req, res) => {
+      const w = worldRow(String(req.params.world));
+      const sync = await syncEmbeddings(d, { maxPages: 200, worldId: w.id });
+      res.json({ ok: true, sync, embeddings: embeddingCoverage(d, w.id), bible: bibleCoverage(d, w.id) });
+    });
     return r;
   },
 
