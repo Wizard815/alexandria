@@ -48,7 +48,7 @@ export default function PlayerLive() {
             <StageBoard embedded />
             {!stageCombat && <CombatPanel c={d.combat} />}
             <section className="card" aria-label="Session chat"><ChatPanel /></section>
-            {d.captions && <div className="note">Live captions show here when the DM turns on transcription for this session.</div>}
+            {d.captions && <div className="note">Live captions are in the transcript panel (the CC button at the bottom right) while the DM is recording.</div>}
           </div>
           <aside className="col-1 stack loose">
             <section className="card" aria-labelledby="here-h">

@@ -147,7 +147,7 @@ function CoinCard({ owner, data, giving, reload, error }: { owner: 'me' | 'party
         <ul className="stack tight small" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {data.entries.slice(0, 8).map((e: any) => (
             <li key={e.id} className="row between" style={{ gap: 6, opacity: e.status === 'pending' ? 0.7 : 1 }}>
-              <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')} <span className="tiny faint">· {nameOf(e.by_id)}{e.status === 'pending' ? ' · waiting for the DM' : ''}</span></span>
+              <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')} <span className="tiny faint">{e.note && String(e.note).includes(nameOf(e.by_id)) ? '' : `· ${nameOf(e.by_id)}`}{e.status === 'pending' ? ' · waiting for the DM' : ''}</span></span>
               <span style={{ color: e.amount_cp >= 0 ? 'var(--ok-text)' : 'var(--danger-text)' }}>{e.amount_cp >= 0 ? '+' : ''}{coins(e.amount_cp, info.settings.coins)}</span>
             </li>
           ))}
