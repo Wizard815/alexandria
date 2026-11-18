@@ -112,6 +112,8 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
   const stat = statsOf(d);
   for (const r of rows) {
     const line = lineOf(d, worldId, r);
+    // A room mic hears everybody and names no speaker: it counts as the DM's voice only if the DM said so (never for the wake word).
+    if (line.role === 'other' && !line.accountId && state.listen.room) line.role = 'dm';
     const sig = norm(line.text);
     if (W.seen.get(line.id) === sig) continue;
     W.seen.set(line.id, sig);
@@ -141,13 +143,21 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
   // Player-spoken item use needs the player's own inventory.
   for (const it of items) for (const c of cuesForUse(it, ctx)) it.cands.push(...useCandidates(d, worldId, it.line, c));
 
-  // Model: settle the unsure ones, then look for scene changes in the lines with no cue.
-  if (hasJob(d, 'audit')) {
-    await confirm(d, worldId, items);
-    if (state.scan) await scan(d, worldId, items, ctx, W);
-  } else for (const it of items) for (const c of it.cands) if (c.borderline || c.confidence < 0.8) c.forceAsk = true;
-
+  // Sure things run at once. The model then settles the unsure ones and reads the narration the rules could not, and those run when it answers.
+  const unsure = (c: Candidate) => c.borderline || c.confidence < 0.8;
+  const model = hasJob(d, 'audit');
+  const later: Item[] = items.map((it) => ({ line: it.line, cands: [] as Candidate[] }));
+  if (model) {
+    for (const [i, it] of items.entries()) { later[i].cands = it.cands.filter(unsure); it.cands = it.cands.filter((c) => !unsure(c)); }
+  } else for (const it of items) for (const c of it.cands) if (unsure(c)) c.forceAsk = true;
   for (const it of items) for (const c of it.cands) await act(d, worldId, sess.id, state, c, it.line, 'line');
+  if (model) {
+    const known = items.map((it, i) => [...it.cands, ...later[i].cands].map((c) => c.category));
+    await confirm(d, worldId, later);
+    const found = state.scan ? await scan(d, worldId, items.map((it, i) => ({ line: it.line, cands: [...it.cands, ...later[i].cands] })), ctx, W, known) : [];
+    for (const it of later) for (const c of it.cands) await act(d, worldId, sess.id, state, c, it.line, 'line');
+    for (const it of found) for (const c of it.cands) await act(d, worldId, sess.id, state, c, it.line, 'line');
+  }
   W.sinceNotes += items.length;
   // Clues, new NPCs and promises: drafts only, in the Review queue.
   if (state.cats.notes === 'draft' && W.sinceNotes >= 12) { W.sinceNotes = 0; void suggestionPass(d, worldId, { force: true }).catch(() => {}); }
@@ -197,13 +207,14 @@ async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   });
 }
 
-const NARRATION = /\b(you|your|the party|everyone|all of you|each of you|the (?:room|hall|cave|tavern|inn|door|air|crowd|ogre|goblins?|guards?|innkeeper|stranger|storm|forest|road|city|town|village|dungeon|tunnel|corridor|chamber|market|harbou?r|docks?)|suddenly|inside|outside|ahead|behind|around you)\b/i;
-async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wstate): Promise<void> {
-  const cand = items.filter((x) => x.line.role === 'dm' && !x.cands.length && x.line.text.split(/\s+/).length >= 5 && NARRATION.test(x.line.text) && !/\?\s*$/.test(x.line.text.trim()));
-  if (!cand.length) return;
+async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wstate, known: string[][]): Promise<Item[]> {
+  const cand = items.map((x, i) => ({ x, i })).filter(({ x }) => x.line.role === 'dm' && x.line.text.split(/\s+/).length >= 5 && !/\?\s*$/.test(x.line.text.trim()));
+  const out: Item[] = [];
+  if (!cand.length) return out;
   if (Date.now() - W.lastScan < SCAN_EVERY_MS) await new Promise((r) => setTimeout(r, SCAN_EVERY_MS - (Date.now() - W.lastScan)));
   W.lastScan = Date.now();
-  const batch = cand.slice(-6);
+  const batch = cand.slice(-6).map((c) => c.x);
+  const batchKnown = cand.slice(-6).map((c) => c.i);
   const snap = one<any>(d.db, 'SELECT music, ambience FROM sound_state WHERE world_id = ?', worldId);
   const cur = snap?.music ? parseJson<any>(snap.music, {}) : null;
   const layers = [...new Set(indexOf(d).ambience.map((a) => a.layer))].slice(0, 20);
@@ -216,7 +227,7 @@ async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wst
 {"line":N,"cat":"clock","preset":"short-rest|long-rest|next-day"} or {"line":N,"cat":"clock","minutes":120}  (time passes or the party rests)
 {"line":N,"cat":"event","skill":"Perception","dc":13}  (the DM asks the players for a roll)
 Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
-  const j = await modelJson(d, worldId, sys, `Earlier context:\n${W.lastLines.slice(-4).join('\n')}\n\nDM lines:\n${batch.map((x, i) => `${i}. ${x.line.text}`).join('\n').slice(0, 3000)}`);
+  const j = await modelJson(d, worldId, sys, `Earlier context:\n${W.lastLines.slice(-4).join('\n')}\n\nDM lines (the rules already handled the categories in brackets: do not repeat those):\n${batch.map((x, i) => `${i}. ${x.line.text}${known[batchKnown[i]]?.length ? ` [${[...new Set(known[batchKnown[i]])].join(', ')}]` : ''}`).join('\n').slice(0, 3200)}`);
   W.lastLines = [...W.lastLines, ...batch.map((x) => x.line.text)].slice(-8);
   const acts: any[] = Array.isArray(j?.actions) ? j.actions : [];
   for (const a of acts.slice(0, 6)) {
@@ -232,8 +243,9 @@ Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
     else if (a.cat === 'clock') { if (['short-rest', 'long-rest', 'next-day'].includes(a.preset)) intent = mk({ kind: 'clock', preset: a.preset, why: it.line.text.slice(0, 60) }, 0.8); else if (Number(a.minutes) > 0 && Number(a.minutes) <= 10080) intent = mk({ kind: 'clock', minutes: Math.round(Number(a.minutes)), why: it.line.text.slice(0, 60) }, 0.8); }
     else if (a.cat === 'event' && typeof a.skill === 'string') intent = mk({ kind: 'event', skill: a.skill.slice(0, 20), dc: Number(a.dc) || undefined, save: /save/i.test(it.line.text), why: it.line.text.slice(0, 60) }, 0.8);
     const c = intent && build(d, worldId, ctx, intent, it.line.text);
-    if (c) { c.source = 'model'; c.borderline = false; it.cands.push(c); }
+    if (c && !(known[batchKnown[Number(a?.line)]] ?? []).includes(c.category)) { c.source = 'model'; c.borderline = false; let o = out.find((y) => y.line === it.line); if (!o) { o = { line: it.line, cands: [] }; out.push(o); } o.cands.push(c); }
   }
+  return out;
 }
 
 // ---- deciding and acting --------------------------------------------------------------------
@@ -269,6 +281,8 @@ export async function act(d: Deps, worldId: string, sessionId: string | null, st
 
 async function runAndLog(d: Deps, worldId: string, base: any, calls: Call[], latency: number | null): Promise<LogRow> {
   const out = await execCalls(d, worldId, calls);
+  // The sound board says it was already playing: nothing changed, so nothing is logged.
+  if (out.ok && calls.length === 1 && /^(play_music|play_ambience)$/.test(calls[0].tool) && out.unchanged) return addLog(d, worldId, { ...base, status: 'blocked', result: 'Already playing: nothing to change.' });
   return addLog(d, worldId, { ...base, status: out.ok ? 'done' : 'failed', result: out.ok ? out.results.join(' | ') : out.error ?? '', undo: out.undo ? { calls: out.undo } : null, latencyMs: latency });
 }
 

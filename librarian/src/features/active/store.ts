@@ -38,7 +38,7 @@ export const DEFAULT_PRESETS: Record<string, Preset> = {
   '3': { name: 'Full takeover', cats: allAuto() },
 };
 
-export interface Listen { dm: boolean; players: boolean }
+export interface Listen { dm: boolean; players: boolean; room: boolean }
 export interface State { mode: 'assistant' | 'active'; wakeWord: string; cats: Cats; presets: Record<string, Preset>; prev: Cats | null; listen: Listen; askTtlMin: number; scan: boolean }
 
 const cleanCats = (v: unknown, base: Cats = DEFAULT_CATS): Cats => {
@@ -60,7 +60,7 @@ export function getState(d: Deps, worldId: string): State {
   const listen = parseJson<Partial<Listen>>(r?.listen, {});
   return {
     mode: r?.mode === 'active' ? 'active' : 'assistant', wakeWord: r?.wake_word || 'Minerva', cats: cleanCats(parseJson(r?.cats, {})), presets,
-    prev: r?.prev ? cleanCats(parseJson(r.prev, {})) : null, listen: { dm: listen.dm !== false, players: listen.players !== false },
+    prev: r?.prev ? cleanCats(parseJson(r.prev, {})) : null, listen: { dm: listen.dm !== false, players: listen.players !== false, room: listen.room === true },
     askTtlMin: Number.isInteger(r?.ask_ttl_min) ? r.ask_ttl_min : 10, scan: r ? !!r.scan : true,
   };
 }

@@ -15,6 +15,8 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\b(release|deliver|hand over|let (it|that|the answer) (through|out|go)|waiting for (my )?review|needs my review|refuse|decline)\b.*\b(broker|answer|question)|\bbroker (answer|question)s?\b.*\b(release|deliver|review|refuse|decline)/i, tools: ['broker_deliver', 'broker_refuse', 'list_broker_requests', 'broker_answer'] },
+  { re: /\b(ally|rival|neutral|attitude|let the (whole )?party (see|know)|make \w+( \w+)? (an? )?(ally|rival)|has been met|mark .* as met)\b/i, tools: ['update_person', 'list_people', 'add_person'] },
   { re: /\b(journal draft|draft (my|a) journal|write up (my|the) (session|journal)|(summari[sz]e|write) (the|my) (session|night) for my (journal|notes))\b/i, tools: ['my_journal_draft', 'my_memory_log', 'my_context'] },
   { re: /\b(catch me up|previously|what happened (last|in the last|so far)|recap (of )?(the )?(last|previous))\b/i, tools: ['my_recap', 'list_session_log', 'search_transcript'] },
   { re: /\b(play|mood|tense|ambience|ambient|sound|sounds|music|scene|layer|soundtrack|sound ?board|sound effects?|sfx|thunder|rain|creak|hush|eerie|battle music)\b/i, tools: ['get_sound_now', 'play_music', 'play_ambience', 'send_scene', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes'] },

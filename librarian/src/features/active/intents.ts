@@ -36,9 +36,15 @@ export function matchPage(ctx: CueCtx, phrase: string): { id: string; title: str
   if (!want.length) return null;
   const scored = ctx.pages.map((p) => {
     const have = new Set(toks(`${p.title} ${p.path ?? ''}`));
-    const hit = want.filter((t) => have.has(t) || [...have].some((h) => h.startsWith(t) || t.startsWith(h) && h.length >= 4)).length;
+    const wantSet = new Set(want);
+    const near = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
+    const hit = want.filter((t) => [...have].some((h) => near(h, t))).length;
+    const titleHit = [...have].filter((h) => [...wantSet].some((t) => near(h, t))).length;
+    const cover = have.size ? titleHit / have.size : 0;
     const titleKind = new RegExp(`\\b(${[...GENERIC].join('|')})\\b`).test(norm(p.title));
-    return { p, score: hit / want.length + (hasKind && titleKind ? 0.1 : 0) };
+    // Either the phrase is mostly the page's name, or the page's name is mostly in the phrase (the DM talks around it).
+    const score = Math.max(hit / want.length, titleHit >= Math.min(2, have.size) ? cover : 0) + (hasKind && titleKind ? 0.1 : 0);
+    return { p, score };
   }).filter((x) => x.score >= 0.6).sort((a, b) => b.score - a.score);
   if (!scored.length) return null;
   return { id: scored[0].p.id, title: scored[0].p.title, score: scored[0].score, ambiguous: scored.length > 1 && scored[1].score >= scored[0].score - 0.05 };
@@ -55,12 +61,12 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
     case 'music':
       if (it.stop) return { ...base, category: 'music', calls: [{ tool: 'stop_music', args: {} }], summary: 'Stop the music', ruleKey: rk('stop music'), visible: 'table', dedupeKey: 'music:stop', dedupeMs: 20_000 };
       if (!it.mood) return null;
-      return { ...base, category: 'music', calls: [{ tool: 'play_music', args: { mood: it.mood } }], summary: `Play ${it.mood} music`, ruleKey: rk(`music ${it.mood}`), visible: 'table', dedupeKey: `music:${it.mood}`, dedupeMs: 180_000 };
+      return { ...base, category: 'music', calls: [{ tool: 'play_music', args: { mood: it.mood } }], summary: `Play ${it.mood} music`, ruleKey: rk(`music ${it.mood}`), visible: 'table', dedupeKey: `music:${it.mood}`, dedupeMs: 10_000 };
     case 'ambience':
       if (it.stop || !it.layers.length) return { ...base, category: 'music', calls: [{ tool: 'play_ambience', args: {} }], summary: 'Stop the ambience', ruleKey: rk('ambience stop'), visible: 'table', dedupeKey: 'amb:stop', dedupeMs: 60_000 };
-      return { ...base, category: 'music', calls: [{ tool: 'play_ambience', args: { layers: it.layers.map((kind) => ({ kind, volume: 0.5 })) } }], summary: `Ambience: ${list(it.layers)}`, ruleKey: rk(`ambience ${it.layers.join(' ')}`), visible: 'table', dedupeKey: `amb:${it.layers.join('+')}`, dedupeMs: 180_000 };
+      return { ...base, category: 'music', calls: [{ tool: 'play_ambience', args: { layers: it.layers.map((kind) => ({ kind, volume: 0.5 })) } }], summary: `Ambience: ${list(it.layers)}`, ruleKey: rk(`ambience ${it.layers.join(' ')}`), visible: 'table', dedupeKey: `amb:${it.layers.join('+')}`, dedupeMs: 10_000 };
     case 'sfx':
-      return { ...base, category: 'sfx', calls: [{ tool: 'play_sfx', args: { name: it.name } }], summary: `Sound effect: ${it.name}`, ruleKey: rk(`sfx ${it.name}`), visible: 'table', dedupeKey: `sfx:${norm(it.name)}`, dedupeMs: 6_000 };
+      return { ...base, category: 'sfx', calls: [{ tool: 'play_sfx', args: { name: it.name } }], summary: `Sound effect: ${it.name}`, ruleKey: rk(`sfx ${it.name}`), visible: 'table', dedupeKey: `sfx:${norm(it.name)}`, dedupeMs: 25_000 };
     case 'stage': {
       if (it.text) {
         return { ...base, category: 'stage', calls: [{ tool: 'show_on_stage', args: { kind: 'text', title: it.title ?? 'A note', text: it.text } }], summary: `Show the players "${(it.title ?? 'a note')}"`, ruleKey: rk('stage text'), visible: 'players', dedupeKey: `stage:text:${norm(it.text).slice(0, 40)}`, dedupeMs: 60_000 };

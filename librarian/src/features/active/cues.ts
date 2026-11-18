@@ -81,6 +81,25 @@ const PRON = new Set(['it', 'he', 'she', 'they', 'him', 'her', 'them', 'you', 't
 const SKILLS = 'perception|investigation|insight|stealth|athletics|acrobatics|arcana|history|nature|religion|survival|medicine|persuasion|deception|intimidation|performance|sleight of hand|animal handling|strength|dexterity|constitution|intelligence|wisdom|charisma|dex|con|wis|int|str|cha';
 const COIN_CP: Record<string, number> = { cp: 1, copper: 1, sp: 10, silver: 10, ep: 50, electrum: 50, gp: 100, gold: 100, pp: 1000, platinum: 1000 };
 
+const UNITS: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+const NUMRUN = new RegExp(`\\b(?:(?:(?:an? |one )?hundred)(?:(?: and)? (?:(?:${Object.keys(TENS).join('|')})(?:[- ](?:${Object.keys(UNITS).slice(1, 10).join('|')}))?|${Object.keys(UNITS).join('|')}))?|(?:${Object.keys(TENS).join('|')})(?:[- ](?:${Object.keys(UNITS).slice(1, 10).join('|')}))?|(?:${Object.keys(UNITS).join('|')}))\\b`, 'gi');
+const WORD_UNIT = /^\s*(?:gold|gp|silver|sp|copper|cp|platinum|pp|coins?|pieces?|damage|hp|hit points?|points?|health|for initiative|on initiative|initiative|hours?|days?|minutes?)\b/i;
+const WORD_VERB = /(?:takes?|took|deals?|dealt|for|heals?|regains?|recovers?|rolled|got|rolls?|total of|with a|that'?s|it'?s|is|a|an)\s+$/i;
+/** "fifty gold" -> "50 gold", "takes eight" -> "takes 8": number words only where an amount is meant. */
+export function digitize(text: string): string {
+  return text.replace(NUMRUN, (m, off: number) => {
+    const after = text.slice(off + m.length);
+    const before = text.slice(0, off);
+    if (!(WORD_UNIT.test(after) || (WORD_VERB.test(before) && /^\s*(?:[.,!?;]|$|from|with|by|damage|fire|cold|points)/i.test(after) && !/\b(?:an?|one)$/i.test(before.trim() + ' ' ) ))) return m;
+    const w = m.toLowerCase().replace(/-/g, ' ').replace(/^(an?|one) hundred/, 'hundred').replace(/ and /, ' ').split(/\s+/);
+    let total = 0; let cur = 0;
+    for (const x of w) { if (x === 'hundred') cur = (cur || 1) * 100; else if (x in TENS) cur += TENS[x]; else if (x in UNITS) cur += UNITS[x]; }
+    total += cur;
+    return String(total);
+  });
+}
+
 const sentences = (t: string): string[] => t.replace(/\s+/g, ' ').split(/(?<=[.!?;])\s+(?=[A-Za-z"'“])/).map((s) => s.trim()).filter(Boolean);
 
 // ---- names ---------------------------------------------------------------------------
@@ -170,7 +189,7 @@ export function cuesOf(line: LineIn, ctx: CueCtx, opts: { explicit?: boolean } =
 
   // -- stage --
   if ((m = low.match(/\b(?:show|display|put up|hand|pass|slide|reveal|flash|pull up|bring up)\s+(?:them|the players|the party|the table|everyone|you|the group|everybody|us|up)?\s*(?:with\s+)?(?:the\s+|a\s+|an\s+|this\s+|that\s+)?(.{3,80})/)) && !/\b(music|sound|initiative)\b/.test(m[1])) {
-    const phrase = m[1].replace(/\b(on|to) (the )?(stage|screen|table|board)\b.*$/, '').replace(/[.,!?;].*$/, '').trim();
+    const phrase = m[1].replace(/\b(on|to) (the )?(stage|screen|table|board)\b.*$/, '').replace(/[.!?;].*$/, '').trim().slice(0, 90);
     if (phrase.length >= 3) push({ kind: 'stage', phrase, why: m[0].slice(0, 80) }, 0.7);
   }
 
@@ -357,7 +376,8 @@ function playerCues(line: LineIn, ctx: CueCtx): Scored[] {
 }
 
 /** Everything the lines say: DM rules, plus creatures joining and player rolls. */
-export function allCues(line: LineIn, ctx: CueCtx, opts: { explicit?: boolean } = {}): Scored[] {
+export function allCues(line0: LineIn, ctx: CueCtx, opts: { explicit?: boolean } = {}): Scored[] {
+  const line = { ...line0, text: digitize(line0.text) };
   const base = cuesOf(line, ctx, opts);
   if (line.role === 'dm' || opts.explicit) return dedupe([...base, ...addCues(line, ctx)]);
   return base;

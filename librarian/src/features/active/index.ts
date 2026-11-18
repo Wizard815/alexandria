@@ -59,7 +59,7 @@ function routes(d: import('../../app.ts').Deps) {
     }
     if (b.wakeWord !== undefined) { const ww = str(b.wakeWord, 'wakeWord', { max: 30 }).trim(); if (!/^[\p{L}][\p{L}\p{N} '-]{1,29}$/u.test(ww)) throw new HttpError(400, 'The wake word needs 2 to 30 letters'); patch.wakeWord = ww; }
     if (b.cats !== undefined) { if (!b.cats || typeof b.cats !== 'object') throw new HttpError(400, 'cats must be an object'); const cur = getState(d, w).cats; patch.cats = cleanCats(b.cats, cur) as Cats; patch.prev = null; }
-    if (b.listen !== undefined) { if (!b.listen || typeof b.listen !== 'object') throw new HttpError(400, 'listen must be an object'); patch.listen = { dm: b.listen.dm !== false, players: b.listen.players !== false }; }
+    if (b.listen !== undefined) { if (!b.listen || typeof b.listen !== 'object') throw new HttpError(400, 'listen must be an object'); patch.listen = { dm: b.listen.dm !== false, players: b.listen.players !== false, room: b.listen.room === true }; }
     if (b.askTtlMin !== undefined) patch.askTtlMin = int(b.askTtlMin, 'askTtlMin', { min: 1, max: 240 });
     if (b.scan !== undefined) patch.scan = b.scan === true;
     saveState(d, w, patch);
