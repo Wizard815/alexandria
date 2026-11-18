@@ -157,6 +157,29 @@ auto-approve for that tool.
    each player's journal entry and knowledge update, hook and goal heat changes.
 3. The DM approves, edits or rejects each on one review page.
 
+The drafts follow a few rules: a status section is added to, never replaced; a hook or goal that
+came up in the session is never cooled (it is raised to `on`); a promotion is drafted only for
+people the session named (the recap, the DM's notes, the log, what was said), including people met
+for the first time; and the session number is the session record's number, or the number the table
+gave the recording ("Session 22").
+
+### Live help
+
+While a session records, the DM's agent is given the last 20 DM-visible transcript lines (the
+player assistant gets the players' lines only; classified text is left out of both). A light
+background pass, at most every two minutes or after 30 new lines, reads the new lines and drafts
+low-priority **suggestions** into the review queue: a clue the table seems to have found
+(`revelation_mark`), a new NPC named twice (a promotion draft), a promise (a goal). They sort
+below every other draft and nothing is applied until the DM approves it. The DM's button is
+`POST /minerva/live/suggest`.
+
+### Writes never put the DM's analysis in front of the players
+
+`codex_upsert` on a page the players can open (a player character's page is party level) writes in
+a `> [!secret]` block, which the players' copy leaves out, unless the DM said the text is for them
+(`visible: true`). The approval card says where the text lands: "Visible to players (level party)"
+in red, or "DM-only block on a level party page".
+
 ## 9. Obsidian and the `dnd` branch
 
 The `dnd` branch of LLM-will-remember-this is the same layout as an Obsidian vault with
