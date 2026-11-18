@@ -48,6 +48,7 @@ export async function refreshAccess(d: Deps, k: KeyRow, by: string, opts: { forc
       for (const acc of accounts) for (const p of pages) run(d.db, 'INSERT OR IGNORE INTO sourcekeys_access (world_id, page_id, account_id, key_id) VALUES (?, ?, ?, ?)', k.world_id, p.id, acc, k.id);
       run(d.db, 'UPDATE sourcekeys_keys SET refresh_note = ? WHERE id = ?', `${pages.length} pages seen of ${ids.size} the key lists`, k.id);
     });
+    d.library.changed(k.world_id);
     return { ok: true, pages: pages.length, status: 200, note: `Your key sees ${pages.length} pages that are in this library.` };
   } catch (e: any) {
     const note = `Could not read the source with this key: ${String(e?.message ?? e).slice(0, 160)}`;
@@ -60,5 +61,7 @@ export async function refreshAccess(d: Deps, k: KeyRow, by: string, opts: { forc
 
 /** Forget what a key could see (it was revoked, or its trust, users or uses changed). */
 export function dropAccess(d: Deps, keyId: string) {
+  const w = one<{ world_id: string }>(d.db, 'SELECT world_id FROM sourcekeys_keys WHERE id = ?', keyId)?.world_id;
   run(d.db, 'DELETE FROM sourcekeys_access WHERE key_id = ?', keyId);
+  if (w) d.library.changed(w);
 }
