@@ -211,7 +211,7 @@ const feature: Feature = {
     { name: 'get_combat', description: `Combat now: whether it is active, the round, whose turn it is, and each creature's initiative, HP and conditions, as you may see them. ${COMBAT_NOTE}`, props: {}, call: () => ({ method: 'GET', path: '/live/combat' }) },
     {
       name: 'add_combatant', write: true,
-      description: 'DM: add a creature to the combat tracker in initiative order. Give hp (and ac) or a statblock object (from make_statblock); without an initiative one is rolled (d20 plus Dexterity) when a statblock is given.',
+      description: 'DM: add a creature or a player character to the combat tracker in initiative order. For a player character give accountId (from list_members) and the initiative that player rolled. Give hp (and ac) or a statblock object (from make_statblock); without an initiative one is rolled (d20 plus Dexterity) when a statblock is given.',
       props: {
         name: S('Name, e.g. Goblin Boss'), initiative: { type: 'integer', description: 'Initiative total' }, hp: { type: 'integer' }, maxHp: { type: 'integer' }, ac: { type: 'integer', description: 'Armor class' },
         hidden: { type: 'boolean', description: 'Hide from players' }, effects: { type: 'array', items: { type: 'string' } },
