@@ -89,6 +89,8 @@ export interface Entry {
   sourceUpdatedAt?: string | null;
   /** The list itself says this page is not for players (a hidden page or folder). A page already held at a deeper depth is made DM-only at once, without waiting for its details. */
   restricted?: boolean;
+  /** Read in full: the source itself says this page is shared (not private or hidden), whatever the source's default visibility lets through. Lets the default be changed later without reading the page again. Missing: the source said nothing (fail closed). */
+  sourceShared?: boolean;
   /** Markdown sources: the original body. The library runs the Markdown leak
    *  guard on it before parsing, and keeps it for the on-disk mirror. */
   markdown?: string;
