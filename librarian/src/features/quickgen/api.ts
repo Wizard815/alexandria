@@ -6,7 +6,7 @@
 //
 // All are deterministic for a given seed and throw RangeError on a bad
 // argument. No model is called.
-export { genNames, RACES, GENDERS, isOffensive } from './names.ts';
+export { genNames, RACES, GENDERS, NAME_STYLES, isOffensive } from './names.ts';
 export type { GeneratedName, NamesOpts, NamesResult, Race, Gender, NameStyle } from './names.ts';
 export { genItems, RARITIES, ALL_RARITIES, TYPES, PRICE_BANDS, priceFor } from './items.ts';
 export type { GeneratedItem, ItemOpts, ItemsResult, Rarity, ItemType } from './items.ts';

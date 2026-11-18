@@ -1,0 +1,38 @@
+/* Generators hub: the card grid, the options + result layout, the map and the key. */
+.gen-tabs-gap { margin-top: 4px; }
+.gen-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.gen-card { text-align: left; cursor: pointer; gap: 4px; font: inherit; color: var(--text); min-height: 76px; }
+.gen-card:hover { border-color: var(--accent); }
+.gen-card strong { font-size: 16px; }
+.gen-work { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.gen-opts { position: sticky; top: 8px; }
+.gen-form { display: flex; flex-direction: column; gap: 10px; }
+.gen-form select, .gen-form input[type="text"], .gen-form input[type="search"], .gen-form textarea, .gen-filters select, .gen-filters input { width: 100%; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; min-height: 38px; }
+.gen-check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.gen-h { margin: 0; font-size: 22px; overflow-wrap: anywhere; }
+.gen-h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gen-chip { font-weight: 400; }
+.gen-sec .md p { margin: 0; }
+.card.gen-dm { border-left: 4px solid var(--danger); }
+.gen-lock.on { border-color: var(--accent); color: var(--accent-strong); font-weight: 700; }
+.gen-names { columns: 2 180px; margin: 0; padding-left: 18px; }
+.gen-names li { padding: 2px 0; }
+.gen-map { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #e9e2cf; max-height: 78vh; }
+.gen-map img { display: block; width: 100%; height: auto; }
+.gen-map.zoom img { width: auto; max-width: none; }
+.gen-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.gen-key { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.gen-key li { overflow-wrap: anywhere; }
+.gen-n { display: inline-flex; min-width: 24px; height: 24px; padding: 0 4px; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel-2); font-size: 12px; margin-right: 4px; }
+.gen-dmnote { color: var(--danger-text); }
+.gen-stat table { font-size: 13px; }
+.gen-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.gen-bestiary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gen-actions { gap: 14px; }
+@media (max-width: 860px) {
+  .gen-work { grid-template-columns: minmax(0, 1fr); }
+  .gen-opts { position: static; }
+  .gen-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gen-card { min-height: 70px; padding: 12px; }
+  .gen-h { font-size: 19px; }
+}
