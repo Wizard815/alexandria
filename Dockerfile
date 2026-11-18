@@ -33,7 +33,7 @@ LABEL org.opencontainers.image.title="Alexandria" \
       org.opencontainers.image.source="https://github.com/Wizard815/alexandria" \
       org.opencontainers.image.licenses="MIT"
 # git: for git sources (cloned read-only into /data). tini: clean shutdown.
-RUN apk add --no-cache git tini \
+RUN apk add --no-cache git tini ffmpeg \
  && mkdir -p /data /vaults \
  && chown node:node /data
 WORKDIR /app
