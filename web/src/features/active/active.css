@@ -1,7 +1,8 @@
 .act-badge-wrap { display: inline-flex; align-items: center; gap: 6px; }
 .act-badge { cursor: pointer; font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; background: transparent; }
 .act-badge.on { border-color: var(--accent); color: var(--accent); }
-.act-badge.phone { min-height: 32px; }
+.act-badge.phone { min-height: 48px; min-width: 48px; padding: 0 12px; }
+.act-cards.phone .btn, .act-toast.phone .btn { min-height: 48px; min-width: 48px; }
 .act-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted, #888); display: inline-block; }
 .act-badge.on .act-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .act-cards { position: fixed; right: 16px; bottom: 76px; z-index: 55; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 32px)); }

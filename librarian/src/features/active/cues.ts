@@ -65,12 +65,12 @@ const LAYERS: [RegExp, string][] = [
   [/\b(fire|fireplace|hearth|campfire|crackling|flames?)\b/, 'fire'], [/\b(tavern|inn|crowd|chatter|bar)\b/, 'tavern'], [/\b(cave|drip\w*|dungeon)\b/, 'cave'],
   [/\b(forest|woods|birds?|jungle)\b/, 'forest'], [/\b(sea|waves?|ocean|harbou?r|docks?|shore)\b/, 'sea'], [/\b(night|crickets?)\b/, 'night'], [/\b(river|stream|waterfall)\b/, 'river'],
 ];
-const layersOf = (s: string): string[] => { const t = norm(s); const out: string[] = []; for (const [re, l] of LAYERS) if (re.test(t) && !out.includes(l)) out.push(l); return out; };
+export const layersOf = (s: string): string[] => { const t = norm(s); const out: string[] = []; for (const [re, l] of LAYERS) if (re.test(t) && !out.includes(l)) out.push(l); return out; };
 
 const SFX_WORDS: [RegExp, string][] = [
   [/\b(creak\w*)\b/, 'creak'], [/\bthunder\w*\b/, 'thunder'], [/\b(roars?|roared)\b/, 'roar'], [/\b(howls?|howled)\b/, 'howl'], [/\b(explo\w+|blast)\b/, 'explosion'],
   [/\b(crash\w*|shatter\w*)\b/, 'crash'], [/\b(clash\w*|swords? (clang|ring)\w*)\b/, 'clash'], [/\bbells?\b.*\b(toll\w*|ring\w*|chime\w*)\b|\b(toll\w*|ring\w*) (of )?(the )?bells?\b/, 'bell'],
-  [/\b(scream\w*|shriek\w*)\b/, 'scream'], [/\bknock\w*\b/, 'knock'], [/\bsplash\w*\b/, 'splash'], [/\bslam\w*\b/, 'slam'], [/\b(growl\w*)\b/, 'growl'],
+  [/\bknock\w*\b/, 'knock'], [/\bsplash\w*\b/, 'splash'], [/\bslam\w*\b/, 'slam'], [/\b(growl\w*)\b/, 'growl'],
 ];
 
 const MONSTERS = 'goblins?|hobgoblins?|orcs?|ogres?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?|trolls?|giants?|ghouls?|gnolls?|bugbears?|harpies?|spiders?|rats?|bears?|owlbears?|imps?|thugs?|guards?|soldiers?|assassins?|drakes?|wights?|wraiths?|specters?|ghosts?|cultist|mercenar(?:y|ies)|brigands?|smugglers?|pirates?|sahuagin|lizardfolk|minotaurs?|gargoyles?|golems?|mimics?|oozes?|bats?|snakes?|crabs?';
@@ -316,7 +316,12 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
       dmg ??= num(new RegExp(`^\\W*(?:is|are|gets?)\\s+hit\\s+for\\s+(\\d{1,4})\\b${noTime}`), after);
       if (dmg === null && /(?:hit|hits|hurt|hurts|strike|strikes|stab|stabs|slash|slashes|burn|burns|blast|blasts|catch|catches|smash|smashes|deal|deals|punish|punishes|shoot|shoots|clip|clips)\s+(?:the\s+)?$/.test(before)) dmg = num(/^\s+(?:for|by)\s+(\d{1,4})\b/, after);
       if (dmg === null) dmg = num(/(\d{1,4})\s*(?:points?\s+of\s+)?(?:[a-z]+\s+)?damage\s+(?:to|on|against)\s+(?:the\s+)?$/, before);
-      if (dmg !== null) { push({ kind: 'damage', ids: mt.ids, amount: dmg, why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.92 : 0.55); continue; }
+      if (dmg !== null) {
+        push({ kind: 'damage', ids: mt.ids, amount: dmg, why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.92 : 0.55);
+        // "takes 9 damage and falls to the floor, dead": the same sentence may end the creature.
+        if (!pcOnly && mt.ids.length === 1 && /\b(?:and|then|,)\s+(?:it\s+)?(?:dies|is dead|is slain|drops dead|falls?\b[^.;]{0,25}\bdead|collapses[^.;]{0,15}\bdead|is killed)\b/.test(after)) push({ kind: 'remove_creature', id: mt.ids[0], why: s.slice(0, 80) }, 0.82);
+        continue;
+      }
       // healing
       let hl: number | null = num(new RegExp(`^\\W*(?:(?:also|then|now)\\s+)?(?:heals?|regains?|recovers?|gets? healed|is healed|gains?)\\s+(?:for\\s+)?(\\d{1,4})\\b(?:\\s*(?:hit points|hp|health|points))?${noTime}`), after);
       if (hl !== null && /spell slot|inspiration|exhaustion/.test(after)) hl = null;
@@ -368,7 +373,7 @@ function playerCues(line: LineIn, ctx: CueCtx): Scored[] {
   // What a player may legitimately set off: their own initiative roll and using their own item. Never a scene.
   let m: RegExpMatchArray | null;
   if (ctx.combat.active || ctx.initiativeOpen) {
-    if ((m = low.match(/\b(?:i (?:rolled|got|have|get|roll)|my initiative(?: is)?|initiative(?: is)?|that's|it's|it is|a)\s+(?:a\s+)?(\d{1,2})\b(?:\s*(?:for|on)\s+initiative)?/)) && /initiative/.test(low)) {
+    if ((m = low.match(/^(\d{1,2})\s+(?:for|on)\s+initiative\b/)) || (m = low.match(/\b(?:i (?:rolled|got|have|get|roll)|my initiative(?: is)?|initiative(?: is)?|that's|it's|it is|a)\s+(?:a\s+)?(\d{1,2})\b(?:\s*(?:for|on)\s+initiative)?/)) && /initiative/.test(low)) {
       const p = ctx.party.find((x) => x.accountId === line.accountId);
       out.push({ kind: 'initiative', accountId: line.accountId, name: p?.character || p?.name || line.speaker, value: Number(m[1]), why: low.slice(0, 80), confidence: 0.9 });
     } else if (ctx.initiativeOpen && (m = low.match(/^(?:i (?:rolled|got)(?: a)?|that's a|it's a|a|total of|that is a)?\s*(\d{1,2})\.?$/))) {
