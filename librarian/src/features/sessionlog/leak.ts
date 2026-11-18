@@ -1,7 +1,9 @@
 // The leak check: compare a summary with every piece of DM-only text in the
 // world, using 8-word shingles. Pure functions over the database; no models.
 import type { DB } from '../../core/db.ts';
-import { all } from '../../core/db.ts';
+import { all, one } from '../../core/db.ts';
+import type { Deps } from '../../app.ts';
+import { chatJson, hasJob } from '../../core/ai.ts';
 import { parseJson } from '../../core/util.ts';
 import { partyBody } from '../minerva/partyText.ts';
 
@@ -15,6 +17,12 @@ export interface Overlap {
   source: string;
   /** Overlap with an aside line: asides never publish, not even with force. */
   aside: boolean;
+  /** How it was found: a repeated phrase (default), distinctive terms only DM-only text has, or the audit model's judgement. */
+  kind?: 'phrase' | 'terms' | 'model';
+  /** For `terms`: the words that gave it away. */
+  terms?: string[];
+  /** For `model`: why the audit model flagged it. */
+  why?: string;
 }
 
 const MARKS = /[`*_#>\[\]()|~]/g;
@@ -124,4 +132,162 @@ export function leakCheck(db: DB, worldId: string, summary: string): Overlap[] {
     i = j;
   }
   return out;
+}
+
+// ---- second check: distinctive terms ---------------------------------------------------------
+//
+// A paraphrase shares no run of eight words with its source ("payroll covers
+// three captains" for "Velmira's payroll: three captains owe her"), but it
+// keeps the rare words: names, and the few nouns only that page uses. A term
+// is "rare" when DM-only text has it and nothing the players can read or said
+// at the table does. A sentence is flagged when it has a rare proper noun, or
+// two rare words from the same DM-only source. This is a flag for the DM to
+// look at (publish anyway is allowed), never a silent pass or a hard block.
+
+const COMMON = new Set(`about above across after again against almost along already also although always among another any anyone anything around away back because become been before behind being below beneath beside between beyond both bring brought but came can cannot come could did does done down during each either else enough even ever every everyone everything except explain far few find first for found from gave get give given goes going gone got great had has have having her here hers herself him himself his how however into its itself just keep kept know known large last later least leave left less let like likely little long look made make many may maybe might more most much must near need never new next night nobody none nothing now off often old once only onto other others otherwise our ours out over own part party people perhaps place put quite rather really said same saw say says see seem seemed seen several shall she should since some someone something sometimes soon still such take taken tell than that the their theirs them themselves then there these they thing things think this those though three through thus time together told too took toward towards turn turned two under until upon used using very want wanted was way well went were what when where whether which while who whom whose why will with within without would year years yet you your yours
+secret secretly answers covers waits wait held holds hold keeps knows learn learned players player group told asked asks tells showed shows earlier meets met meet reaches reached arrive arrived arrives travel travelled traveled returns returned fight fought battle city town village road door room house hall morning evening day days week weeks month months world story session recap moment moments thread threads open question questions answer`.split(/\s+/));
+
+const stemOf = (w: string): string => {
+  const t = w.toLowerCase().replace(/['’]s$/, '');
+  const x = t.replace(/(ies|ing|ed|es|s)$/, (m) => (m === 'ies' ? 'y' : ''));
+  return x.length >= 4 ? x : t;
+};
+
+const sentencesOf = (text: string): string[] => text.replace(/^#+\s+/gm, '').split(/(?<=[.!?])\s+|\n+/).map((x) => x.replace(/^[-*>\s]+/, '').trim()).filter((x) => x.length > 3);
+
+/** Stems of every word players can read or have said: their copies of pages, the player transcript, published logs, names. */
+export function partyVocabulary(db: DB, worldId: string): Set<string> {
+  const out = new Set<string>();
+  const add = (text: string | null | undefined) => { for (const w of wordsOf(text ?? '')) out.add(stemOf(w)); };
+  for (const p of all<any>(db, 'SELECT id, updated_at, path, title, aliases, player_body, player_blocks, player_properties, player_frontmatter, frontmatter FROM pages WHERE world_id = ?', worldId)) {
+    const shared = partyBody(db, worldId, p);
+    // A player's own notebook in the vault (journal, knowledge, goals) is what that player knows.
+    const copy = shared ?? (String(p.path).startsWith('Minerva/players/') ? p.player_body ?? one<any>(db, 'SELECT body FROM pages WHERE id = ?', p.id)?.body : p.player_body);
+    if (copy === null || copy === undefined) continue; // a DM-only page: not even its title is known
+    add(copy); add(p.title); add(jsonText(p.player_blocks)); add(jsonText(p.player_properties)); add(jsonText(p.player_frontmatter)); add(String(p.aliases ?? ''));
+  }
+  for (const l of all<any>(db, "SELECT text FROM audio_lines WHERE world_id = ? AND audience = 'players'", worldId)) add(l.text);
+  for (const e of all<any>(db, 'SELECT title, summary FROM sessionlog_entries WHERE world_id = ? AND unpublished_at IS NULL', worldId)) { add(e.title); add(e.summary); }
+  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'party'", worldId)) { add(b.title); add(b.body); }
+  for (const i of all<any>(db, 'SELECT name, note FROM items WHERE world_id = ?', worldId)) { add(i.name); add(i.note); }
+  for (const m of all<any>(db, 'SELECT m.character_name, a.display_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', worldId)) { add(m.character_name); add(m.display_name); }
+  add(one<any>(db, 'SELECT name FROM worlds WHERE id = ?', worldId)?.name);
+  return out;
+}
+
+/** Stems that DM-only text writes as names: capitalized somewhere and never in lower case (so "Sister" in a title is not a name when the notes say "the sister of"). */
+function dmNames(db: DB, worldId: string): Set<string> {
+  const upper = new Set<string>();
+  const lower = new Set<string>();
+  const scan = (text: string | null | undefined) => {
+    for (const tok of String(text ?? '').replace(MARKS, ' ').split(/[^\p{L}\p{N}']+/u)) {
+      if (tok.length < 3) continue;
+      if (/^\p{Lu}/u.test(tok)) upper.add(stemOf(tok)); else lower.add(stemOf(tok));
+    }
+  };
+  for (const p of all<any>(db, 'SELECT title, body, blocks, properties FROM pages WHERE world_id = ?', worldId)) { scan(p.title); scan(p.body); scan(jsonText(p.blocks)); scan(jsonText(p.properties)); }
+  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'dm'", worldId)) { scan(b.title); scan(b.body); }
+  for (const i of all<any>(db, "SELECT name, dm_note FROM items WHERE world_id = ? AND dm_note != ''", worldId)) { scan(i.name); scan(i.dm_note); }
+  for (const r of all<any>(db, "SELECT dm_note FROM broker_requests WHERE world_id = ? AND dm_note IS NOT NULL AND dm_note != ''", worldId)) scan(r.dm_note);
+  for (const l of all<any>(db, "SELECT text FROM audio_lines WHERE world_id = ? AND audience = 'dm'", worldId)) scan(l.text);
+  return new Set([...upper].filter((w) => !lower.has(w)));
+}
+
+/** Sentences of a summary that carry distinctive terms only DM-only text has. */
+export function rareTermCheck(db: DB, worldId: string, summary: string, phrases: Overlap[] = []): Overlap[] {
+  const vocab = partyVocabulary(db, worldId);
+  const names = dmNames(db, worldId);
+  // Which sources have which stems (all DM-only text: pages, notes, DM and aside lines).
+  const sources = new Map<string, Set<string>>();
+  for (const c of dmCorpus(db, worldId)) {
+    if (c.source.startsWith('DM page: Minerva/players/')) continue; // what one player knows, not a DM secret
+    const set = sources.get(c.source) ?? new Set<string>();
+    for (const w of c.words) if (w !== GAP) set.add(stemOf(w));
+    sources.set(c.source, set);
+  }
+  const out: Overlap[] = [];
+  for (const sentence of sentencesOf(summary)) {
+    if (phrases.some((p) => p.text && sentence.includes(p.text.slice(0, 40)))) continue; // already flagged as a repeated phrase
+    const toks = sentence.replace(MARKS, ' ').split(/\s+/).map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
+    const proper = new Map<string, string>();
+    const keywords = new Map<string, string>();
+    toks.forEach((tok, i) => {
+      const st = stemOf(tok);
+      if (st.length < 3 || vocab.has(st) || COMMON.has(tok.toLowerCase()) || COMMON.has(st)) return;
+      const capital = /^\p{Lu}/u.test(tok) && !/^\p{Lu}+$/u.test(tok);
+      if (capital && i > 0 && names.has(st)) proper.set(st, tok);
+      else if (capital && i === 0 && names.has(st) && tok.length >= 4) proper.set(st, tok);
+      else if (tok.length >= 5) keywords.set(st, tok);
+    });
+    if (!proper.size && keywords.size < 2) continue;
+    // Which DM-only source has the most of these terms?
+    let best: { src: string; hit: string[] } | null = null;
+    for (const [src, set] of sources) {
+      const hitP = [...proper.keys()].filter((t) => set.has(t));
+      const hitK = [...keywords.keys()].filter((t) => set.has(t));
+      if (hitP.length < 1 && hitK.length < 2) continue;
+      const hit = [...hitP, ...hitK];
+      if (!best || hit.length > best.hit.length) best = { src, hit };
+    }
+    if (!best) continue;
+    out.push({ text: sentence.slice(0, 300), source: best.src, aside: false, kind: 'terms', terms: best.hit.map((t) => proper.get(t) ?? keywords.get(t) ?? t) });
+  }
+  return out;
+}
+
+// ---- third check: the audit model -------------------------------------------------------------
+
+/** DM-only passages (never classified: only the AI copy of a page, which has none) closest to the summary, for the audit model. */
+function candidatePassages(db: DB, worldId: string, summary: string, vocab: Set<string>): { source: string; text: string }[] {
+  const mine = new Set(wordsOf(summary).map(stemOf).filter((w) => w.length >= 4 && !COMMON.has(w)));
+  const scored: { source: string; text: string; score: number }[] = [];
+  const consider = (source: string, text: string) => {
+    const t = text.replace(/\s+/g, ' ').trim();
+    if (!t) return;
+    const words = new Set(wordsOf(t).map(stemOf));
+    let score = 0;
+    for (const w of mine) if (words.has(w)) score += vocab.has(w) ? 0.25 : 1;
+    if (score >= 1) scored.push({ source, text: t.slice(0, 700), score });
+  };
+  for (const p of all<any>(db, `SELECT path, ai_body, player_body FROM pages WHERE world_id = ? AND visibility <> 'classified' AND ai_body IS NOT NULL`, worldId)) {
+    // A page the players can read in part: only its lines the player copy lacks.
+    const theirs = new Set(sentencesOf(p.player_body ?? '').map((x) => x.toLowerCase()));
+    const text = sentencesOf(p.ai_body ?? '').filter((x) => !theirs.has(x.toLowerCase())).join(' ');
+    consider(`DM page: ${p.path}`, text);
+  }
+  for (const i of all<any>(db, "SELECT name, dm_note FROM items WHERE world_id = ? AND dm_note != ''", worldId)) consider(`DM item note: ${i.name}`, i.dm_note);
+  for (const r of all<any>(db, "SELECT dm_note FROM broker_requests WHERE world_id = ? AND dm_note IS NOT NULL AND dm_note != ''", worldId)) consider('DM broker note', r.dm_note);
+  return scored.sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
+const AUDIT_SYSTEM = 'You check a session summary that will be shown to the players against notes only the DM has. Say which sentences of the summary reveal, hint at or paraphrase something in the DM notes that the players have not learned yet. Ignore anything that is only about what happened at the table. Answer with JSON: {"leaks":[{"sentence":"the sentence from the summary","why":"short reason, naming the note"}]}. If nothing leaks, answer {"leaks":[]}.';
+
+/** The audit model's judgement of a summary. `ran` is false when no model answered. */
+export async function modelAudit(d: Deps, worldId: string, summary: string): Promise<{ ran: boolean; overlaps: Overlap[] }> {
+  if (!hasJob(d, 'audit') || !summary.trim()) return { ran: false, overlaps: [] };
+  const passages = candidatePassages(d.db, worldId, summary, partyVocabulary(d.db, worldId));
+  if (!passages.length) return { ran: true, overlaps: [] };
+  const notes = passages.map((p, i) => `[${i + 1}] ${p.source}\n${p.text}`).join('\n\n');
+  // The guard refuses anything classified before it leaves; a refusal comes back as null, like a model that is down.
+  const j = await chatJson<any>(d, 'audit', [{ role: 'system', content: AUDIT_SYSTEM }, { role: 'user', content: `Summary:\n${summary.slice(0, 6000)}\n\nDM notes:\n${notes}` }], undefined, { maxTokens: 700 });
+  if (!j || !Array.isArray(j.leaks)) return { ran: false, overlaps: [] };
+  const overlaps: Overlap[] = [];
+  for (const l of j.leaks.slice(0, 8)) {
+    const sentence = String(l?.sentence ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!sentence) continue;
+    const why = String(l?.why ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const n = /\[(\d+)\]/.exec(why)?.[1];
+    overlaps.push({ text: sentence, source: n && passages[Number(n) - 1] ? passages[Number(n) - 1]!.source : 'Audit model', aside: false, kind: 'model', why });
+  }
+  return { ran: true, overlaps };
+}
+
+/** Every check, in order: repeated phrases, distinctive terms, then the audit model when one is set. */
+export async function fullLeakCheck(d: Deps, worldId: string, summary: string): Promise<{ overlaps: Overlap[]; audited: boolean }> {
+  const phrases = leakCheck(d.db, worldId, summary).map((o) => ({ ...o, kind: 'phrase' as const }));
+  const terms = rareTermCheck(d.db, worldId, summary, phrases);
+  const seen = [...phrases, ...terms];
+  const m = await modelAudit(d, worldId, summary);
+  const fresh = m.overlaps.filter((o) => !seen.some((x) => x.text.slice(0, 40) === o.text.slice(0, 40)));
+  return { overlaps: [...phrases, ...terms, ...fresh], audited: m.ran };
 }

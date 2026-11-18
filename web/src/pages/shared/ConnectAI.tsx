@@ -13,7 +13,7 @@ export default function ConnectAI() {
   const { world } = useParams();
   const { client, me } = useAuth();
   const w = world ? me?.worlds.find((x) => x.slug === world || x.id === world) : null;
-  const keys = useLoad(() => client.keys(), []);
+  const keys = useLoad(() => (world ? client.keys() : client.request<any[]>('GET', '/api/admin/keys')), [world]);
   const [label, setLabel] = useState('');
   const [made, setMade] = useState<McpConnection | null>(null);
   const [adminKey, setAdminKey] = useState<string | null>(null);
@@ -22,7 +22,7 @@ export default function ConnectAI() {
 
   const make = (access: 'read' | 'write') => void a.run(async () => {
     if (!w) {
-      const r = await client.createKey('admin', label || 'Admin key');
+      const r = (await client.request('POST', '/api/admin/keys', { label: label || 'Admin key' })) as any;
       setAdminKey(r.key);
     } else {
       const r = (await client.request('POST', '/api/keys', { scope: 'scribe', label: label || (access === 'write' ? 'DM AI (write)' : 'AI (read-only)'), worldId: w.id, access })) as any;
@@ -33,7 +33,7 @@ export default function ConnectAI() {
   });
   const revoke = (id: string) => {
     if (!confirm('Revoke this key? Apps using it stop working at once.')) return;
-    void a.run(async () => { await client.revokeKey(id); await keys.reload(); });
+    void a.run(async () => { await client.request('DELETE', w ? `/api/keys/${id}` : `/api/admin/keys/${id}`); await keys.reload(); });
   };
   const mine = (keys.data ?? []).filter((k: any) => (w ? k.world_id === w.id : k.scope === 'admin'));
 
@@ -63,6 +63,7 @@ export default function ConnectAI() {
       </div>
       {made && <McpCard mcp={made} />}
       {adminKey && <div className="card gold"><h2>New admin key</h2><p className="small muted">Shown once. Send it as <span className="mono">Authorization: Bearer …</span>.</p><p className="mono" style={{ wordBreak: 'break-all' }}>{adminKey}</p></div>}
+      <ErrorBox error={keys.error} />
       <div className="card flush scroll-x">
         <table className="table">
           <thead><tr><th>Key</th><th>Access</th><th>Made</th><th>Last used</th><th /></tr></thead>
@@ -76,7 +77,7 @@ export default function ConnectAI() {
                 <td>{k.revoked ? <span className="small faint">revoked</span> : <button type="button" className="btn small danger" onClick={() => revoke(k.id)}>Revoke</button>}</td>
               </tr>
             ))}
-            {!mine.length && <tr><td colSpan={5} className="muted">No keys yet.</td></tr>}
+            {!mine.length && !keys.error && <tr><td colSpan={5} className="muted">No keys yet.</td></tr>}
           </tbody>
         </table>
       </div>
