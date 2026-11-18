@@ -8,7 +8,7 @@
 // when its copy changed (state row per page and scope). Without a chat model,
 // or when it fails, nothing happens and the job tries again later.
 import type { Deps } from '../../app.ts';
-import { chatJson, embed, hasJob, jobConfig } from '../../core/ai.ts';
+import { chatJson, embed, hasJob, jobBudget, jobConfig } from '../../core/ai.ts';
 import { run, tx } from '../../core/db.ts';
 import { type Pending, isCurrent, pendingCopies } from '../search/copies.ts';
 import { noteDone } from '../search/pace.ts';
@@ -146,7 +146,7 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
 async function extract(d: Deps, r: Pending, signal?: AbortSignal): Promise<Fact[] | null> {
   if (!r.full.trim()) return [];
   const text = r.full.length > MAX_TEXT ? r.full.slice(0, MAX_TEXT) : r.full;
-  const j = await chatJson<any>(d, 'chat', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Page: ${r.title}\n\n${text}` }], signal, { maxTokens: 900 });
+  const j = await chatJson<any>(d, 'chat', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Page: ${r.title}\n\n${text}` }], signal, { maxTokens: jobBudget(d, 'chat', 900) });
   if (!j || !Array.isArray(j.facts)) return null;
   return cleanFacts(j);
 }

@@ -44,7 +44,9 @@ interface PageRow { path?: string; frontmatter?: string | null; updated_at?: str
 export function dmOnlyGrams(db: DB, worldId: string, skip?: (pageId: string, body: string) => boolean): Set<string> {
   const dm = new Set<string>();
   const players = new Set<string>();
-  const add = (into: Set<string>, text: string) => { for (const g of grams(text)) into.add(g); };
+  // Seven-word runs of what players may read: a DM line that differs from a public sentence by one end word ("The lighthouse has been dark for a month" / "Its lighthouse has been dark for a month") is that public fact, not a secret.
+  const publicSeven = new Set<string>();
+  const add = (into: Set<string>, text: string) => { for (const g of grams(text)) into.add(g); if (into === players) for (const g of grams(text, LEAK_WORDS - 1)) publicSeven.add(g); };
   for (const p of all<PageRow & { id: string }>(db, 'SELECT id, path, frontmatter, updated_at, visibility, body, blocks, properties, player_body, player_blocks, player_properties FROM pages WHERE world_id = ?', worldId)) {
     if (skip?.(p.id, p.body ?? '')) continue;
     add(dm, [p.body, treeText(parseJson(p.blocks, [])).join(' '), treeText(parseJson(p.properties, [])).join(' ')].join('\n'));
@@ -57,6 +59,10 @@ export function dmOnlyGrams(db: DB, worldId: string, skip?: (pageId: string, bod
   try { lines = all(db, 'SELECT text, audience FROM audio_lines WHERE world_id = ?', worldId); } catch { /* no audio tables */ }
   for (const l of lines) add(l.audience === 'players' ? players : dm, l.text);
   for (const g of players) dm.delete(g);
+  for (const g of [...dm]) {
+    const w = g.split(' ');
+    if (publicSeven.has(w.slice(0, -1).join(' ')) || publicSeven.has(w.slice(1).join(' '))) dm.delete(g);
+  }
   return dm;
 }
 
@@ -124,7 +130,7 @@ export class SentenceGate {
     const t0 = performance.now();
     const s = this.ready[0];
     const next = this.ready[1] ?? '';
-    const v = this.check(`${this.tail.join(' ')} ${s} ${next}`);
+    const v = this.check(`${this.tail.join(' ')}. ${s} ${next}`);
     this.ms += performance.now() - t0;
     if (v.blocked) { this.blocked = true; this.match = v.match ?? ''; this.ready = []; return; }
     this.ready.shift();
