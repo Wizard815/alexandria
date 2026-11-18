@@ -36,14 +36,15 @@ export function matchPage(ctx: CueCtx, phrase: string): { id: string; title: str
   if (!want.length) return null;
   const scored = ctx.pages.map((p) => {
     const have = new Set(toks(`${p.title} ${p.path ?? ''}`));
+    const titleToks = new Set(toks(p.title));
     const wantSet = new Set(want);
     const near = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
     const hit = want.filter((t) => [...have].some((h) => near(h, t))).length;
-    const titleHit = [...have].filter((h) => [...wantSet].some((t) => near(h, t))).length;
-    const cover = have.size ? titleHit / have.size : 0;
+    const titleHit = [...titleToks].filter((h) => [...wantSet].some((t) => near(h, t))).length;
+    const cover = titleToks.size ? titleHit / titleToks.size : 0;
     const titleKind = new RegExp(`\\b(${[...GENERIC].join('|')})\\b`).test(norm(p.title));
     // Either the phrase is mostly the page's name, or the page's name is mostly in the phrase (the DM talks around it).
-    const score = Math.max(hit / want.length, titleHit >= Math.min(2, have.size) ? cover : 0) + (hasKind && titleKind ? 0.1 : 0);
+    const score = Math.max(hit / want.length, titleHit >= Math.min(2, titleToks.size) ? cover : 0) + (hasKind && titleKind ? 0.1 : 0);
     return { p, score };
   }).filter((x) => x.score >= 0.6).sort((a, b) => b.score - a.score);
   if (!scored.length) return null;
