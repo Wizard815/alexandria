@@ -194,6 +194,8 @@ export default function adminRoutes(d: Deps) {
     run(db, `INSERT INTO members (world_id, account_id, role, character_name) VALUES (?, ?, ?, ?)
       ON CONFLICT (world_id, account_id) DO UPDATE SET role = excluded.role, character_name = COALESCE(excluded.character_name, members.character_name)`, String(req.params.id), String(req.params.account), role, character);
     audit(db, String(req.params.id), me(res), 'member.set', `${String(req.params.account)} ${role}`);
+    // A player who stops being a player takes their shares with them (and what they shared onward).
+    libraryOf(db)?.changed(String(req.params.id));
     res.json({ ok: true });
   });
   r.delete('/worlds/:id/members/:account', (req, res) => {
