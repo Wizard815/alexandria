@@ -9,10 +9,21 @@ import { buildTree, pageIds, type Node, type PageRow } from './treeModel.ts';
 export { buildTree, pageIds, type PageRow };
 
 interface Row { node: Node; depth: number }
-const ROW = 32;
+/** Rows are 32 px on a desktop and 44 px on a phone or any touch screen (a finger needs about that much). */
+const rowHeight = () => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px), (pointer: coarse)').matches ? 44 : 32);
+/** Room left under the last row so the floating dock never covers it. */
+const END_PAD = 84;
 
 export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; saved: Set<string> }) {
   const tree = useMemo(() => buildTree(rows), [rows]);
+  const [ROW, setRow] = useState(rowHeight);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 760px), (pointer: coarse)');
+    if (!mq) return;
+    const f = () => setRow(rowHeight());
+    mq.addEventListener('change', f);
+    return () => mq.removeEventListener('change', f);
+  }, []);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   // With one source, start with it open (rows can arrive after the first render).
   const only = tree.length === 1 ? tree[0].key : null;
@@ -63,8 +74,8 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: Pa
 
   if (!rows.length) return <p className="muted small" style={{ padding: 12 }}>No pages here yet.</p>;
   return (
-    <div ref={box} className="lib-tree" role="tree" aria-label="Pages" onScroll={(e) => setScroll((e.target as HTMLDivElement).scrollTop)}>
-      <div style={{ height: flat.length * ROW, position: 'relative' }}>
+    <div ref={box} className="lib-tree" role="tree" aria-label="Pages" style={{ ['--lib-row' as any]: `${ROW}px` }} onScroll={(e) => setScroll((e.target as HTMLDivElement).scrollTop)}>
+      <div style={{ height: flat.length * ROW + END_PAD, position: 'relative' }}>
         {flat.slice(first, last).map((r, k) => {
           const i = first + k;
           const n = r.node;
@@ -91,12 +102,12 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: Pa
 
 export const TREE_CSS = `
 .lib-tree { position: relative; overflow-y: auto; height: min(70vh, calc(100vh - 260px)); min-height: 280px; font-family: var(--font); font-size: 14px; }
-.lib-row { position: absolute; left: 0; right: 0; height: 32px; display: flex; align-items: center; gap: 2px; padding-right: 4px; border-radius: 6px; }
+.lib-row { position: absolute; left: 0; right: 0; height: var(--lib-row, 32px); display: flex; align-items: center; gap: 2px; padding-right: 4px; border-radius: 6px; }
 .lib-row.on { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent); }
 .lib-row:hover { background: var(--panel-2); }
 .lib-row.on:hover { background: var(--accent-bg); }
-.lib-caret { width: 20px; height: 24px; flex: 0 0 auto; border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 10px; padding: 0; }
-.lib-row-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; height: 30px; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.lib-caret { width: 20px; height: calc(var(--lib-row, 32px) - 8px); flex: 0 0 auto; border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 10px; padding: 0; }
+.lib-row-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; height: calc(var(--lib-row, 32px) - 2px); border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; border-radius: 4px; padding: 0 4px; }
 .lib-row.folder .lib-row-btn { color: var(--muted); font-weight: 600; }
 .lib-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 .lib-ico { color: var(--faint); width: 16px; text-align: center; font-size: 13px; }
@@ -106,4 +117,5 @@ export const TREE_CSS = `
 .lib-row-save { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 4px 6px; }
 .lib-row:hover .lib-row-save, .lib-row-save:focus-visible { opacity: 1; }
 @media (hover: none) { .lib-row-save { opacity: 0.6; } }
+@media (max-width: 760px), (pointer: coarse) { .lib-caret { width: 32px; font-size: 12px; } .lib-row-save { padding: 10px 12px; } .lib-row-btn { font-size: 15px; } }
 `;

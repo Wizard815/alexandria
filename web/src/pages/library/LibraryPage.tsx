@@ -21,6 +21,7 @@ import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Leve
 import { AskModal } from './AskModal.tsx';
 import { Connections } from '../../features/bible/Connections.tsx';
 import { DepthBadge } from '../../features/connections/Tiers.tsx';
+import { StatusBanner, WaitingForSite } from '../../features/connections/StatusBanner.tsx';
 import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
@@ -145,6 +146,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
       {offline && <div className="lib-offline" role="status"><i className="fa-solid fa-plug-circle-xmark" aria-hidden="true" /> The library can't be reached. Showing pages saved on this device.</div>}
       {!offline && <ErrorBox error={pages.error} />}
       {busy && <div className="note small" role="status">{busy}</div>}
+      {isDM && !embedded && !readOnly && <StatusBanner />}
       <div className={`lib-shell${selected || creating !== null ? ' has-page' : ''}`}>
         <aside className="lib-side card">
           <Tabs label="Library side panel" value={side} onChange={setSide} items={sideItems} />
@@ -299,7 +301,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
 
   const ctx: RenderCtx = useMemo(() => ({ links: pg?.links ?? {}, titles: pg?.linkTitles ?? {}, open: onOpen, isDM, children: pg?.children ?? [] }), [pg, onOpen, isDM]);
   if (error) return <div className="card"><ErrorBox error={error} /></div>;
-  if (!pg) return <div className="card"><Loading what="page" /></div>;
+  if (!pg) return <div className="card"><Loading what="page" /><WaitingForSite /></div>;
   if (editing) return <Editor key={`edit:${pg.id}`} initial={pg} onSaved={(p) => { setEditing(false); toast(`Saved ${p.title}`); if (p.id !== id) onOpen(p.id); else void load(); }} onCancel={() => setEditing(false)} />;
 
   const editable = isDM && !pg.source && !readOnly;
@@ -369,7 +371,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
           {!offlineAt && !readOnly && <ShareButton pageId={pg.id} />}
           {isDM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
-          {isDM && !offlineAt && !readOnly && <button type="button" className="btn small danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>}
+          {isDM && !offlineAt && !readOnly && <MoreMenu><button type="button" role="menuitem" className="lib-menu-danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete this page…</button></MoreMenu>}
           {!isDM && !offlineAt && !readOnly && <>
             <button type="button" className="btn small" onClick={() => setAsk('edit')}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>
             <button type="button" className="btn small" onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
@@ -395,6 +397,25 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
       </div>
       {ask && <AskModal kind={ask} page={{ id: pg.id, title: pg.title }} onClose={() => setAsk(null)} onSent={() => { setAsk(null); toast('Sent to your DM'); }} />}
     </article>
+  );
+}
+
+/** A small menu for actions that should not sit beside the everyday ones. Closes when something in it is chosen or the page is clicked. */
+function MoreMenu({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => { if (!(e.target as HTMLElement).closest('.lib-more')) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  return (
+    <span className="lib-more">
+      <button type="button" className="btn small ghost" aria-haspopup="menu" aria-expanded={open} aria-label="More actions" onClick={() => setOpen((o) => !o)}><i className="fa-solid fa-ellipsis" aria-hidden="true" /> More</button>
+      {open && <span className="lib-menu" role="menu" onClick={() => setOpen(false)}>{children}</span>}
+    </span>
   );
 }
 
@@ -430,8 +451,21 @@ const SHELL_CSS = `
 .lib-body.with-facts { grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); }
 .lib-side-facts { display: flex; flex-direction: column; gap: 12px; }
 @media (max-width: 1100px) { .lib-body.with-facts { grid-template-columns: minmax(0, 1fr); } .lib-side-facts { order: -1; } }
+.lib-more { position: relative; display: inline-flex; }
+.lib-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; min-width: 190px; display: flex; flex-direction: column; padding: 4px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); }
+.lib-menu button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.lib-menu button:hover:not(:disabled) { background: var(--panel-2); }
+.lib-menu .lib-menu-danger { color: var(--danger-text); }
+.lib-flat { padding-bottom: var(--dock-reserve, 0px); }
 @media (max-width: 760px) {
   .lib-shell { grid-template-columns: minmax(0, 1fr); }
+  /* Touch targets: rows, tabs and filters are at least 40 to 44 px tall. */
+  .lib-flat .list-item, .lib-hits .list-item { min-height: 44px; }
+  .lib-filters select, .lib-filters .btn, .lib-check { min-height: 40px; }
+  .lib-check input { width: 20px; height: 20px; }
+  .lib-side .tabs .btn { min-height: 40px; }
+  .lib-actions .btn { min-height: 40px; }
+  .lib-back { min-height: 40px; }
   .lib-side { position: static; }
   .lib-shell.has-page .lib-side { display: none; }
   .lib-shell:not(.has-page) .lib-main { display: none; }

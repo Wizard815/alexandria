@@ -1,5 +1,9 @@
 /* The overlay dock: one row of round buttons in the bottom-right corner. */
 .dock { position: fixed; right: var(--dock-right, 12px); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 700; display: flex; flex-direction: row; flex-wrap: wrap-reverse; justify-content: flex-end; align-items: center; gap: 8px; max-width: calc(100vw - 24px); pointer-events: none; }
+/* Where the dock steps aside for a map or other canvas (class set by Dock.tsx): top right, then bottom left. */
+.dock.at-top { bottom: auto; top: calc(72px + env(safe-area-inset-top, 0px)); flex-wrap: wrap; }
+.dock.at-left { right: auto; left: 12px; justify-content: flex-start; }
+body:has(.bottomnav) .dock.at-top { bottom: auto; }
 .dock > * { pointer-events: auto; }
 .dock-slot { display: inline-flex; }
 .dock-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
@@ -27,5 +31,5 @@
 /* The assistant is a side panel: the dock slides left of it and the page leaves room for it. */
 :root[data-agent-open] { --dock-right: calc(min(420px, 100vw) + 12px); }
 @media (min-width: 1100px) { :root[data-agent-open] .main { margin-right: 420px; } }
-.main { padding-bottom: 64px; }
+.main { padding-bottom: var(--dock-reserve, 64px); }
 .toast { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }

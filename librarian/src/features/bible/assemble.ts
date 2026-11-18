@@ -12,7 +12,8 @@ import { all } from '../../core/db.ts';
 import { embed, hasJob, jobConfig } from '../../core/ai.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { wordsOf } from '../../core/pagesearch.ts';
-import { pendingCopies, eligibleCount } from '../search/copies.ts';
+import { pendingCopies } from '../search/copies.ts';
+import { scopeAndPageCoverage } from '../search/embeddings.ts';
 import { type VecScope, VEC_SCOPES, openable, reachOf, reachScopes } from '../search/scopes.ts';
 import { fromBlob, normalize } from '../search/vectorstore.ts';
 import { KINDS, normSubject } from './extract.ts';
@@ -97,10 +98,7 @@ export function bibleCoverage(d: Deps, worldId: string) {
   const model = cfg ? `${cfg.model}|bible1` : null;
   const facts = new Map(all<any>(d.db, 'SELECT scope, count(*) AS n FROM bible_facts WHERE world_id = ? GROUP BY scope', worldId).map((r) => [r.scope, Number(r.n)]));
   const scopes = {} as Record<VecScope, { eligible: number; pending: number; indexed: number; facts: number }>;
-  for (const s of VEC_SCOPES) {
-    const eligible = eligibleCount(d, s, worldId);
-    const pending = model ? pendingCopies(d, s, 'bible_state', model, 1_000_000, worldId).length : eligible;
-    scopes[s] = { eligible, pending, indexed: Math.max(0, eligible - pending), facts: facts.get(s) ?? 0 };
-  }
-  return { configured: !!cfg, model: cfg?.model ?? null, scopes };
+  const cov = scopeAndPageCoverage(d, worldId, 'bible_state', model);
+  for (const s of VEC_SCOPES) scopes[s] = { eligible: cov.scopes[s].eligible, pending: cov.scopes[s].pending, indexed: cov.scopes[s].indexed, facts: facts.get(s) ?? 0 };
+  return { configured: !!cfg, model: cfg?.model ?? null, scopes, pages: cov.pages };
 }

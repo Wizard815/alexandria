@@ -169,7 +169,7 @@ export function toEntry(cfg: any, item: any, ctx: ConnectorContext, ep: ApiEndpo
     tags: tagList,
     type,
     blocks: depth === 'full' ? body(rawBody, ep.bodyFormat || 'markdown') : indexBlocks({ title, type, tags: tagList, folder, summary }),
-    visibility: isShared && ctx.shareVisible ? 'party' : 'dm',
+    visibility: isShared && ctx.shareVisible ? 'party' : 'dm', sourceShared: isShared,
     updatedAt: updated,
     sourceUpdatedAt: updated,
     url: ep.urlField ? String(pick(item, ep.urlField) ?? '') || null : cfg.urlField ? String(pick(item, cfg.urlField) ?? '') || null : null,
