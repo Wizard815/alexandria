@@ -235,6 +235,12 @@ await step('sound board and read-aloud', async () => {
   await call('POST', `${W}/voice/presets`, dm, { name: 'Old sailor', voice: 'am_michael', speed: 0.9, effect: 'radio', target: 'both' });
 });
 
+// Minerva is switched on before the session log is published, so publishing files the session and drafts its review.
+await step('Minerva: on, a first arc', async () => {
+  await call('POST', `${W}/minerva/enable`, dm, {});
+  await call('POST', `${W}/minerva/arcs`, dm, { title: 'The Dark Lighthouse' });
+});
+
 // Second-round features, if they are present.
 await step('session log: draft, date, publish', async () => {
   await call('POST', `${W}/audio/sessions/${audioSession}/stop`, dm, {});
@@ -244,6 +250,62 @@ await step('session log: draft, date, publish', async () => {
   await call('POST', `${W}/sessionlog/drafts/${did}/publish`, dm, {});
   // A second draft stays unpublished, so the DM sees a review in progress.
   await call('POST', `${W}/sessionlog/drafts`, dm, { audioSessionId: audioSession, title: 'Session 22 (draft)' });
+});
+await step('Minerva: status, hooks, codex, a mystery, journals and goals', async () => {
+  const M = `${W}/minerva`;
+  const put = (rel: string, body: string, extra: Record<string, unknown> = {}) => call('PUT', `${M}/page`, dm, { rel, body, ...extra });
+  // Two earlier sessions in the same arc, so a recurring face is worth a page.
+  const arc = (await call('GET', M, dm)).arc.slug as string;
+  for (const [n, extra] of [[19, 'The party took the Greywater Ferry.'], [20, 'The party reached the harbour at dusk.']] as const) {
+    await put(`chronicle/arcs/${arc}/sessions/session-${n}.md`, `# Session ${n}\n\n## Recap\n- ${extra}\n\n## People met\n- Mara Quill: the ferrywoman, who knows every crossing\n`, { level: 'party' });
+  }
+  await put('dm/state/Campaign Status.md', `# Campaign Status
+
+## Now
+The party is in Saltmarsh, two days after the coast road. The lighthouse has been dark for a month and the harbour council is nervous.
+
+## Active threads
+- [on] [[The darkened lamp]]: who paid the keeper to put the light out
+- [simmering] [[Velmira's payroll]]: three captains owe her
+- [sleeping] [[The drowned bell]]: heard once, in the fog
+
+## NPC agendas
+- Odo Fennick: wants the party out of the ledger room before the council meets
+- Old Hennet: wants his lamp lit again, and is afraid to say why
+
+## What changed last session
+- The party learned the lamp was darkened on purpose.
+
+## Next session
+- Strong start: the council bell rings at the new moon.
+- Drop the second ledger page if they search the cellar.
+
+## Open questions
+- Does Jessamine's past with the keeper come up before the new moon?
+`);
+  await put('dm/hooks/The darkened lamp.md', '# The darkened lamp\nSomeone paid the keeper to put the light out. Aimed at Jessamine.\n', { heat: 'on' });
+  await put("dm/hooks/Velmira's payroll.md", "# Velmira's payroll\nThree of the seven captains answer to the smuggler queen.\n", { heat: 'simmering' });
+  await put('dm/hooks/The drowned bell.md', '# The drowned bell\nA bell heard under the water at the new moon.\n', { heat: 'sleeping' });
+  await call('POST', `${M}/codex`, dm, { name: 'Odo Fennick', kind: 'npc', section: 'appearances', text: 'Gave the party directions to the lighthouse.', session: 20 });
+  await call('POST', `${M}/codex`, dm, { name: 'Odo Fennick', section: 'secret', text: 'He is paid by Velmira every new moon to read the council ledger.' });
+  await call('POST', `${M}/codex`, dm, { name: 'Old Hennet', kind: 'npc', section: 'appearances', text: 'Kept the lighthouse lamp for thirty years.', session: 21 });
+  const mystery = await call('POST', `${M}/revelations`, dm, { title: 'Who darkened the lighthouse?', conclusion: 'Old Hennet, under threat from Velmira, who wants the harbour blind at the new moon.', clues: ['A ledger page in the cellar lists the darkened nights', 'The keeper washed oil from his hands before dawn', 'A smuggler boat moored near the rocks on every dark night'] });
+  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, clue: 1, player: 'Jessamine', session: 21 });
+  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, clue: 2, player: 'Tomas', session: 21 });
+  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, clue: 2, player: 'Jessamine', session: 21 });
+  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, player: 'Anselm', kind: 'theory', text: 'The keeper is being blackmailed' });
+  await call('POST', `${M}/goal`, dm, { player: 'Jessamine', goal: 'Find out why the keeper lied', heat: 'on', text: 'He taught her to swim as a child.' });
+  await call('POST', `${M}/goal`, dm, { player: 'Tomas', goal: 'Take the old sword to a smith', heat: 'ongoing' });
+  await call('POST', `${M}/goal`, dm, { player: 'Anselm', goal: 'Repay the debt to the ferry guild', heat: 'simmering' });
+  await put(`players/${jess.id}/journal/session-21.md`, '# Session 21\n\n## Notes\n- The keeper would not look me in the eye. He knew my name before I gave it.\n- Odo Fennick wanted us out of the ledger room. Why?\n');
+  await put(`players/${jess.id}/bonds.md`, '# Bonds\n\n- Old Hennet, who taught me to swim\n- Mara Quill, the ferrywoman\n');
+  await put(`players/${tom.id}/journal/session-21.md`, '# Session 21\n\n## Notes\n- The sword hummed again on the quay. Goblins, or something worse.\n');
+  await put(`players/${jess.id}/shared.md`, '# Shared with the party\n\n## Shared\n- Jessamine grew up on this coast and knows the lighthouse keeper.\n');
+  // A player's own write waits for the DM.
+  await call('POST', `${M}/me/journal`, jess.token, { text: 'Ask Mara Quill who she ferried at night during the dark weeks.' });
+  await call('POST', `${M}/me/share`, tom.token, { text: 'My sword hums when goblins are near.' });
+  // The published session was filed in the background: wait for its review to be drafted.
+  for (let i = 0; i < 100; i++) { const r = await call('GET', `${M}/review`, dm); if (r.drafts.some((d: any) => d.review.startsWith('session-'))) break; await new Promise((r) => setTimeout(r, 100)); }
 });
 await step('DM agent chat', async () => {
   const c = await call('POST', `${W}/agent/chats`, dm, { title: 'Prep' });
