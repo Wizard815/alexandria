@@ -14,11 +14,13 @@ import { hasJob } from '../../core/ai.ts';
 import { HttpError, int } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
 import { KINDS, globalSearch, parseKinds } from './global.ts';
-import { SCHEMA, embeddingStats, syncEmbeddings } from './embeddings.ts';
+import { SCHEMA, embeddingCoverage, migrateSearch, syncEmbeddings } from './embeddings.ts';
+import { vectorStore } from './vectorstore.ts';
 
 const feature: Feature = {
   id: 'search',
   schema: SCHEMA,
+  migrate: migrateSearch,
   worldMount: 'search',
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
@@ -36,17 +38,32 @@ const feature: Feature = {
     r.get('/status', (_req, res) => {
       const c = ctx(res);
       const semantic = hasJob(d, 'extra');
-      res.json({ semantic, ...(c.viewer.role === 'dm' ? embeddingStats(d.db, c.world.id) : {}) });
+      res.json({ semantic, ...(c.viewer.role === 'dm' ? embeddingCoverage(d, c.world.id) : {}) });
     });
 
     r.post('/reindex', requireDM, async (_req, res) => {
       res.json(await syncEmbeddings(d, { maxPages: 200 }));
     });
 
+    // DM: drop every vector of this world and read it all again in the background (the next ticks, or Library > pull all).
+    r.post('/reembed', requireDM, async (_req, res) => {
+      const c = ctx(res);
+      vectorStore(d.db).deleteWorld(c.world.id);
+      d.library.changed(c.world.id);
+      res.json({ ok: true, ...embeddingCoverage(d, c.world.id) });
+    });
+
     return r;
   },
 
   mcpTools: [
+    {
+      name: 'related_pages',
+      description: 'Pages that read like a given library page, each with a similarity percent and the passage that matched. Only pages you may open, and the percent comes from your own copy of both pages. Empty when the page has not been read by the embeddings model yet.',
+      props: { page: { type: 'string', description: 'The page id or path' }, limit: { type: 'number', description: 'How many (default 8, at most 50)' } },
+      required: ['page'],
+      call: (a) => ({ method: 'GET', path: `/library/pages/${encodeURIComponent(String(a.page ?? ''))}/related?limit=${encodeURIComponent(String(a.limit ?? 8))}` }),
+    },
     {
       name: 'search_world',
       description: 'Search everything in the world you can see in one ranked list: library pages, people, game rules and terms, session transcript lines, session log entries and items. Each result has a kind, title, snippet, link and score. Quote "exact phrases" and use -word to exclude.',
