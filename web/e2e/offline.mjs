@@ -90,6 +90,24 @@ try {
   if (stored < 122) problems.push(`only ${stored}/122 shared pages saved for offline`);
   note(`saved for offline: ${stored} pages`);
 
+  // 2b. The connection drops while a page is open (no reload): its write buttons turn off, and come back with the network.
+  await page.getByText('Old Kesh').locator('visible=true').first().click();
+  await page.getByText('A port town on the red coast').waitFor({ timeout: 10_000 });
+  const wb = page.locator('main button', { hasText: /^\s*(Share…|Suggest an edit|Ask about this page)\s*$/ });
+  if (!(await wb.count())) problems.push('no write buttons on an open page while online (test is blind)');
+  await ctx.setOffline(true);
+  await page.waitForFunction(() => document.body.innerText.includes('Offline'), null, { timeout: 20_000 });
+  await sleep(300);
+  for (let i = 0; i < await wb.count(); i++) {
+    const b = wb.nth(i);
+    if (await b.isEnabled()) problems.push(`"${(await b.innerText()).trim()}" stays enabled when the connection drops`);
+    else if (!(await b.getAttribute('title'))?.includes('Offline')) problems.push('a disabled write button has no offline tooltip');
+  }
+  await ctx.setOffline(false);
+  await page.waitForFunction(() => !document.body.innerText.includes('Offline — read-only'), null, { timeout: 20_000 });
+  if (await wb.count() && !(await wb.first().isEnabled())) problems.push('write buttons stay disabled after reconnecting');
+  note('write buttons follow the connection');
+
   // 3. Stop the server; reload everything from scratch.
   srv.kill('SIGTERM');
   await new Promise((r) => srv.once('exit', r));
@@ -101,11 +119,18 @@ try {
   note('world opened offline after a full reload');
 
   // Library tree and a page.
-  await page.getByText('Old Kesh').first().click();
+  if (!(await page.getByText('A port town on the red coast').count())) await page.getByText('Old Kesh').locator('visible=true').first().click();
   await page.getByText('A port town on the red coast').waitFor({ timeout: 10_000 });
   text = await page.locator('body').innerText();
   if (text.includes('SECRET-')) problems.push('a DM secret is on screen offline');
   note('library page renders offline');
+  // Write actions are off or disabled with a tooltip while offline.
+  const writers = page.locator('main button, .dock button', { hasText: /^\s*(Share…|Suggest an edit|Ask about this page|New page|Edit)\s*$/ });
+  for (let i = 0; i < await writers.count(); i++) {
+    const b = writers.nth(i);
+    if (await b.isEnabled()) problems.push(`"${(await b.innerText()).trim()}" is enabled offline`);
+  }
+  note('write actions off on the page');
 
   // Inventory.
   await page.goto(`${base}/w/bloodearth/inventory`);
