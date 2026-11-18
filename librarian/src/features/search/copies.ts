@@ -20,6 +20,21 @@ export interface Pending {
   hash: string | null;
 }
 
+// A page the guard refused to send to a model (ClassifiedRefused) is left alone for a while, longer each time,
+// so the background jobs do not ask again every tick. An edit of the page (new updated_at) clears it.
+const refused = new Map<string, { until: number; tries: number }>();
+const refusedKey = (r: { id: string; scope: string; updated_at: string }) => `${r.id}|${r.scope}|${r.updated_at}`;
+const BACKOFF_MS = 10 * 60_000;
+export function noteRefused(r: { id: string; scope: string; updated_at: string }, at = Date.now()) {
+  const k = refusedKey(r);
+  const tries = (refused.get(k)?.tries ?? 0) + 1;
+  refused.set(k, { until: at + Math.min(BACKOFF_MS * 2 ** (tries - 1), 24 * 3_600_000), tries });
+  if (refused.size > 5000) for (const [key, v] of refused) if (v.until < at) refused.delete(key);
+}
+export const isBackedOff = (r: { id: string; scope: string; updated_at: string }, at = Date.now()): boolean => (refused.get(refusedKey(r))?.until ?? 0) > at;
+export const backedOffCount = (at = Date.now()): number => [...refused.values()].filter((v) => v.until > at).length;
+export const forgetRefusals = () => refused.clear();
+
 export const hashOf = (s: string) => createHash('sha1').update(s).digest('hex');
 /** Body then sidebar facts, one fact per paragraph. */
 export const fullText = (body: string, props: unknown) => {

@@ -36,13 +36,16 @@ export default function MinervaPage() {
     a.href = url; a.download = 'vault.zip'; a.click();
     URL.revokeObjectURL(url);
   });
-  const importZip = (f: File) => act.run(async () => {
+  const [pending, setPending] = useState<{ file: File; unmatched: { folder: string; label: string; files: number }[]; players: { accountId: string; label: string }[]; choice: Record<string, string> } | null>(null);
+  const importZip = (f: File, map?: Record<string, string>) => act.run(async () => {
     const c = w.client;
-    const r = await fetch(`${c.baseUrl}${w.path('/minerva/import')}`, { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/zip' }, body: f });
+    const r = await fetch(`${c.baseUrl}${w.path('/minerva/import')}${map ? `?map=${encodeURIComponent(JSON.stringify(map))}` : ''}`, { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/zip' }, body: f });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error ?? `Import failed (${r.status})`);
     act.setError(null);
-    toast(`Imported: ${body.created} new, ${body.updated} updated, ${body.skipped?.length ?? 0} skipped.`);
+    const left = (body.unmatched ?? []).filter((u: any) => !map || map[u.folder] !== 'skip');
+    setPending(left.length ? { file: f, unmatched: left, players: body.players ?? [], choice: Object.fromEntries(left.map((u: any) => [u.folder, map?.[u.folder] ?? 'skip'])) } : null);
+    toast(`Imported: ${body.created} new, ${body.updated} updated, ${body.skipped?.length ?? 0} skipped, ${body.arcs ?? 0} arcs, ${body.mysteries ?? 0} mysteries.${left.length ? ` ${left.length} player folder${left.length === 1 ? '' : 's'} matched nobody.` : ''}`);
     await reloadAll();
   });
 
@@ -59,6 +62,24 @@ export default function MinervaPage() {
       </PageHead>
       <ErrorBox error={st.error ?? review.error ?? act.error} />
       {toastNode}
+      {pending && (
+        <section className="card" aria-label="Match players" data-testid="import-mapping">
+          <h2 style={{ margin: 0 }}>Match players from the import</h2>
+          <p className="small muted">These player folders did not match anyone in this world by account, sign-in name, character or name. Pick who each one is, or skip it. Nothing from a skipped folder was imported.</p>
+          {pending.unmatched.map((u) => (
+            <Field key={u.folder} label={`${u.label} (${u.files} page${u.files === 1 ? '' : 's'})`}>
+              <select value={pending.choice[u.folder] ?? 'skip'} onChange={(e) => setPending({ ...pending, choice: { ...pending.choice, [u.folder]: e.target.value } })}>
+                <option value="skip">Skip this folder</option>
+                {pending.players.map((p) => <option key={p.accountId} value={p.accountId}>{p.label}</option>)}
+              </select>
+            </Field>
+          ))}
+          <div className="row">
+            <button type="button" className="btn primary" disabled={act.busy} onClick={() => void importZip(pending.file, pending.choice)}>Import again with these matches</button>
+            <button type="button" className="btn" onClick={() => setPending(null)}>Leave them out</button>
+          </div>
+        </section>
+      )}
       {!s ? <Loading /> : !s.enabled ? (
         <Empty>
           <div className="stack" style={{ alignItems: 'center' }}>

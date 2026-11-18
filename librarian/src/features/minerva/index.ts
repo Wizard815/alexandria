@@ -237,7 +237,12 @@ function routes(d: import('../../app.ts').Deps) {
   });
   r.post('/import', express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '24mb' }), (req, res) => {
     requireEnabled(d.db, W(res));
-    const rep = importVault(d, W(res), Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), me(res));
+    // ?map={"folder":"acc_id" | "skip"}: the DM's choice for player folders that matched nobody.
+    let map: Record<string, string> | undefined;
+    if (typeof req.query.map === 'string' && req.query.map) {
+      try { const j = JSON.parse(req.query.map); if (j && typeof j === 'object' && !Array.isArray(j)) map = Object.fromEntries(Object.entries(j).map(([k, v]) => [k, String(v)])); } catch { throw new HttpError(400, 'map must be JSON'); }
+    }
+    const rep = importVault(d, W(res), Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), me(res), { map });
     refreshHome(d, W(res), me(res));
     res.json(rep);
   });

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHead, ErrorBox, Empty, Loading } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
+import { progressText, type Progress } from './EmbeddingsCard.tsx';
 import './bible.css';
 
 interface Fact { text: string; kind: string; pages: { id: string; title: string; path: string }[] }
@@ -25,6 +26,15 @@ export default function BiblePage() {
   const data = useLoad<Bible>(() => w.call('GET', path), [w, path], ['page']);
   const href = (id: string) => `/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(id)}`;
   const b = data.data;
+  // The DM sees how far the background reading has got, so an empty bible is not a mystery.
+  const status = useLoad<{ configured: boolean; progress?: Progress }>(() => (isDM ? w.call('GET', '/bible/status') : Promise.resolve({ configured: false })), [w, isDM], ['page']);
+  const left = progressText(status.data?.progress);
+  useEffect(() => {
+    if (!left) return;
+    const t = setInterval(() => { void status.reload(); void data.reload(); }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [left]);
   return (
     <div className="page">
       <PageHead title="Story bible" lead={isDM ? 'What the library says about the world, as facts. This is the DM view: everything but classified.' : 'What you know about the world, as facts, from the pages you can read.'} />
@@ -35,6 +45,7 @@ export default function BiblePage() {
           {KINDS.map((k) => <option key={k} value={k}>{k}{b?.kinds[k] ? ` (${b.kinds[k]})` : ''}</option>)}
         </select>
       </div>
+      {left && <p className="small muted" role="status" data-testid="bible-progress">{left}. Facts appear as pages are read.</p>}
       <ErrorBox error={data.error} />
       {!b ? <Loading /> : !b.subjects.length ? (
         <Empty>{debounced || kind ? 'No facts match.' : 'Nothing has been written into the bible yet. It fills in the background once a chat model is set and the library has been read.'}</Empty>

@@ -80,7 +80,13 @@ const feature: Feature = {
     const tick = async () => {
       if (busy || !hasJob(d, 'chat')) return;
       busy = true;
-      try { await syncBible(d); } catch { /* retried next time */ } finally { busy = false; }
+      try {
+        const until = Date.now() + 45_000;
+        for (;;) {
+          const r = await syncBible(d);
+          if (!r.remaining || r.skipped || r.pages === 0 || Date.now() > until) break;
+        }
+      } catch { /* retried next time */ } finally { busy = false; }
     };
     const first = setTimeout(() => void tick(), 8000);
     const t = setInterval(() => void tick(), every);

@@ -235,7 +235,9 @@ export function isModelSafe(text: string, classifiedGrams: Set<string> | null | 
   return classifiedMatch(text, classifiedGrams, n) === null;
 }
 
-const tokens = (text: string): string[] => String(text ?? '').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
+/** Web addresses are left out: a bare URL in the DM copy and the same URL rendered as a Markdown link in the AI copy must not look like different text. */
+const URLS = /\bhttps?:\/\/[^\s)\]*<>]+/gi;
+const tokens = (text: string): string[] => String(text ?? '').replace(URLS, ' ').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
 
 /** The first run of `n` words in `text` that `classifiedGrams` has, or null. */
 export function classifiedMatch(text: string, classifiedGrams: Set<string>, n = 8): string | null {
