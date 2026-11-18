@@ -11,6 +11,7 @@ import { everyone, type Audience } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
 import { id as newId, now, parseJson } from '../../core/util.ts';
 import { groupUtterances, mergeGroup, similarity, token, utterances, type Word } from './merge.ts';
+import { notifyLine } from './hooks.ts';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS audio_consent (
@@ -371,6 +372,7 @@ export class Engine {
 
   /** Live event: the DM gets every revision; a player only lines that are (or were just) theirs. */
   emitLine(l: LineRow, prevAudience: 'players' | 'dm' | null, nameOf: (id: string) => string, removed = false) {
+    notifyLine(this.d, l.world_id, l.id, removed);
     this.d.hub.emitPer(l.world_id, 'transcript-line', (v) => {
       if (v.role === 'dm') return removed ? { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id } : { ...lineView(l, true, nameOf) };
       if (v.role !== 'player') return null;

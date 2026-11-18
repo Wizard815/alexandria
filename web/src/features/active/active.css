@@ -1,0 +1,22 @@
+.act-badge-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.act-badge { cursor: pointer; font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; background: transparent; }
+.act-badge.on { border-color: var(--accent); color: var(--accent); }
+.act-badge.phone { min-height: 48px; min-width: 48px; padding: 0 12px; }
+.act-cards.phone .btn, .act-toast.phone .btn { min-height: 48px; min-width: 48px; }
+.act-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted, #888); display: inline-block; }
+.act-badge.on .act-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.act-cards { position: fixed; right: 16px; bottom: 76px; z-index: 55; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 32px)); }
+.act-cards.phone { position: static; width: 100%; padding: 8px 12px 0; box-sizing: border-box; }
+.act-card { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); }
+.act-card-head { display: flex; justify-content: space-between; align-items: center; }
+.act-card-sum { font-weight: 600; }
+.act-toast { position: fixed; left: 16px; bottom: 16px; z-index: 60; display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--accent); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); max-width: min(420px, calc(100vw - 32px)); }
+.act-toast.phone { left: 8px; right: 8px; bottom: 64px; max-width: none; }
+.act-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.act-table th, .act-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.act-cat { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.act-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.act-seg button { border: 0; background: transparent; color: var(--text); padding: 8px 14px; font: inherit; cursor: pointer; min-height: 38px; }
+.act-seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg, #111); }
+.act-log-row { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: start; }
+@media (max-width: 640px) { .act-log-row { grid-template-columns: 1fr; } }
