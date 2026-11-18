@@ -99,7 +99,8 @@ export interface LineRow {
   text: string; words: string; sources: string; audience: 'players' | 'dm'; audience_override: 'players' | 'dm' | null; rev: number; updated_at: string;
 }
 
-const ASIDE_PAD = 250;
+// A line is DM-only only if it overlaps the aside (plus a little for clock jitter between devices); the lines either side stay with the table.
+const ASIDE_PAD = 40;
 
 /** Split an utterance wherever a cut time falls between two of its words. */
 function splitAt<U extends { start: number; end: number; words: Word[] }>(u: U, cuts: number[]): U[] {
