@@ -54,7 +54,7 @@ async function signIn(user, viewport, mobile) {
 }
 const go = async (page, p) => { await page.goto(`${W}/dm/${p}`); await page.locator('main').waitFor(); await page.waitForTimeout(500); };
 
-const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'settings', 'connect'];
+const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect'];
 
 /** The dock buttons must not overlap each other or the page's main controls, and each must be the top element where it is. */
 async function dockCheck(page, label) {
@@ -221,6 +221,21 @@ try {
   const logs = await api('GET', '/sessionlog');
   check(JSON.stringify(logs.json).includes('Session 22'), 'sessionlog: the draft was not published');
   note('session log published');
+
+  // Minerva: open her page, see the status doc, approve a draft from the review queue.
+  await go(dm, 'minerva');
+  check(/Campaign status/i.test(await dm.locator('main').innerText()), 'minerva: the status doc is not on her page');
+  await dm.getByRole('tab', { name: /^Review/ }).click();
+  const mnApprove = dm.getByRole('button', { name: 'Approve', exact: true }).first();
+  await mnApprove.waitFor({ timeout: 8000 }).catch(() => problems.push('minerva: no draft waits in the review queue'));
+  const waiting = (await api('GET', '/minerva/review')).json?.drafts?.length ?? 0;
+  if (waiting) {
+    await mnApprove.click();
+    await dm.waitForTimeout(800);
+    const after = (await api('GET', '/minerva/review')).json?.drafts?.length ?? 0;
+    check(after < waiting, 'minerva: approving a draft did not take it off the list');
+  }
+  note('minerva review approved');
 
   await dmCtx.close();
 

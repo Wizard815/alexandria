@@ -3,6 +3,7 @@
 import type { DB } from '../../core/db.ts';
 import { all } from '../../core/db.ts';
 import { parseJson } from '../../core/util.ts';
+import { partyBody } from '../minerva/partyText.ts';
 
 export const SHINGLE = 8;
 const GAP = '\u0000';
@@ -58,7 +59,10 @@ export function lineIsAside(l: { session_id: string; start_ms: number; end_ms: n
 export function dmCorpus(db: DB, worldId: string): Corpus[] {
   const out: Corpus[] = [];
   const add = (source: string, aside: boolean, words: string[]) => { if (words.some((w) => w !== GAP)) out.push({ source, aside, words }); };
-  for (const p of all<any>(db, 'SELECT path, body, player_body, blocks, player_blocks, properties, player_properties, frontmatter, player_frontmatter FROM pages WHERE world_id = ?', worldId)) {
+  for (const p of all<any>(db, 'SELECT id, updated_at, path, body, player_body, blocks, player_blocks, properties, player_properties, frontmatter, player_frontmatter FROM pages WHERE world_id = ?', worldId)) {
+    // A vault page the whole party may read: only what its player copy lacks is DM-only.
+    const shared = partyBody(db, worldId, p);
+    if (shared !== null) { add(`DM page: ${p.path}`, false, dmOnlyWords(p.body ?? '', shared)); continue; }
     add(`DM page: ${p.path}`, false, dmOnlyWords(p.body ?? '', p.player_body));
     add(`DM blocks: ${p.path}`, false, dmOnlyWords(jsonText(p.blocks), p.player_blocks === null ? null : jsonText(p.player_blocks)));
     add(`DM facts: ${p.path}`, false, dmOnlyWords(jsonText(p.properties), p.player_properties === null ? null : jsonText(p.player_properties)));
