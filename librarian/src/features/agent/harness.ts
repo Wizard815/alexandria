@@ -173,6 +173,8 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
       '- Prefer a tool to a guess: search_library, read_page, search_transcript, get_combat. Answer rules questions with lookup_rule, never from memory.',
       '- Anything that changes the world is only proposed; the DM approves it. Say what you proposed. Never say it is done. Only say you proposed something after a write tool call this turn; if you made none, say what you would do and offer to.',
       '- If you think you have no tool for what the DM asks, call more_tools with a few words about it first. Never say "I have no tool" without calling more_tools. Creatures and NPCs come from generate (kind npc); sound from play_music / play_ambience; combat from the combat tools (set_initiative, remove_combatant, set_combat).',
+      '- When the DM asks you to make, roll, generate or sculpt a boss, monster, NPC, shop, map, names, loot or coins, call the generator (generate, generate_map, generate_names, generate_items, generate_coins, sculpt) first, even if the campaign already has ideas; you may mention those after.',
+      '- When the request has enough to act on, call the write tool right away (the DM confirms it). Fill small gaps yourself (a teaser, a title, a price in the DM\'s words) instead of asking or refusing. Do not say you lack a tool for something a tool you were given does.',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble, no repeating the question.',
     ]
     : [
