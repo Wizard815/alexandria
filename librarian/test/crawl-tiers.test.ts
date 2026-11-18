@@ -21,7 +21,7 @@ const player = { accountId: 'p', role: 'player' as const };
 
 // ---- a fake LegendKeeper project ---------------------------------------------------------------------------------
 
-interface LkRes { id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string }
+interface LkRes { blank?: boolean; id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string }
 const lk = {
   res: [] as LkRes[],
   calls: { list: 0, calendars: 0, detail: 0, blocks: 0, other: 0 },
@@ -42,7 +42,7 @@ const lkReset = (n: number) => {
   lk.blocks404 = new Set();
   resetAncestorMemo();
 };
-const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page' }], hasChildren: false });
+const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page' }], hasChildren: false });
 const lkFetch = (url: string): Response | null => {
   if (!url.startsWith(LK_BASE)) return null;
   const u = new URL(url);
@@ -74,7 +74,7 @@ const lkFetch = (url: string): Response | null => {
     lk.detailIds.push(m[1]);
     const r = lk.res.find((x) => x.id === m![1]);
     if (!r) return json({ code: 'NOT_FOUND' }, 404);
-    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }] });
+    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }] });
   }
   lk.calls.other++;
   return json({ code: 'NOT_FOUND' }, 404);
@@ -678,4 +678,17 @@ test('CrawlTiers_PagesReadOneByOneAskForTheirSharedFolderOnlyOnce', async () => 
   for (const n of [2, 3, 4, 5, 6]) await getPage(t, wid, t.admin, pageId(t, wid, `Page ${n}`));
   assert.equal(lk.detailIds.filter((x) => x === 'r1').length, 1, 'the folder was read once for five pages');
   assert.equal(lk.detailIds.filter((x) => x === 'r2').length, 1, 'and each page once');
+});
+
+test('CrawlTiers_ALegendKeeperResourceWithOnlyABlankDocumentIsStillInTheLibrary', async () => {
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 6);
+  lk.res[2].blank = true;
+  await sync(t, sid);
+  assert.equal(depthCounts(t.deps.db, sid).total, 6, 'the blank-only entry is a page like the others');
+  const id = pageId(t, wid, 'Page 3');
+  const before = lk.calls.blocks;
+  await getPage(t, wid, t.admin, id);
+  assert.equal(lk.calls.blocks, before, 'a blank document has no blocks to read');
+  assert.equal(depthOf(t, wid, 'Page 3'), 'full');
 });

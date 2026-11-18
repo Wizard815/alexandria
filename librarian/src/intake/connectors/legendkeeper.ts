@@ -340,6 +340,18 @@ async function lkListResources(t: Transport, ctx: ConnectorContext): Promise<any
 const LK_TYPE_TAGS = ['pc', 'npc', 'town', 'city', 'region', 'item', 'session', 'creature', 'kaiju', 'lore', 'group', 'heart'];
 const lkType = (r: any, d: any) => (d.type === 'map' ? 'map' : (r.tags ?? []).find((x: string) => LK_TYPE_TAGS.includes(x)) ?? 'page');
 
+/**
+ * The documents of a resource that become pages: its pages and maps. A resource that has only blank documents (an empty folder-like entry
+ * other pages link to) still gets one page, so it is in the library tree and its links resolve; it has no text to read.
+ */
+export function lkPageDocs(r: any): any[] {
+  const docs = Array.isArray(r.documents) ? r.documents : [];
+  const pages = docs.filter((d: any) => d.type === 'page' || d.type === 'map');
+  if (pages.length || docs.some((d: any) => d.type === 'time')) return pages;
+  const blank = docs.find((d: any) => d.type === 'blank');
+  return blank ? [blank] : [];
+}
+
 /** A page's external id, title and parent: the same from a list item and from a detail. */
 function lkIdentity(r: any, pages: any[], d: any) {
   const multi = pages.length > 1;
@@ -426,7 +438,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     if (r.isTemplate === true) return;
     // Pages and maps become pages of their own; timelines become records.
-    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
+    const pages = lkPageDocs(r);
     const timelines = (r.documents ?? []).filter((d: any) => d.type === 'time');
     if (!pages.length && !timelines.length) return;
     const detail = await detailOf(String(r.id));
@@ -450,6 +462,8 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
           ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
           continue;
         }
+      } else if (d.type === 'blank') {
+        blocks = [];
       } else {
         let doc: any;
         try {
@@ -550,7 +564,7 @@ async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string,
   for (const r of all) {
     if (ctx.signal.aborted) throw new Error('Sync stopped');
     if (r.isTemplate === true) continue;
-    const pages = (r.documents ?? []).filter((d: any) => d.type === 'page' || d.type === 'map');
+    const pages = lkPageDocs(r);
     const restricted = session.hidden(String(r.id));
     for (const d of pages) {
       const idn = lkIdentity(r, pages, d);
