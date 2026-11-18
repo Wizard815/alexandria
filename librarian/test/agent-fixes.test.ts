@@ -177,6 +177,36 @@ test('AgentTools_KeywordsPickTheRightCategories', () => {
   assert.ok(selectTools('use the NPC template', dmNames, undefined, true).includes('sculpt'));
 });
 
+test('AgentTools_RequestsTheRealModelTestMissedNowGetTheirTool', () => {
+  const want: [string, string][] = [
+    ['The broker may sell this fact: the Harbour Council collects the salt tithe on the quay.', 'add_broker_note'],
+    ['Send the party a special broker offer: where the ferry guild hides its ledgers, for 80 copper.', 'send_broker_offer'],
+    ['Show me the item card for the Lantern of the Deep.', 'get_item_card'],
+    ['Who has given what to whom lately?', 'list_transfers'],
+    ['Who is online right now, and what is in the party pouch?', 'get_live'],
+    ['Answer Anselm\'s question about the ferry guild: yes, he knows it.', 'decide_request'],
+    ['Close the current arc and draft its summary.', 'arc_close'],
+    ['Start a new arc called The Drowned Bell.', 'arc_start'],
+    ['Jot down an idea: the lamp merchant could be the keeper\'s brother.', 'memory_capture'],
+    ['Start a mystery: who stole the harbour bell.', 'revelation_create'],
+    ['Add an NPC called Captain Marrow, a stern harbour captain.', 'add_person'],
+    ['Jessamine tried to recall what she knew about Captain Marrow and failed.', 'add_recall'],
+    ['What voice presets do I have for read-aloud?', 'list_voice_presets'],
+    ['Which quick events are open and who has answered?', 'list_quick_events'],
+    ['What has been published in the session log so far?', 'list_session_log'],
+    ['Draft a summary of the last session.', 'draft_session_summary'],
+    ['Are there any family links or relations between our people?', 'list_relations'],
+    ['Which other pages read like the Saltmarsh page?', 'related_pages'],
+    ['Save that tavern to the library as a page.', 'save_generated'],
+    ['Do I have a template for rumours?', 'list_templates'],
+  ];
+  for (const [text, tool] of want) {
+    const got = selectTools(text, dmNames, undefined, true);
+    assert.ok(got.includes(tool), `"${text}" should offer ${tool}; got ${got.join(', ')}`);
+    assert.ok(got.length <= MAX_TOOLS);
+  }
+});
+
 test('AgentTools_MoreToolsFindsTheSchemasAndOffersThemNext', async () => {
   const goblin = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'More Goblin', initiative: 5, hp: 7, maxHp: 7 });
   e.model.seen.length = 0;
