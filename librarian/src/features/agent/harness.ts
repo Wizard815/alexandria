@@ -28,6 +28,7 @@ import { getClock } from '../clock/api.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { worldModules } from '../modules/store.ts';
 import { fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
+import { MORE_TOOLS_TOOL, claimsChange, describeTools, matchTools, rewriteClaim } from './moretools.ts';
 import { BLOCKED_REPLY, SentenceGate, leakChecker, treeText } from './leak.ts';
 import { LOOKING } from '../sourcekeys/escalation.ts';
 import { clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
@@ -40,6 +41,8 @@ import { agentName } from '../minerva/store.ts';
 import { minervaBrief } from '../minerva/context.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
+/** Tool calls one message may make; past it the model must answer from what it has. */
+export const MAX_TOOL_CALLS = 12;
 export { HISTORY_WINDOW };
 const enc = encodeURIComponent;
 const ms = (t0: number) => Math.round(performance.now() - t0);
@@ -162,7 +165,8 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
       '- Facts about this world come only from that context, the transcript and tools. Never invent names, places, numbers or events. If it is not there, say what is unknown, and offer to look further or to propose something as a clearly marked suggestion.',
       '- Cite what you used inline as [Page title] with the exact title. Quote the transcript as (speaker, session).',
       '- Prefer a tool to a guess: search_library, read_page, search_transcript, get_combat. Answer rules questions with lookup_rule, never from memory.',
-      '- Anything that changes the world is only proposed; the DM approves it. Say what you proposed. Never say it is done.',
+      '- Anything that changes the world is only proposed; the DM approves it. Say what you proposed. Never say it is done. Only say you proposed something after a write tool call this turn; if you made none, say what you would do and offer to.',
+      '- If you think you have no tool for what the DM asks, call more_tools with a few words about it first. Never say "I have no tool" without calling more_tools. Creatures and NPCs come from generate (kind npc); sound from play_music / play_ambience; combat from the combat tools (set_initiative, remove_combatant, set_combat).',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble, no repeating the question.',
     ]
     : [
@@ -398,7 +402,14 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
   if (plan.kind === 'date') { const l = getClock(d.db, c.worldId).label; return { text: `It is **${l}**.`, cites: [] }; }
   let calls: { tool: string; args: Record<string, unknown> }[];
   let intro = '';
-  if (plan.kind === 'calls') { calls = plan.calls; intro = plan.intro; }
+  if (plan.kind === 'pc') {
+    // A player character is added as that player's own combatant, with the initiative they rolled.
+    const members: any[] = (await get(d, c, '/members')) ?? [];
+    const n = plan.name.trim().toLowerCase();
+    const m = members.find((x) => String(x.character_name ?? '').toLowerCase() === n) ?? members.find((x) => String(x.display_name ?? '').toLowerCase() === n);
+    calls = [{ tool: 'add_combatant', args: { name: m?.character_name || plan.name, initiative: plan.initiative, ...(m ? { accountId: m.id } : {}) } }];
+    intro = m ? `Adding ${m.character_name || m.display_name} with initiative ${plan.initiative}.` : `Adding ${plan.name} with initiative ${plan.initiative} (no player by that name, so as a creature).`;
+  } else if (plan.kind === 'calls') { calls = plan.calls; intro = plan.intro; }
   else {
     const combat = await get(d, c, '/live/combat');
     const list: { id: string; name: string }[] = combat?.combatants ?? [];
@@ -410,11 +421,14 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
     }
     const who = matchCombatant(list, plan.target ?? '');
     if (!who) return null;
-    intro = `${plan.verb === 'damage' ? 'Damage' : 'Healing'} for ${who.name}.`;
-    calls = [{ tool: plan.verb === 'damage' ? 'damage_combatant' : 'heal_combatant', args: { combatant: who.id, amount: plan.amount } }];
+    if (plan.verb === 'init') { intro = `Initiative for ${who.name}.`; calls = [{ tool: 'set_initiative', args: { combatant: who.id, value: plan.amount } }]; }
+    else {
+      intro = `${plan.verb === 'damage' ? 'Damage' : 'Healing'} for ${who.name}.`;
+      calls = [{ tool: plan.verb === 'damage' ? 'damage_combatant' : 'heal_combatant', args: { combatant: who.id, amount: plan.amount } }];
+    }
   }
   const done = await Promise.all(calls.map((x) => execCall(d, c, input.chatId, byName, auto, x.tool, x.args)));
-  const lines = done.map((r, i) => (r.proposed ? `- Waiting for your approval: ${r.summary}` : r.ran?.ok ? `- Done: ${r.summary}` : `- That did not work: ${describeCall(calls[i].tool, calls[i].args)}. ${r.content.slice(0, 160)}`));
+  const lines = done.map((r, i) => (r.proposed ? `- Waiting for your approval: ${r.summary}` : r.ran?.ok ? `- Done: ${r.summary}${(() => { const j = parseJson<any>(r.content, null); return j?.removed ? ' (defeated and removed from the fight)' : j?.defeated ? ' (defeated)' : ''; })()}` : `- That did not work: ${describeCall(calls[i].tool, calls[i].args)}. ${r.content.slice(0, 160)}`));
   return { text: `${intro}\n\n${lines.join('\n')}`, cites: [] };
 }
 
@@ -467,9 +481,11 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     hits = built.hits;
     T.prepMs = built.prepMs;
     T.snippets = hits.length;
-    const picked = new Set(selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, tools.map((t) => t.name)));
-    const chatTools = tools.filter((t) => picked.has(t.name)).map(asChatTool);
-    T.toolsOffered = chatTools.length;
+    const dmHarness = c.harness === 'dm';
+    const names = tools.map((t) => t.name);
+    const picked = new Set(selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, names, undefined, dmHarness));
+    const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map(asChatTool), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
+    T.toolsOffered = offerNow().length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
     const base = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...playerTexts(d, c.worldId, c.accountId), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
     // The broker never gives the DM's assistant away: her name, or that it works for the DM, blocks the reply like DM-only text does.
@@ -480,31 +496,59 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     let done = false;
     // A source lookup that needed the DM (a blanket key's results, or pages above this player's view) is escalated by the tool: the reply says so and nothing more.
     let escalated = false;
+    let wrote = false;
+    let retried = false;
     for (let round = 0; round < MAX_TOOL_ROUNDS + 1 && !done; round++) {
-      const last = round === MAX_TOOL_ROUNDS;
+      const last = round === MAX_TOOL_ROUNDS || T.toolCalls >= MAX_TOOL_CALLS;
       if (last) messages.push({ role: 'user', content: 'You have used all your tool calls. Give your final answer now from what you have.' });
       if (check) gate = new SentenceGate(check, (s) => live.push(s));
       const g = gate;
       const tm = performance.now();
       let r;
       try {
-        r = await chatStream(d, 'chat', { messages, tools: last ? undefined : chatTools, parallelToolCalls: last ? undefined : true }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
+        r = await chatStream(d, 'chat', { messages, tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
       } finally { T.modelMs += ms(tm); }
       T.rounds++;
-      if (!r.toolCalls.length || last) { reply = r.content; done = true; break; }
+      if (!r.toolCalls.length || last) {
+        reply = r.content;
+        // The reply says something was proposed or changed but no write tool ran: give the model the tools for that area and one more go.
+        if (dmHarness && !last && !retried && !wrote && claimsChange(reply)) {
+          retried = true;
+          live.reset();
+          for (const t of [...matchTools(tools, `${input.text} ${reply}`, true, 8), ...tools.filter((x) => selectTools(input.text, names, 99, true).includes(x.name))]) if (t.write) picked.add(t.name);
+          messages.push({ role: 'assistant', content: reply }, { role: 'user', content: 'You said something was proposed or changed, but you made no write tool call. Call the right write tool now (the matching write tools are offered), or say plainly that you could not.' });
+          continue;
+        }
+        done = true;
+        break;
+      }
       // The model wants tools: whatever it said so far is not the answer.
       live.reset();
       gate = null;
       messages.push({ role: 'assistant', content: r.content || null, tool_calls: r.toolCalls });
       live.status(r.toolCalls.map((tc) => tc.function.name).join(', '));
       const tt = performance.now();
-      const results = await Promise.all(r.toolCalls.map((tc) => execCall(d, c, input.chatId, byName, auto, tc.function?.name ?? '', parseJson<any>(tc.function?.arguments, {}))));
+      let budget = Math.max(0, MAX_TOOL_CALLS - T.toolCalls);
+      const results = await Promise.all(r.toolCalls.map(async (tc): Promise<Executed> => {
+        const nm = tc.function?.name ?? '';
+        const args = parseJson<any>(tc.function?.arguments, {});
+        if (budget-- <= 0) return { content: 'Skipped: too many tool calls in one message. Answer from what you have.', cites: [] };
+        if (nm === 'more_tools' && dmHarness) {
+          const found = matchTools(tools, String(args?.query ?? ''), true);
+          for (const t of found) picked.add(t.name);
+          return { content: `${describeTools(found)}\nThese tools are now offered; call one on your next step.`, cites: [] };
+        }
+        return execCall(d, c, input.chatId, byName, auto, nm, args);
+      }));
+      for (const [i, tc] of r.toolCalls.entries()) { const t = byName.get(tc.function?.name ?? ''); if (t?.write && (results[i].proposed || results[i].ran)) wrote = true; }
       T.toolMs += ms(tt);
       T.toolCalls += r.toolCalls.length;
       r.toolCalls.forEach((tc, i) => { if (c.harness === 'player' && tc.function?.name === 'source_lookup' && parseJson<any>(results[i].content, null)?.escalated === true) escalated = true; });
       r.toolCalls.forEach((tc, i) => { messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function?.name ?? '', content: results[i].content }); addCites(results[i].cites); });
     }
     reply = reply.trim() || 'I have nothing to add.';
+    // Still claiming a change nobody made: say so instead.
+    if (dmHarness && !wrote && claimsChange(reply)) { reply = rewriteClaim(reply); live.replace(reply); }
     let blocked = false;
     if (check) {
       const chk = check(reply);
