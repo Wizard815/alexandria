@@ -197,6 +197,11 @@ test('TestActions_EveryActionRuns', async () => {
   r = await act(T.dm, 'sculpt.run', { template: 'Rumour table', count: 1, outputs: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal((await act(T.dm, 'sculpt.run', { template: 'No such template' })).status, 404);
+  // Minerva actions: the switch and a command work; a task needs a chat model (none here), so it says so.
+  assert.equal((await act(T.dm, 'minerva.active', { mode: 'on' })).body.result.mode, 'active');
+  assert.equal((await act(T.dm, 'minerva.active', { mode: 'toggle' })).body.result.mode, 'assistant');
+  assert.match((await act(T.dm, 'minerva.command', { command: '/takeover-1' })).body.result.message, /Mood only/);
+  assert.equal((await act(T.dm, 'minerva.run', { prompt: 'Play tense music' })).status, 422, 'no chat model is set');
   // Every action in the registry was exercised above.
   const rows = all<any>(deps.db, "SELECT detail FROM audit WHERE world_id = ? AND action = 'action.run'", W).map((x) => String(x.detail).split(' ')[0]);
   for (const a of ACTIONS) assert.ok(rows.includes(a.id), `${a.id} ran`);

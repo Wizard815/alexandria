@@ -110,8 +110,8 @@ test('Agent: the DM harness runs a read tool and answers with a citation', async
   assert.equal(reply.status, 'done');
   assert.match(reply.text, /lighthouse/);
   assert.ok(reply.citations.some((c: any) => c.kind === 'page' && c.id === e.ID.velmira && c.path === 'dm/Velmira.md'), JSON.stringify(reply.citations));
-  // Only the tools that fit are offered (at most 16), and the library search is always among them.
-  assert.ok(toolNames(e.model.seen[0]).length <= MAX_TOOLS && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
+  // Only the tools that fit are offered (16, plus up to 3 the words match), and the library search is always among them.
+  assert.ok(toolNames(e.model.seen[0]).length <= MAX_TOOLS + 3 && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
   // The library matches for the question came with it (DM copies), so the model could answer in one round.
   assert.ok(e.model.seen[0].messages.at(-1).content.includes('Library matches'));
   // The tool result the model got is the DM copy of the page.
@@ -533,7 +533,7 @@ test('Agent: only the tools that fit are offered (at most 16), and search_librar
   e.model.queue.push(() => say('Done.'));
   await ask(e, e.T.dm, 'Add a goblin to the fight and then deal 4 damage to it');
   const offered = toolNames(e.model.seen[0]);
-  assert.ok(offered.length <= MAX_TOOLS && offered.includes('add_combatant') && offered.includes('search_library'), offered.join(','));
+  assert.ok(offered.length <= MAX_TOOLS + 3 && offered.includes('add_combatant') && offered.includes('search_library'), offered.join(','));
   assert.equal(e.model.seen[0].parallel_tool_calls, true);
 });
 

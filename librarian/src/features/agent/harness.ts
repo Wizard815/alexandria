@@ -42,6 +42,7 @@ import { agentName } from '../minerva/store.ts';
 import { minervaBrief, minervaPrep } from '../minerva/context.ts';
 import { liveLines } from '../minerva/live.ts';
 import { readTemplate } from '../sculpt/schema.ts';
+import { logAgentCall, logAgentProposal } from '../active/log.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 /** Tool calls one message may make; past it the model must answer from what it has. */
@@ -172,6 +173,8 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
       '- Prefer a tool to a guess: search_library, read_page, search_transcript, get_combat. Answer rules questions with lookup_rule, never from memory.',
       '- Anything that changes the world is only proposed; the DM approves it. Say what you proposed. Never say it is done. Only say you proposed something after a write tool call this turn; if you made none, say what you would do and offer to.',
       '- If you think you have no tool for what the DM asks, call more_tools with a few words about it first. Never say "I have no tool" without calling more_tools. Creatures and NPCs come from generate (kind npc); sound from play_music / play_ambience; combat from the combat tools (set_initiative, remove_combatant, set_combat).',
+      '- When the DM asks you to make, roll, generate or sculpt a boss, monster, NPC, shop, map, names, loot or coins, call the generator (generate, generate_map, generate_names, generate_items, generate_coins, sculpt) first, even if the campaign already has ideas; you may mention those after.',
+      '- When the request has enough to act on, call the write tool right away (the DM confirms it). Fill small gaps yourself (a teaser, a title, a price in the DM\'s words) instead of asking or refusing. Do not say you lack a tool for something a tool you were given does.',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble, no repeating the question.',
     ]
     : [
@@ -365,7 +368,14 @@ class Live {
 
 // ---- the loop -------------------------------------------------------------------
 
-export interface RunInput { chatId: string; replyId: string; text: string; context: MessageContext; history: ChatMessage[]; summary?: string; fast?: FastPlan | null }
+/** A task from a macro or a spoken command: `do` runs the allowed write tools at once, `propose` leaves them as pending actions. `allow` limits the tools offered. */
+export interface TaskExec { mode: 'do' | 'propose'; allow?: string[] }
+/** Never run by a task on its own, whatever the allowlist says. */
+export const TASK_DENY = /^(delete_|lore_delete|end_game_session|stop_recording|start_recording|decide_|publish_|broker_|save_page|edit_session_log_draft|update_person|promote|arc_close|source_lookup)/;
+/** What a task may do when the macro names no allowlist. */
+export const TASK_DEFAULT_TOOLS = ['play_music', 'stop_music', 'play_ambience', 'play_sfx', 'show_on_stage', 'hide_stage_card', 'send_quick_event', 'set_combat', 'next_turn', 'add_combatant', 'damage_combatant', 'heal_combatant', 'set_conditions', 'set_initiative', 'remove_combatant', 'add_item', 'add_coin', 'move_item', 'advance_world_time', 'speak', 'send_scene', 'send_table_chat', 'make_statblock', 'generate', 'generate_items', 'generate_coins', 'draft_session_summary', 'add_world_event', 'status_update', 'memory_log'];
+const TASK_READS = ['get_combat', 'get_sound_now', 'get_stage', 'get_inventory', 'list_members', 'list_sound_library', 'search_library', 'read_page', 'list_pages', 'list_people', 'get_world_date', 'who_is', 'context_for', 'search_transcript', 'list_session_log', 'lookup_term', 'read_term', 'list_quick_events', 'list_sound_scenes', 'list_macros'];
+export interface RunInput { chatId: string; replyId: string; text: string; context: MessageContext; history: ChatMessage[]; summary?: string; fast?: FastPlan | null; exec?: TaskExec }
 
 /** Runs in progress, so the Stop button can end one. */
 const running = new Map<string, AbortController>();
@@ -378,6 +388,7 @@ function proposeAction(d: Deps, c: Caller, chatId: string, tool: McpTool, args: 
   if (tool.name === 'codex_upsert') { try { summary += ` · ${visibilityNote(upsertTarget(d, c.worldId, args ?? {}))}`; } catch { /* no note */ } }
   run(d.db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, call, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', aid, c.worldId, chatId, c.accountId, tool.name, JSON.stringify(args ?? {}), summary, JSON.stringify(tool.call(args ?? {})), 'pending', now());
   audit(d, c.worldId, c.accountId, 'agent.propose', `${tool.name} ${JSON.stringify(args ?? {})}`);
+  logAgentProposal(d, c.worldId, { actionId: aid, tool: tool.name, args: args ?? {}, summary });
   d.hub.emit(c.worldId, 'agent', { kind: 'action', chatId, actionId: aid }, only(c.accountId));
   return aid;
 }
@@ -398,6 +409,7 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     }
     const t = await runTool(d, c, tool, args);
     if (c.harness === 'dm') audit(d, c.worldId, c.accountId, tool.write ? 'agent.action' : 'agent.read', `${name} ${JSON.stringify(args ?? {})}${tool.write ? ` auto-approved -> ${t.status}` : ''}`);
+    if (c.harness === 'dm' && tool.write) logAgentCall(d, c.worldId, { tool: name, args, summary: describeCall(name, args), ok: t.ok, result: t.text, via: 'auto-approved' });
     return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, 12_000), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
   } catch (e: any) {
     return { content: `The call failed: ${String(e?.message ?? e).slice(0, 200)}`, cites: [] };
@@ -468,9 +480,15 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     audit(d, c.worldId, c.accountId, 'agent.timing', `chat ${input.chatId} ${c.harness}: total ${T.totalMs}ms, first text ${T.firstTokenMs ?? '-'}ms, model ${T.modelMs}ms, tools ${T.toolMs}ms (${T.toolCalls}), prep ${T.prepMs}ms, gateway ${T.gatewayMs}ms, rounds ${T.rounds}, snippets ${T.snippets}, tools offered ${T.toolsOffered}${T.fast ? ', no model' : ''}`);
   };
   try {
-    const tools = await harnessTools(c.harness);
+    let tools = await harnessTools(c.harness);
+    const exec = c.harness === 'dm' ? input.exec : undefined;
+    let auto = c.harness === 'dm' ? new Set(featureSetting<string[]>(c.settings, 'agentAutoApprove') ?? []) : new Set<string>();
+    if (exec) {
+      const allow = new Set(exec.allow?.length ? exec.allow : TASK_DEFAULT_TOOLS);
+      tools = tools.filter((t) => (t.write ? allow.has(t.name) && !TASK_DENY.test(t.name) : TASK_READS.includes(t.name) || allow.has(t.name)));
+      auto = exec.mode === 'do' ? new Set(tools.filter((t) => t.write).map((t) => t.name)) : new Set<string>();
+    }
     const byName = new Map(tools.map((t) => [t.name, t]));
-    const auto = c.harness === 'dm' ? new Set(featureSetting<string[]>(c.settings, 'agentAutoApprove') ?? []) : new Set<string>();
 
     if (input.fast) {
       const f = await runFast(d, c, input, input.fast, byName, auto);
@@ -497,7 +515,9 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     T.snippets = hits.length;
     const dmHarness = c.harness === 'dm';
     const names = tools.map((t) => t.name);
-    const picked = new Set(selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, names, undefined, dmHarness));
+    const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, names, undefined, dmHarness));
+    // Words the category rules do not know still find a tool: the best matches by name and description are offered too.
+    if (dmHarness && !exec) for (const t of matchTools(tools, input.text, true, 3)) if (!t.write || t.name.length) picked.add(t.name);
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
     const soundMod = dmHarness ? await import('../sound/index.ts') : null;
     const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
@@ -506,7 +526,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const base = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...playerTexts(d, c.worldId, c.accountId), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
     // The broker never gives the DM's assistant away: her name, or that it works for the DM, blocks the reply like DM-only text does.
     const check = base ? (t: string) => { const g = personaGiveaway(t, agentName(d, c.worldId)); return g ? { blocked: true, match: g } : base(t); } : null;
-    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c)) }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
+    const taskNote = exec ? `\n\nThis message is a TASK from a macro or a spoken command, not a conversation. ${exec.mode === 'do' ? 'Carry it out now by calling the tools: they run at once with no confirmation. Do all the steps in one go (call several tools together). Use only the tools offered. Never invent ids: read them first (get_combat, search_library, list_sound_library).' : 'Propose the steps with the write tools (the DM confirms each).'} Players see what you change on their screens, so only show them party-level pages. Finish with one short line saying what you did.` : '';
+    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c)) + taskNote }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';
     let done = false;

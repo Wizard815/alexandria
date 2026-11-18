@@ -18,6 +18,7 @@ import { ctx, isDM, me } from '../../routes/_shared.ts';
 import type { Deps } from '../../app.ts';
 import { ACTIONS, ActionError, actionById, actionView, canRun, validateArgs, type Role, type Runner } from './catalog.ts';
 import { SCOPES, normCombo, overlap, scopesFor } from './combo.ts';
+import { TEMPLATES } from './templates.ts';
 import { cleanMacro, findMacro, macroOut, paramsOf, runMacro, type MacroRow, type RunReport } from './macros.ts';
 
 const schema = `
@@ -50,9 +51,9 @@ const bearer = (req: Request): string => String(req.headers.authorization ?? '')
 export function makeRunner(d: Deps, o: { worldId: string; accountId: string; role: Role; token: string; port: number }): Runner {
   return {
     d, worldId: o.worldId, accountId: o.accountId, role: o.role,
-    async call(method, path, body) {
+    async call(method, path, body, timeoutMs) {
       const res = await fetch(`http://127.0.0.1:${o.port}/api/worlds/${encodeURIComponent(o.worldId)}${path}`, {
-        method, headers: { Authorization: `Bearer ${o.token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000),
+        method, headers: { Authorization: `Bearer ${o.token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs ?? 20_000),
       });
       const text = await res.text();
       let json: any = null;
@@ -129,6 +130,18 @@ const feature: Feature = {
     });
 
     // ---- macros ----
+    r.get('/macro-templates', requireDM, (_req, res) => res.json(TEMPLATES));
+    r.post('/macro-templates/:tid/copy', requireDM, (req, res) => {
+      const t = TEMPLATES.find((x) => x.id === String(req.params.tid));
+      if (!t) throw new HttpError(404, 'Template not found');
+      let name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim().slice(0, 80) : t.name;
+      for (let n = 2; findMacro(d, W(res), name); n++) name = `${t.name} ${n}`;
+      const m = cleanMacro({ name, description: t.description, steps: t.steps, params: t.params });
+      const mid = id('mac_');
+      run(db, 'INSERT INTO actions_macros (id, world_id, name, description, steps, params, player_run, pinned, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', mid, W(res), m.name, m.description, JSON.stringify(m.steps), JSON.stringify(m.params), 0, 0, me(res), now(), now());
+      audit(d, W(res), me(res), 'macro.create', `${m.name} (from template)`);
+      res.status(201).json(macroOut(one<MacroRow>(db, 'SELECT * FROM actions_macros WHERE id = ?', mid)!, true));
+    });
     r.get('/macros', (_req, res) => {
       const dm = isDM(res);
       res.json(all<MacroRow>(db, 'SELECT * FROM actions_macros WHERE world_id = ? ORDER BY name', W(res)).filter((m) => dm || m.player_run).map((m) => macroOut(m, dm)));

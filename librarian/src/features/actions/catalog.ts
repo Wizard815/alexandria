@@ -28,7 +28,7 @@ export interface Runner {
   accountId: string;
   role: Role;
   /** Calls the world API as the caller. */
-  call(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; json: any }>;
+  call(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<{ ok: boolean; status: number; json: any }>;
 }
 
 export interface ActionDef {
@@ -265,6 +265,36 @@ export const ACTIONS: ActionDef[] = [
       try { const r = runScene(rc.d, rc.worldId, a.scene); return { scene: r.scene.name, queued: r.queued }; }
       catch (e) { if (e instanceof HttpError) throw new ActionError(e.message, e.status); throw e; }
     },
+  },
+  // ---- Minerva ----
+  {
+    id: 'minerva.run', title: 'Minerva: do this', group: 'Minerva', roles: ['dm'],
+    description: 'Give Minerva a task in words. The prompt may use {{parameters}} of the macro. Mode "do" carries it out at once with the allowed tools; "propose" leaves each change for you to confirm. Tools: a comma list that limits what she may use (empty: the usual table tools). She never deletes, ends sessions or shows players anything that is not party-level.',
+    args: [
+      A({ name: 'prompt', type: 'string', label: 'What to do', required: true, maxLength: 2000 }),
+      A({ name: 'mode', type: 'enum', label: 'Mode', values: ['do', 'propose'], default: 'do' }),
+      A({ name: 'tools', type: 'string', label: 'Allowed tools (comma list, empty for the usual)', maxLength: 600 }),
+    ],
+    run: async (rc, a) => {
+      const r = await rc.call('POST', '/active/task', { prompt: a.prompt, mode: a.mode ?? 'do', tools: a.tools ? String(a.tools).split(',').map((x: string) => x.trim()).filter(Boolean) : undefined, title: `Macro: ${String(a.prompt).slice(0, 50)}` }, 180_000);
+      if (!r.ok) throw new ActionError(String(r.json?.error ?? `Minerva could not run that (${r.status})`), r.status);
+      return { reply: String(r.json?.reply ?? '').slice(0, 400), pending: r.json?.pending ?? 0 };
+    },
+  },
+  {
+    id: 'minerva.active', title: 'Minerva: active on/off', group: 'Minerva', roles: ['dm'], description: 'Switch Minerva between Assistant mode and Active mode (listening to the table while recording).',
+    args: [A({ name: 'mode', type: 'enum', label: 'Mode', values: ['on', 'off', 'toggle'], default: 'toggle' }), A({ name: 'session', type: 'bool', label: 'Only for the recording now', default: false })],
+    run: async (rc, a) => {
+      const cur = await ok(rc, 'GET', '/active');
+      const want = a.mode === 'on' ? 'active' : a.mode === 'off' ? 'assistant' : cur.mode === 'active' ? 'assistant' : 'active';
+      const r = await ok(rc, 'PUT', '/active', { mode: want, sessionOnly: a.session === true });
+      return { mode: r.mode };
+    },
+  },
+  {
+    id: 'minerva.command', title: 'Minerva: command', group: 'Minerva', roles: ['dm'], description: 'A takeover command: /takeover, /takeover-1 to /takeover-3, /takeover-save 4 Name, /auto music on|off|ask.',
+    args: [A({ name: 'command', type: 'string', label: 'Command', required: true, maxLength: 120 })],
+    run: async (rc, a) => { const r = await ok(rc, 'POST', '/active/command', { text: a.command }); return { message: r.message }; },
   },
 ];
 

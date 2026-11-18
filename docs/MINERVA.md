@@ -197,3 +197,20 @@ only a made-up example world, never real campaign content).
 - **Decision: a mystery's title is shown to a player who found one of its clues**; name mysteries as questions. A conclusion reaches a player only when the DM marks them `reached`.
 - **Decision: the leak checks count party-level vault text as party text** (`features/minerva/partyText.ts`), so the broker may repeat it and the session log check does not flag it.
 - **Decision: the status doc has an extra `Inbox` section** for `memory_capture`.
+
+## 11. Two modes: Assistant and Active
+
+Minerva has two modes (full plan in `docs/AGENTS.md`):
+
+- **Assistant** (the default): she acts only when the DM asks, by chat, by voice ("Minerva, ..." on the DM's own mic) or from a macro. The live suggestion pass above still drafts into Review.
+- **Active**: while a session records she reads the transcript as it settles and acts on table events by herself: music and ambience, sound effects, the stage, quick events, the combat tracker, monsters in and out, items and coins, the world clock. Each category is **auto** (done at once, with an undo toast), **ask** (a confirm card on the DM's screens, which expires) or **off**. The starting preset is music, sound effects and the tracker on auto, the rest ask. `/takeover` switches everything to auto (again to restore), `/takeover-1` to `-3` apply presets, `/auto <category> on|off|ask` changes one. Notes, clues and NPCs are always drafts.
+
+How a line is read: rules first (regex cues, well under 50 ms), then the audit model for the unsure ones and for narration the rules cannot read (temperature 0, JSON, one batched call), the chat model only for wake-word requests the rules cannot do and for macros. Without an audit model the unsure cues become cards.
+
+Safety (fail closed, on auto too): players only see party-level content, never DM-only, broker or classified pages; a DM aside can only set music or the tracker; a line holding classified text is skipped whole and never sent to a model; a player's words can only set off their own initiative roll or item use (as a card); nothing destructive runs from Active mode; repeats from the speech model are de-duplicated; at most 14 automatic actions a minute.
+
+**Command log.** Every action she takes or proposes, in both modes, is one row (time, mode, trigger, tool, arguments, result, who sees it, state). The DM can undo (where it can be undone), reject a card, or mark an automatic action wrong, which undoes it and stops that cue firing again in this world. Page: DM → Active mode; the same cards and badge are on the DM phone. API: `/api/worlds/:w/active` (DM only).
+
+**Agent macros.** A macro step type **Minerva** takes a prompt with `{{parameters}}`, an optional tool allowlist and a mode (do it / propose). Eleven templates are ready to copy. It runs from the macro page, key bindings, trigger URLs, the dock and by voice ("Minerva, run Ambush at the docks").
+
+**Players** never see any of it. The broker persona stays; what Active mode changes shows as ordinary table changes.
