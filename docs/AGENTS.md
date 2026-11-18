@@ -75,3 +75,10 @@ Safety: the broker never says it works for the DM, never names Minerva, and its 
 3. The planned player helpers above; first the auto journal draft on session end.
 4. Active mode for the DM phone only (a phone that listens when the desktop is off).
 5. More undo: sound effects (stop a long effect), clock events.
+
+## 7. What helps the agent
+
+See "What helps the DM agent" in MODELS.md. Recommended: set the embeddings job
+to a retrieval model such as bge-m3 and leave `ALX_AGENT_OPTS` at its defaults.
+Active mode scan examples (`ALX_ACTIVE_EXAMPLES=1`) are implemented and unit
+tested with a fake model but were not measured on the real model: off by default.
