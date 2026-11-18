@@ -141,7 +141,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
     <div className={embedded ? "lib-embedded" : "page wide"}>
       <style>{LIB_CSS + TREE_CSS + SHELL_CSS + FILES_CSS}</style>
       {!embedded && <PageHead title="Library" lead={isDM ? `Every page in ${info.name}. Players get only the player copy of shared pages.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
-        {isDM && !readOnly && <button type="button" className="btn primary" onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
+        {isDM && !readOnly && <button type="button" className="btn primary" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
       </PageHead>}
       {offline && <div className="lib-offline" role="status"><i className="fa-solid fa-plug-circle-xmark" aria-hidden="true" /> The library can't be reached. Showing pages saved on this device.</div>}
       {!offline && <ErrorBox error={pages.error} />}
@@ -273,6 +273,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
   id: string; rows: PageRow[]; savedAt: string | null; onOpen: (id: string) => void; onSavedChange: () => Promise<void> | void; toast: (m: string) => void; onDeleted: () => void;
 }) {
   const { w, info, isDM, me, readOnly } = useWorld();
+  const netOnline = useNet().online;
   const [pg, setPg] = useState<any>(null);
   const [offlineAt, setOfflineAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -370,11 +371,11 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
           {!offlineAt && !readOnly && <ShareButton pageId={pg.id} />}
           {isDM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
-          {editable && !offlineAt && <button type="button" className="btn small" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
+          {editable && !offlineAt && <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {isDM && !offlineAt && !readOnly && <MoreMenu><button type="button" role="menuitem" className="lib-menu-danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete this page…</button></MoreMenu>}
           {!isDM && !offlineAt && !readOnly && <>
-            <button type="button" className="btn small" onClick={() => setAsk('edit')}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>
-            <button type="button" className="btn small" onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
+            <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setAsk('edit')}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>
+            <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
           </>}
         </div>
         {pg.source && <p className="tiny faint lib-source" style={{ margin: '6px 0 0' }}>From {pg.source}{pg.synced_at ? <>, last synced {when(pg.synced_at)}</> : null}.{isDM && ' Edit it there. Delete removes it here until the next sync brings it back.'}</p>}

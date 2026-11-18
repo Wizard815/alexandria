@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Modal } from '../../ui/index.tsx';
 import { DockButton, DockItem, useExclusivePanel } from '../../ui/Dock.tsx';
+import { useAuth } from '../../lib/auth.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { engine, useEngine } from './engine.ts';
 import { CardView, Highlighted, loadCard, useMatches, type Match } from './keywords.tsx';
@@ -14,13 +15,18 @@ import { useAttach } from './shared.tsx';
 interface Line { id: string; rev: number; start: number; end: number; speaker: string; speakerId?: string | null; text: string; audience?: 'players' | 'dm'; override?: 'players' | 'dm' | null }
 type Corner = 'br' | 'bl' | 'tr' | 'tl';
 interface Prefs { x: number; y: number; w: number; h: number; corner: Corner | null; opacity: number; colour: string; size: number; min: boolean; drawerOpen: boolean }
-const DEFAULTS: Prefs = { x: 40, y: 80, w: 340, h: 280, corner: 'br', opacity: 92, colour: 'gold', size: 15, min: true, drawerOpen: false };
+const DEFAULTS: Prefs = { x: 40, y: 80, w: 340, h: 280, corner: 'br', opacity: 100, colour: 'gold', size: 15, min: true, drawerOpen: false };
 const COLOURS: Record<string, string> = { gold: '#D9B26A', teal: '#86CFC4', rose: '#E39AA6', sky: '#8FB8E8', slate: '#A8B0BF' };
 const CORNERS: Corner[] = ['br', 'bl', 'tl', 'tr'];
 const KEY = 'alx.island.prefs';
 
 function loadPrefs(): Prefs {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return DEFAULTS; }
+  try {
+    const p = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
+    // 92 was the old default, which let the page show through the text: only a deliberate choice stays see-through.
+    if (p.opacity === 92) p.opacity = 100;
+    return p;
+  } catch { return DEFAULTS; }
 }
 function savePrefs(p: Prefs) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private window */ } }
 
@@ -37,17 +43,22 @@ function usePhone() {
 }
 
 export default function TranscriptOverlay() {
-  useAttach();
+  const { info } = useWorld();
+  // A guest has no transcript and no microphone: nothing here would load but 403s.
+  if (info.role === 'guest') return null;
   return <><RecordingBadge /><ConsentPrompt /><Island /></>;
 }
 
 /** Keeps the engine in step with the world: status on load, and whenever recording starts or stops. */
 function useRecordingSync() {
-  const { on } = useWorld();
+  const { on, info } = useWorld();
+  const { client } = useAuth();
+  // Effects run children first: attach before the status call, or the engine has no world yet and the badge never shows.
+  useAttach();
   useEffect(() => {
     void engine.refresh().catch(() => {});
     return on(['recording'], () => { void engine.refresh().catch(() => {}); });
-  }, [on]);
+  }, [on, info.id, client.token]);
 }
 
 function RecordingBadge() {
@@ -173,7 +184,7 @@ function Island() {
   const mark = (l: Line, audience: 'dm' | 'auto') => { void w.call('PATCH', `/audio/lines/${l.id}`, { audience }); };
 
   const style = useMemo<React.CSSProperties>(() => {
-    const s: React.CSSProperties = { opacity: prefs.opacity / 100, ['--au-colour' as any]: COLOURS[prefs.colour] ?? COLOURS.gold, ['--au-size' as any]: `${prefs.size}px` };
+    const s: React.CSSProperties = { opacity: phone ? 1 : prefs.opacity / 100, ['--au-colour' as any]: COLOURS[prefs.colour] ?? COLOURS.gold, ['--au-size' as any]: `${prefs.size}px` };
     if (phone) return s;
     if (prefs.min) { if (prefs.corner) Object.assign(s, corner(prefs.corner)); else Object.assign(s, { left: prefs.x, top: prefs.y }); return s; }
     Object.assign(s, { width: prefs.w, height: prefs.h });

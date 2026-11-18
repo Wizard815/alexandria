@@ -15,7 +15,7 @@ interface Draft {
   dateStatus: 'none' | 'pending' | 'accepted' | 'declined'; entryId: string | null; createdAt: string;
   versions: { n: number; note: string; createdAt: string; size: number }[];
 }
-interface Overlap { text: string; source: string; aside: boolean }
+interface Overlap { text: string; source: string; aside: boolean; kind?: 'phrase' | 'terms' | 'model'; terms?: string[]; why?: string }
 interface DraftRow { id: string; title: string; version: number; entryId: string | null; createdAt: string; dateStatus: string }
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -128,7 +128,7 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
   const [text, setText] = useState('');
   const [title, setTitle] = useState('');
   const [instr, setInstr] = useState('');
-  const [leaks, setLeaks] = useState<{ overlaps: Overlap[]; blocked: boolean } | null>(null);
+  const [leaks, setLeaks] = useState<{ overlaps: Overlap[]; blocked: boolean; audited?: boolean } | null>(null);
   const [prop, setProp] = useState<{ minutes: number; reason: string; edit: boolean } | null>(null);
   const [done, setDone] = useState('');
 
@@ -212,10 +212,10 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
           <button className="btn primary" disabled={act.busy} onClick={() => void publish(false)}>{dr.entryId ? 'Publish this revision' : 'Publish'}</button>
           {leaks && leaks.overlaps.length > 0 && !leaks.blocked && <button className="btn danger" disabled={act.busy} onClick={() => void publish(true)}>Publish anyway</button>}
         </div>
-        {leaks && (leaks.overlaps.length === 0 ? <p className="small" role="status">No overlap with DM-only text found.</p> : (
+        {leaks && (leaks.overlaps.length === 0 ? <p className="small" role="status">No overlap with DM-only text found{leaks.audited ? ' (the audit model looked too)' : ''}.</p> : (
           <div className="stack tight" role="alert">
-            <strong>{leaks.blocked ? 'Remove the aside passages before publishing (they can never be published):' : 'These passages repeat DM-only text:'}</strong>
-            {leaks.overlaps.map((o, i) => <div key={i} className="error-box"><div>“{o.text}”</div><div className="tiny">From: {o.source}{o.aside ? ' (never publishable)' : ''}</div></div>)}
+            <strong>{leaks.blocked ? 'Remove the aside passages before publishing (they can never be published):' : 'These passages repeat or hint at DM-only text. Look at each one before you publish:'}</strong>
+            {leaks.overlaps.map((o, i) => <div key={i} className="error-box"><div>“{o.text}”</div><div className="tiny">{o.kind === 'terms' ? `Uses words only DM-only text has (${(o.terms ?? []).join(', ')}). From: ${o.source}` : o.kind === 'model' ? `The audit model thinks this hints at a DM note${o.why ? `: ${o.why}` : ''}. From: ${o.source}` : `From: ${o.source}`}{o.aside ? ' (never publishable)' : ''}</div></div>)}
           </div>
         ))}
       </div>

@@ -9,12 +9,13 @@ import type { FM } from '../../core/frontmatter.ts';
 import { codexUpsert } from './codex.ts';
 import { markRevelation } from './revelations.ts';
 import { audit, findArc } from './store.ts';
-import { HEATS, appendToSection, readPage, setSection, writePage, type Heat } from './vault.ts';
+import { HEATS, THREADS_SECTION, appendToSection, mergeThreads, readPage, sectionOf, setSection, writePage, type Heat } from './vault.ts';
 
 export type Op =
   | { op: 'section'; rel: string; section: string; text: string; mode: 'append' | 'replace'; title?: string; fm?: FM }
   | { op: 'create'; rel: string; title: string; fm: FM; body: string }
   | { op: 'heat'; rel: string; heat: Heat }
+  | { op: 'threads'; rel: string; items: { title: string; heat: Heat }[] }
   | { op: 'mark'; mystery: string; clue?: string | number; player: string; session?: number | null; kind?: 'clue' | 'theory' | 'reached'; text?: string }
   | { op: 'codex'; name?: string; entity?: string; kind?: string; section: string; text: string; session?: number | null }
   | { op: 'level'; rel: string; level: string };
@@ -43,6 +44,12 @@ export function applyOp(d: Deps, worldId: string, op: Op, by: string | null): Ap
       writePage(d, worldId, op.rel, { fm: { heat: op.heat }, by });
       return { rel: op.rel, note: `Heat is now ${op.heat}` };
     }
+    case 'threads': {
+      const cur = readPage(d, worldId, op.rel);
+      const base = cur?.body ?? `# Campaign Status\n\n`;
+      writePage(d, worldId, op.rel, { body: setSection(base, THREADS_SECTION, mergeThreads(sectionOf(base, THREADS_SECTION)?.text ?? '', op.items)), by });
+      return { rel: op.rel, note: `Updated the heat of ${op.items.length} thread${op.items.length === 1 ? '' : 's'}` };
+    }
     case 'mark': {
       const r = markRevelation(d, worldId, { ...op, by });
       return { note: `${r.player}: ${op.kind === 'reached' ? 'reached' : op.kind === 'theory' ? 'theory noted' : `clue ${r.clue}`} of ${r.mystery}` };
@@ -70,6 +77,11 @@ export function previewOp(d: Deps, worldId: string, op: Op): { rel: string; wher
       const base = cur?.body ?? '';
       const next = op.mode === 'replace' ? setSection(base, op.section, op.text) : appendToSection(base, op.section, op.text);
       return { rel: op.rel, where: op.section, before: sectionText(base, op.section), after: sectionText(next, op.section) };
+    }
+    case 'threads': {
+      const base = readPage(d, worldId, op.rel)?.body ?? '';
+      const before = sectionText(base, THREADS_SECTION);
+      return { rel: op.rel, where: THREADS_SECTION, before, after: mergeThreads(before, op.items) };
     }
     case 'create': return { rel: op.rel, where: 'new page', before: '', after: op.body };
     case 'heat': return { rel: op.rel, where: 'heat', before: String(readPage(d, worldId, op.rel)?.fm.heat ?? ''), after: op.heat };
