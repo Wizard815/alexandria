@@ -7,7 +7,15 @@ import { ErrorBox, useAction } from '../../ui/index.tsx';
 import './bible.css';
 
 interface Scope { eligible: number; pending: number; indexed: number; chunks?: number; facts?: number }
-interface WorldCov { id: string; name: string; embeddings: { scopes: Record<string, Scope>; chunks: number }; bible: { scopes: Record<string, Scope> } }
+export interface Progress { eligible: number; indexed: number; pending: number; perMinute: number | null; etaSeconds: number | null; refused?: number }
+interface WorldCov { id: string; name: string; embeddings: { scopes: Record<string, Scope>; chunks: number; progress?: Progress }; bible: { scopes: Record<string, Scope>; progress?: Progress } }
+
+/** "12 of 58 · about 3 min left" */
+export function progressText(p: Progress | undefined): string {
+  if (!p || !p.pending) return '';
+  const eta = p.etaSeconds === null ? 'working it out…' : p.etaSeconds < 90 ? 'about a minute left' : `about ${Math.round(p.etaSeconds / 60)} min left`;
+  return `Indexing ${p.indexed} of ${p.eligible} · ${eta}`;
+}
 interface Cov { configured: boolean; model: string | null; location: string | null; chat: boolean; worlds: WorldCov[] }
 const SCOPES: [string, string][] = [['dm', 'DM copy'], ['broker', 'Broker copy'], ['party', 'Party copy'], ['lifted', 'Shared with some']];
 
@@ -17,7 +25,8 @@ export default function EmbeddingsCard() {
   const act = useAction();
   const setError = act.setError;
   const load = useCallback(async () => { try { setCov(await client.request<Cov>('GET', '/api/admin/embeddings')); } catch (e: any) { setError(String(e?.message ?? e)); } }, [client, setError]);
-  useEffect(() => { void load(); const t = setInterval(() => void load(), 15000); return () => clearInterval(t); }, [load]);
+  const busy = !!cov?.worlds.some((w) => w.embeddings.progress?.pending || w.bible.progress?.pending);
+  useEffect(() => { void load(); const t = setInterval(() => void load(), busy ? 4000 : 15000); return () => clearInterval(t); }, [load, busy]);
   if (!cov) return <div className="card"><ErrorBox error={act.error} /></div>;
   return (
     <div className="card stack">
@@ -33,6 +42,12 @@ export default function EmbeddingsCard() {
             <strong>{wd.name}</strong>
             <button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { await client.request('POST', `/api/admin/embeddings/${wd.id}/reembed`); await load(); })}>Re-embed world</button>
           </div>
+          {(wd.embeddings.progress?.pending || wd.bible.progress?.pending) ? (
+            <div className="small" role="status" data-testid="embed-progress">
+              {wd.embeddings.progress?.pending ? <div><strong>Embeddings:</strong> {progressText(wd.embeddings.progress)}{wd.embeddings.progress.refused ? ` · ${wd.embeddings.progress.refused} held back by the guard` : ''}</div> : null}
+              {wd.bible.progress?.pending ? <div><strong>Story bible:</strong> {progressText(wd.bible.progress)}</div> : null}
+            </div>
+          ) : null}
           <div className="emb-grid">
             {SCOPES.map(([k, label]) => {
               const e = wd.embeddings.scopes[k]; const b = wd.bible.scopes[k];
