@@ -1,0 +1,19 @@
+.mn-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 980px) { .mn-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; } }
+.mn-status { display: flex; flex-direction: column; gap: 12px; }
+.mn-status h3 { margin: 0 0 4px; font-size: 13px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.mn-status .md { font-size: 15px; }
+.mn-heat { display: inline-flex; min-width: 76px; justify-content: center; }
+.mn-diff { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 700px) { .mn-diff { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.mn-diff pre { margin: 0; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; line-height: 1.45; border: 1px solid var(--line); background: var(--input); }
+.mn-diff pre.before { color: var(--muted); }
+.mn-diff pre.after { border-color: var(--teal); }
+.mn-clue { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.mn-clue:last-child { border-bottom: 0; }
+.mn-clue .t { flex: 1 1 240px; min-width: 0; }
+.mn-tabs { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+.mn-tabs .btn { flex: 0 0 auto; }
+.mn-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mn-write { display: grid; gap: 8px; }
+.mn-pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; margin: 0; }
