@@ -440,6 +440,8 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
         try {
           doc = await t.get(`/resources/${r.id}/docs/${d.id}/blocks`);
         } catch (err: any) {
+          // The key is not accepted for page content at all: say so (every page would be skipped the same way, silently), instead of logging a skip.
+          if (/answered 401\b/.test(String(err?.message))) throw new Error('LegendKeeper refused this key for page content (401). Check the key and its role.');
           ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
           continue;
         }
