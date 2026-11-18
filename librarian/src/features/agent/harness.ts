@@ -34,6 +34,10 @@ import { clearPartial, finishMessage, setPartial, type Citation, type Timings } 
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
 import { sourceSummary } from '../connections/summary.ts';
 import { readOnOpen, readSearchHits } from '../connections/ondemand.ts';
+import { describeMinerva } from '../minerva/describe.ts';
+import { brokerContext, brokerPersona, personaGiveaway, playerTexts } from '../minerva/player.ts';
+import { agentName } from '../minerva/store.ts';
+import { minervaBrief } from '../minerva/context.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 export { HISTORY_WINDOW };
@@ -84,7 +88,7 @@ export function describeCall(tool: string, a: any): string {
     case 'add_item': return `Give ${n(a.qty ?? 1)} x ${n(a.name)} to ${n(a.owner)}`;
     case 'add_coin': return `Change ${n(a.owner)} coin by ${n(a.amountCp)} cp`;
     case 'advance_world_time': return `Advance the world clock: ${JSON.stringify(a)}`;
-    default: return `Run ${tool} ${JSON.stringify(a ?? {}).slice(0, 200)}`;
+    default: return describeMinerva(tool, a) ?? `Run ${tool} ${JSON.stringify(a ?? {}).slice(0, 200)}`;
   }
 }
 
@@ -138,13 +142,23 @@ export function citationsFrom(tool: string, text: string): Citation[] {
 // Static for a given world and harness, so a model server can keep the prompt
 // in its cache. Everything that changes per message goes in the user message.
 
-export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = ''): string {
+export interface Persona { agentName?: string; brokerName?: string; brokerTitle?: string }
+
+/**
+ * The DM's side is Minerva (or whatever the DM named her). The player's side is
+ * the world's information broker: it has the broker's own name and voice and is
+ * never told Minerva exists, and never says it works for the DM.
+ */
+export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}): string {
   const dm = c.harness === 'dm';
   const L: string[] = dm
     ? [
-      `You are the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      'Your character: wise, concise and proactive about long-term threads. Notice what is going cold, what a player is after, and what is due to pay off, and say so in a line. You keep the campaign\'s memory (context_for, who_is, codex_upsert, status_update, revelation_mark, goal_update).',
       'How to work:',
       '- The message starts with a context block: library matches, the page on screen, combat, the date. Use it first; most questions need no tool.',
+      '- Look for what you need in this order: the campaign status (context_for with no name), the active arc and the last session, the codex pages of the entities in play (who_is, then context_for), the story bible and related pages, and only then raw session logs and source pages.',
+      '- Before writing about a person, place or item call who_is, and add to their codex page (codex_upsert). Never make a second page for someone who has one.',
       '- Facts about this world come only from that context, the transcript and tools. Never invent names, places, numbers or events. If it is not there, say what is unknown, and offer to look further or to propose something as a clearly marked suggestion.',
       '- Cite what you used inline as [Page title] with the exact title. Quote the transcript as (speaker, session).',
       '- Prefer a tool to a guess: search_library, read_page, search_transcript, get_combat. Answer rules questions with lookup_rule, never from memory.',
@@ -152,13 +166,14 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble, no repeating the question.',
     ]
     : [
-      `You are a helpful guide for a player in the tabletop campaign "${c.worldName}". You know only what this player knows: the library pages shared with the party, what the players heard, and this player's own notes and items.`,
+      `You are ${persona.brokerName || 'The Broker'}${persona.brokerTitle ? `, ${persona.brokerTitle}` : ''}, the information broker of the tabletop campaign "${c.worldName}". You talk to one player at a time, in the broker's own voice. You know only what this player knows: the library pages shared with the party, what the players heard, and this player's own notes, goals and clues.`,
       'How to work:',
-      '- The message starts with a context block: library matches, the page on screen, what you may know. Use it first; most questions need no tool.',
+      '- The message starts with a context block: library matches, the page on screen, what this player knows. Use it first; most questions need no tool.',
       '- Facts come only from that context and tools. If the answer is not in what you can see, say you do not know. Never guess at secrets, hidden plots or what the DM has planned, and never invent names, places or events.',
+      '- You are the broker and nothing else. Never say or hint that you work for the DM, that you are an assistant, or that you have any other name or any records beyond what is in front of you.',
       '- Cite what you used inline as [Page title] with the exact title.',
       '- Prefer a tool to a guess: search_library, read_page, search_transcript.',
-      '- You cannot change anything. If asked to, say the DM has to do it.',
+      '- You can only add to this player\'s own journal and goals (my_memory_log, my_goal_update); the DM looks them over. For anything else, say the DM has to do it.',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble.',
     ];
   if (summary) L.push(`\nEarlier in this chat (summary): ${summary}`);
@@ -246,6 +261,9 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const mods = worldModules(d.db, c.worldId).enabled.map((m) => m.name).join(', ');
   if (mods) L.push(`Game modules: ${mods}.`);
   if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
+  // The campaign status first (DM), or what this player knows (the broker): the retrieval order of the memory vault.
+  if (dm) { const brief = minervaBrief(d, c.worldId); if (brief) L.push(brief); }
+  else { const mine = brokerContext(d, c.worldId, c.accountId, text); if (mine) L.push(mine); }
   const cb = dm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
   if (hits.length) {
@@ -273,6 +291,13 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   }
   if (ctxIn.selection && !d.library.containsClassified(c.worldId, ctxIn.selection)) L.push(`The user selected this text on the page:\n"""${ctxIn.selection.slice(0, 3000)}"""`);
   return { text: L.join('\n\n'), hits, prepMs: ms(t0) };
+}
+
+/** The persona each harness speaks as: the DM's assistant, or the broker the players know. */
+function dmPersona(d: Deps, c: Caller): Persona {
+  if (c.harness === 'dm') return { agentName: agentName(d, c.worldId) };
+  const b = brokerPersona(d, c.worldId);
+  return { brokerName: b.name, brokerTitle: b.title };
 }
 
 const withContext = (ctx: string, question: string) => `<context>\n${ctx}\n</context>\n\n${question}`;
@@ -446,8 +471,10 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const chatTools = tools.filter((t) => picked.has(t.name)).map(asChatTool);
     T.toolsOffered = chatTools.length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
-    const check = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
-    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary) }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
+    const base = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...playerTexts(d, c.worldId, c.accountId), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
+    // The broker never gives the DM's assistant away: her name, or that it works for the DM, blocks the reply like DM-only text does.
+    const check = base ? (t: string) => { const g = personaGiveaway(t, agentName(d, c.worldId)); return g ? { blocked: true, match: g } : base(t); } : null;
+    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c)) }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';
     let done = false;

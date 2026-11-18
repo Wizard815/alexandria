@@ -18,7 +18,7 @@ export function listMyWorlds(d: Deps) {
 }
 
 /** Settings only the DM reads: where the WorldLore folder lives and what the DM's agent may do without asking. */
-const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove'] as const;
+const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove', 'agentName'] as const;
 /** The settings as a viewer may read them (a player, a guest or a model asking as one gets no DM-only key). */
 export function settingsFor<T extends object>(s: T, role: string): Partial<T> {
   if (role === 'dm') return s;
