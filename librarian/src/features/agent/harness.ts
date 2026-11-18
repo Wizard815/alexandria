@@ -27,7 +27,11 @@ import type { McpTool } from '../types.ts';
 import { getClock } from '../clock/api.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { worldModules } from '../modules/store.ts';
-import { fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
+import { DM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
+import { agentOptions } from './options.ts';
+import { CONCISE } from './descriptions.ts';
+import { nearestTools } from './toolselect.ts';
+import { rrf, semanticPages } from '../search/embeddings.ts';
 import { MORE_TOOLS_TOOL, claimsChange, describeTools, matchTools, rewriteClaim } from './moretools.ts';
 import { BLOCKED_REPLY, SentenceGate, leakChecker, treeText } from './leak.ts';
 import { LOOKING } from '../sourcekeys/escalation.ts';
@@ -158,9 +162,14 @@ export interface Persona { agentName?: string; brokerName?: string; brokerTitle?
  * the world's information broker: it has the broker's own name and voice and is
  * never told Minerva exists, and never says it works for the DM.
  */
-export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}): string {
+export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}, skills = true): string {
   const dm = c.harness === 'dm';
-  const L: string[] = dm
+  const L: string[] = dm && !skills
+    ? [
+      `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      'Be brief. Lead with the answer.',
+    ]
+    : dm
     ? [
       `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
       'Your character: wise, concise and proactive about long-term threads. Notice what is going cold, what a player is after, and what is due to pay off, and say so in a line. You keep the campaign\'s memory (context_for, who_is, codex_upsert, status_update, revelation_mark, goal_update).',
@@ -231,6 +240,30 @@ export function prefetchLibrary(d: Deps, c: Caller, text: string, max = 5): Hit[
   return hits.map((h) => ({ id: h.id, path: h.path, title: h.title, snippet: String(h.snippet ?? '').replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim() }));
 }
 
+/**
+ * Library matches from the keyword search and from the embeddings (the nearest chunks), merged by reciprocal rank fusion.
+ * A page whose title is named in the question stays on top. With no embeddings model, or if it fails, the keyword matches alone.
+ */
+export async function prefetchHybrid(d: Deps, c: Caller, text: string, max = 5): Promise<Hit[]> {
+  const kw = prefetchLibrary(d, c, text, 20);
+  if (!hasJob(d, 'extra') || !text.trim()) return kw.slice(0, max);
+  let sem: Awaited<ReturnType<typeof semanticPages>> = [];
+  try { sem = await semanticPages(d, c.worldId, c.harness === 'dm' ? 'ai' : 'party', text, 20, forModel(c.viewer)); } catch { return kw.slice(0, max); }
+  if (!sem.length) return kw.slice(0, max);
+  const byId = new Map(kw.map((h) => [h.id, h]));
+  const missing = sem.filter((s) => !byId.has(s.id));
+  if (missing.length) {
+    // The semantic side only returns pages this viewer may open; the row is read for its title and path, the passage is the chunk that matched.
+    const rows = all<any>(d.db, `SELECT id, path, title FROM pages WHERE world_id = ? AND id IN (${missing.map(() => '?').join(',')})`, c.worldId, ...missing.map((m) => m.id));
+    const info = new Map(rows.map((r) => [r.id, r]));
+    for (const m of missing) { const r = info.get(m.id); if (r) byId.set(m.id, { id: r.id, path: r.path, title: r.title, snippet: m.text.replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200) }); }
+  }
+  const fused = rrf([kw.map((h) => h.id), sem.map((s) => s.id)]);
+  const low = text.toLowerCase();
+  const named = (h: Hit) => (h.title.length >= 4 && low.includes(h.title.toLowerCase()) ? 1 : 0);
+  return [...fused].filter(([id]) => byId.has(id)).sort((a, b) => named(byId.get(b[0])!) - named(byId.get(a[0])!) || b[1] - a[1]).slice(0, max).map(([id]) => byId.get(id)!);
+}
+
 /** A request to prepare a session: the context carries the status, the active arc and the last session so few searches are needed. */
 const WANTS_PREP = /\b(prep|prepare|preparation|next session|next game|strong start|session plan|plan (the|next|a) (session|game)|what should i)\b/i;
 const WANTS_TRANSCRIPT = /\b(session|last (time|session|game)|recap|transcript|happened|said|told|heard|earlier|just now|we (met|found|fought|saw|decided))\b/i;
@@ -266,7 +299,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     !dm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
     !dm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
   ]);
-  let hits = prefetchLibrary(d, c, text, hasJob(d, 'rerank') ? 20 : 5);
+  const opts = agentOptions(d);
+  let hits = opts.retrieval === 'hybrid' ? await prefetchHybrid(d, c, text, hasJob(d, 'rerank') ? 20 : 5) : prefetchLibrary(d, c, text, hasJob(d, 'rerank') ? 20 : 5);
   // The optional rerank job picks the best five of the top 20 within 300 ms (the snippets are this viewer's own copy); otherwise the keyword order stands.
   if (hits.length > 1 && hasJob(d, 'rerank')) hits = (await rerankItems(d, text, hits, (h) => `${h.title}\n${h.snippet}`)).slice(0, 5);
   const L: string[] = [];
@@ -276,7 +310,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   if (mods) L.push(`Game modules: ${mods}.`);
   if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
   // The campaign status first (DM), or what this player knows (the broker): the retrieval order of the memory vault.
-  if (dm) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
+  if (dm && opts.status) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
   else { const mine = brokerContext(d, c.worldId, c.accountId, text); if (mine) L.push(mine); }
   const cb = dm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
@@ -458,6 +492,27 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
   return { text: `${intro}\n\n${lines.join('\n')}`, cites: [] };
 }
 
+/**
+ * The tool names to offer for a message. The player harness always uses the keyword selection. The DM harness follows
+ * `opts.tools` (see options.ts); an embedding mode with no embeddings model answering falls back to the keyword selection.
+ */
+export async function chooseTools(d: Deps, opts: ReturnType<typeof agentOptions>, selText: string, requestText: string, tools: McpTool[], names: string[], dm: boolean): Promise<string[]> {
+  const keywords = () => {
+    const out = selectTools(selText, names, undefined, dm);
+    // Words the category rules do not know still find a tool: the best matches by name and description are offered too.
+    if (dm) for (const t of matchTools(tools, requestText, true, 3)) out.push(t.name);
+    return out;
+  };
+  if (!dm || opts.tools === 'keywords') return keywords();
+  const have = new Set(names);
+  const core = DM_CORE_TOOLS.filter((n) => have.has(n));
+  if (opts.tools === 'all') return names.filter((n) => !n.startsWith('my_'));
+  if (opts.tools === 'core') return core;
+  const near = await nearestTools(d, requestText, tools.filter((t) => !t.name.startsWith('my_')), opts.embedK);
+  if (!near) return keywords();
+  return opts.tools === 'embed' ? [...core, ...near] : [...keywords(), ...near];
+}
+
 /** Run one user message through the harness and store the reply. Never throws. */
 export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<void> {
   const t0 = performance.now();
@@ -481,6 +536,11 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
   };
   try {
     let tools = await harnessTools(c.harness);
+    const opts = agentOptions(d);
+    if (c.harness === 'dm') {
+      if (!opts.bible) tools = tools.filter((t) => t.name !== 'story_bible' && t.name !== 'related_pages');
+      if (opts.desc === 'concise') tools = tools.map((t) => (CONCISE[t.name] ? { ...t, description: CONCISE[t.name] } : t));
+    }
     const exec = c.harness === 'dm' ? input.exec : undefined;
     let auto = c.harness === 'dm' ? new Set(featureSetting<string[]>(c.settings, 'agentAutoApprove') ?? []) : new Set<string>();
     if (exec) {
@@ -513,11 +573,11 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     hits = built.hits;
     T.prepMs = built.prepMs;
     T.snippets = hits.length;
+    if (c.harness === 'dm') T.hits = hits.map((x) => x.title);
     const dmHarness = c.harness === 'dm';
     const names = tools.map((t) => t.name);
-    const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, names, undefined, dmHarness));
-    // Words the category rules do not know still find a tool: the best matches by name and description are offered too.
-    if (dmHarness && !exec) for (const t of matchTools(tools, input.text, true, 3)) if (!t.write || t.name.length) picked.add(t.name);
+    const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
+    const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
     const soundMod = dmHarness ? await import('../sound/index.ts') : null;
     const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
@@ -527,7 +587,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     // The broker never gives the DM's assistant away: her name, or that it works for the DM, blocks the reply like DM-only text does.
     const check = base ? (t: string) => { const g = personaGiveaway(t, agentName(d, c.worldId)); return g ? { blocked: true, match: g } : base(t); } : null;
     const taskNote = exec ? `\n\nThis message is a TASK from a macro or a spoken command, not a conversation. ${exec.mode === 'do' ? 'Carry it out now by calling the tools: they run at once with no confirmation. Do all the steps in one go (call several tools together). Use only the tools offered. Never invent ids: read them first (get_combat, search_library, list_sound_library).' : 'Propose the steps with the write tools (the DM confirms each).'} Players see what you change on their screens, so only show them party-level pages. Finish with one short line saying what you did.` : '';
-    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c)) + taskNote }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
+    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c), opts.skills) + taskNote }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';
     let done = false;

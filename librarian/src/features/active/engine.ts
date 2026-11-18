@@ -7,6 +7,7 @@
 // text never reaches a model, and nothing destructive runs from here.
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable } from '../../core/ai.ts';
+import { examplesOn, similarLineExamples } from './examples.ts';
 import { all, one } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
 import { parseJson } from '../../core/util.ts';
@@ -228,7 +229,10 @@ async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wst
 {"line":N,"cat":"clock","preset":"short-rest|long-rest|next-day"} or {"line":N,"cat":"clock","minutes":120}  (time passes or the party rests)
 {"line":N,"cat":"event","skill":"Perception","dc":13}  (the DM asks the players for a roll)
 Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
-  const j = await modelJson(d, worldId, sys, `Earlier context:\n${W.lastLines.slice(-4).join('\n')}\n\nDM lines (the rules already handled the categories in brackets: do not repeat those):\n${batch.map((x, i) => `${i}. ${x.line.text}${known[batchKnown[i]]?.length ? ` [${[...new Set(known[batchKnown[i]])].join(', ')}]` : ''}`).join('\n').slice(0, 3200)}`);
+  // Labelled lines nearest these ones (embeddings job): how close cases were decided, shown before the lines.
+  const shots = examplesOn(d) ? await similarLineExamples(d, batch.map((x) => x.line.text), 6) : null;
+  const shotText = shots?.length ? `Examples of similar lines and what a good stage hand picked (no line number; [] means nothing):\n${shots.map((e) => `- "${e.line}" -> ${JSON.stringify(e.actions)}`).join('\n')}\n\n` : '';
+  const j = await modelJson(d, worldId, sys, `${shotText}Earlier context:\n${W.lastLines.slice(-4).join('\n')}\n\nDM lines (the rules already handled the categories in brackets: do not repeat those):\n${batch.map((x, i) => `${i}. ${x.line.text}${known[batchKnown[i]]?.length ? ` [${[...new Set(known[batchKnown[i]])].join(', ')}]` : ''}`).join('\n').slice(0, 3200)}`);
   W.lastLines = [...W.lastLines, ...batch.map((x) => x.line.text)].slice(-8);
   const acts: any[] = Array.isArray(j?.actions) ? j.actions : [];
   for (const a of acts.slice(0, 6)) {
