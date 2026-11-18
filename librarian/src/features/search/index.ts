@@ -115,7 +115,14 @@ const feature: Feature = {
     const tick = async () => {
       if (busy || !hasJob(d, 'extra')) return;
       busy = true;
-      try { await syncEmbeddings(d); } catch { /* retried next time */ } finally { busy = false; }
+      try {
+        // While there is a backlog (a re-embed), keep going for a while instead of one small batch every tick.
+        const until = Date.now() + 45_000;
+        for (;;) {
+          const r = await syncEmbeddings(d);
+          if (!r.remaining || r.error || r.pages === 0 || Date.now() > until) break;
+        }
+      } catch { /* retried next time */ } finally { busy = false; }
     };
     const first = setTimeout(() => void tick(), 5000);
     const t = setInterval(() => void tick(), every);

@@ -21,12 +21,13 @@
 // keyword only.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
+import { ClassifiedRefused, embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { type PageHit, type ParsedQuery, type Scope, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
-import { eligibleIds, isCurrent, pendingCopies } from './copies.ts';
+import { backedOffCount, eligibleIds, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
 import { libraryOf as libraryFor } from '../../core/library.ts';
 import { type Reach, type VecScope, VEC_SCOPES, openable, reachOf, reachOfScope, reachScopes } from './scopes.ts';
+import { noteDone, progress } from './pace.ts';
 import { normalize, vectorStore } from './vectorstore.ts';
 
 export const SCHEMA = `
@@ -83,8 +84,10 @@ export const CHUNK_CHARS = 500;
 const tagged = (model: string) => `${model}|lv1`;
 const MAX_CHUNKS_PER_PAGE = 40;
 const BATCH = 16;
-/** Embed scopes in this order: what players read first, the DM's own copy last. */
-const ORDER: VecScope[] = ['party', 'lifted', 'broker', 'dm'];
+/** Scopes are taken in turn, a few pages each (the DM's copy first), so no scope waits for the others to finish. */
+const ORDER: VecScope[] = ['dm', 'party', 'lifted', 'broker'];
+const PER_TURN = 3;
+
 
 /** Split plain text into chunks of about `size` characters, on paragraph then sentence then word edges. */
 export function chunkText(text: string, size = CHUNK_CHARS): string[] {
@@ -124,7 +127,7 @@ export function pruneChunks(db: DB) {
   });
 }
 
-export interface SyncResult { embedded: number; pages: number; remaining: boolean; error?: string }
+export interface SyncResult { embedded: number; pages: number; remaining: boolean; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
 
 /**
  * Embed pages whose chunks are missing or out of date. Safe to call again at
@@ -139,19 +142,29 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
   const model = tagged(cfg.model);
   let budget = opts.maxPages ?? 25;
   try {
-    for (const scope of ORDER) {
-      while (budget > 0 && !opts.signal?.aborted) {
-        const rows = pendingCopies(d, scope, 'search_chunk_state', model, Math.min(budget, 10), opts.worldId);
-        if (!rows.length) break;
+    for (let more = true; more && budget > 0 && !opts.signal?.aborted;) {
+      more = false;
+      for (const scope of ORDER) {
+        if (budget <= 0 || opts.signal?.aborted) break;
+        const take = Math.min(budget, PER_TURN);
+        const rows = pendingCopies(d, scope, 'search_chunk_state', model, take + backedOffCount(), opts.worldId).filter((r) => !isBackedOff(r)).slice(0, take);
+        if (!rows.length) continue;
+        more = true;
         for (const r of rows) {
           if (opts.signal?.aborted) break;
           const chunks = chunkText(r.full).map((c) => plainText(c)).filter(Boolean);
           const vecs: Float32Array[] = [];
-          for (let i = 0; i < chunks.length; i += BATCH) {
-            const part = chunks.slice(i, i + BATCH);
-            const got = await embed(d, part.map((c) => `${r.title}\n${c}`), opts.signal);
-            if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
-            for (const v of got) vecs.push(normalize(v));
+          try {
+            for (let i = 0; i < chunks.length; i += BATCH) {
+              const part = chunks.slice(i, i + BATCH);
+              const got = await embed(d, part.map((c) => `${r.title}\n${c}`), opts.signal);
+              if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
+              for (const v of got) vecs.push(normalize(v));
+            }
+          } catch (e) {
+            // The guard refused this page's text: leave it for later (longer each time) and carry on with the others.
+            if (e instanceof ClassifiedRefused) { noteRefused(r); res.refused = (res.refused ?? 0) + 1; continue; }
+            throw e;
           }
           // The page may have changed while the model worked: write only what still matches its copy now (the next round sees the rest).
           if (!isCurrent(d, r)) continue;
@@ -159,11 +172,12 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
           res.embedded += chunks.length;
           res.pages++;
           budget--;
+          noteDone('embeddings', r.world_id);
           opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: r.id, scope });
         }
       }
     }
-    res.remaining = ORDER.some((s) => pendingCopies(d, s, 'search_chunk_state', model, 1, opts.worldId).length > 0);
+    res.remaining = ORDER.some((s) => pendingCopies(d, s, 'search_chunk_state', model, 1 + backedOffCount(), opts.worldId).some((r) => !isBackedOff(r)));
   } catch (e: any) {
     res.error = String(e?.message ?? e).slice(0, 200);
     res.remaining = true;
@@ -205,7 +219,16 @@ export function embeddingCoverage(d: Deps, worldId: string) {
     // Distinct pages (a page with a DM copy and a party copy counts once); `scopes` counts copies, one scope at a time.
     pages: cfg ? pages : { eligible: 0, indexed: 0, pending: 0 },
     chunks: stats.dmChunks + stats.partyChunks + stats.brokerChunks + stats.liftedChunks,
+    // "Indexing N of M": copies (a page counts once per copy it has), with an estimate from the recent pace.
+    progress: progressOf(worldId, scopes),
   };
+}
+
+function progressOf(worldId: string, scopes: Record<VecScope, ScopeCount>) {
+  let eligible = 0;
+  let indexed = 0;
+  for (const s of VEC_SCOPES) { eligible += scopes[s].eligible; indexed += scopes[s].indexed; }
+  return progress('embeddings', worldId, eligible, indexed, { refused: backedOffCount() });
 }
 
 export function embeddingStats(db: DB, worldId: string) {
