@@ -7,7 +7,8 @@ import type { Deps } from '../../app.ts';
 import { run } from '../../core/db.ts';
 import { requireDM } from '../../core/auth.ts';
 import { HttpError, now, str } from '../../core/util.ts';
-import { ctx, me } from '../../routes/_shared.ts';
+import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { playerCard } from './hide.ts';
 import { summarize, preview } from './format.ts';
 import { readModule } from './importers.ts';
 import { findMatches } from './match.ts';
@@ -53,6 +54,8 @@ function routes(d: Deps) {
       limit: intQ(req.query.limit, 50),
       offset: intQ(req.query.offset, 0),
     });
+    // A player's monster summaries have no AC, HP or CR (unless the world shows monster health exactly).
+    if (!isDM(res)) { const s = settings(res); res.json({ ...out, ...(Array.isArray((out as any).terms) ? { terms: (out as any).terms.map((t: any) => playerCard(t, s)) } : {}), ...(Array.isArray((out as any).results) ? { results: (out as any).results.map((t: any) => playerCard(t, s)) } : {}) }); return; }
     res.json(out);
   });
 
@@ -60,12 +63,15 @@ function routes(d: Deps) {
     const t = worldModules(d.db, W(res)).byRef.get(String(req.params.id));
     if (!t) throw new HttpError(404, 'Term not found');
     const m = worldModules(d.db, W(res)).enabled.find((x) => x.id === t.moduleId);
-    res.json({ id: t.ref, moduleId: t.moduleId, module: t.moduleName, term: t.term, aliases: t.aliases, kind: t.kind, summary: t.summary, text: t.text, data: t.data ?? null, license: m?.license ?? '', attribution: m?.attribution ?? '' });
+    const full = { id: t.ref, moduleId: t.moduleId, module: t.moduleName, term: t.term, aliases: t.aliases, kind: t.kind, summary: t.summary, text: t.text, data: t.data ?? null, license: m?.license ?? '', attribution: m?.attribution ?? '' };
+    res.json(isDM(res) ? full : playerCard(full, settings(res)));
   });
 
   r.get('/rules/search', (req, res) => {
     const q = str(req.query.q, 'q', { max: 300 });
-    res.json({ query: q, results: searchRules(d.db, W(res), q, intQ(req.query.limit, 5)) });
+    const results = searchRules(d.db, W(res), q, intQ(req.query.limit, 5));
+    const ps = settings(res);
+    res.json({ query: q, results: isDM(res) ? results : results.map((h) => ({ ...h, passage: playerCard({ kind: h.kind, text: h.passage }, ps).text, summary: playerCard({ kind: h.kind, summary: h.summary }, ps).summary })) });
   });
 
   // The highlighting contract: text in, matches out. Library titles are
@@ -83,7 +89,8 @@ function routes(d: Deps) {
       const t = w.byRef.get(id);
       if (!t) throw new HttpError(404, 'Term not found');
       const m = w.enabled.find((x) => x.id === t.moduleId);
-      return res.json({ source, id: t.ref, title: t.term, kind: t.kind, summary: t.summary, text: t.text, data: t.data ?? null, module: t.moduleName, attribution: m?.attribution ?? '' });
+      const card = { source, id: t.ref, title: t.term, kind: t.kind, summary: t.summary, text: t.text, data: t.data ?? null, module: t.moduleName, attribution: m?.attribution ?? '' };
+      return res.json(isDM(res) ? card : playerCard(card, settings(res)));
     }
     if (source === 'library') {
       // L.get serves players only the player copy, and 404s on anything else.

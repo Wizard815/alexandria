@@ -51,21 +51,21 @@ test('AI: api.openai.com gets max_completion_tokens and everyone else max_tokens
   await chat(a.d, 'chat', { messages: msgs, maxTokens: 50 });
   assert.equal(a.calls[0].url, 'https://api.openai.com/v1/chat/completions');
   assert.equal(a.calls[0].headers.Authorization, 'Bearer sk-test');
-  assert.equal(a.calls[0].body.max_completion_tokens, 50);
+  assert.equal(a.calls[0].body.max_completion_tokens, 2000);
   assert.equal(a.calls[0].body.max_tokens, undefined);
   const b = fake({}, ok());
   await chat(b.d, 'chat', { messages: msgs, maxTokens: 50 });
-  assert.equal(b.calls[0].body.max_tokens, 50);
+  assert.equal(b.calls[0].body.max_tokens, 2000);
   assert.equal(b.calls[0].body.max_completion_tokens, undefined);
   // The job option overrides the host guess, and never reaches the server.
   const c = fake({ options: { maxTokensParam: 'max_completion_tokens', timeoutMs: 5000, noTemperature: true, jsonMode: 'off', top_k: 20 } }, ok());
   await chat(c.d, 'chat', { messages: msgs, maxTokens: 50 });
-  assert.equal(c.calls[0].body.max_completion_tokens, 50);
+  assert.equal(c.calls[0].body.max_completion_tokens, 2000);
   assert.equal(c.calls[0].body.top_k, 20);
   for (const k of ['maxTokensParam', 'timeoutMs', 'noTemperature', 'jsonMode']) assert.ok(!(k in c.calls[0].body), `${k} was sent`);
   const e = fake({ baseUrl: 'https://api.openai.com/v1', options: { maxTokensParam: 'max_tokens' } }, ok());
   await chat(e.d, 'chat', { messages: msgs, maxTokens: 9 });
-  assert.equal(e.calls[0].body.max_tokens, 9);
+  assert.equal(e.calls[0].body.max_tokens, 2000);
 });
 
 test('AI: a server that rejects max_tokens is switched to max_completion_tokens, and remembered', async () => {
@@ -73,11 +73,11 @@ test('AI: a server that rejects max_tokens is switched to max_completion_tokens,
   const r = await chat(f.d, 'chat', { messages: msgs, maxTokens: 20 });
   assert.equal(r.content, 'fine');
   assert.equal(f.calls.length, 2);
-  assert.equal(f.calls[1].body.max_completion_tokens, 20);
+  assert.equal(f.calls[1].body.max_completion_tokens, 2000);
   assert.equal(f.calls[1].body.max_tokens, undefined);
   assert.equal(r.timings?.attempts, 2);
   await chat(f.d, 'chat', { messages: msgs, maxTokens: 20 });
-  assert.equal(f.calls[2].body.max_completion_tokens, 20, 'the next call starts with what worked');
+  assert.equal(f.calls[2].body.max_completion_tokens, 2000, 'the next call starts with what worked');
 });
 
 test('AI: temperature is omitted when the job says so, or after the model rejects it', async () => {

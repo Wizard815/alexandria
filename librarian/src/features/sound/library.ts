@@ -156,3 +156,43 @@ export function nearest(tracks: Track[], x: number, y: number, area?: string): T
   }
   return best;
 }
+
+const lev = (a: string, b: string): number => {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+};
+
+/** The ambience layer kind nearest to what was asked for ("thunderstorm" -> "storm"): exact, then one containing the other, then a shared word, then a near spelling. Null if none is close. */
+export function nearestLayer(kind: string, layers: string[]): string | null {
+  const k = kind.toLowerCase().trim();
+  if (!k || !layers.length) return null;
+  if (layers.includes(k)) return k;
+  const sub = layers.filter((l) => l.includes(k) || k.includes(l)).sort((a, b) => Math.abs(a.length - k.length) - Math.abs(b.length - k.length));
+  if (sub.length) return sub[0];
+  const words = k.split(/[\s_-]+/).filter((w) => w.length > 2);
+  const shared = layers.find((l) => l.split(/[\s_-]+/).some((w) => words.some((x) => x === w || (x.length > 3 && w.length > 3 && (x.startsWith(w) || w.startsWith(x))))));
+  if (shared) return shared;
+  const near = layers.map((l) => ({ l, d: lev(k, l) })).filter((x) => x.d <= Math.max(2, Math.floor(k.length / 3))).sort((a, b) => a.d - b.d);
+  return near[0]?.l ?? null;
+}
+
+/** A line telling the model what the sound library really holds, for the sound tools' descriptions. */
+export function libraryHint(idx: Index, tracks: Track[]): string {
+  const bits: string[] = [];
+  const moods = Object.keys(CORNERS).filter((m) => nearest(tracks, CORNERS[m].x, CORNERS[m].y));
+  const areas = [...new Set(tracks.map((t) => t.area).filter(Boolean))].sort();
+  bits.push(moods.length ? `Moods with a track: ${moods.join(', ')}.` : 'No music track has a mood yet.');
+  if (areas.length) bits.push(`Music areas: ${areas.join(', ')}.`);
+  const layers = [...new Set(idx.ambience.map((a) => a.layer))].sort();
+  bits.push(layers.length ? `Ambience layer kinds: ${layers.join(', ')} (the nearest name is used for an unknown one).` : 'No ambience layers are in the library.');
+  return bits.join(' ');
+}
