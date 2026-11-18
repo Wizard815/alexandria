@@ -75,6 +75,8 @@ const feature: Feature = {
 
   // Extract facts for new and changed pages, a few at a time. Does nothing without a chat model.
   start: (d: Deps) => {
+    // ALX_BIBLE=off: the background build stays off (every fact is a chat model call per page).
+    if (String(d.env.ALX_BIBLE ?? '').toLowerCase() === 'off') return;
     const every = Math.max(1000, Number(d.env.ALX_BIBLE_MS ?? 30_000) || 30_000);
     let busy = false;
     const tick = async () => {

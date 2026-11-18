@@ -10,6 +10,7 @@ import { chat, chatJson, hasJob } from '../../core/ai.ts';
 import { all } from '../../core/db.ts';
 import { namedEntities, questionType, spoilerTagHit, stem, words, type QuestionType } from '../../core/brokerClassify.ts';
 import { searchRules } from '../modules/search.ts';
+import { similarExamples, type Near } from './examples.ts';
 
 export type Scope = 'world' | 'real-world-allowed' | 'rules' | 'item' | 'off-topic';
 export type Intent = 'fact' | 'spoiler-seeking' | 'meta-gaming';
@@ -85,12 +86,30 @@ intent: "fact" (an ordinary question), "spoiler-seeking" (asks for hidden truths
 type: one of who, where, when, why, how, price, what, other.
 confidence: a number from 0 to 1.`;
 
+export type ExamplesMode = 'none' | 'nn' | 'fewshot' | 'both';
+/** ALX_BROKER_EXAMPLES: none, nn (nearest-example caution), fewshot (similar examples in the audit prompt) or both. */
+export function examplesMode(d: Deps): ExamplesMode {
+  const v = String(d.env?.ALX_BROKER_EXAMPLES ?? 'none');
+  return v === 'nn' || v === 'fewshot' || v === 'both' ? v : 'none';
+}
+/** The two closest examples agree on a non-fact intent and the nearest one is really close: that intent. */
+export const NEAR_SIM = 0.6;
+export function nearCaution(near: Near[]): Intent | null {
+  const [a, b] = near;
+  if (!a || a.sim < NEAR_SIM || a.example.intent === 'fact') return null;
+  return b && b.example.intent === a.example.intent ? a.example.intent : null;
+}
+
 /** Label a question. Never throws; falls back to keyword rules. */
 export async function routeQuestion(d: Deps, worldId: string, question: string, topics: string[], itemNames: string[]): Promise<Labels> {
   const kw = keywordLabels(d, worldId, question, topics, itemNames);
+  const mode = examplesMode(d);
+  // Labelled examples nearest the question (needs the embeddings job; null without it, and routing is as before).
+  const near = mode === 'none' ? null : await similarExamples(d, question, 6);
+  const shots = near && (mode === 'fewshot' || mode === 'both') ? near : null;
   const j: any = await chatJson(d, 'audit', [
-    { role: 'system', content: SYSTEM },
-    { role: 'user', content: JSON.stringify({ question, allowedTopics: topics, sharedPages: sharedPageNames(d, worldId) }) },
+    { role: 'system', content: shots ? `${SYSTEM}\nLabelled examples of similar questions are given. Label this question the way the closest examples are labelled when it asks for the same kind of thing.` : SYSTEM },
+    { role: 'user', content: JSON.stringify({ question, allowedTopics: topics, sharedPages: sharedPageNames(d, worldId), ...(shots ? { examples: shots.map((n) => ({ question: n.example.q, scope: n.example.scope, intent: n.example.intent })) } : {}) }) },
   ]).catch(() => null);
   if (!j || !SCOPES.includes(j.scope) || !INTENTS.includes(j.intent)) return kw;
   let confidence = Number(j.confidence);
@@ -101,6 +120,11 @@ export async function routeQuestion(d: Deps, worldId: string, question: string, 
   if (intent === 'fact' && kw.intent !== 'fact') { intent = kw.intent; source = 'audit+rules'; }
   const tag = spoilerTagHit(d.db, worldId, question);
   if (tag) { intent = 'spoiler-seeking'; source = 'audit+rules'; }
+  // A close labelled example that is a spoiler or meta-gaming question can only add caution, never remove it.
+  if (intent === 'fact' && near && (mode === 'nn' || mode === 'both')) {
+    const cautious = nearCaution(near);
+    if (cautious) { intent = cautious; source = 'audit+rules'; }
+  }
   return { scope: j.scope, intent, type: (TYPES.includes(j.type) ? j.type : kw.type) as QuestionType, confidence, source, why: source === 'audit' ? 'Labelled by the audit model.' : `Labelled by the audit model; the keyword rules flagged it (${kw.why}).` };
 }
 
