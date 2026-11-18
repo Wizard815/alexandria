@@ -7,7 +7,7 @@ import { featureSetting } from '../../core/policy.ts';
 import { chatJson } from '../../core/ai.ts';
 import { HttpError } from '../../core/util.ts';
 import { ctx, isDM, settings } from '../../routes/_shared.ts';
-import { ALL_RARITIES, GENDERS, RACES, TYPES, genCoins, genItems, genNames } from './api.ts';
+import { ALL_RARITIES, GENDERS, NAME_STYLES, RACES, TYPES, genCoins, genItems, genNames } from './api.ts';
 
 const S = (description: string) => ({ type: 'string', description });
 const N = (description: string) => ({ type: 'integer', description });
@@ -45,7 +45,7 @@ const feature: Feature = {
     r.get('/options', (_req, res) => {
       const dm = isDM(res);
       res.json({
-        races: ['any', ...RACES], genders: ['any', ...GENDERS], nameStyles: ['default', 'virtue'],
+        races: ['any', ...RACES], genders: ['any', ...GENDERS], nameStyles: [...NAME_STYLES],
         rarities: dm ? ['any', ...ALL_RARITIES] : [], types: dm ? ['any', ...TYPES] : [],
         modes: dm ? ['individual', 'hoard'] : [], coins: settings(res).coins, dm,
       });
