@@ -338,15 +338,18 @@ source time of what the library holds). A page whose source time moved on is
   need detail calls, so pages stay at index depth. Detail is one call for the
   resource, one for each document and one for each ancestor whose permissions
   are not known yet. The published limit is 300 calls a minute per key (6,000
-  an hour; 12,000 an hour per project): the connection defaults to 60 calls a
-  minute and 2 a second, and the background budget to 24 (see "Rate limits").
+  an hour; 12,000 an hour per project), and a real key answered
+  `X-RateLimit-Limit: 200`: the connection defaults to 200 calls a minute, 2 a
+  second and 6,000 an hour, and the background budget to 40 a minute (see
+  "Rate limits").
 - **Kanka**: the module lists already carry `entry`, posts and attributes
   (`related=1`), so a listing reaches full depth with about pages / 45 calls
   per module (up to 100 a page for subscribers). Later listings send
   `lastSync` and read only what changed, and refresh the records of what
   changed (see "Incremental re-crawls"). The default limit is 30 calls a
   minute for a user (90 for subscribers; all tokens share it): the connection
-  defaults to 30 a minute and the background budget to 12. Raise "Max calls per
+  defaults to 30 a minute (no hourly cap: the docs give none) and the
+  background budget to 12. Raise "Max calls per
   minute" on the connection (or on the world page) if you are a subscriber.
 - **Generic API**: the endpoint list (below). A record with a body in the list
   is full; with only a summary, `summary`; otherwise `index`. An endpoint with
@@ -384,6 +387,36 @@ the details.
    `{budget, paused, fetchAll}`; `GET /api/admin/connections/tiers/world/:world`.
    The DM's Library page shows a badge on pages not yet read in full
    (`GET /api/worlds/:world/world-sources/depths`).
+4. *One read per page.* The background reader, a page being opened and a search
+   hit share one read of a page: the second caller waits for the first and uses
+   what it saved, so a page is never fetched twice at once.
+
+**What the DM is told** (`GET /api/worlds/:world/world-sources/status`, DM only;
+the same object is `status` in the admin world overview):
+
+- *Why players see nothing.* When pages exist and none is shared, a banner on
+  the world page and at the top of the DM's Library gives the counts and the
+  reasons: the source's audience is "DM only"; pages are only listed so far
+  (the source has not said who may read them); pages are hidden at the source;
+  pages are shared at the source but the default visibility is "DM only"; the
+  key is refused for content. It says what to do: set the audience or default
+  visibility, wait for the details (or open a page), check the key's role.
+- *A refused key.* A source whose key is answered 401 for page content while
+  its lists work shows "This key can list pages but can't read their content.
+  Check its role: LegendKeeper keys need Admin to read page text and hidden
+  pages." on the source (`refused` in the tiers, and in this status).
+- *A wait.* While a page somebody opened is held back by the site's limit, the
+  DM's Library says "Waiting for the site (N s)" (`waiting`: seconds and
+  whether the site asked or our own limit did). A wait that only the reserve
+  for opens causes is never shown, because an open does not wait for it.
+
+**Changing a source's default visibility.** The default decides whether a page
+the source calls shared is shared here. Pages read in full remember what the
+source said about them (`pages.source_shared`), so changing the default (or
+the audience) re-levels them at once, without reading them again, and rebuilds
+the player copies. Fail closed: a page that is only listed (nothing says who
+may read it) and a page hidden at the source stay DM-only; an audience of
+"shared with players" does not share pages that were never read.
 
 **Incremental re-crawls.** LegendKeeper re-lists everything (it has no
 `since`), notes each page's `updatedAt`, and only the changed pages become
@@ -426,17 +459,36 @@ no connection has its own.
 
 | Setting (on the connection) | Default | Meaning |
 |---|---|---|
-| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 60, generic API 60 | never more in any 60 seconds |
+| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 200, generic API 60 | never more in any 60 seconds |
 | `maxPerSecond` ("Max calls per second") | LegendKeeper 2, others 0 (no cap) | never more in any second |
+| `maxPerHour` ("Max calls per hour") | LegendKeeper 6,000, others 0 (no cap) | never more in any hour |
 | `spreadMinutes` ("Spread the first scan over (minutes)") | 1 | see below; 0: as fast as the limits allow |
 
 Set them in Admin > Connections (the connector's form) or on the world page
 under "Reading the sources", where `PATCH /api/admin/connections/tiers/:source`
-takes `{ limits: { perMinute, perSecond }, spread }`. The limits are written to
-the connection (every world using it gets them, and the change is audited);
-`spread` is this source's own (`null` goes back to the connection's value).
-The background detail budget follows the limit: a fifth is kept free for pages
-people open and for other users of the same key (so 30 a minute gives 24).
+takes `{ limits: { perMinute, perSecond, perHour }, spread }`. The limits are
+written to the connection (every world using it gets them, and the change is
+audited); `spread` is this source's own (`null` goes back to the connection's
+value).
+
+**The reserve for opens.** A fifth of the per-minute and of the per-hour budget
+is kept for pages somebody opens: the index scan and the background reader
+(`background` calls) stop at 80% of each, and only an on-demand read (a page
+opened, the agent, a search hit) may take the rest. A DM opening a page never
+waits for a minute or an hour the background has used up. The background detail
+budget (calls a minute) defaults to 40 for LegendKeeper and half of the 80% for
+the others (12 for Kanka), is never above the background share of the per-minute
+cap, nor of the hourly cap (6,000 an hour is at most 80 a minute), and the DM can
+set it from 0 to 600.
+
+**Hourly caps and projects.** Besides the minute window the limiter keeps an
+hour window per connection (`maxPerHour`; Kanka documents none, so 0). A
+LegendKeeper project also has **12,000 calls an hour across all its keys**: every
+connection (and every player's source key, which goes through the same limiter
+code) that names the same project (`projectId`, or the id in `apiUrl`, or the
+MCP `project`) counts against one shared window, so three keys on one project
+cannot reach the project cap without any of them knowing. A blocked hour waits
+for the oldest call to leave it; the limiter recovers by itself.
 
 The limiter also listens to the site:
 
@@ -447,8 +499,12 @@ The limiter also listens to the site:
 - A `429` (or a `503` with `Retry-After`) waits `Retry-After`, or backs off
   1, 2, 4, 8 seconds plus jitter, and asks again up to four times. After that the
   429 is handed to the connector, which fails the run: it never hammers.
+- The site's `X-RateLimit-Limit` is adopted as the per-minute cap whenever it
+  is lower than the one configured (a key that reported 200 settles at 180).
 - While calls are held back, the world page shows "Waiting 12 s — the site
-  asked us to slow down" (`throttle` in `GET /connections/tiers/world/:id`).
+  asked us to slow down" (`throttle` in `GET /connections/tiers/world/:id`), and
+  the DM's Library shows "Waiting for the site (N s)" while a page being opened
+  waits (see "What the DM is told").
 
 **Scan pacing.** A complete listing (the first scan, or the periodic one)
 paces the index calls evenly across `spreadMinutes`: the gap between two calls

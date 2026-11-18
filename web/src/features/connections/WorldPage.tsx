@@ -8,17 +8,18 @@ import { useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
 import { TierPanel } from './Tiers.tsx';
+import { StatusBanner, type WorldStatus } from './StatusBanner.tsx';
 import { SourceFields, newDraft, problem, saveDraft, type Draft } from './SourceForm.tsx';
 import {
   AudienceChip, AudiencePicker, ConfigFields, SCHEDULES, pickConfig, scheduleLabel,
-  type Audience, type Connection, type Connector, type Crawl, type Source,
+  type Audience, type Connection, type Connector, type Crawl, type Progress, type Source,
 } from './shared.tsx';
 
 interface Overview {
   world: { id: string; slug: string; name: string };
   sources: Source[]; levels: { party: number; broker: number; dm: number; classified: number }; pages: number;
-  embeddings: { configured: boolean; model: string | null; location: string | null; dmChunks: number; partyChunks: number; chunks: number; pages: { eligible: number; indexed: number; pending: number } };
-  crawl: Crawl | null; crawling: boolean;
+  embeddings: { configured: boolean; model: string | null; location: string | null; dmChunks: number; partyChunks: number; chunks: number; pages: { eligible: number; indexed: number; pending: number }; scopes?: Record<string, { eligible: number; indexed: number; pending: number; chunks: number }> };
+  crawl: Crawl | null; crawling: boolean; status?: WorldStatus;
 }
 
 const LEVELS: [keyof Overview['levels'], string, string][] = [['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'DM only', 'red'], ['classified', 'Classified', 'red']];
@@ -74,6 +75,7 @@ export default function WorldPage() {
         <div className="row wrap" aria-label="Pages by level">
           {LEVELS.map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: <strong>{d.levels[k]}</strong></span>)}
         </div>
+        <StatusBanner status={d.status ?? null} />
         <EmbeddingsBox e={d.embeddings} />
         <div className="row wrap">
           {d.crawling
@@ -82,7 +84,7 @@ export default function WorldPage() {
           <button type="button" className="btn" disabled={a.busy || d.crawling || !d.pages} onClick={() => void reindex()}>Re-index</button>
           {!syncable.length && <span className="small muted">Add a source to crawl.</span>}
         </div>
-        {d.crawl && <CrawlPanel crawl={d.crawl} onLog={() => void showLog(d.crawl!)} />}
+        {d.crawl && <CrawlPanel crawl={d.crawl} live={d.levels} onLog={() => void showLog(d.crawl!)} />}
         <TierPanel worldId={id} active={busy} />
       </div>
 
@@ -116,15 +118,21 @@ function EmbeddingsBox({ e }: { e: Overview['embeddings'] }) {
   if (!e.configured) return <div className="note"><strong>No embeddings model is set.</strong> The library works and keyword search is on; semantic search is off. Set a model in <Link to="/admin/models">Models</Link>, then press Re-index.</div>;
   return (
     <div className="stack tight">
-      <div className="row between wrap small"><span>Embeddings: <strong>{e.model}</strong>{e.location ? <span className="muted"> ({e.location})</span> : null}</span><span><strong>{e.pages.indexed}</strong> of {e.pages.eligible} pages indexed · {e.chunks} chunks · {e.pages.pending} pending</span></div>
+      <div className="row between wrap small"><span>Embeddings: <strong>{e.model}</strong>{e.location ? <span className="muted"> ({e.location})</span> : null}</span><span><strong>{e.pages.indexed.toLocaleString()}</strong> of {e.pages.eligible.toLocaleString()} pages indexed · {e.chunks.toLocaleString()} chunks · {e.pages.pending.toLocaleString()} pending</span></div>
       <Bar value={e.pages.indexed} max={e.pages.eligible} label="Pages indexed" />
+      {e.scopes && (
+        <div className="tiny muted" title="A page can have several copies (what the DM reads, what the table reads); each copy is indexed on its own.">
+          Copies indexed, by who reads them: {SCOPE_LABEL.filter(([k]) => e.scopes![k]?.eligible).map(([k, label]) => `${label} ${e.scopes![k].indexed.toLocaleString()}/${e.scopes![k].eligible.toLocaleString()}`).join(' · ') || 'none yet'}. A page counts once above, however many copies it has.
+        </div>
+      )}
     </div>
   );
 }
 
+const SCOPE_LABEL: [string, string][] = [['dm', 'DM copy'], ['broker', 'Broker copy'], ['party', 'Player copy'], ['lifted', 'Shared with some']];
 const EMBED_TEXT: Record<string, string> = { waiting: 'Waiting for the library', running: 'Embedding', done: 'Done', 'no-model': 'No embeddings model set: library only', error: 'Stopped on an error', cancelled: 'Cancelled' };
 
-function CrawlPanel({ crawl, onLog }: { crawl: Crawl; onLog: () => void }) {
+function CrawlPanel({ crawl, live, onLog }: { crawl: Crawl; live: Progress['levels']; onLog: () => void }) {
   const p = crawl.progress;
   const run = crawl.status === 'running';
   return (
@@ -143,7 +151,8 @@ function CrawlPanel({ crawl, onLog }: { crawl: Crawl; onLog: () => void }) {
             {!!p.skipped && <span className="muted">{p.skipped} skipped</span>}{!!p.removed && <span className="muted">{p.removed} removed</span>}
           </div>
           {(p.tiers ?? []).map((t) => <div key={t.sourceId} className="small">{t.name}: Index: {t.indexCalls.toLocaleString()} calls, {t.pages.toLocaleString()} pages · Details: {t.read.toLocaleString()} of {t.pages.toLocaleString()} · Budget {t.paused ? 'paused' : `${t.budget}/min`}</div>)}
-          <div className="row wrap">{LEVELS.map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: {p.levels[k]}</span>)}</div>
+          {/* The crawl's own numbers are a snapshot; once it is over, the library's numbers (above) are the live ones, so show those and say so. */}
+          <div className="row wrap" aria-label={run ? 'Pages by level while the crawl runs' : 'Pages by level now'}>{LEVELS.map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: {(run ? p.levels : live)[k]}</span>)}<span className="tiny muted">{run ? 'so far' : 'now (the same as the Library card)'}</span></div>
         </>
       )}
       <div className="small">Embeddings: {EMBED_TEXT[p.embedding.state] ?? p.embedding.state}{p.embedding.state === 'running' || p.embedding.state === 'done' ? ` · ${p.embedding.pagesDone}${p.embedding.pagesTotal ? ` of ${p.embedding.pagesTotal}` : ''} pages · ${p.embedding.chunks} chunks` : ''}</div>
