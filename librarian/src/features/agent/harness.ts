@@ -35,7 +35,8 @@ import { clearPartial, finishMessage, setPartial, type Citation, type Timings } 
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
 import { sourceSummary } from '../connections/summary.ts';
 import { readOnOpen, readSearchHits } from '../connections/ondemand.ts';
-import { describeMinerva } from '../minerva/describe.ts';
+import { describeMinerva, visibilityNote } from '../minerva/describe.ts';
+import { upsertTarget } from '../minerva/codex.ts';
 import { brokerContext, brokerPersona, personaGiveaway, playerTexts } from '../minerva/player.ts';
 import { agentName } from '../minerva/store.ts';
 import { minervaBrief } from '../minerva/context.ts';
@@ -365,7 +366,9 @@ export const stopRun = (chatId: string): boolean => { const a = running.get(chat
 
 function proposeAction(d: Deps, c: Caller, chatId: string, tool: McpTool, args: any): string {
   const aid = id('act_');
-  const summary = describeCall(tool.name, args);
+  let summary = describeCall(tool.name, args);
+  // A codex write says where it lands and whether the players can read it.
+  if (tool.name === 'codex_upsert') { try { summary += ` · ${visibilityNote(upsertTarget(d, c.worldId, args ?? {}))}`; } catch { /* no note */ } }
   run(d.db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, call, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', aid, c.worldId, chatId, c.accountId, tool.name, JSON.stringify(args ?? {}), summary, JSON.stringify(tool.call(args ?? {})), 'pending', now());
   audit(d, c.worldId, c.accountId, 'agent.propose', `${tool.name} ${JSON.stringify(args ?? {})}`);
   d.hub.emit(c.worldId, 'agent', { kind: 'action', chatId, actionId: aid }, only(c.accountId));

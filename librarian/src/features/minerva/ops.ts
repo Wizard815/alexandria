@@ -6,7 +6,7 @@ import { all, one, run } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import type { FM } from '../../core/frontmatter.ts';
-import { codexUpsert } from './codex.ts';
+import { codexUpsert, upsertTarget } from './codex.ts';
 import { markRevelation } from './revelations.ts';
 import { audit, findArc } from './store.ts';
 import { HEATS, THREADS_SECTION, appendToSection, mergeThreads, readPage, sectionOf, setSection, writePage, type Heat } from './vault.ts';
@@ -17,7 +17,7 @@ export type Op =
   | { op: 'heat'; rel: string; heat: Heat }
   | { op: 'threads'; rel: string; items: { title: string; heat: Heat }[] }
   | { op: 'mark'; mystery: string; clue?: string | number; player: string; session?: number | null; kind?: 'clue' | 'theory' | 'reached'; text?: string }
-  | { op: 'codex'; name?: string; entity?: string; kind?: string; section: string; text: string; session?: number | null }
+  | { op: 'codex'; name?: string; entity?: string; kind?: string; section: string; text: string; session?: number | null; visible?: boolean }
   | { op: 'level'; rel: string; level: string };
 
 export interface Applied { rel?: string; note: string }
@@ -70,7 +70,7 @@ export function applyOp(d: Deps, worldId: string, op: Op, by: string | null): Ap
 }
 
 /** What an op would change, for the DM: the text of the part it touches, before and after. */
-export function previewOp(d: Deps, worldId: string, op: Op): { rel: string; where: string; before: string; after: string } {
+export function previewOp(d: Deps, worldId: string, op: Op): { rel: string; where: string; before: string; after: string; level?: string; visibleToPlayers?: boolean } {
   switch (op.op) {
     case 'section': {
       const cur = readPage(d, worldId, op.rel);
@@ -86,7 +86,7 @@ export function previewOp(d: Deps, worldId: string, op: Op): { rel: string; wher
     case 'create': return { rel: op.rel, where: 'new page', before: '', after: op.body };
     case 'heat': return { rel: op.rel, where: 'heat', before: String(readPage(d, worldId, op.rel)?.fm.heat ?? ''), after: op.heat };
     case 'mark': return { rel: '', where: op.kind === 'reached' ? 'reached' : op.kind === 'theory' ? 'theory' : 'clue', before: '', after: `${op.player}: ${op.text ?? op.clue ?? ''} (${op.mystery})` };
-    case 'codex': return { rel: '', where: op.section, before: '', after: `${op.name ?? op.entity}: ${op.text}` };
+    case 'codex': { const t = upsertTarget(d, worldId, op); return { rel: '', where: op.section, before: '', after: `${op.name ?? op.entity}: ${op.text}`, level: t.level, visibleToPlayers: t.visible }; }
     case 'level': return { rel: op.rel, where: 'level', before: String(readPage(d, worldId, op.rel)?.fm.level ?? ''), after: op.level };
   }
 }

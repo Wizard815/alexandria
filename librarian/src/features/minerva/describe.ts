@@ -1,5 +1,8 @@
 // What a Minerva write will do, in words, for the DM to confirm (the agent's
 // pending-action list uses it).
+/** The words appended to a codex write's approval card: where it lands and whether players can read it. */
+export const visibilityNote = (t: { level: string; visible: boolean }): string => (t.visible ? `Visible to players (level ${t.level})` : t.level === 'party' ? `DM-only block on a level ${t.level} page` : `DM-only (level ${t.level})`);
+
 export const MINERVA_WRITE_TOOLS = ['memory_log', 'memory_capture', 'conversation_log', 'status_update', 'revelation_mark', 'revelation_create', 'codex_upsert', 'promote', 'arc_close', 'arc_start', 'goal_update'] as const;
 export const MINERVA_READ_TOOLS = ['context_for', 'who_is'] as const;
 export const PLAYER_TOOLS = ['my_context', 'my_who_is', 'my_memory_log', 'my_memory_capture', 'my_goal_update'] as const;
