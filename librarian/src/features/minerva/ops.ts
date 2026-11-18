@@ -113,7 +113,8 @@ export function createDraft(d: Deps, worldId: string, a: { review?: string; kind
 export const getDraft = (d: Deps, worldId: string, did: string): Draft | null => { const r = one<any>(d.db, 'SELECT * FROM minerva_drafts WHERE id = ? AND world_id = ?', did, worldId); return r ? draftOut(r) : null; };
 
 export function listDrafts(d: Deps, worldId: string, status: string | null = 'pending'): Draft[] {
-  return all<any>(d.db, `SELECT * FROM minerva_drafts WHERE world_id = ? ${status ? 'AND status = ?' : ''} ORDER BY created_at, rowid LIMIT 500`, worldId, ...(status ? [status] : [])).map(draftOut);
+  // Live suggestions (kind suggest-*) sort below everything else.
+  return all<any>(d.db, `SELECT * FROM minerva_drafts WHERE world_id = ? ${status ? 'AND status = ?' : ''} ORDER BY (kind LIKE 'suggest-%'), created_at, rowid LIMIT 500`, worldId, ...(status ? [status] : [])).map(draftOut);
 }
 
 /** The DM's decision. Approving applies the op; a failure is kept on the draft. */
