@@ -15,12 +15,14 @@
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
+import { hasJob } from '../../core/ai.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 import { connectorFor } from '../../intake/registry.ts';
 import { effectiveConfig } from '../../intake/connections.ts';
 import { runSync, stopSync } from '../../intake/sync.ts';
 import { budgetOf, depthCounts, getState, tieredOf } from '../../intake/tiers.ts';
 import { embeddingCoverage, pruneChunks, syncEmbeddings } from '../search/embeddings.ts';
+import { syncBible } from '../bible/extract.ts';
 
 export const CRAWL_SCHEMA = `
 CREATE TABLE IF NOT EXISTS connections_crawls (
@@ -234,6 +236,8 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
         else if (res.error) { P.embedding.state = 'error'; failure(`Embeddings: ${res.error}`); log(`Embedding stopped: ${res.error}. Press Re-index to continue.`); }
         else { P.embedding.state = 'done'; log(`Embedded ${res.embedded} chunks from ${res.pages} pages`); }
       }
+      // The story bible reads new and changed pages too (in the background, with the chat model; nothing happens without one).
+      if (!ctl.signal.aborted && hasJob(d, 'chat')) { log('Reading the library into the story bible in the background'); void syncBible(d, { maxPages: 1_000_000, worldId }).catch(() => {}); }
       if (status === 'running') status = sources.length && succeeded === 0 && P.errors > 0 ? 'error' : 'ok';
     }
   } catch (err: any) {
