@@ -205,12 +205,31 @@ export function toneWav(seconds = 0.3, rate = 22050, hz = 440): Buffer {
   return b;
 }
 
-/** 64 floats from a hash of the text: the same text always gives the same unit vector. */
+const STOP = new Set('the and for with that this from have has had was were are but not you your they them their there then than into over under about after before when what which who whom will would could should can may might must been being its his her she him our out all any one two too very also just only some such more most other each both few many much own same than these those while where here how why did does done get got let make made say said see seen use used'.split(' '));
+
+/**
+ * 64 floats for a text, a bag of words: each word (lower case, 3+ letters, no filler words) adds or subtracts
+ * a hashed amount on a few of the 64 dimensions, then the vector is made unit length. The same text always gives
+ * the same vector, and texts that share distinctive words come out close, so the demo shows sensible connections.
+ */
 export function fakeEmbedding(s: string): number[] {
-  const bytes: number[] = [];
-  for (let i = 0; bytes.length < 64; i++) bytes.push(...createHash('sha256').update(`${i}:${s}`).digest());
-  const v = bytes.slice(0, 64).map((x) => x / 127.5 - 1);
-  const norm = Math.sqrt(v.reduce((a, x) => a + x * x, 0)) || 1;
+  const v = new Array<number>(64).fill(0);
+  const words = (String(s).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).filter((w) => !STOP.has(w));
+  for (const w of words) {
+    // A light stem so "captains" and "captain", "darkened" and "darken" meet.
+    const stem = w.replace(/(ing|ed|es|s)$/, '');
+    const h = createHash('sha256').update(stem.length >= 3 ? stem : w).digest();
+    for (let k = 0; k < 3; k++) v[h[k * 2] % 64] += h[k * 2 + 1] & 1 ? 1 : -1;
+  }
+  const norm = Math.sqrt(v.reduce((a, x) => a + x * x, 0));
+  // No usable words (a symbol, a number): fall back to a hash of the text so the vector is still stable and unit length.
+  if (!norm) {
+    const bytes: number[] = [];
+    for (let i = 0; bytes.length < 64; i++) bytes.push(...createHash('sha256').update(`${i}:${s}`).digest());
+    const u = bytes.slice(0, 64).map((x) => x / 127.5 - 1);
+    const n = Math.sqrt(u.reduce((a, x) => a + x * x, 0)) || 1;
+    return u.map((x) => +(x / n).toFixed(6));
+  }
   return v.map((x) => +(x / norm).toFixed(6));
 }
 
