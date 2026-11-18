@@ -385,7 +385,7 @@ test('TestPresets_BuiltInSaveApplyImportExport', async () => {
   assert.equal(connectors.at(-1).group, 'generic');
   assert.ok(connectors.at(-1).presets.length >= 5);
   const kanka = connectors.find((x: any) => x.id === 'kanka-api');
-  assert.deepEqual(kanka.fields.filter((f: any) => f.scope === 'connection').map((f: any) => f.key).sort(), ['apiUrl', 'maxPerMinute', 'maxPerSecond', 'spreadMinutes', 'token']);
+  assert.deepEqual(kanka.fields.filter((f: any) => f.scope === 'connection').map((f: any) => f.key).sort(), ['apiUrl', 'maxPerHour', 'maxPerMinute', 'maxPerSecond', 'spreadMinutes', 'token']);
   assert.equal(kanka.fields.find((f: any) => f.key === 'campaignId').scope, 'source');
 
   // A source of a preset-made connection fills the placeholder from its own world value.
@@ -456,6 +456,13 @@ test('TestCrawl_FetchesSavesCountsLevelsThenEmbedsEveryPage', async () => {
   const after1 = await t.ok('GET', `/api/admin/worlds/${wid}/overview`);
   assert.equal(after1.embeddings.pages.pending, 0);
   assert.equal(after1.embeddings.pages.indexed, after1.embeddings.pages.eligible);
+  // Pages are counted once each, not once per copy: a shared page has a DM copy and a party copy and is still one page.
+  const copies = Object.values(after1.embeddings.scopes as Record<string, any>).reduce((n: number, s: any) => n + s.eligible, 0);
+  assert.equal(after1.embeddings.pages.eligible, 4, 'five pages, one of them classified (never embedded)');
+  assert.ok(copies > after1.embeddings.pages.eligible, 'the per-scope copies add up to more than the pages');
+  assert.ok(after1.embeddings.pages.eligible <= after1.pages, 'never "700 of 1017 pages" in a world of 555');
+  assert.ok(p.embedding.pagesDone <= p.embedding.pagesTotal, `${p.embedding.pagesDone} of ${p.embedding.pagesTotal}: never "556 of 555"`);
+  assert.equal(p.embedding.pagesDone, 4);
   assert.ok(after1.embeddings.dmChunks >= 4, 'DM-side chunks of every page but the classified one');
   assert.ok(after1.embeddings.partyChunks >= 2, 'player-side chunks only for the shared pages');
   // Nothing a player may not read, and nothing classified, was sent to the embeddings model.

@@ -235,7 +235,9 @@ export class Library {
     const sourceLevel: Level = pageLevel({ visibility: normLevel(e.visibility), tags: e.tags, frontmatter: fm, level: maxLevel(e.level, marker(fmLevel)) });
     // Only what marks a page secret on its own (broker and classified tags or levels), not the source's party-or-dm flag.
     const markerLevel: Level = pageLevel({ visibility: 'party', tags: e.tags, frontmatter: fm, level: maxLevel(marker(e.level), marker(fmLevel)) });
-    const vis = levelForAudience(this.audienceOf(sourceId), sourceLevel, markerLevel);
+    // A page only listed so far (index depth) says nothing about who may read it: sharing a whole source does not share what was never read.
+    const aud = this.audienceOf(sourceId);
+    const vis = e.depth === 'index' && aud === 'party' ? sourceLevel : levelForAudience(aud, sourceLevel, markerLevel);
     const vals = [title, vis, JSON.stringify(fm), body, JSON.stringify(blocks), isMd ? 'markdown' : 'blocks', e.parentExternalId ?? null, JSON.stringify(e.folder ?? []),
       JSON.stringify(e.aliases ?? []), JSON.stringify(e.tags ?? []), e.type ?? 'page', e.icon ? JSON.stringify(e.icon) : null, e.banner ?? null, safeSourceUrl(e.url),
       e.knowledge ?? null, JSON.stringify(e.properties ?? []), Number.isFinite(e.position) ? e.position : null, e.updatedAt || now(), by, sourceLevel, markerLevel];
@@ -275,16 +277,24 @@ export class Library {
    */
   applyAudience(worldId: string, sourceId: string): { pages: number; changed: number } {
     const aud = this.audienceOf(sourceId);
-    const rows = all<any>(this.db, 'SELECT id, title, visibility, source_level, marker_level, tags, frontmatter FROM pages WHERE world_id = ? AND source_id = ?', worldId, sourceId);
+    const defaultParty = one<any>(this.db, 'SELECT default_visibility FROM sources WHERE id = ?', sourceId)?.default_visibility === 'party';
+    // depth and source_shared are made by the tiered crawl's schema; a database that has not met it has neither.
+    let rows: any[];
+    try { rows = all<any>(this.db, 'SELECT id, title, visibility, source_level, marker_level, tags, frontmatter, depth, source_shared FROM pages WHERE world_id = ? AND source_id = ?', worldId, sourceId); }
+    catch { rows = all<any>(this.db, 'SELECT id, title, visibility, source_level, marker_level, tags, frontmatter FROM pages WHERE world_id = ? AND source_id = ?', worldId, sourceId); }
     let changed = 0;
     tx(this.db, () => {
       for (const r of rows) {
         const fm = JSON.parse(r.frontmatter || '{}');
-        const base: Level = isLevel(r.source_level) ? r.source_level : normLevel(r.visibility);
+        let base: Level = isLevel(r.source_level) ? r.source_level : normLevel(r.visibility);
         // A page saved before audiences: what marks it on its own is read again from its tags and frontmatter, and any secret level it has stays.
         const markers: Level = isLevel(r.marker_level) ? r.marker_level : maxLevel(pageLevel({ visibility: 'party', tags: JSON.parse(r.tags || '[]'), frontmatter: fm }), r.visibility === 'broker' || r.visibility === 'classified' ? r.visibility : null);
-        const vis = levelForAudience(aud, base, markers);
-        if (vis === r.visibility && isLevel(r.source_level) && isLevel(r.marker_level)) continue;
+        // A page read in full remembers that the source itself called it shared: the source's default visibility lets that through, or not,
+        // without reading the page again. Pages the source hid, and pages it said nothing about (only listed), keep the level they have.
+        if (r.source_shared === 1 && r.depth !== 'index') base = maxLevel(defaultParty ? 'party' : 'dm', markers);
+        const idx = r.depth === 'index';
+        const vis = idx && aud === 'party' ? base : levelForAudience(aud, base, markers);
+        if (vis === r.visibility && isLevel(r.source_level) && isLevel(r.marker_level) && base === r.source_level) continue;
         run(this.db, `UPDATE pages SET visibility = ?, source_level = ?, marker_level = ?, ${CLEAR_COPIES} WHERE id = ?`, vis, base, markers, r.id);
         if (vis !== r.visibility) { changed++; this.saveRelations(worldId, r.id, r.title, fm as FM, vis); }
       }

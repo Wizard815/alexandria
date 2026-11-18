@@ -67,6 +67,12 @@ export function eligibleCount(d: Deps, scope: VecScope, worldId: string): number
   return Number(all<any>(d.db, `SELECT count(*) AS n FROM pages p WHERE p.world_id = ? AND ${SCOPE_GUARD[scope]}`, worldId)[0]?.n ?? 0);
 }
 
+/** The ids of the pages of a scope (see eligibleCount). */
+export function eligibleIds(d: Deps, scope: VecScope, worldId: string): string[] {
+  if (scope === 'lifted') return [...liftedForWorld(d.library, worldId)].filter((id) => all(d.db, `SELECT 1 FROM pages p WHERE p.id = ? AND ${SCOPE_GUARD.lifted}`, id).length);
+  return all<any>(d.db, `SELECT p.id AS id FROM pages p WHERE p.world_id = ? AND ${SCOPE_GUARD[scope]}`, worldId).map((r) => String(r.id));
+}
+
 /** Is the page still exactly what `r` was cut from (same copy, same level)? Checked right before rows are written, with no await in between. */
 export function isCurrent(d: Deps, r: Pending): boolean {
   if (r.scope === 'lifted') {

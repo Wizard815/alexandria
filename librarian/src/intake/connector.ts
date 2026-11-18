@@ -101,6 +101,8 @@ export interface TierState {
 export interface Tiered {
   /** Detail calls a minute that stay inside the source's published rate limit, with room for other users of the same key. */
   budgetPerMinute: number;
+  /** Background detail calls a minute when the DM sets none (default: half of budgetPerMinute). */
+  budgetDefault?: number;
   /** Tier 1. Only list calls. */
   index(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<SyncItem>;
   /** Tier 3. Whole pages for these external ids (ones the source no longer has are left out). */

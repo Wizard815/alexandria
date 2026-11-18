@@ -13,7 +13,7 @@ import { connectorFor, makeMcpFactory } from './registry.ts';
 import { RECORD_CAPABILITY, heldImages, saveRecords } from './records.ts';
 import { effectiveConfig, normAudience } from './connections.ts';
 import { addDetailCalls, depthCounts, getState, needsFullListing, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
-import { callSinkOf, limiterFor, limitedFetch, limitKeyOf, limitsOf, type Limiter, type Limits } from './ratelimit.ts';
+import { callSinkOf, limiterFor, limitedFetch, limitKeyOf, limitsOf, projectOf, projectWindow, type Limiter, type Limits } from './ratelimit.ts';
 
 export interface SyncDeps {
   db: DB;
@@ -56,13 +56,17 @@ export interface RunOptions {
 }
 
 /** Make the context a connector runs with. */
-export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortSignal, log: (m: string) => void) {
+/** `background`: the index scan and the background reader. They leave a fifth of the budget for pages somebody opens (see ratelimit.ts). */
+export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortSignal, log: (m: string) => void, opts: { background?: boolean } = {}) {
   const c = connectorFor(src.kind, cfg);
   if (!c) throw new HttpError(400, `Unknown source kind: ${src.kind}`);
   const mcp = makeMcpFactory(c, cfg, d.env, d.fetch, d.mcp);
   // Every call to the source goes through the limiter of its connection (shared by all worlds and keys that use it).
   const limits = limitsOf(c.id, cfg, d.env, getState(d.db, src.id).spread);
   const limiter = limiterFor(limitKeyOf(src, d.db), limits);
+  // A LegendKeeper project has one hourly allowance for every key that reads it, the DM's and the players' alike.
+  const proj = projectOf(c.id, cfg ?? {});
+  limiter.project = proj ? projectWindow(d.db, `proj:${proj.id}`, limits.perMinute === 0 ? 0 : proj.perHour) : null;
   // The status page hears of every call, answer and ending of this connection (the test of a connection not saved yet is nobody's).
   if (src.id !== 'test') {
     limiter.logical = src.connection_id ? `con:${src.connection_id}` : `src:${src.id}`;
@@ -70,9 +74,9 @@ export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortS
     limiter.secrets = Object.entries(cfg ?? {}).filter(([k, v]) => /token|key|secret|pass|auth|bearer|cookie/i.test(k) && typeof v === 'string' && v.length >= 4).map(([, v]) => v as string);
   }
   const counter = new CallCounter();
-  counter.gate = (_phase, paceMs) => limiter.acquire(signal, paceMs);
+  counter.gate = (_phase, paceMs) => limiter.acquire(signal, paceMs, !!opts.background);
   const ctx: ConnectorContext = {
-    fetch: limitedFetch(d.fetch, limiter, signal, counter), env: d.env, dataDir: d.dataDir, vaultsDir: d.vaultsDir, signal, log,
+    fetch: limitedFetch(d.fetch, limiter, signal, counter, !!opts.background), env: d.env, dataDir: d.dataDir, vaultsDir: d.vaultsDir, signal, log,
     mcp: mcp.factory, sourceId: src.id, shareVisible: src.default_visibility === 'party', incomplete: new Set(), calls: counter,
   };
   return { c, ctx, close: mcp.close, limiter, limits };
@@ -108,7 +112,7 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
   let close = () => {};
   let limiter: Limiter | null = null;
   try {
-    const made = connectorContext(d, src, cfg, ctl.signal, log);
+    const made = connectorContext(d, src, cfg, ctl.signal, log, { background: true });
     close = made.close;
     limiter = made.limiter;
     log(`Started ${made.c.label}`);
