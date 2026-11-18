@@ -96,6 +96,8 @@ export interface Timings {
   fast?: boolean;
   /** Time the player leak gate spent checking sentences. */
   gateMs?: number;
+  /** The DM harness only: the titles of the library matches the first message was given, best first. */
+  hits?: string[];
 }
 
 export const finishMessage = (db: DB, msgId: string, content: string, status: 'done' | 'error', citations: Citation[] = [], blocked = false, timings?: Timings) => {
