@@ -140,9 +140,41 @@ export function useAction() {
   return { busy: busy || offline, offline, error, setError, run };
 }
 
+/** The buttons that start a write. Offline they are disabled with a tooltip, whatever screen they are on. */
+const WRITE_BUTTON = /^\s*(Share…|Suggest an edit|Ask about this page|New page|Trade…|New macro|New voice|New connection|Add an event|Add a source|Add a key|Attach a file|Upload a file|Publish( anyway| this revision)?|Stop sharing|Approve|Reject)\s*$/i;
+export const OFFLINE_TIP = 'Offline: this needs the server';
+
+function sweepWrites(offline: boolean) {
+  for (const b of document.querySelectorAll<HTMLButtonElement>('button')) {
+    if (offline && WRITE_BUTTON.test(b.textContent ?? '')) {
+      if (b.dataset.offlineOff === undefined) b.dataset.offlineOff = b.title;
+      if (!b.disabled) b.disabled = true;
+      b.title = OFFLINE_TIP;
+    } else if (!offline && b.dataset.offlineOff !== undefined) {
+      b.disabled = false;
+      b.title = b.dataset.offlineOff;
+      delete b.dataset.offlineOff;
+    }
+  }
+}
+
+/** Safety net for write buttons that do not check for themselves (see WRITE_BUTTON). */
+function useOfflineWrites(offline: boolean) {
+  useEffect(() => {
+    sweepWrites(offline);
+    if (!offline) return;
+    let queued = false;
+    const again = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; sweepWrites(true); }); };
+    const mo = new MutationObserver(again);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, [offline]);
+}
+
 /** "Offline — read-only" bar, and quiet progress while saving for offline. */
 export function OfflineBanner() {
   const net = useNet();
+  useOfflineWrites(!net.online);
   if (!net.online) {
     const at = net.servedSince ?? net.lastOnline;
     return (
