@@ -414,11 +414,13 @@ test('AgentTemplates_CreateTemplateIsADraftTheDmApproves', async () => {
   await approve(a[0].id);
   const list = (await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.dm)).templates;
   assert.ok(list.some((t: any) => t.name === 'Harbour ritual'));
-  // A bad schema is refused with a reason when approved, not saved.
-  e.model.queue.push(() => toolCall('create_template', { name: 'Broken', fields: [{ key: 'Bad Key', type: 'text' }], body: 'x' }), () => say('Drafted.'));
+  // A schema that would be refused is sent back to the model with the reason; the DM is never asked to approve it.
+  e.model.queue.push(
+    () => toolCall('create_template', { name: 'Broken', fields: [{ key: 'Bad Key', type: 'text' }], body: 'x {{dm}} y' }),
+    (req) => { assert.match(req.messages.filter((m: any) => m.role === 'tool').at(-1).content, /^Not proposed: .*lowercase/); return say('Let me fix that.'); },
+  );
   const b = await ask(e, e.T.dm, 'Create a template named Broken');
-  const bad = await e.call('POST', `${A(e)}/actions/${acts(b.id)[0].id}`, e.T.dm, { decision: 'approve' });
-  assert.ok(bad.status >= 400 || bad.body?.status === 'failed', JSON.stringify(bad.body).slice(0, 200));
+  assert.equal(acts(b.id).length, 0);
   assert.ok(!(await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.dm)).templates.some((t: any) => t.name === 'Broken'));
 });
 
