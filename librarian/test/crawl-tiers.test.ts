@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all, one, run } from '../src/core/db.ts';
-import { detailTick, ensureFull } from '../src/intake/detail.ts';
+import { detailTick, ensureFull, resetFailures } from '../src/intake/detail.ts';
+import { resetAncestorMemo } from '../src/intake/connectors/legendkeeper.ts';
 import { mintTicket } from '../src/features/sound/ticket.ts';
 import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
 
@@ -20,12 +21,14 @@ const player = { accountId: 'p', role: 'player' as const };
 
 // ---- a fake LegendKeeper project ---------------------------------------------------------------------------------
 
-interface LkRes { id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string }
+interface LkRes { blank?: boolean; id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string }
 const lk = {
   res: [] as LkRes[],
   calls: { list: 0, calendars: 0, detail: 0, blocks: 0, other: 0 },
   detailIds: [] as string[],
   failListPage: 0, // make this list page (1-based) answer 500
+  blocks401: false, // the key is refused for page content
+  blocks404: new Set<string>(), // resources whose document is gone
 };
 const lkReset = (n: number) => {
   lk.res = Array.from({ length: n }, (_, i) => ({
@@ -35,8 +38,11 @@ const lkReset = (n: number) => {
   lk.calls = { list: 0, calendars: 0, detail: 0, blocks: 0, other: 0 };
   lk.detailIds = [];
   lk.failListPage = 0;
+  lk.blocks401 = false;
+  lk.blocks404 = new Set();
+  resetAncestorMemo();
 };
-const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page' }], hasChildren: false });
+const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page' }], hasChildren: false });
 const lkFetch = (url: string): Response | null => {
   if (!url.startsWith(LK_BASE)) return null;
   const u = new URL(url);
@@ -55,6 +61,8 @@ const lkFetch = (url: string): Response | null => {
   let m = /^\/resources\/([^/]+)\/docs\/([^/]+)\/blocks$/.exec(p);
   if (m) {
     lk.calls.blocks++;
+    if (lk.blocks401) return json({ code: 'UNAUTHENTICATED', message: 'Unauthorized' }, 401);
+    if (lk.blocks404.has(m![1])) return json({ code: 'NOT_FOUND' }, 404);
     const r = lk.res.find((x) => x.id === m![1]);
     if (!r) return json({ code: 'NOT_FOUND' }, 404);
     const mention = (r.links ?? []).map((l) => ({ mention: { resourceId: l, name: `Page ${l.slice(1)}` } }));
@@ -66,7 +74,7 @@ const lkFetch = (url: string): Response | null => {
     lk.detailIds.push(m[1]);
     const r = lk.res.find((x) => x.id === m![1]);
     if (!r) return json({ code: 'NOT_FOUND' }, 404);
-    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }] });
+    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }] });
   }
   lk.calls.other++;
   return json({ code: 'NOT_FOUND' }, 404);
@@ -632,4 +640,55 @@ test('CrawlTiers_LegendKeeperMapImagesComeWithTheMapPageWhenItIsReadAndStayDmOnl
   assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'World Map'))).body.pictures.length, 1);
   assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'Hidden Map'))).status, 404);
   assert.ok(!(await t.call('GET', `/api/worlds/${wid}/library/pages`, tok)).text.includes('secret-2500'));
+});
+
+test('CrawlTiers_RefusedKeyStopsTheBackgroundAndABadPageDoesNotBlockTheQueue', async () => {
+  const t = await boot();
+  resetFailures(); resetBuckets();
+  const { wid, sid } = await lkWorld(t, 12);
+  await sync(t, sid);
+  await t.ok('PATCH', `/api/admin/connections/tiers/${sid}`, { budget: 20, fetchAll: true });
+  const dep = t.sd();
+  // The key is refused for page content: one turn finds out, the next turns make no calls at all.
+  lk.blocks401 = true;
+  const now = Date.now();
+  const a = await detailTick(dep, { at: now });
+  assert.equal(a.length, 1);
+  assert.ok(lk.calls.blocks <= 1, `the first refusal stopped the turn (${lk.calls.blocks} blocks calls)`);
+  const spent = lk.calls.detail + lk.calls.blocks;
+  assert.deepEqual(await detailTick(dep, { at: now + 120_000 }), [], 'a source whose key is refused is left alone for a while');
+  assert.equal(lk.calls.detail + lk.calls.blocks, spent);
+  // The key works again and one page is gone at the source: the other pages are still read, in the same turn.
+  resetFailures(); resetBuckets();
+  lk.blocks401 = false;
+  lk.blocks404.add('r3');
+  for (let i = 0; i < 6; i++) await detailTick(dep, { at: now + 1_000_000 + i * 60_000 });
+  assert.ok(depthCounts(t.deps.db, sid).full >= 10, 'everything but the bad page was read');
+  const before = lk.calls.detail + lk.calls.blocks;
+  await detailTick(dep, { at: now + 2_000_000 });
+  assert.ok(lk.calls.detail + lk.calls.blocks - before <= 2, 'the bad page is not tried again straight away');
+  void wid;
+});
+
+test('CrawlTiers_PagesReadOneByOneAskForTheirSharedFolderOnlyOnce', async () => {
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 10);
+  await sync(t, sid);
+  // Pages 2 to 9 sit under r1: reading them one at a time still reads r1's permissions once.
+  for (const n of [2, 3, 4, 5, 6]) await getPage(t, wid, t.admin, pageId(t, wid, `Page ${n}`));
+  assert.equal(lk.detailIds.filter((x) => x === 'r1').length, 1, 'the folder was read once for five pages');
+  assert.equal(lk.detailIds.filter((x) => x === 'r2').length, 1, 'and each page once');
+});
+
+test('CrawlTiers_ALegendKeeperResourceWithOnlyABlankDocumentIsStillInTheLibrary', async () => {
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 6);
+  lk.res[2].blank = true;
+  await sync(t, sid);
+  assert.equal(depthCounts(t.deps.db, sid).total, 6, 'the blank-only entry is a page like the others');
+  const id = pageId(t, wid, 'Page 3');
+  const before = lk.calls.blocks;
+  await getPage(t, wid, t.admin, id);
+  assert.equal(lk.calls.blocks, before, 'a blank document has no blocks to read');
+  assert.equal(depthOf(t, wid, 'Page 3'), 'full');
 });
