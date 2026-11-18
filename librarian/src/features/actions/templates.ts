@@ -7,14 +7,14 @@ export interface MacroTemplate { id: string; name: string; description: string; 
 
 const P = (name: string, label: string, def = ''): ArgSpec => ({ name, type: 'string', label, default: def, maxLength: 300 });
 const step = (prompt: string, tools: string[], mode: 'do' | 'propose' = 'do') => [{ action: 'minerva.run', args: { prompt, mode, tools: tools.join(',') }, delayMs: 0, continueOnError: false }];
-const COMBAT = ['set_combat', 'add_combatant', 'set_initiative', 'next_turn', 'make_statblock', 'remove_combatant'];
+const COMBAT = ['set_combat', 'add_combatant', 'set_initiative', 'next_turn', 'make_statblock'];
 const SOUND = ['play_music', 'stop_music', 'play_ambience', 'play_sfx'];
 
 export const TEMPLATES: MacroTemplate[] = [
   { id: 'start-combat', name: 'Start combat', description: 'Combat music, tracker on, the party and the monsters in.', params: [P('monsters', 'Monsters (e.g. two goblins and an ogre)')],
     steps: step('Start combat now. Play combat music, turn the combat tracker on (set_combat active true), add every player character (list_members, each with a rolled d20 initiative) and add these monsters: {{monsters}}. Give each monster a rolled initiative; use make_statblock from the rules module when it finds one, otherwise add_combatant with just a name. Do not show anything on the stage.', [...COMBAT, ...SOUND, 'list_members']) },
   { id: 'end-combat-loot', name: 'End combat & loot', description: 'End the fight, calm music, and hand out loot.', params: [P('loot', 'Loot (e.g. 40 gold and a silver key)')],
-    steps: step('End the fight: turn the combat tracker off, fade to calm music. Then give the party this loot with add_coin / add_item to the party pouch: {{loot}}. If no loot was given, give nothing.', ['set_combat', 'remove_combatant', ...SOUND, 'add_item', 'add_coin', 'generate_coins', 'generate_items']) },
+    steps: step('End the fight: turn the combat tracker off, fade to calm music. Then give the party this loot with add_coin / add_item to the party pouch: {{loot}}. If no loot was given, give nothing.', ['set_combat', ...SOUND, 'add_item', 'add_coin', 'generate_coins', 'generate_items']) },
   { id: 'ambush', name: 'Ambush', description: 'Tense music, a map on the stage, an ambush check, combat with the attackers.', params: [P('place', 'Where'), P('map', 'Map page to show (party-visible)'), P('monsters', 'Attackers')],
     steps: step('Start an ambush at {{place}}: play tense music, show the map {{map}} on the stage if the library has a party-visible page for it (search_library; never show a page players cannot open), ask the table for a DC 13 Perception quick event, start combat with the tracker (set_combat active true) and add the PCs and these attackers: {{monsters}}.', [...COMBAT, ...SOUND, 'show_on_stage', 'send_quick_event', 'list_members', 'search_library']) },
   { id: 'enter-tavern', name: 'Enter tavern', description: 'Calm tavern music and chatter, and the tavern card on the stage.', params: [P('tavern', 'Tavern name or page')],
