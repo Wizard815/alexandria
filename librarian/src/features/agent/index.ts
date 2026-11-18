@@ -15,6 +15,8 @@ import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
 import { describeCall, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
 import { fastPlan } from './intent.ts';
+import { logAgentCall, logAgentCommand } from '../active/log.ts';
+import { tryChatCommand } from '../active/commands.ts';
 import { addMessage, actionView, chatView, newChat, ownChat, SCHEMA } from './store.ts';
 import { buildStatblock, mod, normalizeStatblock, rollInitiative, saveStatblockPage, statblockFromBody, type Statblock } from './statblock.ts';
 
@@ -74,6 +76,15 @@ function routes(d: import('../../app.ts').Deps) {
     if (!text) throw new HttpError(400, 'text is required');
     const page = str(req.body?.page, 'page', { max: 300, optional: true });
     const selection = str(req.body?.selection, 'selection', { max: 3000, optional: true });
+    // /takeover, /auto music on and the like: Active mode's own commands, no model needed.
+    const cmdReply = who.harness === 'dm' ? tryChatCommand(d, W(res), text) : null;
+    if (cmdReply !== null) {
+      addMessage(d.db, chat.id, 'user', text, {});
+      if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
+      addMessage(d.db, chat.id, 'assistant', cmdReply, { status: 'done' });
+      logAgentCommand(d, W(res), text, cmdReply);
+      return res.status(202).json(chatView(d.db, chat.id));
+    }
     // Dice, the date, "next turn" and the like are answered by a rule, so they work with no model at all.
     const fast = fastPlan(text, who.harness === 'dm');
     if (!fast) needModel();
@@ -110,6 +121,7 @@ function routes(d: import('../../app.ts').Deps) {
     const note = (text: string) => { addMessage(d.db, a.chat_id, 'assistant', text); d.hub.emit(W(res), 'agent', { kind: 'message', chatId: a.chat_id }, only(a.account_id)); };
     if (decision === 'reject') {
       audit(d.db, W(res), me(res), 'agent.reject', `${a.tool} ${a.args}`);
+      logAgentCall(d, W(res), { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok: false, result: 'rejected by the DM', via: 'rejected', actionId: a.id, rejected: true });
       note(`Rejected: ${a.summary}.`);
       return res.json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
     }
@@ -123,6 +135,7 @@ function routes(d: import('../../app.ts').Deps) {
       out = t.text;
     }
     run(d.db, 'UPDATE agent_actions SET status = ?, result = ? WHERE id = ?', ok ? 'done' : 'failed', out.slice(0, 8000), a.id);
+    logAgentCall(d, W(res), { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok, result: out, via: 'approved', actionId: a.id });
     audit(d.db, W(res), me(res), 'agent.action', `${a.tool} ${a.args} -> ${ok ? 'done' : 'failed'}`);
     note(ok ? `Done: ${a.summary}.` : `That did not work: ${a.summary}. ${out.slice(0, 200)}`);
     res.status(ok ? 200 : 502).json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
