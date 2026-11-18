@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Modal, useAction } from '../../ui/index.tsx';
 
-interface Share { to: string; toName: string; fromName: string; kind: string }
+interface Share { from?: string; to: string; toName: string; fromName: string; kind: string; mine?: boolean }
 
 export function ShareButton({ pageId }: { pageId: string }) {
   const [open, setOpen] = useState(false);
@@ -16,7 +16,7 @@ export function ShareButton({ pageId }: { pageId: string }) {
 }
 
 function ShareDialog({ pageId, onClose }: { pageId: string; onClose: () => void }) {
-  const { w, members, me } = useWorld();
+  const { w, members, me, isDM } = useWorld();
   const base = `/library/pages/${encodeURIComponent(pageId)}/share`;
   const list = useLoad<{ shares: Share[] }>(() => w.call('GET', base), [w, pageId]);
   const act = useAction();
@@ -36,7 +36,7 @@ function ShareDialog({ pageId, onClose }: { pageId: string; onClose: () => void 
         </div>
         <h3 style={{ margin: '8px 0 0' }}>Shared with</h3>
         {!list.data?.shares.length && <p className="small muted">Nobody yet.</p>}
-        {list.data?.shares.map((s) => <div key={`${s.fromName}-${s.to}`} className="row between"><span>{s.toName} <span className="tiny muted">from {s.fromName}</span></span><button type="button" className="btn small danger" disabled={act.busy} onClick={() => void stop(s.to)}>Stop sharing</button></div>)}
+        {list.data?.shares.map((s) => <div key={`${s.from ?? s.fromName}-${s.to}`} className="row between"><span>{s.toName} <span className="tiny muted">from {s.fromName}</span></span>{isDM || s.mine ? <button type="button" className="btn small danger" disabled={act.busy} onClick={() => void stop(s.to)}>Stop sharing</button> : <span className="tiny muted">only {s.fromName} can stop this</span>}</div>)}
       </div>
     </Modal>
   );
