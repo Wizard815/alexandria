@@ -137,6 +137,8 @@ function queries(p: string): string[] {
   if (/\/agent\/transcript$/.test(p)) return [...words.map((w) => `?q=${w}`), '?session=ses_crawl'];
   if (/\/audio\/sessions\/:sid\/lines$/.test(p)) return ['?since=1970-01-01'];
   if (/\/source-keys\/lookup$/.test(p)) return ['?q=Backstory', '?q=Blanket', '?q=Harbour', '?q=ZQX'];
+  if (/\/minerva\/page$/.test(p)) return all<any>(deps.db, `SELECT path FROM pages WHERE world_id = ? AND path LIKE 'Minerva/%'`, S.W).map((r) => `?rel=${encodeURIComponent(String(r.path).slice(8))}`);
+  if (/\/minerva\/(context|who)$/.test(p)) return ['harbour', 'Jessamine', 'Tomas', 'jess', 'smuggler', 'Harbour Warden', 'Who rang the sunken bell?'].flatMap((x) => [`?who=${encodeURIComponent(x)}&name=${encodeURIComponent(x)}`]);
   if (/\/quickgen\/items$/.test(p)) return ['?rarity=rare&count=30', '?type=weapon&count=30'];
   return [];
 }
@@ -700,6 +702,7 @@ const PLAYER_ROUTES = [
   'PUT /clock/prefs', 'PUT /itemcards/:itemId/page', 'PUT /live/presence', 'PUT /people/:pid/note', 'PUT /profiles/me/blocks', 'PUT /sound/me/switches', 'PUT /whiteboard/', 'POST /whiteboard/wipe',
   'POST /stage/cards/:cid/buy',
   'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
+  'POST /minerva/me/journal', 'POST /minerva/me/capture', 'POST /minerva/me/goals', 'POST /minerva/me/share',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */

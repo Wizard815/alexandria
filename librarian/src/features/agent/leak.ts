@@ -5,6 +5,7 @@
 import type { DB } from '../../core/db.ts';
 import { all } from '../../core/db.ts';
 import { parseJson } from '../../core/util.ts';
+import { partyBody } from '../minerva/partyText.ts';
 
 export const LEAK_WORDS = 8;
 export const BLOCKED_REPLY = "I can't answer that from what you know.";
@@ -32,7 +33,7 @@ export function treeText(v: unknown, out: string[] = []): string[] {
   return out;
 }
 
-interface PageRow { visibility: string; body: string; blocks: string | null; properties: string | null; player_body: string | null; player_blocks: string | null; player_properties: string | null }
+interface PageRow { path?: string; frontmatter?: string | null; updated_at?: string; visibility: string; body: string; blocks: string | null; properties: string | null; player_body: string | null; player_blocks: string | null; player_properties: string | null }
 
 /** The 8-word runs of DM-only text in a world. */
 /**
@@ -44,9 +45,12 @@ export function dmOnlyGrams(db: DB, worldId: string, skip?: (pageId: string, bod
   const dm = new Set<string>();
   const players = new Set<string>();
   const add = (into: Set<string>, text: string) => { for (const g of grams(text)) into.add(g); };
-  for (const p of all<PageRow & { id: string }>(db, 'SELECT id, visibility, body, blocks, properties, player_body, player_blocks, player_properties FROM pages WHERE world_id = ?', worldId)) {
+  for (const p of all<PageRow & { id: string }>(db, 'SELECT id, path, frontmatter, updated_at, visibility, body, blocks, properties, player_body, player_blocks, player_properties FROM pages WHERE world_id = ?', worldId)) {
     if (skip?.(p.id, p.body ?? '')) continue;
     add(dm, [p.body, treeText(parseJson(p.blocks, [])).join(' '), treeText(parseJson(p.properties, [])).join(' ')].join('\n'));
+    // Vault pages the whole party may read are stored DM-only; their player text is the party's too.
+    const shared = p.path && p.updated_at ? partyBody(db, worldId, { id: p.id, path: p.path, frontmatter: p.frontmatter ?? null, updated_at: p.updated_at }) : null;
+    if (shared) add(players, shared);
     if (p.visibility === 'party') add(players, [p.player_body ?? '', treeText(parseJson(p.player_blocks, [])).join(' '), treeText(parseJson(p.player_properties, [])).join(' ')].join('\n'));
   }
   let lines: { text: string; audience: string }[] = [];

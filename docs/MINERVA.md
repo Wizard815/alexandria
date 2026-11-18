@@ -163,3 +163,14 @@ The `dnd` branch of LLM-will-remember-this is the same layout as an Obsidian vau
 dashboards (Dataview), templates and this constitution as `schema/agents.md`. Alexandria can
 export `Minerva/` to such a folder and import it back (a private copy: the public branch holds
 only a made-up example world, never real campaign content).
+
+## 10. Decisions made while building
+
+- **Decision: the vault is always in the library under `Minerva/`.** If WorldLore points at a source (LegendKeeper, Kanka, Markdown), Minerva still keeps her vault in the library: a source root cannot hold per-player levels or this layout. WorldLore is not touched.
+- **Decision: vault pages are stored DM-only (or broker, classified) in the library, never party.** The vault level in front matter (`level`) says who may read; a party-level vault page in the library would show its path (`Minerva/...`) to players. Players read the party-level parts through neutral routes (`/minerva/me`, shown as "My journal"), which serve the library's own player copy (secret blocks cut out). No share rows are used.
+- **Decision: "Shared with the party" is its own page** (`players/<id>/shared.md`, level party), because one page cannot have two reader sets. Players add to it through the journal page; it waits for the DM like every player write.
+- **Decision: new codex pages start at `dm` level** (PCs at party); the DM opens them with `PUT /minerva/page {level}`. Session and arc pages are party, with the DM's notes and log in `> [!secret]` blocks.
+- **Decision: player tool names** are `my_context`, `my_who_is`, `my_memory_log`, `my_memory_capture`, `my_goal_update` (a tool cannot be both a write and a read). They are not write tools, so they never become agent pending actions; they create drafts on the review page, applied at once when the tool is on the auto-approve list. Extras: `revelation_create`, `arc_start`.
+- **Decision: a mystery's title is shown to a player who found one of its clues**; name mysteries as questions. A conclusion reaches a player only when the DM marks them `reached`.
+- **Decision: the leak checks count party-level vault text as party text** (`features/minerva/partyText.ts`), so the broker may repeat it and the session log check does not flag it.
+- **Decision: the status doc has an extra `Inbox` section** for `memory_capture`.
