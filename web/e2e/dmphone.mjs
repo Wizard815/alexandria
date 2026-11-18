@@ -103,6 +103,7 @@ try {
   await page.goto(`${base}/w/saltreach/dm`);
   await page.getByTestId('phone-banner').waitFor({ timeout: 10000 });
   check(/Open the phone assistant/.test(await page.getByTestId('phone-banner').innerText()), 'banner text');
+  check((await page.getByTestId('phone-banner').boundingBox()).height < 140, 'banner is one row, not a full screen');
   await page.getByTestId('phone-banner').getByRole('button', { name: 'Dismiss' }).click();
   await page.reload();
   await page.locator('main').waitFor();
