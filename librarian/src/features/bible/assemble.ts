@@ -14,6 +14,7 @@ import type { Viewer } from '../../core/policy.ts';
 import { wordsOf } from '../../core/pagesearch.ts';
 import { pendingCopies } from '../search/copies.ts';
 import { scopeAndPageCoverage } from '../search/embeddings.ts';
+import { progress } from '../search/pace.ts';
 import { type VecScope, VEC_SCOPES, openable, reachOf, reachScopes } from '../search/scopes.ts';
 import { fromBlob, normalize } from '../search/vectorstore.ts';
 import { KINDS, normSubject } from './extract.ts';
@@ -100,5 +101,5 @@ export function bibleCoverage(d: Deps, worldId: string) {
   const scopes = {} as Record<VecScope, { eligible: number; pending: number; indexed: number; facts: number }>;
   const cov = scopeAndPageCoverage(d, worldId, 'bible_state', model);
   for (const s of VEC_SCOPES) scopes[s] = { eligible: cov.scopes[s].eligible, pending: cov.scopes[s].pending, indexed: cov.scopes[s].indexed, facts: facts.get(s) ?? 0 };
-  return { configured: !!cfg, model: cfg?.model ?? null, scopes, pages: cov.pages };
+  return { configured: !!cfg, model: cfg?.model ?? null, scopes, pages: cov.pages, progress: progress('bible', worldId, cov.pages.eligible, cov.pages.indexed) };
 }

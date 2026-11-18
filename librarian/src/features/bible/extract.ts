@@ -11,6 +11,7 @@ import type { Deps } from '../../app.ts';
 import { chatJson, embed, hasJob, jobConfig } from '../../core/ai.ts';
 import { run, tx } from '../../core/db.ts';
 import { type Pending, isCurrent, pendingCopies } from '../search/copies.ts';
+import { noteDone } from '../search/pace.ts';
 import type { VecScope } from '../search/scopes.ts';
 import { normalize, toBlob } from '../search/vectorstore.ts';
 
@@ -48,7 +49,9 @@ CREATE TABLE IF NOT EXISTS bible_state (
 const PROMPT_VERSION = 'bible1';
 const MAX_TEXT = 6000;
 const MAX_FACTS = 30;
-const ORDER: VecScope[] = ['party', 'lifted', 'broker', 'dm'];
+/** Scopes are taken in turn, a few pages each (the DM's copy first), so none waits for the others to finish. */
+const ORDER: VecScope[] = ['dm', 'party', 'lifted', 'broker'];
+const PER_TURN = 3;
 
 const SYSTEM = `You build the "story bible" of a tabletop role-playing campaign. Read the page and list the durable facts it states about people, places, factions, items, events and lore.
 Answer with JSON only: {"facts":[{"subject":"the name the fact is about","kind":"person|place|faction|item|event|lore","fact":"one short sentence"}]}
@@ -101,10 +104,13 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
   const model = `${cfg.model}|${PROMPT_VERSION}`;
   let budget = opts.maxPages ?? 10;
   let bad = 0;
-  for (const scope of ORDER) {
-    while (budget > 0 && !opts.signal?.aborted && bad < 2) {
-      const rows = pendingCopies(d, scope, 'bible_state', model, 10, opts.worldId).filter((r) => (failures.get(`${r.id}|${scope}|${r.updated_at}`) ?? 0) < 3);
-      if (!rows.length) break;
+  for (let more = true; more && budget > 0 && !opts.signal?.aborted && bad < 2;) {
+    more = false;
+    for (const scope of ORDER) {
+      if (budget <= 0 || opts.signal?.aborted || bad >= 2) break;
+      const rows = pendingCopies(d, scope, 'bible_state', model, PER_TURN + 20, opts.worldId).filter((r) => (failures.get(`${r.id}|${scope}|${r.updated_at}`) ?? 0) < 3).slice(0, PER_TURN);
+      if (!rows.length) continue;
+      more = true;
       for (const r of rows) {
         if (budget <= 0 || opts.signal?.aborted || bad >= 2) break;
         const facts = await extract(d, r, opts.signal);
@@ -126,6 +132,7 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
             ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id, hash = excluded.hash, facts = excluded.facts`, r.id, scope, r.world_id, r.updated_at, r.sig, model, r.hash, facts.length);
         });
         res.pages++;
+        noteDone('bible', r.world_id);
         res.facts += facts.length;
         budget--;
       }
