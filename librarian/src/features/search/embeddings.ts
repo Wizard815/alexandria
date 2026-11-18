@@ -1,12 +1,20 @@
 // Optional semantic search. When the "extra" (embeddings) model job is set,
 // every page's chunks (about 500 characters) are embedded in the background
-// and stored, DM copy and player copy separately:
+// and stored per scope (the full permission model is in scopes.ts):
 //
-//   scope 'dm'    chunks of the AI copy (pages.ai_body: everything but
-//                 classified, which is never embedded or sent to the
-//                 embeddings model); searched by a DM and by every model
-//   scope 'party' chunks of the player copy (pages.player_body); DM text is
-//                 never embedded into this scope
+//   scope 'dm'      chunks of the AI copy (pages.ai_body: everything but
+//                   classified, which is never embedded or sent to the
+//                   embeddings model); read by a DM and by every model
+//   scope 'broker'  chunks of the broker copy; read by the information broker
+//   scope 'party'   chunks of the player copy (pages.player_body); DM text is
+//                   never embedded into this scope
+//   scope 'lifted'  the player copy of pages that are not party-level but that
+//                   some account may open (own source key, DM grant, share);
+//                   a player reads the rows of pages they may open right now
+//
+// A query is filtered by who asks (reachOf) and every hit is checked against
+// the pages table again. The store sits behind the small VectorStore
+// interface (vectorstore.ts) so another backend could be added later.
 //
 // Keyword results and nearest-chunk results are merged with reciprocal rank
 // fusion. Without an embeddings model nothing here runs and search is
@@ -14,14 +22,19 @@
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
 import { embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
-import { type PageHit, type ParsedQuery, type Scope, factsText, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
+import type { Viewer } from '../../core/policy.ts';
+import { type PageHit, type ParsedQuery, type Scope, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
+import { eligibleCount, isCurrent, pendingCopies } from './copies.ts';
+import { libraryOf as libraryFor } from '../../core/library.ts';
+import { type Reach, type VecScope, VEC_SCOPES, openable, reachOf, reachOfScope, reachScopes } from './scopes.ts';
+import { normalize, vectorStore } from './vectorstore.ts';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS search_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   page_id TEXT NOT NULL,
-  scope TEXT NOT NULL CHECK (scope IN ('dm', 'party')),
+  scope TEXT NOT NULL CHECK (scope IN ('dm', 'party', 'broker', 'lifted')),
   idx INTEGER NOT NULL,
   text TEXT NOT NULL,
   vec BLOB NOT NULL
@@ -30,20 +43,48 @@ CREATE INDEX IF NOT EXISTS search_chunks_world ON search_chunks (world_id, scope
 CREATE INDEX IF NOT EXISTS search_chunks_page ON search_chunks (page_id, scope);
 CREATE TABLE IF NOT EXISTS search_chunk_state (
   page_id TEXT NOT NULL,
-  scope TEXT NOT NULL CHECK (scope IN ('dm', 'party')),
+  scope TEXT NOT NULL CHECK (scope IN ('dm', 'party', 'broker', 'lifted')),
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   updated_at TEXT NOT NULL,
   sig INTEGER NOT NULL,
   model TEXT NOT NULL,
+  hash TEXT,
   PRIMARY KEY (page_id, scope)
 );
 `;
+
+/** Older databases allowed only the dm and party scopes: rebuild the two tables once (their rows are kept). */
+export function migrateSearch(db: DB) {
+  const sqlOf = (t: string) => String(one<any>(db, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, t)?.sql ?? '');
+  if (sqlOf('search_chunks') && !sqlOf('search_chunks').includes("'lifted'")) {
+    tx(db, () => {
+      run(db, 'DROP INDEX IF EXISTS search_chunks_world');
+      run(db, 'DROP INDEX IF EXISTS search_chunks_page');
+      run(db, 'ALTER TABLE search_chunks RENAME TO search_chunks_old');
+      run(db, SCHEMA.slice(SCHEMA.indexOf('CREATE TABLE IF NOT EXISTS search_chunks'), SCHEMA.indexOf('CREATE INDEX')));
+      run(db, 'INSERT INTO search_chunks (id, world_id, page_id, scope, idx, text, vec) SELECT id, world_id, page_id, scope, idx, text, vec FROM search_chunks_old');
+      run(db, 'DROP TABLE search_chunks_old');
+      run(db, 'CREATE INDEX IF NOT EXISTS search_chunks_world ON search_chunks (world_id, scope)');
+      run(db, 'CREATE INDEX IF NOT EXISTS search_chunks_page ON search_chunks (page_id, scope)');
+    });
+  }
+  if (sqlOf('search_chunk_state') && !sqlOf('search_chunk_state').includes("'lifted'")) {
+    tx(db, () => {
+      run(db, 'ALTER TABLE search_chunk_state RENAME TO search_chunk_state_old');
+      run(db, SCHEMA.slice(SCHEMA.indexOf('CREATE TABLE IF NOT EXISTS search_chunk_state')));
+      run(db, 'INSERT INTO search_chunk_state (page_id, scope, world_id, updated_at, sig, model) SELECT page_id, scope, world_id, updated_at, sig, model FROM search_chunk_state_old');
+      run(db, 'DROP TABLE search_chunk_state_old');
+    });
+  }
+}
 
 export const CHUNK_CHARS = 500;
 /** Chunks are tagged with the level scheme they were cut under; older ones (cut from the full text) are never read. */
 const tagged = (model: string) => `${model}|lv1`;
 const MAX_CHUNKS_PER_PAGE = 40;
 const BATCH = 16;
+/** Embed scopes in this order: what players read first, the DM's own copy last. */
+const ORDER: VecScope[] = ['party', 'lifted', 'broker', 'dm'];
 
 /** Split plain text into chunks of about `size` characters, on paragraph then sentence then word edges. */
 export function chunkText(text: string, size = CHUNK_CHARS): string[] {
@@ -73,45 +114,13 @@ export function chunkText(text: string, size = CHUNK_CHARS): string[] {
   return out.filter(Boolean).slice(0, MAX_CHUNKS_PER_PAGE);
 }
 
-const normalize = (v: number[]): Float32Array => {
-  const f = new Float32Array(v.length);
-  let n = 0;
-  for (let i = 0; i < v.length; i++) { f[i] = v[i]; n += v[i] * v[i]; }
-  n = Math.sqrt(n) || 1;
-  for (let i = 0; i < f.length; i++) f[i] /= n;
-  return f;
-};
-const toBlob = (f: Float32Array) => new Uint8Array(f.buffer, f.byteOffset, f.byteLength);
-const fromBlob = (b: Uint8Array): Float32Array => {
-  const copy = new Uint8Array(b.byteLength);
-  copy.set(b);
-  return new Float32Array(copy.buffer);
-};
-
-interface Stale { id: string; world_id: string; title: string; updated_at: string; text: string; props: string | null }
-
-/** Text and facts of one copy; chunked on paragraphs, then each chunk is turned into plain reading text. */
-const copyChunks = (r: Stale) => chunkText(`${r.text}\n\n${factsText(r.props).replace(/\n/g, '\n\n')}`).map((c) => plainText(c)).filter(Boolean);
-
-function stalePages(db: DB, scope: Scope, model: string, limit: number, worldId?: string): Stale[] {
-  const body = scope === 'dm' ? 'p.ai_body' : 'p.player_body';
-  const props = scope === 'dm' ? 'p.ai_properties' : 'p.player_properties';
-  const guard = scope === 'dm' ? `AND p.ai_body IS NOT NULL AND p.visibility <> 'classified'` : 'AND p.player_body IS NOT NULL AND p.visibility = \'party\'';
-  return all<Stale>(db, `SELECT p.id, p.world_id, p.title, p.updated_at, ${body} AS text, ${props} AS props FROM pages p
-    LEFT JOIN search_chunk_state s ON s.page_id = p.id AND s.scope = ?
-    WHERE 1 = 1 ${guard} ${worldId ? 'AND p.world_id = ?' : ''} AND (s.page_id IS NULL OR s.updated_at <> p.updated_at OR s.model <> ? OR s.sig <> length(${body}) + length(coalesce(${props}, '')))
-    ORDER BY p.updated_at DESC LIMIT ?`, scope, ...(worldId ? [worldId] : []), model, limit);
-}
-
-/** Remove chunks of pages that are gone, or (party scope) no longer shared. */
+/** Remove chunks of pages that are gone or that a scope's copy no longer covers (every world). */
 export function pruneChunks(db: DB) {
+  const lib = libraryFor(db);
+  for (const w of all<{ id: string }>(db, 'SELECT id FROM worlds')) lib?.changed(w.id);
   tx(db, () => {
     run(db, `DELETE FROM search_chunks WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id)`);
     run(db, `DELETE FROM search_chunk_state WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id)`);
-    run(db, `DELETE FROM search_chunks WHERE scope = 'party' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id AND p.visibility = 'party' AND p.player_body IS NOT NULL)`);
-    run(db, `DELETE FROM search_chunks WHERE scope = 'dm' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id AND p.ai_body IS NOT NULL AND p.visibility <> 'classified')`);
-    run(db, `DELETE FROM search_chunk_state WHERE scope = 'dm' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id AND p.ai_body IS NOT NULL AND p.visibility <> 'classified')`);
-    run(db, `DELETE FROM search_chunk_state WHERE scope = 'party' AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id AND p.visibility = 'party' AND p.player_body IS NOT NULL)`);
   });
 }
 
@@ -126,15 +135,17 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
   const cfg = jobConfig(d, 'extra');
   if (!cfg) return res;
   pruneChunks(d.db);
+  const store = vectorStore(d.db);
+  const model = tagged(cfg.model);
   let budget = opts.maxPages ?? 25;
   try {
-    for (const scope of ['party', 'dm'] as Scope[]) {
+    for (const scope of ORDER) {
       while (budget > 0 && !opts.signal?.aborted) {
-        const rows = stalePages(d.db, scope, tagged(cfg.model), Math.min(budget, 10), opts.worldId);
+        const rows = pendingCopies(d, scope, 'search_chunk_state', model, Math.min(budget, 10), opts.worldId);
         if (!rows.length) break;
         for (const r of rows) {
           if (opts.signal?.aborted) break;
-          const chunks = copyChunks(r);
+          const chunks = chunkText(r.full).map((c) => plainText(c)).filter(Boolean);
           const vecs: Float32Array[] = [];
           for (let i = 0; i < chunks.length; i += BATCH) {
             const part = chunks.slice(i, i + BATCH);
@@ -142,14 +153,9 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
             if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
             for (const v of got) vecs.push(normalize(v));
           }
-          const sig = Number(one<any>(d.db, `SELECT length(${scope === 'dm' ? 'ai_body' : 'player_body'}) + length(coalesce(${scope === 'dm' ? 'ai_properties' : 'player_properties'}, '')) AS n FROM pages WHERE id = ?`, r.id)?.n ?? -1);
-          // The page may have changed while the model worked; the next round will see the new signature.
-          tx(d.db, () => {
-            run(d.db, 'DELETE FROM search_chunks WHERE page_id = ? AND scope = ?', r.id, scope);
-            chunks.forEach((c, i) => run(d.db, 'INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, ?, ?, ?, ?)', r.world_id, r.id, scope, i, c, toBlob(vecs[i])));
-            run(d.db, `INSERT INTO search_chunk_state (page_id, scope, world_id, updated_at, sig, model) VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id`, r.id, scope, r.world_id, r.updated_at, sig, tagged(cfg.model));
-          });
+          // The page may have changed while the model worked: write only what still matches its copy now (the next round sees the rest).
+          if (!isCurrent(d, r)) continue;
+          store.replacePage(r.world_id, r.id, scope, chunks.map((text, i) => ({ text, v: vecs[i] })), { updatedAt: r.updated_at, sig: r.sig, model, hash: r.hash });
           res.embedded += chunks.length;
           res.pages++;
           budget--;
@@ -157,7 +163,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
         }
       }
     }
-    res.remaining = (['party', 'dm'] as Scope[]).some((s) => stalePages(d.db, s, tagged(cfg.model), 1, opts.worldId).length > 0);
+    res.remaining = ORDER.some((s) => pendingCopies(d, s, 'search_chunk_state', model, 1, opts.worldId).length > 0);
   } catch (e: any) {
     res.error = String(e?.message ?? e).slice(0, 200);
     res.remaining = true;
@@ -165,68 +171,74 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
   return res;
 }
 
-/** How much of a world's library the embeddings model has read: pages with chunks, pages still waiting, and the chunks (DM-side and player-side). */
-export function embeddingCoverage(d: Deps, worldId: string) {
-  const cfg = jobConfig(d, 'extra');
-  const stats = embeddingStats(d.db, worldId);
-  const out = { configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, pages: { eligible: 0, indexed: 0, pending: 0 }, chunks: stats.dmChunks + stats.partyChunks };
-  if (!cfg) return out;
-  const eligible = (scope: Scope) => Number(one<any>(d.db, scope === 'dm'
-    ? `SELECT count(*) AS n FROM pages WHERE world_id = ? AND ai_body IS NOT NULL AND visibility <> 'classified'`
-    : `SELECT count(*) AS n FROM pages WHERE world_id = ? AND player_body IS NOT NULL AND visibility = 'party'`, worldId)?.n ?? 0);
-  const pending = (scope: Scope) => stalePages(d.db, scope, tagged(cfg.model), 1_000_000, worldId).length;
-  out.pages = { eligible: eligible('dm') + eligible('party'), pending: pending('dm') + pending('party'), indexed: 0 };
-  out.pages.indexed = Math.max(0, out.pages.eligible - out.pages.pending);
+export type ScopeCount = { eligible: number; indexed: number; pending: number; chunks: number };
+
+/** Per scope: pages that have this copy, pages whose chunks are current, pages waiting, and the chunk count. */
+export function scopeCoverage(d: Deps, worldId: string, stateTable: 'search_chunk_state' | 'bible_state', model: string | null): Record<VecScope, ScopeCount> {
+  const out = {} as Record<VecScope, ScopeCount>;
+  const chunkCounts = vectorStore(d.db).counts(worldId);
+  for (const s of VEC_SCOPES) {
+    const eligible = eligibleCount(d, s, worldId);
+    const pending = model ? pendingCopies(d, s, stateTable, model, 1_000_000, worldId).length : eligible;
+    out[s] = { eligible, pending, indexed: Math.max(0, eligible - pending), chunks: chunkCounts[s] };
+  }
   return out;
 }
 
+/** How much of a world's library the embeddings model has read: pages with chunks, pages still waiting, and the chunks, in total and per scope. */
+export function embeddingCoverage(d: Deps, worldId: string) {
+  const cfg = jobConfig(d, 'extra');
+  const stats = embeddingStats(d.db, worldId);
+  const scopes = scopeCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg.model) : null);
+  const sum = (k: 'eligible' | 'pending' | 'indexed') => VEC_SCOPES.reduce((n, s) => n + scopes[s][k], 0);
+  return {
+    configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, scopes,
+    pages: cfg ? { eligible: sum('eligible'), pending: sum('pending'), indexed: sum('indexed') } : { eligible: 0, indexed: 0, pending: 0 },
+    chunks: stats.dmChunks + stats.partyChunks + stats.brokerChunks + stats.liftedChunks,
+  };
+}
+
 export function embeddingStats(db: DB, worldId: string) {
-  const c = (scope: Scope) => Number(one<any>(db, 'SELECT count(*) AS n FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope)?.n ?? 0);
-  return { dmChunks: c('dm'), partyChunks: c('party') };
+  const c = vectorStore(db).counts(worldId);
+  return { dmChunks: c.dm, partyChunks: c.party, brokerChunks: c.broker, liftedChunks: c.lifted };
 }
 
 // ---- querying ----------------------------------------------------------------
 
-const vecCache = new WeakMap<DB, Map<string, { stamp: string; rows: { page: string; text: string; v: Float32Array }[] }>>();
+export interface SemanticHit { id: string; sim: number; text: string }
 
-function vectors(db: DB, worldId: string, scope: Scope) {
-  const stamp = JSON.stringify(one<any>(db, 'SELECT count(*) AS n, max(id) AS m, sum(id) AS s FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope));
-  let m = vecCache.get(db);
-  if (!m) { m = new Map(); vecCache.set(db, m); }
-  const key = `${worldId}|${scope}`;
-  const hit = m.get(key);
-  if (hit && hit.stamp === stamp) return hit.rows;
-  const rows = all<any>(db, scope === 'dm'
-    ? `SELECT c.page_id, c.text, c.vec FROM search_chunks c JOIN search_chunk_state s ON s.page_id = c.page_id AND s.scope = c.scope WHERE c.world_id = ? AND c.scope = ? AND s.model LIKE '%|lv1'`
-    : 'SELECT page_id, text, vec FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope).map((r) => ({ page: r.page_id as string, text: r.text as string, v: fromBlob(r.vec) }));
-  m.set(key, { stamp, rows });
-  return rows;
+/** Nearest chunks of the scopes a viewer reads: best chunk per page, filtered to pages the viewer may open now. */
+export function nearestPages(d: Deps, worldId: string, reach: Reach, qv: Float32Array, limit: number, min: number): SemanticHit[] {
+  const store = vectorStore(d.db);
+  const best = new Map<string, SemanticHit>();
+  for (const scope of reachScopes(reach)) {
+    for (const r of store.rows(worldId, scope)) {
+      if (r.v.length !== qv.length) continue;
+      if (scope === 'lifted' && !reach.lifted.has(r.page)) continue;
+      let dot = 0;
+      for (let i = 0; i < qv.length; i++) dot += qv[i] * r.v[i];
+      if (dot < min) continue;
+      const prev = best.get(r.page);
+      if (!prev || dot > prev.sim) best.set(r.page, { id: r.page, sim: dot, text: r.text });
+    }
+  }
+  const ranked = [...best.values()].sort((a, b) => b.sim - a.sim).slice(0, limit * 2);
+  // Belt and braces: the page must still exist and still have the copy the viewer reads.
+  const ok = openable(d.db, worldId, reach, ranked.map((r) => r.id));
+  return ranked.filter((r) => ok.has(r.id)).slice(0, limit);
 }
 
-/** Nearest chunks to the query, best chunk per page. Empty when there is no embeddings model. */
-export async function semanticPages(d: Deps, worldId: string, scopeIn: Scope, q: string, limit = 20): Promise<{ id: string; sim: number; text: string }[]> {
+/**
+ * Nearest chunks to the query, best chunk per page, for one viewer. Empty when
+ * there is no embeddings model. Without a `viewer`, the scope alone decides
+ * (never lifted pages).
+ */
+export async function semanticPages(d: Deps, worldId: string, scopeIn: Scope, q: string, limit = 20, viewer?: Viewer): Promise<SemanticHit[]> {
   if (!hasJob(d, 'extra')) return [];
-  // The DM, a model and the broker's reach all read the AI-copy chunks (stored as 'dm'); only players read the party chunks.
-  const scope: Scope = scopeIn === 'party' ? 'party' : 'dm';
+  const reach = viewer ? reachOf(d, worldId, viewer) : reachOfScope(scopeIn);
   const got = await embed(d, [q.slice(0, 500)]);
   if (!got[0]?.length) return [];
-  const qv = normalize(got[0]);
-  const min = Number(d.env.ALX_SEARCH_MIN_SIM ?? 0.2);
-  const best = new Map<string, { sim: number; text: string }>();
-  for (const r of vectors(d.db, worldId, scope)) {
-    if (r.v.length !== qv.length) continue;
-    let dot = 0;
-    for (let i = 0; i < qv.length; i++) dot += qv[i] * r.v[i];
-    if (dot < min) continue;
-    const prev = best.get(r.page);
-    if (!prev || dot > prev.sim) best.set(r.page, { sim: dot, text: r.text });
-  }
-  const ranked = [...best].sort((a, b) => b[1].sim - a[1].sim).slice(0, limit * 2);
-  if (!ranked.length) return [];
-  // The page must still exist and, for the party scope, still be shared.
-  const guard = scope === 'party' ? `AND visibility = 'party' AND player_body IS NOT NULL` : `AND ai_body IS NOT NULL AND visibility <> 'classified'`;
-  const ok = new Set(all<any>(d.db, `SELECT id FROM pages WHERE world_id = ? AND id IN (${ranked.map(() => '?').join(',')}) ${guard}`, worldId, ...ranked.map((r) => r[0])).map((r) => r.id));
-  return ranked.filter((r) => ok.has(r[0])).slice(0, limit).map(([id, v]) => ({ id, sim: v.sim, text: v.text }));
+  return nearestPages(d, worldId, reach, normalize(got[0]), limit, Number(d.env.ALX_SEARCH_MIN_SIM ?? 0.2));
 }
 
 /** Reciprocal rank fusion: each list adds 1 / (k + rank). */
@@ -239,27 +251,30 @@ export function rrf(lists: string[][], k = 60): Map<string, number> {
 /**
  * Keyword hits merged with semantic hits. Exact title or alias matches stay
  * on top. Without an embeddings model, or if it fails, the keyword hits.
+ * Pass the `viewer` so a player's own lifted pages (key, grant, share) count.
  */
-export async function hybridPages(d: Deps, worldId: string, q: string, scope: Scope, limit = 20): Promise<PageHit[]> {
+export async function hybridPages(d: Deps, worldId: string, q: string, scope: Scope, limit = 20, viewer?: Viewer): Promise<PageHit[]> {
   // The optional rerank job reorders the top 20 within 300 ms; slower or failing, the order below stands.
   // The text it reads is the hit's own title and snippet, taken from this viewer's copy of the page.
-  if (!hasJob(d, 'rerank')) return hybridBase(d, worldId, q, scope, limit);
-  const hits = await hybridBase(d, worldId, q, scope, Math.max(limit, 20));
+  if (!hasJob(d, 'rerank')) return hybridBase(d, worldId, q, scope, limit, viewer);
+  const hits = await hybridBase(d, worldId, q, scope, Math.max(limit, 20), viewer);
   return (await rerankItems(d, q, hits, (h) => `${h.title}\n${h.snippet}`)).slice(0, limit);
 }
 
-async function hybridBase(d: Deps, worldId: string, q: string, scope: Scope, limit: number): Promise<PageHit[]> {
-  const kw = d.library.search(worldId, q, scope === 'party' ? { accountId: '', role: 'player' } : { accountId: '', role: 'dm', ...(scope === 'ai' ? { audience: 'ai' as const } : {}) }, Math.max(limit, 30)) as PageHit[];
+async function hybridBase(d: Deps, worldId: string, q: string, scope: Scope, limit: number, viewer?: Viewer): Promise<PageHit[]> {
+  const kwViewer: Viewer = viewer ?? (scope === 'party' ? { accountId: '', role: 'player' } : { accountId: '', role: 'dm', ...(scope === 'ai' ? { audience: 'ai' as const } : scope === 'broker' ? { audience: 'broker' as const } : {}) });
+  const kw = d.library.search(worldId, q, kwViewer, Math.max(limit, 30)) as PageHit[];
   if (!hasJob(d, 'extra') || !parseQuery(q).pos.length) return kw.slice(0, limit);
-  let sem: { id: string; sim: number; text: string }[] = [];
-  try { sem = await semanticPages(d, worldId, scope, q, Math.max(limit, 30)); } catch { return kw.slice(0, limit); }
+  let sem: SemanticHit[] = [];
+  try { sem = await semanticPages(d, worldId, scope, q, Math.max(limit, 30), kwViewer); } catch { return kw.slice(0, limit); }
   if (!sem.length) return kw.slice(0, limit);
   const fused = rrf([kw.map((h) => h.id), sem.map((s) => s.id)]);
   const byId = new Map(kw.map((h) => [h.id, h]));
   const pq: ParsedQuery = parseQuery(q);
   const missing = sem.filter((s) => !byId.has(s.id));
   if (missing.length) {
-    const rows = all<any>(d.db, `SELECT id, path, title FROM pages WHERE world_id = ? AND id IN (${missing.map(() => '?').join(',')}) ${scope === 'party' ? "AND visibility = 'party'" : "AND visibility <> 'classified'"}`, worldId, ...missing.map((m) => m.id));
+    // The semantic side already limited itself to pages this viewer may open; the rows here are read for their title and path only.
+    const rows = all<any>(d.db, `SELECT id, path, title FROM pages WHERE world_id = ? AND id IN (${missing.map(() => '?').join(',')})`, worldId, ...missing.map((m) => m.id));
     const info = new Map(rows.map((r) => [r.id, r]));
     for (const m of missing) {
       const r = info.get(m.id);
