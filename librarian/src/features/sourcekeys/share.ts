@@ -56,6 +56,7 @@ export function shareRoutes(d: Deps) {
     for (const t of targets) run(d.db, 'INSERT OR REPLACE INTO sourcekeys_shares (world_id, page_id, from_id, to_id, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)', w, pg.id, me(res), t, kind, now());
     auditKey(d.db, w, me(res), 'share', `${pg.id} to ${targets.join(',')} (${kind})`);
     d.library.touchClassified();
+    d.library.changed(w, [pg.id]);
     res.status(201).json(rowsOf(res, pg.id));
   });
 
@@ -70,6 +71,7 @@ export function shareRoutes(d: Deps) {
     run(d.db, `DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? ${isDM(res) ? '' : 'AND from_id = ?'} ${to ? 'AND to_id = ?' : ''}`, w, raw.id, ...(isDM(res) ? [] : [me(res)]), ...(to ? [to] : []));
     auditKey(d.db, w, me(res), 'unshare', `${raw.id} ${q || 'all'}`);
     d.library.touchClassified();
+    d.library.changed(w, [raw.id]);
     res.json(rowsOf(res, raw.id));
   });
 
