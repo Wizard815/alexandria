@@ -14,6 +14,7 @@ import { dmOnly } from '../../core/events.ts';
 import { HttpError, int, oneOf, str } from '../../core/util.ts';
 import { ctx, me, settings } from '../../routes/_shared.ts';
 import { closeArc, conversationLog, fileSession, memoryLog, startArc } from './after.ts';
+import { suggestionPass, liveWorlds } from './live.ts';
 import { codexUpsert, promotionCandidates, promotionDraft, upsertTarget, whoIs } from './codex.ts';
 import { contextFor, threadsOf } from './context.ts';
 import { describeMinerva, MINERVA_TOOLS } from './describe.ts';
@@ -150,6 +151,10 @@ function routes(d: import('../../app.ts').Deps) {
     res.json(out);
   });
 
+  // ---- live help ----
+  // Look at the last minutes of the recording now and draft suggestions into the review queue (the DM's own button; the scheduler does it by itself every couple of minutes).
+  r.post('/live/suggest', async (_req, res) => { requireEnabled(d.db, W(res)); res.json(await suggestionPass(d, W(res), { force: true })); });
+
   // ---- arcs and sessions ----
   r.get('/arcs', (_req, res) => res.json({ arcs: listArcs(d.db, W(res)), open: openArc(d.db, W(res)) }));
   r.post('/arcs', (req, res) => res.status(201).json(startArc(d, W(res), String(req.body?.title ?? ''), me(res))));
@@ -267,6 +272,12 @@ const feature: Feature = {
       try { if (!stateOf(d.db, worldId).enabled) return; } catch { return; }
       void fileSession(d, worldId, String(data.entry.id), null).catch((e) => console.error('minerva: filing a session failed', e));
     });
+  },
+  // While a session records, draft suggestions (clues found, new NPCs, promises) into the review queue now and then.
+  start: (d) => {
+    const t = setInterval(() => { for (const w of liveWorlds(d)) void suggestionPass(d, w).catch((e) => console.error('minerva: suggestion pass failed', e)); }, 30_000);
+    t.unref?.();
+    return () => clearInterval(t);
   },
   mcpTools: [
     // DM harness (Minerva).
