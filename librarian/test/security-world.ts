@@ -323,6 +323,26 @@ export async function seedContent(h: H, S: Seed) {
   await dm('POST', '/worldlore/pages', { path: 'WorldLore/Broker Lore', title: 'Broker Lore', markdown: `# Broker Lore\n${mark('lore_broker', ['dm'], 'a WorldLore page at level broker')}\n`, level: 'broker' }).catch(() => {});
   await dm('POST', '/worldlore/pages', { path: 'WorldLore/Classified Lore', title: 'Classified Lore', markdown: `# Classified Lore\n${mark('lore_classified', ['dm'], 'a WorldLore page at level classified', { ai: false, long: true })}\n`, level: 'classified' }).catch(() => {});
 
+  // ---- Minerva: the DM's agent and her campaign memory (docs/MINERVA.md §5) ------------------------------------------------------
+  // Her name is the DM's alone; dm/ is the DM's; a player's root is theirs and the DM's; the "Shared with the party" lines are the table's;
+  // a codex page open to the party keeps its secret block; broker and classified vault pages follow their levels.
+  await dm('PATCH', '/settings', { agentName: mark('minerva_name', ['dm'], "the name the DM gave the assistant (never shown to a player)") });
+  await dm('POST', '/minerva/enable', {});
+  const mv = (rel: string, body: string, extra: Record<string, unknown> = {}) => dm('PUT', '/minerva/page', { rel, body, ...extra });
+  await mv('dm/state/Campaign Status.md', `# Campaign Status\n\n## Now\n${mark('minerva_dm_status', ['dm'], "text in Minerva's Campaign Status")}\n`);
+  await mv('dm/hidden-lore/Truth.md', `# Truth\n${mark('minerva_dm_lore', ['dm'], 'text in a page under Minerva dm/')}\n`);
+  await mv(`dm/players/${ID.jess}.md`, `# Jess\n\n## Table notes\n${mark('minerva_dm_player_note', ['dm'], "Minerva's private note on a player")}\n`);
+  await mv(`players/${ID.jess}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${mark('minerva_player_root', ['dm', 'jess'], "a line in jess's own Minerva player root (journal)")}\n`);
+  await mv(`players/${ID.tom}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${mark('minerva_player_root_tom', ['dm', 'tom'], "a line in tom's own player root (journal)")}\n`);
+  await mv(`players/${ID.jess}/shared.md`, `# Shared with the party\n\n## Shared\n- ${mark('minerva_shared_section', ['dm', 'jess', 'tom'], 'the "Shared with the party" lines of jess (visible to the other players)')}\n`);
+  await mv(`players/${ID.jess}/profile.md`, `# Jess\n\n> [!secret]\n> ${mark('minerva_profile_secret', ['dm'], 'a secret block in a player profile')}\n`);
+  await mv('codex/characters/npc/Harbour Warden.md', `# Harbour Warden\n\nKnown to the party: ${mark('minerva_codex_party', ['dm', 'jess', 'tom'], 'a party-level part of a codex page (control)')}\n\n> [!secret]\n> ${mark('minerva_codex_secret', ['dm'], 'a secret block in a codex page open to the party')}\n`, { level: 'party' });
+  await mv('codex/lore/Broker Rumour.md', `# Broker Rumour\n${mark('minerva_codex_broker', ['dm'], 'a broker-level codex page')}\n`, { level: 'broker' });
+  await mv('codex/lore/Sealed Vault.md', `# Sealed Vault\n${mark('minerva_codex_classified', ['dm'], 'a classified codex page', { ai: false, long: true })}\n`, { level: 'classified' });
+  const myst = await dm('POST', '/minerva/revelations', { title: 'Who rang the sunken bell?', conclusion: mark('minerva_revelation', ['dm'], "a revelation's conclusion (until a player reaches it)"), clues: [mark('minerva_clue_found', ['dm', 'jess'], 'a clue jess found (in her knowledge)'), 'A second clue', 'A third clue'] });
+  await dm('POST', '/minerva/revelations/mark', { mystery: myst.slug, clue: 1, player: ID.jess, session: 1 });
+  await jess('POST', '/minerva/me/journal', { text: mark('minerva_draft', ['dm', 'jess'], "a journal line jess wrote that waits on the DM's review (draft)") });
+
   // ---- the agent: chats and pending actions -----------------------------------------------------------------------
   const chat = await dm('POST', '/agent/chats', { title: mark('agent_chat_dm', ['dm'], "the DM agent's chat title") });
   pushId('agentchat', chat.id);
