@@ -167,6 +167,7 @@ export function routes(d: Deps) {
     const next = getKey(d.db, w, k.id)!;
     // What a key may feed is read live, so the view follows at once; a key that no longer feeds the library view forgets what it saw.
     if (!canFeedLibrary(next)) dropAccess(d, k.id);
+    else if (sets.length) d.library.changed(w);
     auditKey(d.db, w, me(res), 'update', `${k.id} trust ${was.trust}->${next.trust} users ${was.users || '-'}->${usersOf(next).join(',') || '-'} uses ${was.uses || '-'}->${usesOf(next).join(',') || '-'}`);
     d.library.touchClassified();
     res.json(keyView(d.db, next, names(d.db, w), { dm: true }));
