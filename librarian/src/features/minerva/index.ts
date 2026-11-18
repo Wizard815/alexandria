@@ -7,6 +7,7 @@
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { hasJob } from '../../core/ai.ts';
+import { CALLER_HEADER, CALLER_MODEL } from '../../core/levels.ts';
 import { requireDM } from '../../core/auth.ts';
 import { all, one } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
@@ -56,6 +57,17 @@ function routes(d: import('../../app.ts').Deps) {
 
   // ---- the DM's side ------------------------------------------------------------------------
   r.use(requireDM);
+  // A model asking through the DM's token is never handed classified text: an answer that repeats any is refused whole (docs/SECURITY.md).
+  r.use((req, res, next) => {
+    if (String(req.headers[CALLER_HEADER] ?? '').toLowerCase() !== CALLER_MODEL) return next();
+    const json = res.json.bind(res);
+    const send = res.send.bind(res);
+    const held = (text: string) => d.library.containsClassified(W(res), text);
+    const refuse = () => { res.status(403); return json({ error: 'That answer holds classified text, which is never given to a model.' }); };
+    res.json = ((b: unknown) => (held(JSON.stringify(b)) ? refuse() : json(b))) as any;
+    res.send = ((b: any) => (typeof b === 'string' || Buffer.isBuffer(b) ? (held(Buffer.isBuffer(b) ? b.toString('utf8') : b) ? refuse() : send(b)) : send(b))) as any;
+    next();
+  });
 
   /** One call for the Minerva page: status, arc, threads, review queue, promotions, revelations, players. */
   r.get('/', (_req, res) => {
