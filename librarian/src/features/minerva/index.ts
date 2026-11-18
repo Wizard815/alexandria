@@ -14,7 +14,8 @@ import { dmOnly } from '../../core/events.ts';
 import { HttpError, int, oneOf, str } from '../../core/util.ts';
 import { ctx, me, settings } from '../../routes/_shared.ts';
 import { closeArc, conversationLog, fileSession, memoryLog, startArc } from './after.ts';
-import { codexUpsert, promotionCandidates, promotionDraft, whoIs } from './codex.ts';
+import { suggestionPass, liveWorlds } from './live.ts';
+import { codexUpsert, promotionCandidates, promotionDraft, upsertTarget, whoIs } from './codex.ts';
 import { contextFor, threadsOf } from './context.ts';
 import { describeMinerva, MINERVA_TOOLS } from './describe.ts';
 import { applyOp, decideDraft, listDrafts, previewOp, type Op } from './ops.ts';
@@ -150,6 +151,10 @@ function routes(d: import('../../app.ts').Deps) {
     res.json(out);
   });
 
+  // ---- live help ----
+  // Look at the last minutes of the recording now and draft suggestions into the review queue (the DM's own button; the scheduler does it by itself every couple of minutes).
+  r.post('/live/suggest', async (_req, res) => { requireEnabled(d.db, W(res)); res.json(await suggestionPass(d, W(res), { force: true })); });
+
   // ---- arcs and sessions ----
   r.get('/arcs', (_req, res) => res.json({ arcs: listArcs(d.db, W(res)), open: openArc(d.db, W(res)) }));
   r.post('/arcs', (req, res) => res.status(201).json(startArc(d, W(res), String(req.body?.title ?? ''), me(res))));
@@ -163,7 +168,7 @@ function routes(d: import('../../app.ts').Deps) {
   r.post('/codex', (req, res) => {
     requireEnabled(d.db, W(res));
     const b = req.body ?? {};
-    res.json(codexUpsert(d, W(res), { entity: b.entity, name: b.name, kind: b.kind, section: String(b.section ?? 'notes'), text: String(b.text ?? ''), session: b.session ?? null, by: me(res), level: b.level }));
+    res.json(codexUpsert(d, W(res), { entity: b.entity, name: b.name, kind: b.kind, section: String(b.section ?? 'notes'), text: String(b.text ?? ''), session: b.session ?? null, by: me(res), level: b.level, visible: b.visible === true }));
   });
   r.post('/promote', (req, res) => {
     const w = W(res);
@@ -268,6 +273,12 @@ const feature: Feature = {
       void fileSession(d, worldId, String(data.entry.id), null).catch((e) => console.error('minerva: filing a session failed', e));
     });
   },
+  // While a session records, draft suggestions (clues found, new NPCs, promises) into the review queue now and then.
+  start: (d) => {
+    const t = setInterval(() => { for (const w of liveWorlds(d)) void suggestionPass(d, w).catch((e) => console.error('minerva: suggestion pass failed', e)); }, 30_000);
+    t.unref?.();
+    return () => clearInterval(t);
+  },
   mcpTools: [
     // DM harness (Minerva).
     { name: 'context_for', dmOnly: true, description: "Minerva's memory: everything she knows about a player, an NPC, a place, a mystery or an arc (who). With no name: the campaign status, the active arc and the last session. Read this before answering about long-term threads.", props: { who: S('A player, character, NPC, place, mystery or arc (optional)') }, call: (a) => ({ method: 'GET', path: `/minerva/context?who=${enc(a.who ?? '')}` }) },
@@ -278,7 +289,7 @@ const feature: Feature = {
     { name: 'status_update', write: true, description: `Change one section of the Campaign Status doc (${[...STATUS_SECTIONS, 'Inbox'].join(', ')}). It is the living doc: keep it current, never replace it with an archive.`, props: { section: S('Section name'), text: S('The new text'), mode: { type: 'string', enum: ['replace', 'append'] } }, required: ['section', 'text'], call: (a) => ({ method: 'POST', path: '/minerva/status/update', body: { section: a.section, text: a.text, mode: a.mode } }) },
     { name: 'revelation_create', write: true, description: 'Start a mystery: a conclusion and at least three clues, so the players can find it more than one way. Name it as a question; players who find a clue see its name.', props: { title: S('The mystery, as a question'), conclusion: S('The truth'), clues: { type: 'array', items: { type: 'string' }, description: 'At least three clues' } }, required: ['title', 'conclusion', 'clues'], call: (a) => ({ method: 'POST', path: '/minerva/revelations', body: { title: a.title, conclusion: a.conclusion, clues: a.clues } }) },
     { name: 'revelation_mark', write: true, description: "Record who found which clue (or guessed, or reached the conclusion). The player's knowledge page is rebuilt from the marks.", props: { mystery: S('Mystery title'), clue: S('Clue number or text'), player: S('Player or character'), kind: { type: 'string', enum: ['clue', 'theory', 'reached'] }, text: S('The theory (kind theory)'), session: { type: 'integer' } }, required: ['mystery', 'player'], call: (a) => ({ method: 'POST', path: '/minerva/revelations/mark', body: { mystery: a.mystery, clue: a.clue, player: a.player, kind: a.kind, text: a.text, session: a.session } }) },
-    { name: 'codex_upsert', write: true, description: 'Add to an entity\'s codex page: a dated appearance, what changed, a secret (in a DM-only block), a tie to a player or a note. The page is found by library page id, name or alias; one is made only when none exists. Call who_is first.', props: { entity: S('Library page id (optional)'), name: S('Name'), kind: { type: 'string', enum: ['npc', 'pc', 'place', 'region', 'organization', 'trade-route', 'family', 'creature', 'race', 'item', 'quest', 'map', 'topic'] }, section: S('appearances, changed, secret, ties or notes'), text: S('What to add'), session: { type: 'integer' } }, required: ['section', 'text'], call: (a) => ({ method: 'POST', path: '/minerva/codex', body: { entity: a.entity, name: a.name, kind: a.kind, section: a.section, text: a.text, session: a.session } }) },
+    { name: 'codex_upsert', write: true, description: 'Add to an entity\'s codex page: a dated appearance, what changed, a secret (in a DM-only block), a tie to a player or a note. The page is found by library page id, name or alias; one is made only when none exists. Call who_is first.', props: { entity: S('Library page id (optional)'), name: S('Name'), kind: { type: 'string', enum: ['npc', 'pc', 'place', 'region', 'organization', 'trade-route', 'family', 'creature', 'race', 'item', 'quest', 'map', 'topic'] }, section: S('appearances, changed, secret, ties or notes'), text: S('What to add'), session: { type: 'integer' }, visible: { type: 'boolean', description: 'Only true when the DM wants the players to read this text. Your analysis (hooks, plans, what someone wants) is never visible: on a page the players can open it is written in a DM-only block unless this is true' } }, required: ['section', 'text'], call: (a) => ({ method: 'POST', path: '/minerva/codex', body: { entity: a.entity, name: a.name, kind: a.kind, section: a.section, text: a.text, session: a.session, visible: a.visible } }) },
     { name: 'promote', write: true, description: 'Give a recurring NPC, place or item its own codex page, drafted from where the sessions mention them. Link the library page, never copy it.', props: { name: S('Name'), kind: S('npc, place, organization, ...') }, required: ['name'], call: (a) => ({ method: 'POST', path: '/minerva/promote', body: { name: a.name, kind: a.kind } }) },
     { name: 'arc_start', write: true, description: 'Start a new arc (about 8 to 12 sessions). Sessions are filed under the open arc.', props: { title: S('Arc title') }, required: ['title'], call: (a) => ({ method: 'POST', path: '/minerva/arcs', body: { title: a.title } }) },
     { name: 'arc_close', write: true, description: "Close an arc and draft its one-page summary for the DM's review.", props: { arc: S('Arc number, slug or title (default: the open arc)') }, call: (a) => ({ method: 'POST', path: `/minerva/arcs/${enc(String(a.arc ?? 'open'))}/close` }) },

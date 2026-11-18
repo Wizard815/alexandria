@@ -8,7 +8,7 @@ import { one, all, run } from '../core/db.ts';
 import { combatViewFor } from '../core/combatView.ts';
 import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
 import { dmAnd } from '../core/events.ts';
-import { type Viewer, type WorldSettings } from '../core/policy.ts';
+import { featureSetting, type Viewer, type WorldSettings } from '../core/policy.ts';
 import { HttpError, id, int, now, parseJson, str } from '../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
 
@@ -151,15 +151,21 @@ export default function liveRoutes(d: Deps) {
     let hp = b.hp !== undefined ? int(b.hp, 'hp', { min: -999, max: 99999 }) : x.hp;
     if (b.damage !== undefined) hp = (hp ?? 0) - int(b.damage, 'damage', { min: 0, max: 99999 })!;
     if (b.heal !== undefined) hp = Math.min((hp ?? 0) + int(b.heal, 'heal', { min: 0, max: 99999 })!, x.max_hp ?? Infinity);
+    // A monster dropped to 0 HP is marked Defeated (and, if the DM turned that on, taken out of the tracker).
+    let eff: any[] = b.effects !== undefined ? effects(b.effects) : parseJson<any[]>(x.effects, []);
+    const fell = !x.account_id && hp !== null && hp !== undefined && hp <= 0 && !(x.hp !== null && x.hp <= 0);
+    if (fell && !eff.some((e) => String(e?.name ?? e).toLowerCase() === 'defeated')) eff = [...eff, { name: 'Defeated' }];
     run(db, 'UPDATE combatants SET name = ?, initiative = ?, hp = ?, max_hp = ?, effects = ?, hidden = ?, ac = ? WHERE id = ?',
       b.name !== undefined ? str(b.name, 'name', { max: 80 }) : x.name,
       b.initiative !== undefined ? int(b.initiative, 'initiative', { min: -20, max: 60 }) : x.initiative,
       hp, b.maxHp !== undefined ? int(b.maxHp, 'maxHp', { min: 0, max: 99999 }) : x.max_hp,
-      b.effects !== undefined ? JSON.stringify(effects(b.effects)) : x.effects,
+      JSON.stringify(eff),
       b.hidden !== undefined ? (b.hidden ? 1 : 0) : x.hidden,
       b.ac !== undefined ? int(b.ac, 'ac', { min: 0, max: 99 }) : x.ac ?? null, x.id);
+    const removed = fell && featureSetting<boolean>(settings(res), 'combatRemoveDefeated') === true;
+    if (removed) run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', x.id, c.world.id);
     pushCombat(res);
-    res.json({ ok: true, hp });
+    res.json({ ok: true, hp, defeated: fell, removed });
   });
   r.delete('/combatants/:cid', requireDM, (req, res) => {
     if (!run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', String(req.params.cid), ctx(res).world.id)) throw new HttpError(404, 'Combatant not found');

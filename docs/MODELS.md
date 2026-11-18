@@ -394,6 +394,8 @@ options is sent as is (`top_k`, `chat_template_kwargs`, ...).
 | `noTemperature` | `true` / `false` (default) | Leave `temperature` out. Set it for OpenAI reasoning models (o-series, GPT-5 family), which only accept the default. A 400 that mentions `temperature` turns it on by itself. |
 | `jsonMode` | `"auto"` (default), `"schema"`, `"object"`, `"off"` | How a job that needs JSON asks for it. `auto` tries `json_schema` when a schema is given, then `json_object`, then falls back to a plain instruction in the prompt, moving down whenever the server answers 400 (llama-server, Ollama, LM Studio and vLLM differ here). The mode that works is remembered per job and model until the server restarts. `object` and `off` cap how far it tries. |
 | `timeoutMs` | milliseconds; default `120000` for chat and audit, `300000` for the rest | Give up when the server has not answered, or (for a streamed reply) has sent nothing, for this long. A slow local model on a long prompt may need more. |
+| `minOutputTokens` | a number; default `2000` for chat and audit | The least `max_tokens` a chat or audit request asks for. A reasoning model spends part of the limit thinking, so a small limit can come back empty; the floor stops that. If an answer still comes back empty because the limit cut it off, Alexandria asks once more with twice the limit (and, on OpenRouter, with `reasoning: {enabled: false}`). |
+| `reasoningModel` | `false` to switch the floor off | Set `false` for a model that does not think, to send the small limits as they are. |
 
 Example, for an OpenAI reasoning model:
 
