@@ -230,6 +230,7 @@ const ARGS: Record<string, Maker> = {
   broker_refuse: () => ({ id: brokerIds[2], note: 'Not for sale.' }),
   add_combatant: () => ({ name: 'Goblin Boss', initiative: 14, hp: 21, ac: 17 }),
   damage_combatant: async () => ({ combatant: await combatant('Goblin 1'), amount: 4 }),
+  set_initiative: async () => ({ combatant: await combatant('Goblin 1'), value: 14 }),
   heal_combatant: async () => ({ combatant: await combatant('Goblin 1'), amount: 2 }),
   set_conditions: async () => ({ combatant: await combatant('Goblin 1'), conditions: ['Prone'] }),
   remove_combatant: async () => ({ combatant: await combatant('Goblin 2') }),
