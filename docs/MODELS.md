@@ -481,3 +481,53 @@ await fake.close();
 
 To feed it speech, upload bytes such as `new TextEncoder().encode('FAKE: the orc attacks.')`
 to `transcribe()` from `core/ai.ts`.
+
+## What helps the DM agent (real-model ablations)
+
+Measured with deepseek-v4.1-flash through OpenRouter on a made-up demo world
+(83 fresh natural requests, 32 world-knowledge questions, 57 broker questions).
+Samples are small (28 requests per variant; one request is 3.6 points), so only
+large effects are trustworthy. The embedding-only checks over all 83 requests
+are free and more reliable.
+
+| Tool offer | Wanted tool offered (83) | Strict pass (28) | Tools offered |
+|---|---|---|---|
+| keywords (old default) | 73/83 | 22/28 | 16 |
+| all 123 tools | 83/83 | 25/28 | 120 (2x cost) |
+| embeddings only (k=10) | 63/83 | 25/28 | 19 |
+| keywords + embeddings | 78/83 | 23/28 | 23 |
+| concise descriptions, keywords | n/a | 25/28 | 16 |
+| concise + keywords + embeddings | 82/83 | 24/28 | 22 |
+
+Concise "use when ... example" descriptions are what make embedding selection
+work. With the lighter system prompt on top (a different 28 requests, where the
+old default scored 24/28) the result was 26/28, 2.6 model rounds instead of 3.3
+and one unrequested write instead of four.
+
+- **Embedding model matters.** `cohere/embed-5-fast` put the right page first
+  for only 13 of 29 questions; `baai/bge-m3` (about $0.01 per million tokens) 26,
+  `google/gemini-embedding-001` 26, `openai/text-embedding-3-small` 25. Use a
+  retrieval model such as bge-m3 for the `extra` job. (cohere was better at the
+  broker's short-question examples.)
+- **Hybrid retrieval** has to weight the embeddings above the keyword list (loose
+  word matches): equal-weight fusion with cohere lowered the right page in the
+  top 3 from 23/29 to 19/29. The agent uses the five nearest pages at weight 1.5
+  plus the keyword hits; a title named in the question stays on top. The rule
+  was chosen offline on the same 29 questions; no end-to-end run with bge-m3.
+- **System prompt rules** (look up the codex first, always add to it) made 39%
+  of requests call who_is or context_for needlessly and 13% make an unrequested
+  write. The `lite` prompt keeps the grounding rules and says to call the
+  matching tool right away.
+- **Campaign Status prefetch** and **story_bible**: no measurable difference
+  (24/28 without the status vs 22/28 with; the bible tool was called in 2 of
+  83). Both stay switchable.
+- **Broker examples** (nearest-example caution, few-shot): decisions identical
+  (53/57 exact in every variant, 0 unsafe); label agreement 52 to 54 of 57. Off
+  by default (`ALX_BROKER_EXAMPLES=nn|fewshot|both`).
+- Not measured: rerank end to end, Active mode with examples, the adopted
+  configuration on the old 112 requests (budget and time).
+
+Switches: `ALX_AGENT_OPTS='{"tools":"keywords","desc":"current","skills":"full","retrieval":"keyword","status":true,"bible":true}'`.
+The defaults are hybrid tools, concise descriptions, the lite prompt and hybrid
+retrieval; without an embeddings model the embedding parts act as keywords.
+`ALX_BIBLE=off` stops the background story bible build (one chat call per page).
