@@ -188,7 +188,8 @@ function PushKeys({ s, toast }: { s: Source; toast: (m: string) => void }) {
   const [fresh, setFresh] = useState<{ key: string; label: string } | null>(null);
   const a = useAction();
   const base = `/api/admin/intake/sources/${s.id}/keys`;
-  const load = () => client.request<PushKey[]>('GET', base).then(setKeys).catch(() => setKeys([]));
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const load = () => client.request<PushKey[]>('GET', base).then((k) => { setKeys(k); setLoadErr(null); }).catch((e) => setLoadErr(String(e?.message ?? e)));
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [s.id]);
   const endpoint = `${window.location.origin}/api/intake/${s.id}/entries`;
   const create = () => a.run(async () => {
@@ -213,7 +214,7 @@ function PushKeys({ s, toast }: { s: Source; toast: (m: string) => void }) {
             </li>
           ))}
         </ul>
-      ) : keys ? <p className="small muted" style={{ margin: 0 }}>No keys yet. Make one for your tool.</p> : null}
+      ) : loadErr ? <ErrorBox error={`Could not load the keys: ${loadErr}`} /> : keys ? <p className="small muted" style={{ margin: 0 }}>No keys yet. Make one for your tool.</p> : null}
       <form className="row wrap" onSubmit={(e) => { e.preventDefault(); void create(); }}>
         <input aria-label="Key name" placeholder="Key name, e.g. my sync script" value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} style={{ maxWidth: 260 }} />
         <button className="btn small" disabled={a.busy}>Make a key</button>
