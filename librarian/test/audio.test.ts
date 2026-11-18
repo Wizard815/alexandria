@@ -256,6 +256,24 @@ test('Audio_aside: an aside makes overlapping lines from every mic DM-only', asy
   assert.ok(!JSON.stringify(pl).includes(SECRET));
 });
 
+test('Audio_aside: only lines that overlap the aside are hidden, the ones just before it stay with the table', async () => {
+  const sid = await newSession();
+  // Table talk that ends 150 ms before the aside starts, and a line that really overlaps it.
+  await upOk('dm', sid, 'table', 0, 14_000, 'last words before the whisper', 0.5, 19_850);
+  await upOk('dm', sid, 'headset', 0, 20_000, `the ${SECRET} is hidden`, 0.5, 21_800);
+  await hold('dm', sid, 'headset', 'talk', 20_000, 21_800);
+  await upOk('dm', sid, 'table', 1, 19_900, 'half spoken over the aside', 0.5, 20_400);
+  await upOk('dm', sid, 'table', 2, 22_300, 'and after it we go on', 0.5, 24_000);
+  const dmLines = await lines('dm', sid);
+  assert.equal(dmLines.find((l) => l.text === 'last words before the whisper')?.audience, 'players', 'a line that ends before the aside stays public');
+  assert.equal(dmLines.find((l) => l.text === 'and after it we go on')?.audience, 'players', 'and so does the one after it');
+  const overlap = dmLines.find((l) => l.text.includes('half spoken'));
+  assert.ok(!overlap || overlap.audience === 'dm', 'a line overlapping the aside fails closed');
+  const pl = JSON.stringify(await lines('jess', sid));
+  assert.ok(!pl.includes(SECRET) && !pl.includes('half spoken'));
+  assert.ok(pl.includes('last words before the whisper'));
+});
+
 test('Audio_aside: talk running straight into an aside is cut at the aside, not spliced into it', async () => {
   const sid = await newSession();
   // Back-to-back table chunks: public talk, then (with no pause) a DM aside the table mic also hears.
