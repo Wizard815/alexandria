@@ -107,6 +107,16 @@ function chatReply(body: any): { content: string | null; tool_calls?: any[]; fin
     const sys = messages.filter((m) => m?.role === 'system').map((m) => text(m.content)).join('\n');
     const m = sys.match(/^FAKE_JSON:\s*(\{.*\})\s*$/m);
     let out = '{}';
+    // The story bible: a fact for each sentence of the page, about the first name in it (a [[link]] or a capitalised phrase), else the page title.
+    if (!m && /story bible/i.test(sys)) {
+      const title = /^Page: (.*)$/m.exec(userText)?.[1]?.trim() ?? 'Page';
+      const body = userText.split('\n').slice(1).join('\n').replace(/^>\s?(\[![^\]]*\][^\n]*)?/gm, '').replace(/^#+\s.*$/gm, '').replace(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g, '$1');
+      const kindOf = (s: string) => /\b(town|harbour|harbor|lighthouse|bay|coast|ferry|river|hall|cellar|tavern)\b/i.test(s) ? 'place' : /\b(council|guild|faction|order|crew|cult)\b/i.test(s) ? 'faction' : /\b(queen|king|captain|sorcerer|keeper|villain|she|he)\b/i.test(s) ? 'person' : /\b(lantern|sword|ring|crown|amulet)\b/i.test(s) ? 'item' : 'lore';
+      const links = [...userText.matchAll(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1]);
+      const facts = body.split(/(?<=[.!?])\s+/).map((x) => x.replace(/\s+/g, ' ').trim()).filter((x) => x.length > 20).slice(0, 8)
+        .map((fact) => ({ subject: links.find((n) => fact.includes(n)) ?? title, kind: kindOf(fact), fact }));
+      return { content: JSON.stringify({ facts }), finish: 'stop' };
+    }
     // Sculpting: fill every blank field the request lists, so the whole flow works without a real model.
     if (!m && /fill blank fields of the template/.test(sys)) {
       try {

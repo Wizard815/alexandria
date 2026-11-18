@@ -37,6 +37,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(map|pins?|marks?|markers?|route|waypoints?)\b/i, tools: ['list_map_marks', 'add_map_mark', 'hide_map_mark', 'delete_map_mark'] },
   { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
   { re: /\b(sources?|connections?|connected|sync(ed|s)?|imported|where (does|did) .*(library|lore|pages?) come from)\b/i, tools: ['world_sources'] },
+  { re: /\b(story bible|bible|what do we know|who is|what is|tell me about|lore|history of|related|similar|connections?)\b/i, tools: ['story_bible', 'related_pages', 'search_world'] },
   { re: /\b(find|search|look up|where)\b/i, tools: ['search_world', 'world_info', 'source_lookup'] },
   { re: /\b(kanka|legendkeeper|my key|source lookup|live (lookup|search)|in the source|my (own )?(character|backstory|sheet))\b/i, tools: ['source_lookup'] },
   { re: /\b(who is in|players|party members|character|characters|members)\b/i, tools: ['list_members', 'get_live'] },
