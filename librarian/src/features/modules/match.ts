@@ -25,13 +25,17 @@ export interface Match {
   id: string;
 }
 
-interface Entry { term: string; kind: string; source: 'module' | 'library'; id: string }
+interface Entry { term: string; kind: string; source: 'module' | 'library'; id: string; /** A common one-word item name: only a capitalised match counts. */ weak?: boolean }
 interface Index { key: string; map: Map<string, Entry>; maxWords: number }
 
 const MAX_WORDS = 6;
 const MAX_TEXT = 100_000;
 const MAX_MATCHES = 2000;
 const STOP = new Set(['the', 'and', 'for', 'you', 'are', 'but', 'not', 'any', 'all', 'one', 'can', 'its', 'has', 'was', 'who', 'how', 'now', 'may', 'use', 'new', 'old', 'out', 'off', 'our', 'his', 'her', 'she', 'him', 'let', 'say', 'too', 'two', 'yes', 'with', 'this', 'that', 'from', 'have', 'they', 'will', 'then', 'than', 'them', 'what', 'when', 'your', 'each', 'into', 'over', 'some', 'such', 'only', 'also', 'more', 'most', 'other', 'there', 'their', 'which', 'would', 'about', 'could', 'after', 'being']);
+
+// Everyday words that are also gear in the rules ("bell", "pouch", "rope"): a plain mention in a sentence is not the item.
+// They never light up as one word; the full item name ("Bag of Holding") or a longer alias still does.
+const COMMON_ITEM_WORDS = new Set(['bell', 'pouch', 'bag', 'rope', 'torch', 'candle', 'lamp', 'lantern', 'ladder', 'bottle', 'basket', 'bucket', 'barrel', 'blanket', 'book', 'bedroll', 'case', 'chain', 'chest', 'clothes', 'flask', 'jug', 'hammer', 'mirror', 'oil', 'paper', 'parchment', 'pole', 'pot', 'ram', 'robes', 'sack', 'shovel', 'soap', 'spike', 'string', 'tent', 'vial', 'whistle', 'net', 'crowbar', 'lock', 'key', 'ink', 'pen', 'staff', 'shield', 'club', 'dagger', 'sword', 'arrow', 'bolt', 'sling', 'spear', 'rations', 'waterskin', 'tinderbox', 'map', 'scroll', 'wand', 'rod', 'ring', 'cloak', 'boots', 'gloves', 'belt', 'amulet', 'potion', 'bread', 'wine', 'ale']);
 
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’]*/gu;
 const norm = (s: string) => s.toLowerCase().replace(/’/g, "'");
@@ -100,7 +104,7 @@ function indexFor(db: DB, worldId: string, viewer: Viewer): Index {
       for (const a of parseJson<unknown[]>(p.aliases, [])) if (typeof a === 'string') put(a, e);
     }
     for (const t of mods.terms) {
-      const e: Entry = { term: t.term, kind: t.kind, source: 'module', id: t.ref };
+      const e: Entry = { term: t.term, kind: t.kind, source: 'module', id: t.ref, ...(t.kind === 'item' && tokens(t.term).length === 1 ? { weak: true } : {}) };
       // Plain verbs like "Dash" or "Help" would light up every sentence: those actions match by their longer aliases ("Dash action").
       const common = t.kind === 'action' && tokens(t.term).length === 1;
       if (!common) put(t.term, e);
@@ -124,6 +128,7 @@ export function findMatches(db: DB, worldId: string, viewer: Viewer, text: strin
       if (!ok) continue;
       const key = t.slice(i, i + n).map((x) => x.w).join(' ');
       const e = idx.map.get(key);
+      if (e && e.weak && n === 1 && (COMMON_ITEM_WORDS.has(key) || !/^\p{Lu}/u.test(text.slice(t[i].start, t[i].end)))) continue;
       if (e) {
         const start = t[i].start, end = t[i + n - 1].end;
         out.push({ start, end, text: text.slice(start, end), term: e.term, kind: e.kind, source: e.source, id: e.id });
