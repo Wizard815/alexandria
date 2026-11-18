@@ -374,7 +374,8 @@ export async function seedContent(h: H, S: Seed) {
   await pushEntry('party');
   await indexAll();
   const seesLifted = (await h.ok('GET', `/api/worlds/${W}/bible?q=harbour`, T.jess)).subjects.some((x: any) => JSON.stringify(x).includes(tok('share_revoked')));
-  if (!seesLifted) throw new Error('seed: the shared page should be in jess\'s story bible before it is revoked');
+  const haveFacts = Number(one<any>(h.deps.db, 'SELECT count(*) AS n FROM bible_facts WHERE world_id = ?', W)!.n) > 0; // a harness without a chat model has no bible
+  if (haveFacts && !seesLifted) throw new Error('seed: the shared page should be in jess\'s story bible before it is revoked');
   await dm('DELETE', `/library/pages/${revoked.id}/share`);
   await pushEntry('dm');
   const demoted = one<any>(h.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', W, 'imp-demote')!.id as string;
