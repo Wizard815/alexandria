@@ -18,7 +18,7 @@
 .au-hold:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* the island */
-.au-island { position: fixed; z-index: 800; display: flex; flex-direction: column; min-width: 220px; min-height: 120px; max-width: 96vw; max-height: 90vh; resize: both; overflow: hidden; border-radius: 12px; background: color-mix(in srgb, var(--panel, #1C222D) 94%, black); border: 1px solid var(--line-strong, #5A4E33); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); color: var(--text, #EDE3CF); font-size: var(--au-size, 15px); }
+.au-island { position: fixed; z-index: 800; display: flex; flex-direction: column; min-width: 220px; min-height: 120px; max-width: 96vw; max-height: 90vh; resize: both; overflow: hidden; border-radius: 12px; background: color-mix(in srgb, var(--panel, #1C222D) 100%, black); border: 1px solid var(--line-strong, #5A4E33); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); color: var(--text, #EDE3CF); font-size: var(--au-size, 15px); }
 .au-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; position: relative; font-size: 13px; }
 .au-head:active { cursor: grabbing; }
 .au-sp { flex: 1; }

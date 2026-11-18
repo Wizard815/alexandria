@@ -108,10 +108,14 @@ function mapView(m: MapResult): MapView {
   return { kind: m.kind, size: m.size, flavour: m.flavour, title: m.title, seed: m.seed, key: m.key, legend: m.legend, stats: m.stats, ftPerCell: m.ftPerCell, width: m.canvas.w, height: m.canvas.h, svg: toSvg(m.canvas, { dm: true, title: m.title }) };
 }
 
+const DM_LEGEND = /^DM view only:\s*/i;
+
 function mapOut(m: MapResult, enriched: boolean, locks: Record<string, string>): Out {
   const sections: Section[] = [
     ...(locks.flavour ? [{ key: 'flavour', label: 'Read aloud', text: locks.flavour }] : []),
-    { key: 'legend', label: 'Legend', text: m.legend.map((l) => `- ${l}`).join('\n') },
+    { key: 'legend', label: 'Legend', text: m.legend.filter((l) => !DM_LEGEND.test(l)).map((l) => `- ${l}`).join('\n') },
+    // What the players cannot see on their copy (secret doors, traps) is explained on the DM's copy only.
+    ...(m.legend.some((l) => DM_LEGEND.test(l)) ? [{ key: 'dmlegend', label: 'DM legend', text: m.legend.filter((l) => DM_LEGEND.test(l)).map((l) => `- ${l.replace(DM_LEGEND, '')}`).join('\n'), dm: true }] : []),
     { key: 'key', label: 'Key', text: m.key.map((k) => `${k.n}. **${k.name}.** ${k.text}${k.dm ? ` _DM: ${k.dm}_` : ''}`).join('\n'), dm: true },
   ];
   return {

@@ -84,8 +84,8 @@ export const CHUNK_CHARS = 500;
 const tagged = (model: string) => `${model}|lv1`;
 const MAX_CHUNKS_PER_PAGE = 40;
 const BATCH = 16;
-/** Scopes are taken in turn, a few pages each (the DM's copy first), so no scope waits for the others to finish. */
-const ORDER: VecScope[] = ['dm', 'party', 'lifted', 'broker'];
+/** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so no scope waits for the others to finish. */
+const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
 const PER_TURN = 3;
 
 

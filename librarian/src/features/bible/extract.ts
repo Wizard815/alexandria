@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS bible_state (
 const PROMPT_VERSION = 'bible1';
 const MAX_TEXT = 6000;
 const MAX_FACTS = 30;
-/** Scopes are taken in turn, a few pages each (the DM's copy first), so none waits for the others to finish. */
-const ORDER: VecScope[] = ['dm', 'party', 'lifted', 'broker'];
+/** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so none waits for the others to finish. */
+const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
 const PER_TURN = 3;
 
 const SYSTEM = `You build the "story bible" of a tabletop role-playing campaign. Read the page and list the durable facts it states about people, places, factions, items, events and lore.

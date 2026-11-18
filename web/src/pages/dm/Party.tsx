@@ -108,7 +108,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
       <div className="card-head"><h3>Pack</h3>{weightOn && <span className="chip">{inv.data.totalWeight ?? 0} lb carried</span>}</div>
       {items.length ? (
         <div className="scroll-x">
-          <table className="table">
+          <table className="table pack-table">
             <thead><tr><th scope="col">Item</th><th scope="col">Qty</th>{weightOn && <th scope="col">Wt</th>}<th scope="col">Notes</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {items.map((it) => editing === it.id
@@ -127,8 +127,8 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
                         </div>
                       )}
                     </td>
-                    <td>{it.qty}</td>
-                    {weightOn && <td>{it.weight ?? '—'}</td>}
+                    <td data-label="Qty">{it.qty}</td>
+                    {weightOn && <td data-label="Wt">{it.weight ?? '—'}</td>}
                     <td className="small"><span>{it.note}</span>{it.dm_note && <><br /><span style={{ color: 'var(--danger-text)' }}>DM: {it.dm_note}</span></>}<br /><span className="tiny faint">{nameOf(it.updated_by)} · {when(it.updated_at)}</span></td>
                     <td><span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>{!readOnly && <button type="button" className="btn small" onClick={() => setEditing(it.id)}>Edit</button>}{!readOnly && it.status !== 'pending' && !it.pendingChange && <button type="button" className="btn small ghost" onClick={() => setMoving(it)}>Move…</button>}</span></td>
                   </tr>
@@ -249,7 +249,7 @@ function Coin({ owner }: { owner: string }) {
       <div className="stack tight small" style={{ maxHeight: 260, overflowY: 'auto' }}>
         {(ledger.data?.entries ?? []).map((e: any) => (
           <div key={e.id} className="row between" style={e.status === 'pending' ? { opacity: 0.75 } : undefined}>
-            <span className="grow"><span>{e.note || 'Coin'}</span>{e.status === 'pending' && <span className="chip teal" style={{ marginLeft: 6 }}>Waiting for you</span>}<br /><span className="tiny faint">{nameOf(e.by_id)} · {when(e.at)}{e.session_label ? ` · ${e.session_label}` : ''}</span></span>
+            <span className="grow"><span>{e.note || 'Coin'}</span>{e.status === 'pending' && <span className="chip teal" style={{ marginLeft: 6 }}>Waiting for you</span>}<br /><span className="tiny faint">{e.note && String(e.note).includes(nameOf(e.by_id)) ? '' : `${nameOf(e.by_id)} · `}{when(e.at)}{e.session_label ? ` · ${e.session_label}` : ''}</span></span>
             <span style={{ color: e.amount_cp < 0 ? 'var(--danger-text)' : 'var(--ok-text)' }}>{e.amount_cp > 0 ? '+' : ''}{coins(e.amount_cp, mode)}</span>
           </div>
         ))}

@@ -170,7 +170,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   const log = sectionOf(cur?.body ?? '', 'Log')?.text ?? '';
   const conv = sectionOf(cur?.body ?? '', 'Conversation')?.text ?? '';
   const notes = clean(draft?.dm_notes, 4000) && String(draft!.dm_notes).trim().split('\n').map((l: string) => `> ${l.replace(/^[-*]\s+/, '- ')}`).join('\n');
-  let body = `# Session ${n}: ${entry.title}\n\nIn the world: ${entry.world_from_label === entry.world_to_label ? entry.world_from_label : `${entry.world_from_label} to ${entry.world_to_label}`}. Session log entry ${entry.id}.\n\n${String(entry.summary).trim()}\n`;
+  let body = `# Session ${n}: ${entry.title}\n\nIn the world: ${entry.world_from_label === entry.world_to_label ? entry.world_from_label : `${entry.world_from_label} to ${entry.world_to_label}`}.\n\n${String(entry.summary).trim()}\n`;
   if (log) body = setSection(body, 'Log', log);
   if (conv) body = setSection(body, 'Conversation', conv);
   if (notes) body = setSection(body, 'DM notes', `> [!secret]\n${notes}`);
