@@ -120,9 +120,22 @@ test('Modules: the 2024 SRD is on by default, with its attribution', async () =>
   const fireball = (await termIds('Fireball'))[0];
   const spell = await ok('GET', `${M()}/terms/${encodeURIComponent(fireball.id)}`, T.jess);
   assert.equal(spell.data.level, 3);
-  const dragon = await ok('GET', `${M()}/terms/${encodeURIComponent((await termIds('Adult Blue Dragon'))[0].id)}`, T.jess);
+  const dragonId = encodeURIComponent((await termIds('Adult Blue Dragon'))[0].id);
+  const dragon = await ok('GET', `${M()}/terms/${dragonId}`, T.dm);
   assert.equal(dragon.data.abilities.str, 25);
   assert.ok(Array.isArray(dragon.data.actions) && dragon.data.actions.length > 0);
+  // A player's card has the actions but no AC, HP, ability scores or CR (the world shows monster health in words).
+  const seen = await ok('GET', `${M()}/terms/${dragonId}`, T.jess);
+  assert.ok(Array.isArray(seen.data.actions) && seen.data.actions.length > 0);
+  assert.equal(seen.data.abilities, undefined);
+  assert.equal(seen.data.ac, undefined);
+  assert.equal(seen.data.hp, undefined);
+  assert.equal(seen.data.cr, undefined);
+  assert.ok(!/\*\*AC\*\*|\*\*HP\*\*|\*\*CR\*\*|\| STR \|/.test(seen.text), seen.text.slice(0, 300));
+  assert.ok(!/ · (CR|AC|HP) \d/.test(seen.summary), seen.summary);
+  const card = await ok('GET', `${M()}/card/module/${dragonId}`, T.jess);
+  assert.ok(!/\*\*AC\*\*|\| STR \|/.test(card.text) && card.data.abilities === undefined);
+  assert.match((await ok('GET', `${M()}/card/module/${dragonId}`, T.dm)).text, /\*\*AC\*\*/);
   const conds = await ok('GET', `${M()}/terms?kind=condition&limit=100`, T.jess);
   assert.ok(conds.total >= 14, 'all conditions are bundled');
 });
@@ -339,7 +352,7 @@ test('Modules: import from a JSON API with a field mapping and paging', async ()
   assert.equal(fb.kind, 'spell');
   assert.match(fb.text, /A \*\*big\*\* boom\./, 'HTML became Markdown');
   assert.deepEqual(fb.aliases, ['Boom']);
-  const gob = await ok('GET', `${M()}/terms/${encodeURIComponent('open-rules:quilloth')}`, T.jess);
+  const gob = await ok('GET', `${M()}/terms/${encodeURIComponent('open-rules:quilloth')}`, T.dm);
   assert.deepEqual(gob.data, { ac: 15 });
   assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { ...req, itemsPath: 'nothing.here' })).status, 400);
   assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { ...req, url: 'ftp://x.test/a' })).status, 400);

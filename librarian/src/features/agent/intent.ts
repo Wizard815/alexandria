@@ -4,35 +4,59 @@
 // no model at all (rolling dice, the date, next turn, adding creatures).
 import { randomInt } from 'node:crypto';
 
-export const MAX_TOOLS = 8;
-/** Offered for every message. */
+export const MAX_TOOLS = 16;
+/** Offered to the player harness for every message. */
 export const CORE_TOOLS = ['search_library', 'read_page'];
+/** Offered to the DM harness for every message: the tools of a DM's working day. `more_tools` is the harness's own meta tool. */
+export const DM_CORE_TOOLS = ['search_library', 'read_page', 'save_page', 'context_for', 'who_is', 'memory_log', 'status_update', 'get_combat', 'lookup_rule', 'more_tools'];
 
 interface Category { re: RegExp; tools: string[] }
 
-// In the order they are tried; a message may match several. Each list is in order of usefulness.
+// Most specific first: when the cap is reached, the categories at the end are the ones left out.
+// A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
-  { re: /\b(stat ?blocks?|stats? for|monster|creature|cr \d|challenge rating)\b/i, tools: ['make_statblock', 'lookup_term', 'read_term', 'add_combatant'] },
-  { re: /\b(combat|initiative|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?)\b/i, tools: ['get_combat', 'add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_conditions', 'remove_combatant', 'set_combat'] },
+  { re: /\b(play|mood|tense|ambience|ambient|sound|sounds|music|scene|layer|soundtrack|sound ?board|sound effects?|sfx|thunder|rain|creak|hush|eerie|battle music)\b/i, tools: ['get_sound_now', 'play_music', 'play_ambience', 'send_scene', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes'] },
+  { re: /\b(templates?|sculpt\w*)\b/i, tools: ['list_templates', 'sculpt_templates', 'sculpt', 'create_template'] },
+  { re: /\b(initiative|end (the )?(fight|combat|battle|encounter)|flee|fled|flees|run away|remove|removed|kill(ed)?|dead|dies|died|defeated|slain)\b/i, tools: ['set_initiative', 'remove_combatant', 'set_combat', 'damage_combatant', 'add_combatant', 'next_turn'] },
+  { re: /\b(stat ?blocks?|stats? for|cr \d|challenge rating)\b/i, tools: ['make_statblock', 'lookup_term', 'read_term', 'add_combatant'] },
+  { re: /\b(combat|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|ogres?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?|takes \d+)\b/i, tools: ['add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_initiative', 'set_conditions', 'remove_combatant', 'set_combat'] },
+  { re: /\b(start a mystery|new mystery|a mystery:|create a mystery)\b/i, tools: ['revelation_create', 'revelation_mark', 'context_for'] },
+  { re: /\b(add (an? )?(npc|person)|npc called|new person)\b/i, tools: ['add_person', 'update_person', 'add_quote', 'list_people'] },
+  { re: /\b(record that .* said|said ["“]|quotes?)\b/i, tools: ['add_quote', 'list_people', 'add_person'] },
+  { re: /\b(tried to recall|recall(ed)? what|add a recall)\b/i, tools: ['add_recall', 'list_people', 'update_person'] },
+  { re: /\b(voice presets?|presets?)\b/i, tools: ['list_voice_presets', 'speak'] },
+  { re: /\b(which world|world settings|settings do we have|switched on)\b/i, tools: ['world_info', 'world_sources'] },
+  { re: /\b(quick events?|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['list_quick_events', 'send_quick_event', 'resolve_quick_event', 'cancel_quick_event'] },
+  { re: /\b(arcs?|close the (current )?arc|new arc|start an arc)\b/i, tools: ['arc_close', 'arc_start', 'context_for', 'codex_upsert'] },
+  { re: /\b(jot|jot down|note down|write (this |that |it )?down|an idea|idea:|log that|log this|file (this )?conversation|by speaker)\b/i, tools: ['memory_capture', 'conversation_log', 'memory_log'] },
+  { re: /\b(broker|special offers?|offers?|information for sale|sell (this|that|the) (fact|info)|may sell)\b/i, tools: ['add_broker_note', 'send_broker_offer', 'list_broker_requests', 'broker_answer', 'list_broker_offers', 'ask_broker_quote', 'broker_deliver', 'broker_refuse'] },
+  { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
+  { re: /\b(related pages?|similar pages?|read like|other pages|everything we have|search everything)\b/i, tools: ['related_pages', 'search_world', 'story_bible'] },
+  { re: /\b(relations?|relationships?|family links?|links between|connections between)\b/i, tools: ['list_relations', 'list_people'] },
+  { re: /\b(who is (online|here|present)|online right now|presence|who('s| is) at the table)\b/i, tools: ['get_live', 'list_members'] },
+  { re: /\b(rumou?rs? table|rumou?rs? the sailors|as a rumou?r|travel events?|boxed text|prep checklist)\b/i, tools: ['sculpt', 'list_templates', 'sculpt_templates', 'send_scene'] },
+  { re: /\b(save (that|it|this|the) (generated |tavern |npc |map |monster )?(to|as|in)|save_generated)\b/i, tools: ['save_generated', 'generate', 'generate_map', 'save_page'] },
+  { re: /\b(transfers?|who (gave|has given)|has given|given what|trades?)\b/i, tools: ['list_transfers', 'list_my_trades', 'get_inventory'] },
+  { re: /\b(answer .*question|(player|players|anselm|jess\w*|tomas?)['’]?s? questions?|requests?|approvals?|approve)\b/i, tools: ['list_requests', 'decide_request', 'list_approvals', 'decide_approval'] },
+  { re: /\b(promote|arcs?|goals?|mystery|mysteries|revelations?|capture|transcript|clues?|campaign status|status doc|hooks?|threads?|accrete|codex|memory)\b/i, tools: ['codex_upsert', 'revelation_mark', 'goal_update', 'promote', 'search_transcript', 'memory_capture', 'revelation_create', 'arc_close', 'arc_start', 'conversation_log'] },
+  { re: /\b(names?|name for|naming)\b/i, tools: ['generate_names'] },
+  { re: /\b(coins?|gold|loot|hoard|treasure|copper|silver|platinum)\b/i, tools: ['generate_coins', 'add_coin', 'generate_items'] },
+  { re: /\b(inventory|stash|items?|give|gave|given|pouch|purse)\b/i, tools: ['get_inventory', 'add_item', 'add_coin', 'move_item', 'list_transfers', 'generate_items', 'list_my_trades'] },
+  { re: /\b(npc|npcs|villain|monster|boss|creature|dungeon|cave|castle|keep|battle ?map|town map|city map|world map|region map|forest map|wilderness|floor ?plan|map of|homebrew|generat(e|or|ors)|random(ly)?|roll up)\b/i, tools: ['generate', 'generate_map', 'save_generated', 'make_statblock'] },
   { re: /\b(rules?|spell|spells|how (does|do|many|much)|dc \d|advantage|disadvantage|grapple|opportunity attack|saving throw|cast|concentration|cover|rest rules?|feat|class feature)\b/i, tools: ['lookup_rule', 'lookup_term', 'read_term'] },
-  { re: /\b(session (log|summary|recap)|publish|draft|the log|date change)\b/i, tools: ['draft_session_summary', 'list_session_log_drafts', 'read_session_log_draft', 'edit_session_log_draft', 'decide_session_date', 'publish_session_log', 'list_session_log'] },
-  { re: /\b(session|last (time|session|game)|recap|transcript|happened|said|told|heard|remember|earlier|yesterday|we (met|found|fought|saw|decided))\b/i, tools: ['search_transcript', 'list_session_log'] },
+  { re: /\b(session (log|summary|recap)|summary of the (last )?session|draft (a |the )?(summary|title)|the draft|published|publish|the log|date change)\b/i, tools: ['list_session_log', 'publish_session_log', 'draft_session_summary', 'list_session_log_drafts', 'read_session_log_draft', 'edit_session_log_draft', 'decide_session_date', 'publish_session_log'] },
+  { re: /\b(session|last (time|session|game)|recap|happened|said|told|heard|remember|earlier|yesterday|we (met|found|fought|saw|decided))\b/i, tools: ['search_transcript', 'list_session_log'] },
   { re: /\b(world ?lore|llm wiki|your (own )?wiki|workspace)\b/i, tools: ['lore_write', 'lore_list', 'lore_read', 'lore_move', 'lore_delete'] },
   { re: /\b(my (goals?|journal|notes?|knowledge|clues?|bonds?)|write (this |that )?down|jot|remember (this|that)|what do i know|what have i (learned|found))\b/i, tools: ['my_context', 'my_goal_update', 'my_memory_log', 'my_memory_capture', 'my_who_is'] },
-  { re: /\b(codex|promote|arcs?|revelations?|clues?|mysteries|mystery|campaign status|status doc|hooks?|threads?|goals?|accrete|remember|memory|capture|who is|who was)\b/i, tools: ['context_for', 'who_is', 'codex_upsert', 'status_update', 'revelation_mark', 'memory_log', 'memory_capture', 'goal_update', 'promote', 'revelation_create', 'arc_close', 'arc_start', 'conversation_log'] },
+  { re: /\b(who is|who was)\b/i, tools: ['who_is', 'context_for', 'story_bible'] },
   { re: /\b(pages?|save|write|draft|create|make a note|note|lore|wiki|library|folder|rewrite|edit|update|summari[sz]e|summary|outline)\b/i, tools: ['save_page', 'list_pages', 'list_relations'] },
-  { re: /\b(npc|people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote', 'update_person', 'add_recall'] },
+  { re: /\b(people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote', 'update_person', 'add_recall'] },
   { re: /\b(requests?|approve|approvals?|change request|reject)\b/i, tools: ['list_approvals', 'decide_approval', 'list_requests', 'decide_request'] },
-  { re: /\b(items?|loot|gold|coins?|copper|silver|platinum|inventory|pouch|purse|give|gave|buy|sell|price|treasure)\b/i, tools: ['get_inventory', 'add_item', 'add_coin', 'move_item', 'list_transfers', 'generate_items', 'generate_coins', 'list_my_trades'] },
   { re: /\b(date|time|day|days|week|month|calendar|clock|long rest|short rest|rest|dawn|dusk|midnight|holiday|festival|deadline)\b/i, tools: ['get_world_date', 'advance_world_time', 'list_world_events', 'add_world_event'] },
   { re: /\b(broker|offer|offers|information for sale|rumou?rs?)\b/i, tools: ['list_broker_requests', 'list_broker_offers', 'ask_broker_quote', 'send_broker_offer', 'add_broker_note', 'broker_answer', 'broker_deliver', 'broker_refuse'] },
   { re: /\b(game night|schedule|rsvp|next game|real[- ]life)\b/i, tools: ['list_calendar', 'schedule_session'] },
-  { re: /\b(quick event|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['send_quick_event', 'list_quick_events', 'resolve_quick_event', 'cancel_quick_event'] },
   { re: /\b(stage|spotlight|handout|show (it |this |that |the )?(to |on )?(the )?(table|players|screen|party)|put (it |this |that )?on (the )?(stage|screen|board))\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card', 'sculpt', 'speak'] },
-  { re: /\b(sculpt|set the scene|describe (the|a) (scene|room|place|tavern|shop)|read[- ]aloud|boxed text|npc for|tavern|template|rumou?rs? table|travel event|riddle|monologue|prep checklist|loot hoard|handout)\b/i, tools: ['sculpt', 'send_scene', 'sculpt_templates', 'list_templates', 'speak', 'show_on_stage', 'send_table_chat'] },
-  { re: /\b(generate|random(ly)?|names?|hoard|loot|treasure)\b/i, tools: ['generate_names', 'generate_items', 'generate_coins'] },
-  { re: /\b(generat(e|or|ors)|random(ly)?|roll up|npc|villain|monster|boss|dungeon|cave|castle|keep|tavern|battle ?map|town map|city map|world map|region map|forest map|wilderness|floor ?plan|map of|homebrew)\b/i, tools: ['generate', 'generate_map', 'save_generated'] },
-  { re: /\b(music|ambience|ambient|soundtrack|sound ?board|sound effects?|sfx|play (some |the )?(music|sound|rain|thunder)|thunder|rain|creak)\b/i, tools: ['play_music', 'play_ambience', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes', 'get_sound_now'] },
+  { re: /\b(set the scene|describe (the|a) (scene|room|place|tavern|shop)|read[- ]aloud|boxed text|rumou?rs? table|travel event|riddle|monologue|prep checklist|loot hoard|handout)\b/i, tools: ['sculpt', 'send_scene', 'sculpt_templates', 'list_templates', 'speak', 'show_on_stage', 'send_table_chat'] },
   { re: /\b(speak|say (it )?aloud|voice|narrat\w*|read aloud|aloud)\b/i, tools: ['speak', 'list_voice_presets'] },
   { re: /\b(chat|tell the (table|players|party)|message the (table|players|party)|announce|post to)\b/i, tools: ['send_table_chat', 'read_table_chat', 'read_party_chat', 'get_game_session'] },
   { re: /\b(record(ing)?|start (the |a )?(session|game|game night)|end (the |a )?(session|game|game night)|open the table|close the table|game session)\b/i, tools: ['start_recording', 'stop_recording', 'recording_status', 'start_game_session', 'end_game_session', 'get_game_session'] },
@@ -40,30 +64,35 @@ const CATEGORIES: Category[] = [
   { re: /\b(map|pins?|marks?|markers?|route|waypoints?)\b/i, tools: ['list_map_marks', 'add_map_mark', 'hide_map_mark', 'delete_map_mark'] },
   { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
   { re: /\b(sources?|connections?|connected|sync(ed|s)?|imported|where (does|did) .*(library|lore|pages?) come from)\b/i, tools: ['world_sources'] },
-  { re: /\b(story bible|bible|what do we know|who is|what is|tell me about|lore|history of|related|similar|connections?)\b/i, tools: ['story_bible', 'related_pages', 'search_world'] },
+  { re: /\b(story bible|bible|what do we know|what is|tell me about|history of|related|similar)\b/i, tools: ['story_bible', 'related_pages', 'search_world'] },
   { re: /\b(find|search|look up|where)\b/i, tools: ['search_world', 'world_info', 'source_lookup'] },
   { re: /\b(kanka|legendkeeper|my key|source lookup|live (lookup|search)|in the source|my (own )?(character|backstory|sheet))\b/i, tools: ['source_lookup'] },
   { re: /\b(who is in|players|party members|character|characters|members)\b/i, tools: ['list_members', 'get_live'] },
 ];
 const DEFAULTS = ['search_transcript', 'list_pages', 'lookup_rule', 'get_world_date', 'list_people', 'get_live'];
 
-/** Every tool name some message can get offered (the categories, the defaults and the two always on). */
-export const offerableTools = (): Set<string> => new Set([...CORE_TOOLS, ...DEFAULTS, ...CATEGORIES.flatMap((c) => c.tools)]);
+/** Every tool name some message can get offered (the categories, the defaults and the always-on ones). */
+export const offerableTools = (): Set<string> => new Set([...CORE_TOOLS, ...DM_CORE_TOOLS, ...DEFAULTS, ...CATEGORIES.flatMap((c) => c.tools)]);
 
 /**
- * At most MAX_TOOLS tool names for this message, from the ones a harness may use
- * (`available`). search_library and read_page are always in. A tool that is
- * not offered but exists is still run if the model asks for it.
+ * At most `max` tool names for this message, from the ones a harness may use
+ * (`available`). The DM gets a fixed core (DM_CORE_TOOLS) then the matching
+ * categories, most specific first, and never the player-only `my_*` tools; a
+ * player gets search_library and read_page then the categories. A tool that is
+ * not offered but exists is still run if the model asks for it, and
+ * `more_tools` lets the model fetch the schemas of others.
  */
-export function selectTools(text: string, available: string[], max = MAX_TOOLS): string[] {
+export function selectTools(text: string, available: string[], max = MAX_TOOLS, dm = available.includes('save_page')): string[] {
   const have = new Set(available);
+  if (dm) have.add('more_tools');
   const out: string[] = [];
-  const add = (n: string) => { if (have.has(n) && !out.includes(n)) out.push(n); };
-  for (const n of CORE_TOOLS) add(n);
+  const add = (n: string) => { if (have.has(n) && !out.includes(n) && !(dm && n.startsWith('my_'))) out.push(n); };
+  for (const n of dm ? DM_CORE_TOOLS : CORE_TOOLS) add(n);
   let matched = false;
   for (const c of CATEGORIES) if (c.re.test(text)) { matched = true; for (const n of c.tools) add(n); }
   // Combat words are common in plain questions ("what turn is it"): the combat list leaves room for the others.
-  if (!matched || out.length < max) for (const n of DEFAULTS) add(n);
+  if (!matched || (!dm && out.length < max)) for (const n of DEFAULTS) add(n);
+  // The core always stays; what does not fit among the categories is left out.
   return out.slice(0, max);
 }
 
@@ -120,7 +149,8 @@ export type FastPlan =
   | { kind: 'reply'; text: string; what: string }
   | { kind: 'date'; what: string }
   | { kind: 'calls'; calls: { tool: string; args: Record<string, unknown> }[]; intro: string; what: string }
-  | { kind: 'combat'; verb: 'damage' | 'heal' | 'who'; target?: string; amount?: number; what: string };
+  | { kind: 'combat'; verb: 'damage' | 'heal' | 'who' | 'init'; target?: string; amount?: number; what: string }
+  | { kind: 'pc'; name: string; initiative?: number; what: string };
 
 const clean = (s: string) => s.trim().replace(/^(hey|ok|okay|so)[,\s]+/i, '').replace(/^(please|pls|can you|could you|would you)\s+/i, '').replace(/\s*(please|pls|thanks|thank you)?[.!?]*\s*$/i, '').trim();
 
@@ -165,7 +195,15 @@ export function fastPlan(raw: string, dm: boolean, rng: (n: number) => number = 
   if (/^(next(\s+turn)?|end(\s+the)?\s+turn|next up|advance(\s+the)?\s+(turn|initiative)|go to the next (turn|creature|combatant))$/i.test(t)) return { kind: 'calls', what: 'next_turn', intro: 'Moving to the next turn.', calls: [{ tool: 'next_turn', args: {} }] };
   if (/^(who'?s|who is|whose)\s+(up|next|turn)(\s+(is it|now|next))?$/i.test(t) || /^whose turn( is it)?$/i.test(t)) return { kind: 'combat', verb: 'who', what: 'whose_turn' };
 
-  if ((m = t.match(/^(?:damage|hit|hurt|deal)\s+(.+?)\s+(?:for|by|with)\s+(\d{1,4})(?:\s*(?:damage|hp|points?))?$/i)) || (m = t.match(/^(.+?)\s+takes?\s+(\d{1,4})(?:\s*(?:damage|hp))?$/i))) return { kind: 'combat', verb: 'damage', target: m[1], amount: Number(m[2]), what: 'damage' };
+  if (/^(?:end|stop|finish)\s+(?:the\s+)?(?:combat|fight|battle|encounter)$/i.test(t) || /^(?:the\s+)?(?:combat|fight|battle|encounter)\s+is\s+over$/i.test(t)) return { kind: 'calls', what: 'end_combat', intro: 'Ending the fight.', calls: [{ tool: 'set_combat', args: { active: false } }] };
+
+  if ((m = t.match(/^(?:damage|hit|hurt|deal)\s+(.+?)\s+(?:for|by|with)\s+(\d{1,4})(?:\s*(?:damage|hp|points?))?$/i)) || (m = t.match(/^(.+?)\s+(?:takes?|took)\s+(\d{1,4})(?:\s+(?:points?\s+of\s+)?(?:[a-z]+\s+)?(?:damage|hp))?(?:\s+(?:from|by|with|to)\s+.+|\s*\(.*\))?$/i))) return { kind: 'combat', verb: 'damage', target: m[1], amount: Number(m[2]), what: 'damage' };
+  // "set Goblin 2 initiative to 14", "Goblin 2 initiative 14"
+  if ((m = t.match(/^(?:set\s+)?(.+?)(?:'s)?\s+initiative\s+(?:to\s+|is\s+|=\s*)?(\d{1,2})$/i)) && !/^add\b/i.test(t)) return { kind: 'combat', verb: 'init', target: m[1], amount: Number(m[2]), what: 'set_initiative' };
+  // "add Tom to combat with initiative 17", "Tom rolled 17 for initiative": a player character with the roll the player made.
+  if ((m = t.match(/^add\s+(.+?)\s+(?:to\s+(?:the\s+)?(?:combat|initiative|fight|tracker|encounter)\s+)?(?:with|at|on)\s+(?:an?\s+)?(?:initiative|init)\s+(?:of\s+)?(\d{1,2})$/i)) || (m = t.match(/^(.+?)\s+rolled\s+(?:a\s+)?(\d{1,2})\s+(?:for\s+|on\s+)?initiative$/i))) {
+    if (!NOT_CREATURE.test(m[1]) && !/^\d/.test(m[1])) return { kind: 'pc', name: m[1].replace(/^the\s+/i, ''), initiative: Number(m[2]), what: 'add_pc' };
+  }
   if ((m = t.match(/^heal\s+(.+?)\s+(?:for|by)?\s*(\d{1,4})(?:\s*(?:hp|points?))?$/i))) return { kind: 'combat', verb: 'heal', target: m[1], amount: Number(m[2]), what: 'heal' };
 
   // "add 1d4 goblins", "add 3 orcs to combat", "add a goblin to initiative"

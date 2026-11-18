@@ -7,7 +7,7 @@ import type { Deps } from '../../app.ts';
 import { all } from '../../core/db.ts';
 import { HttpError } from '../../core/util.ts';
 import {
-  CODEX_DIR, KINDS, STATUS_PATH, appendToSection, fileName, listOf, listPages, norm, players, readPage, secretBlock, sectionOf, today, writePage, type VaultPage,
+  CODEX_DIR, KINDS, STATUS_PATH, vaultLevel, appendToSection, fileName, listOf, listPages, norm, players, readPage, secretBlock, sectionOf, today, writePage, type VaultPage,
 } from './vault.ts';
 
 export interface Match {
@@ -100,8 +100,8 @@ const KIND_OF_LIBRARY = (k: string | null): string => {
   return 'npc';
 };
 
-export interface UpsertArgs { entity?: string; name?: string; kind?: string; section: string; text: string; session?: number | null; by?: string | null; level?: string }
-export interface UpsertResult { rel: string; created: boolean; title: string; entity?: string }
+export interface UpsertArgs { entity?: string; name?: string; kind?: string; section: string; text: string; session?: number | null; by?: string | null; level?: string; /** The text is for players to read. Without it, on a page players can open, it is written in a secret block. */ visible?: boolean }
+export interface UpsertResult { rel: string; created: boolean; title: string; entity?: string; /** Who can read what was written. */ visibleToPlayers?: boolean; level?: string }
 
 /** Add to an entity's codex page; make the page only when none exists. */
 export function codexUpsert(d: Deps, worldId: string, a: UpsertArgs): UpsertResult {
@@ -114,11 +114,16 @@ export function codexUpsert(d: Deps, worldId: string, a: UpsertArgs): UpsertResu
   let page = findCodex(d, worldId, { entity: entityArg || undefined, name: name || entityArg }, pages);
   const section = sectionName(a.section || 'notes');
   const linkSession = a.session ? ` ([[session-${a.session}]])` : '';
-  const line = section === 'Secrets' ? secretBlock(text) : section === 'Appearances' || section === 'What changed' ? `- ${today()}: ${text}${linkSession}` : `- ${text}`;
+  const plain = section === 'Appearances' || section === 'What changed' ? `- ${today()}: ${text}${linkSession}` : `- ${text}`;
+  // What Minerva writes is her own analysis (hooks, plans, what an NPC wants). On a page players can open it goes in a secret block,
+  // which the players' copy of the page leaves out, unless the DM said it is for them to read.
+  const lineFor = (level: string) => (section === 'Secrets' || (level === 'party' && a.visible !== true) ? secretBlock(section === 'Secrets' ? text : plain.replace(/^-\s+/, '')) : plain);
   if (page) {
+    const level = vaultLevel(page.fm);
+    const line = lineFor(level);
     const body = appendToSection(page.body, section, line);
     writePage(d, worldId, page.rel, { body, by: a.by });
-    return { rel: page.rel, created: false, title: page.title, entity: String(page.fm.entity ?? '') || undefined };
+    return { rel: page.rel, created: false, title: page.title, entity: String(page.fm.entity ?? '') || undefined, level, visibleToPlayers: level === 'party' && !line.startsWith('> [!secret]') };
   }
   // No page: it is made from what the library knows of the entity, never copying its text.
   const lib = entityArg
@@ -129,17 +134,23 @@ export function codexUpsert(d: Deps, worldId: string, a: UpsertArgs): UpsertResu
   const kind = pcs ? 'pc' : (KINDS as readonly string[]).includes(String(a.kind)) ? String(a.kind) : KIND_OF_LIBRARY(lib?.kind ?? null);
   const rel = `${CODEX_DIR[kind]}/${fileName(title)}.md`;
   const existing = readPage(d, worldId, rel);
-  if (existing) { writePage(d, worldId, rel, { body: appendToSection(existing.body, section, line), by: a.by }); return { rel, created: false, title: existing.title }; }
+  if (existing) {
+    const level = vaultLevel(existing.fm);
+    const line = lineFor(level);
+    writePage(d, worldId, rel, { body: appendToSection(existing.body, section, line), by: a.by });
+    return { rel, created: false, title: existing.title, level, visibleToPlayers: level === 'party' && !line.startsWith('> [!secret]') };
+  }
   const head = lib ? `Library: [[${lib.title}]]\n\n` : '';
   const body = `# ${title}\n\n${head}${['Appearances', 'What changed', 'Ties to players', 'Secrets'].filter((s) => s !== section).map((s) => `## ${s}\n`).join('\n')}\n`;
-  const withSection = appendToSection(body, section, line);
   const lvl = ['party', 'broker', 'dm', 'classified'].includes(String(a.level)) ? String(a.level) : kind === 'pc' ? 'party' : 'dm';
+  const line = lineFor(lvl);
+  const withSection = appendToSection(body, section, line);
   writePage(d, worldId, rel, {
     title,
     fm: { type: 'codex', kind, level: lvl, ...(lib ? { entity: lib.id } : {}), ...(pcs ? { player: pcs.accountId } : {}), aliases: [], tags: [], sources: [] },
     body: withSection, by: a.by,
   });
-  return { rel, created: true, title, entity: lib?.id };
+  return { rel, created: true, title, entity: lib?.id, level: lvl, visibleToPlayers: lvl === 'party' && !line.startsWith('> [!secret]') };
 }
 
 // ---- promotion ------------------------------------------------------------------
@@ -217,4 +228,21 @@ export function promotionDraft(d: Deps, worldId: string, name: string, kind?: st
   const m = mentionsOf(d, worldId, name);
   const body = `# ${title}\n\n${lib ? `Library: [[${lib.title}]]\n\n` : ''}## Appearances\n${m.join('\n')}\n\n## What changed\n\n## Ties to players\n\n## Secrets\n`;
   return { rel: `${CODEX_DIR[k]}/${fileName(title)}.md`, title, fm: { type: 'codex', kind: k, level: 'dm', ...(lib ? { entity: lib.id } : {}), aliases: lib && norm(lib.title) !== norm(name) ? [name] : [], tags: [], sources: [] }, body };
+}
+
+/** Where a codex_upsert would write and who could read it: the level of the page (or of the one it would make) and whether the text lands in the players' copy. */
+export function upsertTarget(d: Deps, worldId: string, a: { entity?: string; name?: string; kind?: string; section?: string; visible?: boolean; level?: string }): { level: string; visible: boolean; exists: boolean } {
+  const name = String(a.name ?? '').trim();
+  const entityArg = String(a.entity ?? '').trim();
+  let level = 'dm';
+  let exists = false;
+  try {
+    const page = name || entityArg ? findCodex(d, worldId, { entity: entityArg || undefined, name: name || entityArg }, codexPages(d, worldId)) : null;
+    if (page) { level = vaultLevel(page.fm); exists = true; }
+    else {
+      const pcs = players(d, worldId).some((p) => norm(p.character) === norm(name));
+      level = ['party', 'broker', 'dm', 'classified'].includes(String(a.level)) ? String(a.level) : pcs || String(a.kind) === 'pc' ? 'party' : 'dm';
+    }
+  } catch { /* unknown: dm */ }
+  return { level, exists, visible: level === 'party' && a.visible === true && sectionName(String(a.section ?? 'notes')) !== 'Secrets' };
 }

@@ -22,7 +22,7 @@ export async function testJob(d: Deps, job: Job, timeoutMs = 30_000): Promise<Te
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     if (job === 'chat' || job === 'audit') {
-      const r = await chat(d, job, { messages: [{ role: 'user', content: 'Reply with the single word: ready' }], maxTokens: 16, temperature: 0 }, ctl.signal);
+      const r = await chat(d, job, { messages: [{ role: 'user', content: 'Reply with the single word: ready' }], maxTokens: 16, temperature: 0, noFloor: true }, ctl.signal);
       return done(r.content.trim() || '(empty reply)');
     }
     if (job === 'audio') {
