@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all, one, run } from '../src/core/db.ts';
-import { Limiter, limiterFor, limiterState, limitedFetch, limitsOf, resetLimiters, setClock } from '../src/intake/ratelimit.ts';
+import { Limiter, limiterFor, limiterState, limitedFetch, limitKeyOf, limitsOf, projectOf, projectWindow, resetLimiters, setClock } from '../src/intake/ratelimit.ts';
+import { worldStatus } from '../src/features/connections/status.ts';
+import { budgetOf, getState, tieredOf } from '../src/intake/tiers.ts';
 import { tierSummary, ensureFull } from '../src/intake/detail.ts';
 import { resetBuckets } from '../src/intake/tiers.ts';
 import { CallCounter } from '../src/intake/connector.ts';
@@ -26,10 +28,14 @@ function fakeClock(start = 1_000_000) {
 // ---- the limiter itself ---------------------------------------------------------------------------------------------
 
 test('RateLimit_LimitsAreTheConnectorsDefaultsUntilTheConnectionSaysOtherwise', () => {
-  assert.deepEqual(limitsOf('kanka-api', {}), { perMinute: 30, perSecond: 0, spreadMinutes: 1 });
-  assert.deepEqual(limitsOf('legendkeeper-api', {}), { perMinute: 60, perSecond: 2, spreadMinutes: 1 });
-  assert.deepEqual(limitsOf('api', {}), { perMinute: 60, perSecond: 0, spreadMinutes: 1 });
-  assert.deepEqual(limitsOf('kanka-api', { maxPerMinute: 90, maxPerSecond: 3, spreadMinutes: 0 }), { perMinute: 90, perSecond: 3, spreadMinutes: 0 });
+  assert.deepEqual(limitsOf('kanka-api', {}), { perMinute: 30, perSecond: 0, spreadMinutes: 1, perHour: 0 }, 'Kanka documents no hourly cap');
+  assert.deepEqual(limitsOf('legendkeeper-api', {}), { perMinute: 200, perSecond: 2, spreadMinutes: 1, perHour: 6000 }, 'the tightest tier a real key reported, and the documented hourly cap');
+  assert.deepEqual(limitsOf('legendkeeper-mcp', {}), { perMinute: 200, perSecond: 2, spreadMinutes: 1, perHour: 6000 });
+  assert.deepEqual(limitsOf('api', {}), { perMinute: 60, perSecond: 0, spreadMinutes: 1, perHour: 0 });
+  assert.deepEqual(limitsOf('kanka-api', { maxPerMinute: 90, maxPerSecond: 3, spreadMinutes: 0 }), { perMinute: 90, perSecond: 3, spreadMinutes: 0, perHour: 0 });
+  assert.equal(limitsOf('legendkeeper-api', { maxPerHour: 3000 }).perHour, 3000);
+  assert.equal(limitsOf('legendkeeper-api', { maxPerHour: 0 }).perHour, 0, 'zero: no hourly cap');
+  assert.equal(limitsOf('kanka-api', { maxPerHour: 1000 }).perHour, 1000, 'any connection can be given an hourly cap');
   assert.equal(limitsOf('kanka-api', { maxPerMinute: 'junk' }).perMinute, 30, 'a bad value falls back to the default');
   assert.equal(limitsOf('kanka-api', { maxPerMinute: 0 }).perMinute, 30, 'zero calls a minute is not a limit, it is the default');
   assert.equal(limitsOf('kanka-api', { maxPerMinute: 90 }, {}, 5).spreadMinutes, 5, 'a source can have its own spread');
@@ -97,6 +103,97 @@ test('RateLimit_SpacingPacesTheScan', async () => {
   const before = clock.t;
   await lim.acquire(undefined, 0);
   assert.equal(clock.t, before);
+});
+
+// ---- hourly caps, the project allowance, the site's own limit, the reserve for opens --------------------------------------------------
+
+test('RateLimit_AnHourlyCapHoldsInAnyHourAndRecovers', async () => {
+  const clock = fakeClock();
+  const lim = new Limiter('h', { perMinute: 0, perSecond: 0, spreadMinutes: 0, perHour: 10 });
+  const times: number[] = [];
+  for (let i = 0; i < 14; i++) { await lim.acquire(); times.push(clock.t); }
+  for (let i = 0; i + 10 < times.length; i++) assert.ok(times[i + 10] - times[i] >= 3_600_000, `no more than 10 calls in any hour (${i})`);
+  assert.ok(times[10] - times[0] >= 3_600_000, 'the 11th call waited for the first to leave the hour');
+  assert.equal(lim.snapshot().perHour, 10);
+});
+
+test('RateLimit_EveryKeyOfOneLegendKeeperProjectSharesOneHourlyAllowance', async () => {
+  const clock = fakeClock();
+  const db = {};
+  const win = projectWindow(db, 'proj:abc', 12);
+  const a = new Limiter('key-a', { perMinute: 0, perSecond: 0, spreadMinutes: 0, perHour: 100 });
+  const b = new Limiter('key-b', { perMinute: 0, perSecond: 0, spreadMinutes: 0, perHour: 100 });
+  a.project = win; b.project = projectWindow(db, 'proj:abc', 12);
+  assert.equal(b.project, win, 'the same project is the same window, whichever limiter asks');
+  const times: number[] = [];
+  for (let i = 0; i < 16; i++) { await (i % 2 ? b : a).acquire(); times.push(clock.t); }
+  assert.ok(times[12] - times[0] >= 3_600_000, 'two keys together made 12 calls in the hour, the 13th waits');
+  for (let i = 0; i + 12 < times.length; i++) assert.ok(times[i + 12] - times[i] >= 3_600_000);
+  // Another project, or another database, has its own.
+  assert.notEqual(projectWindow(db, 'proj:other', 12), win);
+  assert.notEqual(projectWindow({}, 'proj:abc', 12), win);
+  // The project comes from the connection's own settings (LegendKeeper only), whichever way the address is given.
+  assert.deepEqual(projectOf('legendkeeper-api', { apiUrl: 'https://www.legendkeeper.com/api/v3/projects/ABC123/' }), { id: 'abc123', perHour: 12000 });
+  assert.deepEqual(projectOf('legendkeeper-mcp', { project: 'My World' }), { id: 'my world', perHour: 12000 });
+  assert.equal(projectOf('kanka-api', { campaignId: '1' }), null);
+  assert.equal(projectOf('legendkeeper-api', {}), null);
+});
+
+test('RateLimit_TheSitesOwnPerMinuteLimitIsAdoptedWhenLowerThanOurs', async () => {
+  const clock = fakeClock();
+  const lim = new Limiter('k', { perMinute: 300, perSecond: 0, spreadMinutes: 0, perHour: 0 });
+  lim.observe(new Headers({ 'X-RateLimit-Limit': '200', 'X-RateLimit-Remaining': '199' }), 200);
+  assert.equal(lim.perMinute, 180, 'the real key answered 200 a minute: stay a tenth under it');
+  // Not lower than ours: nothing changes.
+  const same = new Limiter('k2', { perMinute: 200, perSecond: 0, spreadMinutes: 0, perHour: 0 });
+  same.observe(new Headers({ 'X-RateLimit-Limit': '200' }), 200);
+  assert.equal(same.perMinute, 200);
+  const times: number[] = [];
+  for (let i = 0; i < 190; i++) { await lim.acquire(); times.push(clock.t); }
+  for (let i = 0; i + 180 < times.length; i++) assert.ok(times[i + 180] - times[i] >= 60_000);
+});
+
+test('RateLimit_BackgroundReadsNeverTakeTheReserveKeptForOpens', async () => {
+  const clock = fakeClock();
+  const lim = new Limiter('r', { perMinute: 10, perSecond: 0, spreadMinutes: 0, perHour: 0 });
+  // 8 background calls fit in the minute (80%); the 9th waits for the minute to pass.
+  const bg: number[] = [];
+  for (let i = 0; i < 9; i++) { await lim.acquire(undefined, 0, true); bg.push(clock.t); }
+  assert.equal(bg[7] - bg[0], 0, 'eight went at once');
+  assert.ok(bg[8] - bg[0] >= 60_000, 'the ninth background call waited: the last two are for opens');
+  // After eight background calls, a page somebody opens goes straight away.
+  const clock2 = fakeClock();
+  const lim2 = new Limiter('r2', { perMinute: 10, perSecond: 0, spreadMinutes: 0, perHour: 0 });
+  for (let i = 0; i < 8; i++) await lim2.acquire(undefined, 0, true);
+  const t0 = clock2.t;
+  await lim2.acquire(); await lim2.acquire();
+  assert.equal(clock2.t, t0, 'both reserved calls were available at once');
+  // The same for the hour.
+  const clock3 = fakeClock();
+  const lim3 = new Limiter('r3', { perMinute: 0, perSecond: 0, spreadMinutes: 0, perHour: 10 });
+  const hb: number[] = [];
+  for (let i = 0; i < 9; i++) { await lim3.acquire(undefined, 0, true); hb.push(clock3.t); }
+  assert.ok(hb[8] - hb[0] >= 3_600_000, 'background stops at 80% of the hour');
+  const t1 = clock3.t;
+  await lim3.acquire();
+  assert.equal(clock3.t, t1, 'an open takes the reserve');
+});
+
+test('RateLimit_TheBackgroundBudgetDefaultsToFortyForLegendKeeperAndStaysUnderTheCaps', async () => {
+  resetLimiters();
+  const made = createApp({ noScheduler: true, fetch: siteFetch, env: { ALX_RATE_LIMIT: '0' } });
+  const st = getState(made.deps.db, 'none');
+  const lk = tieredOf('legendkeeper-api', { apiUrl: 'https://www.legendkeeper.com/api/v3/projects/p1', apiKey: 'lk_testkey_1234567890' })!;
+  assert.equal(budgetOf(st, lk), 40);
+  assert.ok(lk.budgetPerMinute >= 40 && lk.budgetPerMinute <= 160, 'under 80% of 200 a minute');
+  assert.ok(lk.budgetPerMinute * 60 <= 6000 * 0.8, 'and under 80% of the hourly cap');
+  // A low per-minute setting or an hourly cap pulls the budget down with it.
+  const low = tieredOf('legendkeeper-api', { apiUrl: 'https://www.legendkeeper.com/api/v3/projects/p1', apiKey: 'lk_testkey_1234567890', maxPerMinute: 30 })!;
+  assert.equal(budgetOf(st, low), 24);
+  const hourly = tieredOf('legendkeeper-api', { apiUrl: 'https://www.legendkeeper.com/api/v3/projects/p1', apiKey: 'lk_testkey_1234567890', maxPerHour: 1200 })!;
+  assert.equal(budgetOf(st, hourly), 16, '80% of 1,200 an hour is 16 a minute');
+  const kanka = tieredOf('kanka-api', { token: 'kanka-token-aaaaaaaaaaaaaaaaaaaa', campaignId: '1' })!;
+  assert.equal(budgetOf(st, kanka), 12, 'Kanka keeps half of its 80% of 30 a minute');
 });
 
 // ---- the app: a generic API source with a limit -----------------------------------------------------------------------------------
@@ -303,4 +400,35 @@ test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', 
   assert.equal(site.calls.length, 0);
   assert.ok(ensureFull);
   assert.ok(all);
+});
+
+// ---- the DM is told when a page they opened is waiting for the site ----------------------------------------------------------------
+
+test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheDm_AndABackgroundOnlyWaitDoesNot', async () => {
+  const clock = fakeClock();
+  const t = await boot();
+  site.now = () => clock.t;
+  const conn = await t.connection({ maxPerMinute: 10, maxPerSecond: 0, spreadMinutes: 0 });
+  const w = await t.world('Waiting world', conn);
+  await w.sync();
+  const src = one<any>(t.deps.db, 'SELECT * FROM sources WHERE id = ?', w.sid)!;
+  const lim = limiterFor(limitKeyOf(src, t.deps.db), limitsOf('api', { maxPerMinute: 10, maxPerSecond: 0, spreadMinutes: 0 }));
+  assert.equal(worldStatus(t.deps, w.wid).waiting, null, 'nothing to wait for');
+  // The site says slow down: the DM's Library says how long, whoever caused it.
+  lim.observe(new Headers({ 'Retry-After': '20' }), 429);
+  const waiting = worldStatus(t.deps, w.wid).waiting!;
+  assert.ok(waiting && waiting.seconds >= 19 && waiting.seconds <= 20 && waiting.reason === 'asked', JSON.stringify(waiting));
+  assert.equal((await t.ok('GET', `/api/worlds/${w.wid}/world-sources/status`)).waiting.reason, 'asked');
+  // A player is told nothing.
+  const p = await t.addPlayer(w.wid);
+  assert.equal((await t.call('GET', `/api/worlds/${w.wid}/world-sources/status`, p.token)).body.waiting, null);
+  // It clears with time.
+  clock.t += 25_000;
+  assert.equal(worldStatus(t.deps, w.wid).waiting, null);
+  // Background reads giving way to the reserve are not a wait the DM would share: a page they open goes straight through.
+  const lim2 = new Limiter('bg', { perMinute: 10, perSecond: 0, spreadMinutes: 0, perHour: 0 });
+  for (let i = 0; i < 8; i++) await lim2.acquire(undefined, 0, true);
+  clock.onSleep = () => assert.equal(lim2.throttle(), null, 'a background-only wait is not shown');
+  await lim2.acquire(undefined, 0, true);
+  clock.onSleep = undefined;
 });

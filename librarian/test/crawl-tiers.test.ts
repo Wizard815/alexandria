@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all, one, run } from '../src/core/db.ts';
-import { detailTick, ensureFull, resetFailures } from '../src/intake/detail.ts';
+import { detailTick, ensureFull, readPages, resetFailures } from '../src/intake/detail.ts';
+import { levelCounts } from '../src/features/connections/crawl.ts';
 import { resetAncestorMemo } from '../src/intake/connectors/legendkeeper.ts';
 import { mintTicket } from '../src/features/sound/ticket.ts';
 import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
@@ -132,7 +133,9 @@ const imgFetch = (url: string): Response | null => {
   return new Response(new Uint8Array([...PNG_HEAD, ...new Uint8Array(n)]), { status: 200, headers: { 'Content-Type': 'image/png' } });
 };
 let handlers: ((u: string) => Response | null)[] = [lkFetch, kkFetch, imgFetch];
+let latencyMs = 0; // every answer of the fake sites takes this long
 const fake = (async (url: any) => {
+  if (latencyMs > 0) await new Promise((r) => setTimeout(r, latencyMs));
   for (const h of handlers) { const r = h(String(url)); if (r) return r; }
   return json({ error: 'unexpected ' + url }, 500);
 }) as typeof fetch;
@@ -691,4 +694,151 @@ test('CrawlTiers_ALegendKeeperResourceWithOnlyABlankDocumentIsStillInTheLibrary'
   await getPage(t, wid, t.admin, id);
   assert.equal(lk.calls.blocks, before, 'a blank document has no blocks to read');
   assert.equal(depthOf(t, wid, 'Page 3'), 'full');
+});
+
+
+// ---- one read of a page at a time ---------------------------------------------------------------------------------------------
+
+test('CrawlTiers_TheBackgroundReaderAndAnOpenNeverReadTheSamePageTwice', async () => {
+  resetFailures(); resetBuckets();
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 12);
+  await sync(t, sid);
+  const dep = t.sd();
+  const id = pageId(t, wid, 'Page 5');
+  latencyMs = 25;
+  try {
+    // A DM opens the page; two milliseconds later the background reader's turn comes round to the same page (an open makes it wanted).
+    const before = lk.calls.blocks;
+    const opening = ensureFull(dep, wid, id);
+    await new Promise((r) => setTimeout(r, 2));
+    const tick = detailTick(dep, { at: Date.now() });
+    const again = ensureFull(dep, wid, id);
+    const [a, , c] = await Promise.all([opening, tick, again]);
+    assert.equal(a, 'fetched');
+    assert.equal(c, 'fetched', 'the second open shares the first read');
+    assert.equal(lk.calls.blocks - before, 1, 'the page was read once');
+    assert.equal(lk.detailIds.filter((x) => x === 'r5').length, 1, 'and its detail was asked for once');
+    // The other way round: the background reader is on the page first, and an open arrives 2 ms later.
+    resetBuckets();
+    lk.detailIds = [];
+    const b2 = lk.calls.blocks;
+    const id6 = pageId(t, wid, 'Page 6');
+    run(t.deps.db, 'UPDATE pages SET wanted = 5 WHERE id = ?', id6);
+    const tick2 = detailTick(dep, { at: Date.now() });
+    await new Promise((r) => setTimeout(r, 2));
+    const open2 = await ensureFull(dep, wid, id6);
+    await tick2;
+    assert.equal(open2, 'fetched');
+    assert.equal(lk.detailIds.filter((x) => x === 'r6').length, 1, 'read once, whoever came first');
+    assert.ok(lk.calls.blocks - b2 <= 2, `blocks calls: ${lk.calls.blocks - b2} (page 6 once, and no other page twice)`);
+    // Two direct reads of one page at once are one read as well.
+    lk.detailIds = [];
+    const src = one<any>(t.deps.db, 'SELECT * FROM sources WHERE id = ?', sid)!;
+    const row = one<any>(t.deps.db, `SELECT id, external_id FROM pages WHERE world_id = ? AND title = 'Page 8'`, wid)!;
+    const [x, y] = await Promise.all([readPages(dep, src, [row]), readPages(dep, src, [row])]);
+    assert.equal(x.read + y.read, 1);
+    assert.equal(lk.detailIds.filter((z) => z === 'r8').length, 1);
+  } finally { latencyMs = 0; }
+});
+
+// ---- a source's default visibility re-levels pages already read in full --------------------------------------------------------------
+
+test('CrawlTiers_ChangingTheDefaultVisibilityReLevelsPagesAlreadyReadInFull_AndNothingFailsOpen', async () => {
+  resetFailures(); resetBuckets();
+  const t = await boot();
+  lkReset(12);
+  lk.res[1].isHidden = true; lk.res[1].text = 'HIDDENDM words';            // Page 2: hidden at the source
+  lk.res[2].perms = { MEMBER: 0, ADMIN: 3, OWNER: 3 };                     // Page 3: players have no access
+  const wid = await t.world('Relevel World');
+  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { kind: 'legendkeeper-api', name: 'Lore', config: LK_CFG, defaultVisibility: 'dm' });
+  await sync(t, src.id);
+  const tok = await t.addPlayer(wid);
+  // The DM opens pages 4, 2 and 3 (read in full). Page 9 stays listed only.
+  for (const n of [4, 2, 3]) assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, `Page ${n}`))).status, 200);
+  assert.equal(depthOf(t, wid, 'Page 4'), 'full');
+  assert.equal(depthOf(t, wid, 'Page 9'), 'index');
+  const sees = async (n: number) => (await getPage(t, wid, tok, pageId(t, wid, `Page ${n}`))).status === 200;
+  // The default is DM only: nothing is shared, though page 4 is shared at the source.
+  assert.equal(levelCounts(t.deps, wid).party, 0);
+  assert.equal(await sees(4), false);
+  // The DM turns the default to "share what the source shares": the page already read follows at once, without another read.
+  const callsBefore = { ...lk.calls };
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { defaultVisibility: 'party' });
+  assert.deepEqual(lk.calls, callsBefore, 'no call was made to re-level');
+  assert.equal(await sees(4), true, 'a page shared at the source and read in full is now shared');
+  assert.equal(await sees(2), false, 'a page hidden at the source stays DM-only');
+  assert.equal(await sees(3), false, 'a page the source denies players stays DM-only');
+  assert.equal(await sees(9), false, 'a page only listed (nothing says who may read it) stays DM-only');
+  assert.equal(depthOf(t, wid, 'Page 9'), 'index');
+  const p4 = (await getPage(t, wid, tok, pageId(t, wid, 'Page 4'))).text;
+  assert.ok(p4.includes('LKBODY4') && !p4.includes('HIDDENDM'));
+  assert.ok(!all<any>(t.deps.db, `SELECT player_body FROM pages WHERE world_id = ? AND title IN ('Page 2', 'Page 3', 'Page 9')`, wid).some((r) => r.player_body), 'no player copy exists for them');
+  // And back: sharing stops at once.
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { defaultVisibility: 'dm' });
+  assert.equal(await sees(4), false);
+  // The whole source shared with players (confirmed): pages only listed so far are still not shared, and neither is a hidden page that is only listed.
+  lk.res[5].isHidden = true;
+  await sync(t, src.id);
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'party', confirmParty: true });
+  assert.equal(await sees(9), false, 'an audience of "shared" does not share what was never read');
+  assert.equal(await sees(6), false, 'hidden at the source and only listed: DM-only');
+  assert.equal(await sees(4), true, 'a page read in full follows the audience');
+});
+
+// ---- why players see nothing, and a refused key ---------------------------------------------------------------------------------
+
+test('CrawlTiers_WhenEveryPageIsDmOnlyTheDmIsToldWhyAndWhatToDo_AndAPlayerIsToldNothing', async () => {
+  resetFailures(); resetBuckets();
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 10, { audience: 'dm' });
+  await sync(t, sid);
+  const tok = await t.addPlayer(wid);
+  const st = await t.ok('GET', `/api/worlds/${wid}/world-sources/status`);
+  assert.equal(st.pages, 10);
+  assert.equal(st.dmOnly.pages, 10);
+  assert.ok(st.dmOnly.reasons.some((r: any) => r.kind === 'audience' && r.count === 10), JSON.stringify(st.dmOnly));
+  assert.ok(st.dmOnly.actions.some((a: string) => /audience/i.test(a)));
+  // The world page (admin overview) says the same.
+  const ov = await t.ok('GET', `/api/admin/worlds/${wid}/overview`);
+  assert.equal(ov.status.dmOnly.pages, 10);
+  // Not DM-only by audience but only listed: the reason is "not read yet", with what to do.
+  await t.ok('PATCH', `/api/admin/sources/${sid}`, { audience: 'auto' });
+  const st2 = await t.ok('GET', `/api/worlds/${wid}/world-sources/status`);
+  assert.ok(st2.dmOnly.reasons.some((r: any) => r.kind === 'unread' && r.count === 10));
+  assert.ok(st2.dmOnly.actions.some((a: string) => /details/i.test(a)));
+  // A player gets nothing, not even the counts.
+  const ps = await t.call('GET', `/api/worlds/${wid}/world-sources/status`, tok);
+  assert.equal(ps.status, 200);
+  assert.equal(ps.body.dmOnly, null);
+  assert.equal(ps.body.pages, 0);
+  assert.deepEqual(ps.body.refused, []);
+  assert.ok(!ps.text.includes('Lore'), 'no source name');
+  // Once pages are shared the banner goes away.
+  await t.ok('PATCH', `/api/admin/sources/${sid}`, { audience: 'party', confirmParty: true });
+  await getPage(t, wid, t.admin, pageId(t, wid, 'Page 4'));
+  assert.equal((await t.ok('GET', `/api/worlds/${wid}/world-sources/status`)).dmOnly, null);
+});
+
+test('CrawlTiers_AKeyThatListsButIsRefusedForContentSaysSoOnTheSource', async () => {
+  resetFailures(); resetBuckets();
+  const t = await boot();
+  const { wid, sid } = await lkWorld(t, 8);
+  await sync(t, sid);
+  lk.blocks401 = true;
+  const r = await getPage(t, wid, t.admin, pageId(t, wid, 'Page 4'));
+  assert.equal(r.status, 200, 'the DM still gets the page as it is (the index line)');
+  const st = await t.ok('GET', `/api/worlds/${wid}/world-sources/status`);
+  assert.equal(st.refused.length, 1);
+  assert.match(st.refused[0].message, /can list pages but can't read their content/);
+  assert.match(st.refused[0].message, /LegendKeeper keys need Admin to read page text and hidden pages/);
+  const tiers = await t.ok('GET', `/api/admin/connections/tiers/world/${wid}`);
+  assert.match(tiers[0].refused, /Admin/);
+  assert.ok(st.dmOnly.reasons.some((x: any) => x.kind === 'refused'));
+  // The key is fixed: the next read works and the notice goes.
+  lk.blocks401 = false;
+  resetFailures(); resetBuckets();
+  const fixed = await ensureFull(t.sd(), wid, pageId(t, wid, 'Page 5'));
+  assert.equal(fixed, 'fetched');
+  assert.deepEqual((await t.ok('GET', `/api/worlds/${wid}/world-sources/status`)).refused, []);
 });
