@@ -201,7 +201,7 @@ function Review({ r, reload }: { r: ReviewState | null; reload: () => Promise<vo
           <div style={{ padding: '14px 16px 6px' }}><h2 style={{ margin: 0 }}>Proposed in chat</h2></div>
           {r.actions.map((a) => (
             <div key={a.id} className="list-item" style={{ flexWrap: 'wrap' }}>
-              <span className="stack tight grow" style={{ minWidth: 200 }}><strong style={{ fontWeight: 500 }}>{a.summary}</strong><span className="tiny muted">{new Date(a.createdAt).toLocaleString()}</span></span>
+              <span className="stack tight grow" style={{ minWidth: 200 }}><strong style={{ fontWeight: 500 }}>{a.summary.replace(/\s*·\s*Visible to players.*$/, '')}</strong>{/Visible to players/.test(a.summary) && <span className="chip red" role="status">{a.summary.slice(a.summary.indexOf('Visible to players'))}</span>}<span className="tiny muted">{new Date(a.createdAt).toLocaleString()}</span></span>
               <span className="mn-row-actions"><button type="button" className="btn small primary" disabled={act.busy} onClick={() => void decideAction(a.id, 'approve')}>Approve</button><button type="button" className="btn small" disabled={act.busy} onClick={() => void decideAction(a.id, 'reject')}>Reject</button></span>
             </div>
           ))}
@@ -247,6 +247,7 @@ function DraftCard({ d, reload }: { d: Draft; reload: () => Promise<void> }) {
         {d.byAccount && <span className="tiny muted">written by {nameOf(d.byAccount)}</span>}
       </div>
       <ErrorBox error={act.error} />
+      {p?.visibleToPlayers && <p className="chip red" role="status" style={{ alignSelf: 'flex-start' }}>Visible to players{p.level ? ` · level ${p.level}` : ''}</p>}
       {p && !editing && (
         <div className="mn-diff" aria-label="What changes">
           <div><div className="tiny muted">Now{p.rel ? ` · ${p.rel.split('/').pop()}` : ''}{p.where ? ` · ${p.where}` : ''}</div><pre className="before">{p.before.trim() || '(empty)'}</pre></div>
