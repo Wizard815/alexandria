@@ -6,7 +6,7 @@
 // meta-gaming also back the model up: they can only send a question to the DM,
 // never let one through.
 import type { Deps } from '../../app.ts';
-import { chatJson } from '../../core/ai.ts';
+import { chat, chatJson, hasJob } from '../../core/ai.ts';
 import { all } from '../../core/db.ts';
 import { namedEntities, questionType, spoilerTagHit, stem, words, type QuestionType } from '../../core/brokerClassify.ts';
 import { searchRules } from '../modules/search.ts';
@@ -102,4 +102,60 @@ export async function routeQuestion(d: Deps, worldId: string, question: string, 
   const tag = spoilerTagHit(d.db, worldId, question);
   if (tag) { intent = 'spoiler-seeking'; source = 'audit+rules'; }
   return { scope: j.scope, intent, type: (TYPES.includes(j.type) ? j.type : kw.type) as QuestionType, confidence, source, why: source === 'audit' ? 'Labelled by the audit model.' : `Labelled by the audit model; the keyword rules flagged it (${kw.why}).` };
+}
+
+// ---- does the matched player text answer the question? ------------------------
+
+const WHY_CUE = /\b(because|since|due to|owing to|caused?|causes|reason|thanks to|as a result|result of|after|so that|in order to|blames?|blamed)\b/i;
+const NEEDS_ANSWER = /\b(why|how come|what (is|was|'s|s) (really )?(behind|causing|the reason|the cause)|what (caused|causes|lies behind|happened to)|the reason (for|behind)|how (did|does|do|is|was)\b)/i;
+const KEY_STOP = new Set('did does do is was were are the a an to of in on at for and or why how what come behind go went gone get got happen happened happens cause caused reason really actually this that'.split(' '));
+
+/** "Why" and "how" questions (and "what is behind ...") need a shared text that really says why or how; plain fact questions do not. */
+export const needsAnswerCheck = (question: string, type: string): boolean => type === 'why' || type === 'how' || NEEDS_ANSWER.test(question);
+
+/** The question's own content words: what the matched text has to be about. */
+export const keyTerms = (question: string): string[] => words(question).filter((w) => !KEY_STOP.has(w)).map(stem);
+
+/** The rules check: the text shares a key term with the question and, for "why", says why. */
+export function ruleAnswers(question: string, snippet: string): boolean {
+  const keys = keyTerms(question);
+  const have = new Set(words(snippet).map(stem));
+  if (keys.length && !keys.some((k) => have.has(k))) return false;
+  if (/\b(why|how come|the reason|caused?|causes)\b/i.test(question) && !WHY_CUE.test(snippet)) return false;
+  return true;
+}
+
+/**
+ * Does the matched snippet (the player's copy, nothing else) answer the question?
+ * The audit model says yes or no when there is one; without it the rules above decide.
+ * "No" sends the question to the DM.
+ */
+export async function answersQuestion(d: Deps, question: string, snippet: string): Promise<boolean> {
+  const j: any = await chatJson(d, 'audit', [
+    { role: 'system', content: 'You check whether a short text answers a question. Reply with JSON only: {"answers": true or false}. "answers" is true only if the text itself states the answer (for a "why" question, the reason; for a "how" question, the way it happens). Mentioning the same subject, or saying that something is so without saying why, does not answer it.' },
+    { role: 'user', content: JSON.stringify({ question, text: snippet.slice(0, 1500) }) },
+  ]).catch(() => null);
+  if (j && typeof j.answers === 'boolean') return j.answers;
+  return ruleAnswers(question, snippet);
+}
+
+/**
+ * An allowed real-world topic: the chat model answers in the broker's voice from general knowledge only.
+ * It is given the question and the topic and nothing from the library, so it cannot repeat DM text.
+ * Null when there is no chat model (the question then goes the usual way).
+ */
+export async function realWorldAnswer(d: Deps, persona: string, question: string, topic: string): Promise<string | null> {
+  if (!hasJob(d, 'chat')) return null;
+  try {
+    const r = await chat(d, 'chat', {
+      temperature: 0,
+      maxTokens: 400,
+      messages: [
+        { role: 'system', content: `You are ${persona}, an information broker in a fantasy tabletop game. The player asked about a real-world topic the game master allows${topic ? ` ("${topic}")` : ''}. Start with "That's not my trade, but", then answer in two or three sentences from general knowledge only. You know nothing about the game's world, its people or its secrets, and you must not invent any. If you do not know, say so.` },
+        { role: 'user', content: question },
+      ],
+    });
+    const text = r.content.trim();
+    return text || null;
+  } catch { return null; }
 }
