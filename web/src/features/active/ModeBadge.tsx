@@ -1,12 +1,14 @@
 // The Assistant / Active badge: visible on every DM screen, one tap to switch.
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { useActive } from './shared.tsx';
 
 export default function ModeBadge({ phone = false }: { phone?: boolean }) {
   const { w, info } = useWorld();
   const st = useActive();
-  if (info?.role !== 'dm' || !st.data) return null;
+  const loc = useLocation();
+  // The phone assistant covers the whole screen and has its own badge.
+  if (info?.role !== 'dm' || !st.data || (!phone && /\/dm\/phone\/?$/.test(loc.pathname))) return null;
   const s = st.data;
   const active = s.effective === 'active';
   const label = s.takeoverOn ? 'Takeover' : active ? 'Active' : 'Assistant';
