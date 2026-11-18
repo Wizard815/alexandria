@@ -177,7 +177,8 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
             const a = it.a;
             return (
               <div key={a.id} className="card gold" style={{ padding: '10px 12px' }} role="group" aria-label="Waiting for your approval">
-                <strong>{a.summary}</strong>
+                <strong>{a.summary.replace(/\s*·\s*Visible to players.*$/, '')}</strong>
+                {/Visible to players/.test(a.summary) && <span className="chip red" role="status">{a.summary.slice(a.summary.indexOf('Visible to players'))}</span>}
                 <details className="tiny muted"><summary>Exact call</summary><code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{a.tool} {JSON.stringify(a.call)}</code></details>
                 <div className="row"><button type="button" className="btn small primary" disabled={busy || a.status !== 'pending'} onClick={() => void decide(a, 'approve')}>Approve</button><button type="button" className="btn small" disabled={busy || a.status !== 'pending'} onClick={() => void decide(a, 'reject')}>Reject</button></div>
               </div>
