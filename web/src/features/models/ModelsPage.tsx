@@ -4,6 +4,7 @@ import { useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Field, Loading, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
 import SessionCard from './SessionCard.tsx';
 import VramCard from './VramCard.tsx';
+import EmbeddingsCard from '../bible/EmbeddingsCard.tsx';
 
 type Kind = 'argos' | 'openai' | 'ollama' | 'lmstudio' | 'openai-compatible';
 type Location = 'local' | 'cloud';
@@ -351,6 +352,8 @@ export default function ModelsPage() {
           <h2 style={{ marginBottom: 0 }}>Session and memory</h2>
           <SessionCard onChanged={() => void refreshStatus()} />
           <VramCard refreshKey={signature} />
+          <h2 style={{ marginBottom: 0 }}>Embeddings and story bible</h2>
+          <EmbeddingsCard />
           <h2 style={{ marginBottom: 0 }}>Jobs</h2>
           {jobs.map((j) => <JobRow key={JSON.stringify(j) + providers.length} j={j} providers={providers} models={models} status={status?.jobs[j.job]} onSaved={reload} />)}
         </>
