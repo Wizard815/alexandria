@@ -80,6 +80,8 @@ export async function seedContent(h: H, S: Seed) {
   // ---- pages: whole pages at each level --------------------------------------------------
   const sharedTitle = 'Harbour Lore';
   await page('dm', 'dm/Smuggler Queen.md', 'dm', `# ${mark('dm_page', ['dm'], 'a DM-only page')} Smuggler Queen\nThe harbour council secretly answers to the smuggler queen ${tok('dm_page')}.\n`, { title: `Smuggler Queen ${tok('dm_page')}` });
+  // A DM-only title the speech model must never be sent (the transcription hint) and players must never read in a transcript line.
+  await page('dm_hint', 'dm/Hint Marker.md', 'dm', '# Hint marker\nA title only the DM may know.\n', { title: `Drowned Marker ${mark('dm_title_hint', ['dm'], 'a DM-only page title (never in the transcription hint or a players transcript line)')}` });
   await page('broker', 'broker/Dockside Rumour.md', 'broker', `# Dockside Rumour\nThe lighthouse keeper sells fog charts to the harbour council ${mark('broker_page', ['dm'], 'a broker-level page')}.\n`, { title: `Dockside Rumour ${tok('broker_page')}`, knowledge: 'local' });
   await page('classified', 'classified/Vault.md', 'classified', `# Vault\nThe harbour council keeps a vault. ${mark('classified_page', ['dm'], 'a classified page', { ai: false, long: true })}\n`, { title: 'Vault' });
   // The page path itself shows in the audit log.
