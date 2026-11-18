@@ -290,3 +290,25 @@ test('TestAdminAuth_AuditRecordsLoginsFailuresAndLogout', async () => {
     assert.ok(JSON.stringify(page).includes('admin.login'));
   } finally { h.close(); }
 });
+
+test('TestAdminAuth_AdminKeysWorkFromAnAdminSession', async () => {
+  const h = await boot();
+  try {
+    const t = (await adminLogin(h)).body.token as string;
+    assert.deepEqual((await h.ok('GET', '/api/admin/keys', t)), []);
+    const made = await h.ok('POST', '/api/admin/keys', t, { label: 'Backup script' });
+    assert.ok(String(made.key).startsWith('alx_adm_'));
+    const list = await h.ok('GET', '/api/admin/keys', t);
+    assert.equal(list.length, 1);
+    assert.equal(list[0].label, 'Backup script');
+    assert.equal(JSON.stringify(list).includes(made.key), false, 'the key value is shown once');
+    // The made key reaches admin routes but cannot make another key.
+    assert.equal((await h.call('GET', '/api/admin/overview', made.key)).status, 200);
+    assert.equal((await h.call('POST', '/api/admin/keys', made.key, { label: 'x' })).status, 403);
+    // A player (non-admin) session never reaches them.
+    assert.ok([401, 403].includes((await h.call('GET', '/api/admin/keys', h.dm)).status));
+    await h.ok('DELETE', `/api/admin/keys/${made.id}`, t);
+    assert.equal((await h.ok('GET', '/api/admin/keys', t))[0].revoked, 1);
+    assert.equal((await h.call('GET', '/api/admin/overview', made.key)).status, 401);
+  } finally { h.close(); }
+});
