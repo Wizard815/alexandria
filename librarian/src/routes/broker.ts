@@ -27,7 +27,7 @@ import { addMinutesForWait, advance, formatDate, getCalendar, getClock } from '.
 import { migrateBrokerClock, moveClockTo } from '../features/broker2/clock.ts';
 import { leaks } from '../features/broker2/guard.ts';
 import { itemAnswer, rulesAnswer, visibleItems, type OtherAnswer } from '../features/broker2/other.ts';
-import { LOW_CONFIDENCE, routeQuestion, type Labels } from '../features/broker2/routing.ts';
+import { LOW_CONFIDENCE, allowedTopicHit, answersQuestion, needsAnswerCheck, realWorldAnswer, routeQuestion, type Labels } from '../features/broker2/routing.ts';
 import { escalateFromBroker } from '../features/sourcekeys/hook.ts';
 import { balance, money } from '../core/coin.ts';
 import { ctx, isDM, me, memberIds, names, settings } from './_shared.ts';
@@ -274,13 +274,27 @@ export default function brokerRoutes(d: Deps) {
       return { ...shape, tier: 'other', tier_name: 'Other', cost_cp: 0, wait: null, wait_text: 'right now', secret: false, refused: false, line: `${p} shrugs. "That's about the game, not the world. No charge."`, kind: 'other', delivery: 'auto', answer: other.answer, sources: other.sources };
     }
 
+    // An allowed real-world topic has its own line: "not my trade, but ...", from general knowledge only (never from the library), free.
+    if (!guarded && labels.scope === 'real-world-allowed') {
+      const topic = allowedTopicHit(question, topicsOf(res)) ?? '';
+      const ans = await realWorldAnswer(d, p, question, topic);
+      if (ans) {
+        const other: OtherAnswer = leaks(db, d.library, w, ans, question) ? { answer: NO_LEAK_LINE, sources: [] } : { answer: ans, sources: [] };
+        keep({ kind: 'other', tier: 'other', cost: 0, wait: null, found: other, classification: stub(`Allowed real-world topic${topic ? ` (${topic})` : ''}: answered free from general knowledge, never from the library.`) });
+        return { ...shape, tier: 'other', tier_name: 'Other', cost_cp: 0, wait: null, wait_text: 'right now', secret: false, refused: false, line: `${p} shrugs. "That's not my trade, but I'll tell you what I know. No charge."`, kind: 'other', delivery: 'auto', answer: other.answer, sources: [] };
+      }
+    }
+
     const c = classify(db, d.library, w, question, len.id, viewer);
-    const found = !guarded && c.verdict === 'shared' ? c.player : null;
+    let found = !guarded && c.verdict === 'shared' ? c.player : null;
+    // A "why" or "how" question needs a shared text that really says why or how; one that only mentions the subject goes to the DM like any secret.
+    let unanswered = false;
+    if (found && needsAnswerCheck(question, labels.type) && !(await answersQuestion(d, question, found.answer))) { found = null; unanswered = true; }
     const tier = found ? cfg.tiers.find((t) => t.knowledge === c.knowledge) ?? cfg.tiers.find((t) => t.knowledge === 'local')! : cfg.tiers.find((t) => t.knowledge === 'secret')!;
     const secret = !found || tier.knowledge === 'secret' || tier.costCp === null;
     const refused = secret && cfg.unknown === 'refuse';
     const cost = secret ? null : Math.round(tier.costCp! * len.multiplier * c.multiplier);
-    const reason = guarded ? `Goes to you: ${labels.intent !== 'fact' ? labels.intent : 'the audit labels are low-confidence'}. ${c.reason}` : c.reason;
+    const reason = guarded ? `Goes to you: ${labels.intent !== 'fact' ? labels.intent : 'the audit labels are low-confidence'}. ${c.reason}` : unanswered ? 'Goes to you: what players can read does not answer this why or how question.' : c.reason;
     // An answer that uses broker-level lines waits for the DM unless the world says brokerLevelDelivery: auto.
     const brokerLevel = !!found?.brokerLevel && !secret;
     const delivery: Delivery = brokerLevel && featureSetting(settings(res), 'brokerLevelDelivery') !== 'auto' ? 'review' : tier.delivery;

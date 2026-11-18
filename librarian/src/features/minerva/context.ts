@@ -100,3 +100,16 @@ export function minervaBrief(d: Deps, worldId: string): string {
   const parts = [`Campaign status (the living doc; context_for has all of it)${arc ? `, arc: ${arc.title}` : ''}:`, pick('Now') && `Now: ${pick('Now')}`, pick('Active threads') && `Active threads:\n${pick('Active threads')}`, pending ? `${pending} drafts wait on the DM's review page.` : ''].filter(Boolean);
   return parts.length > 1 ? parts.join('\n').slice(0, 1400) : '';
 }
+
+/**
+ * For a prep request: the whole Campaign Status, the active arc's summary and the last session page, as the model may read them,
+ * so the first model round has what it would otherwise search for.
+ */
+export function minervaPrep(d: Deps, worldId: string): string {
+  try { if (!stateOf(d.db, worldId).enabled) return ''; } catch { return ''; }
+  try {
+    const c = contextFor(d, worldId, '');
+    const parts = c.sections.filter((x) => ['Campaign Status', 'Active arc', 'Arc summary', 'Last session'].includes(x.title)).map((x) => `## ${x.title}\n${x.text}`);
+    return parts.length ? `Prefetched for prep (the campaign status, the active arc and the last session; no need to search for them):\n${parts.join('\n\n')}`.slice(0, 9000) : '';
+  } catch { return ''; }
+}

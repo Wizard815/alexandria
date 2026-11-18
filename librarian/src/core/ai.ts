@@ -68,7 +68,13 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   jsonMode        'auto' | 'schema' | 'object' | 'off' (how structured output is asked for)
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel'] as const;
+/**
+ * Output-token floor per job. A reasoning model spends part of the budget on thinking, so a small max_tokens
+ * can leave an empty answer. Chat and audit requests never ask for fewer than this many tokens unless the
+ * job says `reasoningModel: false` (no floor) or sets its own `minOutputTokens`.
+ */
+export const DEFAULT_MIN_OUTPUT_TOKENS = 2000;
 
 /** No model is set for this job, or it could not be reached. Callers fall back. */
 export class ModelUnavailable extends Error {
@@ -216,6 +222,27 @@ const MAX_RETRY_WAIT_MS = 15_000;
 
 const isOpenAI = (c: JobConfig) => /^https?:\/\/api\.openai\.com(\/|$)/i.test(c.baseUrl);
 const opt = (c: JobConfig, k: (typeof JOB_OPTION_KEYS)[number]) => c.options?.[k];
+const isOpenRouter = (c: JobConfig) => /^https?:\/\/([^/]*\.)?openrouter\.ai(\/|$)/i.test(c.baseUrl);
+
+/** The max output tokens to send: what the caller asked for, at least the job's floor. Nothing when the caller set no limit. */
+export function tokenBudget(c: JobConfig, req: Pick<ChatRequest, 'maxTokens' | 'noFloor'>): number | undefined {
+  if (!req.maxTokens) return undefined;
+  if (req.noFloor) return req.maxTokens;
+  const o = opt(c, 'minOutputTokens');
+  const floor = typeof o === 'number' && o >= 0 ? o : opt(c, 'reasoningModel') === false ? 0 : DEFAULT_MIN_OUTPUT_TOKENS;
+  return Math.max(req.maxTokens, floor);
+}
+
+/** The output budget a job will really use for a request that wants `want` tokens (the job's floor applies). */
+export function jobBudget(d: Deps, job: 'chat' | 'audit', want: number): number {
+  const c = jobConfig(d, job);
+  return (c ? tokenBudget(c, { maxTokens: want }) : undefined) ?? want;
+}
+
+/** The answer was cut off by the token limit before any text came: the model spent the budget thinking. */
+const emptyForLength = (r: ChatResult) => r.finishReason === 'length' && !r.content.trim() && !r.toolCalls.length;
+/** The same request with twice the budget and, where the provider allows it, no thinking. */
+const widerRequest = (c: JobConfig, req: ChatRequest): ChatRequest => ({ ...req, maxTokens: Math.min((tokenBudget(c, { maxTokens: req.maxTokens ?? DEFAULT_MIN_OUTPUT_TOKENS, noFloor: req.noFloor }) ?? DEFAULT_MIN_OUTPUT_TOKENS) * 2, 32_000), reasoningOff: true });
 const timeoutFor = (job: Job, c: JobConfig): number => {
   const t = Number(opt(c, 'timeoutMs'));
   return Number.isFinite(t) && t > 0 ? t : job === 'chat' || job === 'audit' ? DEFAULT_CHAT_TIMEOUT_MS : DEFAULT_OTHER_TIMEOUT_MS;
@@ -362,6 +389,10 @@ export interface ChatRequest {
   json?: boolean;
   /** Ask for JSON matching a schema (response_format json_schema); falls back to json_object, then to a prompt-only instruction. */
   jsonSchema?: { name: string; schema: Record<string, unknown>; strict?: boolean };
+  /** Ask the provider not to think first, where it can be told to (OpenRouter `reasoning: {enabled: false}`). Set by the retry after an empty answer cut off by the budget. */
+  reasoningOff?: boolean;
+  /** Send maxTokens as given, below the job's floor (the readiness probe's tiny request). */
+  noFloor?: boolean;
 }
 export interface ChatTimings {
   /** Whole call, retries included. */
@@ -379,7 +410,7 @@ export interface ChatResult { content: string; toolCalls: ToolCall[]; finishReas
 
 // What each server turned out to accept, learned from 400s and remembered per job and model.
 type JsonMode = 'schema' | 'object' | 'off';
-interface Learned { json?: JsonMode; tokens?: 'max_tokens' | 'max_completion_tokens'; noTemp?: boolean; noStreamOptions?: boolean; noParallel?: boolean }
+interface Learned { json?: JsonMode; tokens?: 'max_tokens' | 'max_completion_tokens'; noTemp?: boolean; noStreamOptions?: boolean; noParallel?: boolean; noReasoning?: boolean }
 const learned = new Map<string, Learned>();
 const learnKey = (job: Job, c: JobConfig) => `${job}|${c.baseUrl}|${c.model}`;
 const learnedFor = (job: Job, c: JobConfig): Learned => { const k = learnKey(job, c); let l = learned.get(k); if (!l) learned.set(k, (l = {})); return l; };
@@ -413,10 +444,11 @@ function buildBody(job: Job, c: JobConfig, req: ChatRequest, stream: boolean, l:
   body.messages = messages;
   const noTemp = opt(c, 'noTemperature') === true || l.noTemp;
   if (!noTemp) body.temperature = req.temperature ?? (job === 'audit' ? 0 : 0.4);
-  if (req.maxTokens) {
+  const budget = tokenBudget(c, req);
+  if (budget) {
     const o = opt(c, 'maxTokensParam');
     const param = o === 'max_tokens' || o === 'max_completion_tokens' ? o : l.tokens ?? (isOpenAI(c) ? 'max_completion_tokens' : 'max_tokens');
-    body[param] = req.maxTokens;
+    body[param] = budget;
   }
   if (req.tools?.length) {
     body.tools = req.tools;
@@ -425,6 +457,7 @@ function buildBody(job: Job, c: JobConfig, req: ChatRequest, stream: boolean, l:
   }
   if (jm === 'schema' && req.jsonSchema) body.response_format = { type: 'json_schema', json_schema: { name: req.jsonSchema.name, schema: req.jsonSchema.schema, strict: req.jsonSchema.strict ?? false } };
   else if (jm === 'object' || jm === 'schema') body.response_format = { type: 'json_object' };
+  if (req.reasoningOff && isOpenRouter(c) && !l.noReasoning) body.reasoning = { enabled: false };
   if (stream && !l.noStreamOptions) body.stream_options = { include_usage: true };
   return { body, json: jm === null ? 'none' : jm === 'off' ? 'prompt' : jm };
 }
@@ -442,6 +475,7 @@ function learnFrom400(text: string, body: Record<string, unknown>, c: JobConfig,
     l.tokens = cur === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens';
     return true;
   }
+  if (mentions(/reasoning/) && body.reasoning !== undefined) { l.noReasoning = true; return true; }
   if (mentions(/temperature/) && body.temperature !== undefined) { l.noTemp = true; return true; }
   // llama-server, Ollama, LM Studio and vLLM word a bad response_format differently, or say nothing useful.
   const rf: any = body.response_format;
@@ -488,6 +522,12 @@ export async function chat(d: Deps, job: 'chat' | 'audit', req: ChatRequest, sig
 }
 
 async function chatOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
+  const r = await chatOnce(d, job, c, req, signal);
+  // A reasoning model that used the whole budget thinking: once more with twice the budget (and no thinking where that can be asked).
+  return emptyForLength(r) ? chatOnce(d, job, c, widerRequest(c, req), signal) : r;
+}
+
+async function chatOnce(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, false, signal);
   let j: any;
@@ -597,6 +637,12 @@ export async function chatStream(d: Deps, job: 'chat' | 'audit', req: ChatReques
 }
 
 async function chatStreamOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
+  const r = await chatStreamOnce(d, job, c, req, onDelta, signal);
+  // Nothing was streamed (the budget went on thinking): try again wider.
+  return emptyForLength(r) ? chatStreamOnce(d, job, c, widerRequest(c, req), onDelta, signal) : r;
+}
+
+async function chatStreamOnce(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, true, signal);
   let firstTokenMs: number | undefined;

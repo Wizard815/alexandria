@@ -21,12 +21,25 @@ const GIVEAWAYS: RegExp[] = [
   /\bmemory vault\b/i,
 ];
 
-/** A phrase in a reply to a player that gives the DM's assistant away (her name, or that the broker works for the DM), or null. */
+/** Is the match inside a denial ("I'm not Minerva", "I don't have any DM notes")? A negation earlier in the same sentence makes it one. */
+function denied(text: string, index: number): boolean {
+  const start = Math.max(text.lastIndexOf('.', index - 1), text.lastIndexOf('!', index - 1), text.lastIndexOf('?', index - 1), text.lastIndexOf('\n', index - 1)) + 1;
+  return /\b(not|never|no|none|nothing|nobody|neither|nor|cannot|without)\b|n['’]t\b/i.test(text.slice(start, index));
+}
+
+/**
+ * A phrase in a reply to a player that gives the DM's assistant away (her name, or that the broker works for the DM), or null.
+ * A denial is not a giveaway: "I'm not Minerva" and "I don't work for the DM" pass. Only a reply that affirms or names her is held.
+ */
 export function personaGiveaway(text: string, name = 'Minerva'): string | null {
   const t = String(text ?? '');
-  for (const re of GIVEAWAYS) { const m = re.exec(t); if (m) return m[0]; }
+  const firstAffirmed = (re: RegExp): string | null => {
+    for (const m of t.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))) if (!denied(t, m.index ?? 0)) return m[0];
+    return null;
+  };
+  for (const re of GIVEAWAYS) { const m = firstAffirmed(re); if (m) return m; }
   const n = name.trim();
-  if (n.length >= 3 && n.toLowerCase() !== 'minerva') { const m = new RegExp(`(?<![\\p{L}\\p{N}])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu').exec(t); if (m) return m[0]; }
+  if (n.length >= 3 && n.toLowerCase() !== 'minerva') { const m = firstAffirmed(new RegExp(`(?<![\\p{L}\\p{N}])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu')); if (m) return m; }
   return null;
 }
 

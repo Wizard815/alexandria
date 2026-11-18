@@ -110,8 +110,8 @@ test('Agent: the DM harness runs a read tool and answers with a citation', async
   assert.equal(reply.status, 'done');
   assert.match(reply.text, /lighthouse/);
   assert.ok(reply.citations.some((c: any) => c.kind === 'page' && c.id === e.ID.velmira && c.path === 'dm/Velmira.md'), JSON.stringify(reply.citations));
-  // Only the tools that fit are offered (at most 8), and the library search is always among them.
-  assert.ok(toolNames(e.model.seen[0]).length <= 8 && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
+  // Only the tools that fit are offered (at most 16), and the library search is always among them.
+  assert.ok(toolNames(e.model.seen[0]).length <= MAX_TOOLS && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
   // The library matches for the question came with it (DM copies), so the model could answer in one round.
   assert.ok(e.model.seen[0].messages.at(-1).content.includes('Library matches'));
   // The tool result the model got is the DM copy of the page.
@@ -494,7 +494,7 @@ test('Agent: the combat state rides along for the DM only, while a fight is runn
   const e = env;
   const goblin = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.dm, { name: 'Prefetch Goblin', initiative: 12, hp: 7, maxHp: 7 });
   e.model.seen.length = 0;
-  e.model.queue.push(() => say('Noted.'), () => say('Fine.'));
+  e.model.queue.push(() => say('Going well.'), () => say('Fine.'));
   await ask(e, e.T.dm, 'How is the fight going?');
   await ask(e, e.T.jess, 'How is the fight going?');
   const dmText = e.model.seen[0].messages.at(-1).content;
@@ -503,7 +503,7 @@ test('Agent: the combat state rides along for the DM only, while a fight is runn
   await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${goblin.id}`, e.T.dm);
 });
 
-test('Agent: only the tools that fit are offered (at most 8), and search_library and read_page always are', async () => {
+test('Agent: only the tools that fit are offered (at most 16), and search_library and read_page always are', async () => {
   const names = toolsFor(true).map((t) => t.name);
   const cases: [string, string[]][] = [
     ['Add a goblin and deal 5 damage in combat', ['add_combatant', 'damage_combatant', 'next_turn']],
@@ -523,6 +523,7 @@ test('Agent: only the tools that fit are offered (at most 8), and search_library
   }
   // A message that matches everything still stays within the limit.
   assert.equal(selectTools('combat statblock rules session page npc gold date broker request schedule vote players', names).length, MAX_TOOLS);
+  assert.ok(selectTools('hello', names).includes('more_tools') && selectTools('hello', names).includes('get_combat'));
   // Only what exists is offered, and a player's list has no writes.
   const player = toolsFor(true).filter((t) => !t.write).map((t) => t.name);
   assert.ok(selectTools('add a goblin to combat and save a page', player).every((n) => player.includes(n)));
