@@ -295,7 +295,8 @@ test('TestActive_WakeWordOnlyFromTheDmMic', async () => {
   await say('dm', 'Minerva, play combat music.', { mics: [MIC.dm, MIC.jess] });
   assert.equal((await log()).length, 0);
   // From the DM's own mic it is a direct request: it runs even though the category is off.
-  await say('dm', 'Minerva, play combat music.');
+  const wakeId = await say('dm', 'Minerva, play combat music.');
+  assert.equal(all<any>(deps.db, 'SELECT audience FROM audio_lines WHERE id = ?', wakeId)[0].audience, 'dm', 'a command to the assistant is taken out of the players\' transcript');
   const rows = await log('done');
   assert.equal(rows.length, 1);
   assert.equal(rows[0].trigger, 'wake');
@@ -467,4 +468,15 @@ test('TestPlayerHelp_JournalDraftUsesOnlyTheTable', async () => {
   assert.ok(!/creep forward/.test(tom.markdown.split('## What the table heard')[0]), "another player's words are not 'mine'");
   assert.equal((await call('GET', `/api/worlds/${W}/helper/journal-draft`, T.dm)).status, 403);
   assert.deepEqual((await ok('GET', `/api/worlds/${W}/helper/recap`, T.jess)).entries, []);
+});
+
+test('TestActive_CueRegressions', () => {
+  const ctx: any = { combat: { active: true, turn: 0, combatants: [{ id: 'o', name: 'Ogre', effects: [], isPc: false }, { id: 'g2', name: 'Goblin 2', effects: ['Prone'], isPc: false }, { id: 't', name: 'Tomas', effects: [], isPc: true, accountId: 'a' }] }, party: [{ accountId: 'a', name: 'Tom', character: 'Tomas' }], pages: [], sfx: [], initiativeOpen: false };
+  const dm = (text: string) => allCues({ id: 'x', text, speaker: 'dm', role: 'dm', accountId: null, aside: false }, ctx);
+  assert.equal((dm('The ogre takes twelve damage.')[0] as any).amount, 12, 'number words');
+  assert.equal((dm('Give Tom fifty gold.')[0] as any).cp, 5000);
+  assert.deepEqual(dm("The club leaves Tomas stunned until the end of his next turn.").map((c) => c.kind), ['condition'], 'his next turn is not next turn');
+  assert.deepEqual(dm('Next turn.').map((c) => c.kind), ['next_turn']);
+  assert.deepEqual((dm('Goblin 2 stands up again, no longer prone.')[0] as any).remove, ['Prone']);
+  assert.deepEqual((dm('Tomas, you are poisoned by the spear.')[0] as any).add, ['Poisoned']);
 });
