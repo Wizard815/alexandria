@@ -516,6 +516,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const dmHarness = c.harness === 'dm';
     const names = tools.map((t) => t.name);
     const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : selectTools(`${input.text} ${input.context.selection ? 'selection' : ''}`, names, undefined, dmHarness));
+    // Words the category rules do not know still find a tool: the best matches by name and description are offered too.
+    if (dmHarness && !exec) for (const t of matchTools(tools, input.text, true, 3)) if (!t.write || t.name.length) picked.add(t.name);
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
     const soundMod = dmHarness ? await import('../sound/index.ts') : null;
     const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
