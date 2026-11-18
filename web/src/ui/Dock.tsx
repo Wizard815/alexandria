@@ -51,14 +51,24 @@ function watchCanvases(el: HTMLElement) {
   const overlaps = (a: DOMRect, b: DOMRect) => !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
   const place = () => {
     queued = false;
-    const canvases = [...document.querySelectorAll('[data-no-dock]')].map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight);
-    for (const c of CORNERS) {
+    const onScreen = (r: DOMRect) => r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    const canvases = [...document.querySelectorAll('[data-no-dock]')].map((n) => n.getBoundingClientRect()).filter(onScreen);
+    if (!canvases.length) { el.classList.remove('at-top', 'at-left'); return; }
+    // Moving off a canvas must not land on the page's own controls (a whiteboard's toolbar, a map's buttons).
+    const controls = [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])')]
+      .filter((n) => !el.contains(n))
+      .map((n) => n.getBoundingClientRect()).filter(onScreen);
+    const tryCorner = (c: string[]) => {
       el.classList.remove('at-top', 'at-left');
       c.forEach((k) => el.classList.add(k));
       const box = el.getBoundingClientRect();
-      if (!canvases.some((r) => overlaps(box, r))) return;
-    }
+      return { onCanvas: canvases.some((r) => overlaps(box, r)), onControl: controls.some((r) => overlaps(box, r)) };
+    };
+    // Best: clear of both. Next: clear of controls (a canvas can be panned; a covered button can't be pressed). Else stay home.
+    const scores = CORNERS.map((c) => ({ c, ...tryCorner(c) }));
+    const pick = scores.find((s) => !s.onCanvas && !s.onControl) ?? scores.find((s) => !s.onControl) ?? scores[0];
     el.classList.remove('at-top', 'at-left');
+    pick.c.forEach((k) => el.classList.add(k));
   };
   const queue = () => { if (!queued) { queued = true; requestAnimationFrame(place); } };
   window.addEventListener('scroll', queue, { passive: true, capture: true });
