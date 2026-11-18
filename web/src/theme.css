@@ -166,9 +166,9 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
   h1 { font-size: 23px; }
   .topnav.desktop { display: none; }
   /* Phone: one slim top row, one slim bottom row. */
-  .topbar { flex-wrap: nowrap; gap: 8px; padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
+  .topbar { flex-wrap: wrap; gap: 4px 8px; padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
   /* The world's name may take two lines (and a smaller size on a narrow screen) before it is cut. */
-  .topbar .brand { flex: 1 1 auto; font-size: clamp(14px, 4.4vw, 17px); line-height: 1.15; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  .topbar .brand { flex: 1 1 100%; font-size: clamp(14px, 4.4vw, 17px); line-height: 1.15; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
   .topbar > :not(.brand) { flex: 0 0 auto; }
   .desktop-only { display: none !important; }
   .phone-only { display: inline-block; }
