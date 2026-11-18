@@ -19,6 +19,7 @@ import { safeImageUrl, sourceLink } from './links.ts';
 import { Editor, SecretHint } from './Editor.tsx';
 import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Levels.tsx';
 import { AskModal } from './AskModal.tsx';
+import { Connections } from '../../features/bible/Connections.tsx';
 import { DepthBadge } from '../../features/connections/Tiers.tsx';
 import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
@@ -382,6 +383,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
         <div className="lib-page">
           {blocks.length ? <Blocks blocks={blocks} ctx={ctx} /> : <p className="muted">This page is empty.</p>}
           {!offlineAt && <PageFiles pageId={pg.id} />}
+          {!offlineAt && <Connections pageId={pg.id} onOpen={onOpen} />}
           {pg.children?.length > 0 && !hasCollection(pg.blocks) && (
             <section className="lib-collection" aria-label="Pages inside">
               <h3 className="lib-h lib-h3">Inside {pg.title}</h3>
