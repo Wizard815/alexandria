@@ -70,6 +70,7 @@ const reset = async () => {
   run(deps.db, "UPDATE combat SET active = 0, round = 1, turn = 0 WHERE world_id = ?", W);
   await settings({ mode: 'active', cats: { music: 'auto', sfx: 'auto', stage: 'ask', events: 'ask', combat: 'auto', combatAdd: 'ask', items: 'ask', clock: 'ask' }, listen: { dm: true, players: true } });
   resetActiveMemory(deps, W);
+  run(deps.db, 'DELETE FROM sound_state WHERE world_id = ?', W);
 };
 
 before(async () => {

@@ -1,0 +1,77 @@
+# Agents in Alexandria: the integration plan
+
+Two agents share one chat model and one set of tools (`features/agent`):
+
+- **Minerva**, the DM's assistant. She sees everything the DM sees (never classified text). She has two modes.
+- **The broker**, the players' assistant, in the information broker's name and voice. It sees only what that player may see. Players never meet Minerva: the word does not appear on any player screen, route, event or reply, and anything Minerva changes at the table shows up as an ordinary table change.
+
+Everything below is built unless it says *planned*.
+
+## 1. Minerva's two modes
+
+| | Assistant (default) | Active |
+|---|---|---|
+| Acts | only when the DM asks: chat, a voice command, a macro | also by herself, from the live transcript, while a session records |
+| Writes | proposed, the DM confirms (or the tool is on auto-approve) | per category: **auto**, **ask**, **off** |
+| Switch | DM top bar badge (desktop and phone), Active page, per recording, macro action *Minerva: active on/off*, `/active`, `/assistant`, "Minerva, active" | |
+
+**Wake word** (default "Minerva", configurable): "Minerva, play something tense" or "Minerva, run Ambush at the docks", spoken on the **DM's own mic** (a player's mic, a room mic, or a line a player's mic also picked up never counts). It is a direct request in either mode: it runs at once, whatever the category says, except that stage cards still only show party-level pages. Anything the rules cannot do goes to the chat model as a task and comes back as proposals.
+
+**Typed or spoken commands** (Minerva chat, after the wake word, or the macro action *Minerva: command*):
+
+- `/takeover`: every category to auto (notes stay drafts); again puts the old settings back.
+- `/takeover-1` *Mood only*, `/takeover-2` *Combat helper*, `/takeover-3` *Full takeover*; `/takeover-save <n> [name]` saves the current settings as preset *n*.
+- `/auto <music|sfx|stage|events|combat|monsters|items|clock> on|off|ask`.
+
+## 2. What she does by herself (Active mode)
+
+How a line is read: a rules pass (regex cues, under 50 ms) finds candidate actions with a confidence; the audit model (temperature 0, JSON) confirms the unsure ones and reads narration the rules cannot; the chat model is used only for multi-step requests (wake commands, macros). Lines are processed in batches after about 0.7 s.
+
+| Category | Examples heard | Tool | Default | Reversible | Safety rule |
+|---|---|---|---|---|---|
+| Music and ambience | "Music: something tense", "rain begins to fall", "the tavern goes quiet" | `play_music`, `play_ambience`, `stop_music` | auto | yes (previous track or layers restored) | table speakers only; never restarts the same mood within 3 minutes; DM asides may set it |
+| Sound effects | "a door creaks open", "thunder rolls" | `play_sfx` | auto | no (a played sound), marked as such | only if the sound library has a match |
+| Stage | "Show them the map of the docks" | `show_on_stage` | ask | yes (card hidden) | **only pages players can already open (player copy); never DM-only, broker, classified; never from a DM aside**, on auto too |
+| Quick events | "make a DC 14 dexterity save", "everyone roll perception" | `send_quick_event` | ask | yes (cancelled) | |
+| Combat tracker | "roll initiative", "the ogre takes 12", "Tomas is poisoned", "heal Tomas for 4", "next turn", "the fight is over", a player's "I rolled a 17" | `set_combat`, `damage_combatant`, `heal_combatant`, `set_conditions`, `next_turn`, `set_initiative` | auto | yes (exact hit points and conditions put back) | damage comes from the DM's voice only; an ambiguous name ("the goblin" with two goblins) is not guessed |
+| Monsters in and out | "two goblins burst out of the reeds", "the ogre dies" | `add_combatant`, `remove_combatant` | ask | yes | player characters are never removed |
+| Items and coins | "you find a silver key", "give Tom 50 gold" | `add_item`, `add_coin` | ask | yes | a player saying "I drink the potion" is always a confirm card, never auto |
+| Clock and rests | "you take a long rest", "three hours pass" | `advance_world_time` | ask | yes (clock log undo) | |
+| Notes, clues, NPCs | a clue found, an NPC named twice, a promise | Review drafts | draft | n/a | never applied by themselves |
+
+**Never from Active mode, in any setting:** deleting anything, ending a session, stopping a recording, publishing, broker deals, writing pages, anything a model suggests that is not in the table above (tool allowlist). **Always:** classified text is never read; a line with any classified text is skipped whole. A DM-aside line may only set the music or the tracker. A player's words can only set off their own initiative roll and their own item use (as a card). An unsure cue with no model to settle it becomes a card, not an action. At most 14 automatic actions a minute; the rest wait for a tap. Repeats from the speech model are de-duplicated per action (the same hit is never applied twice).
+
+## 3. The command log (both modes)
+
+Every action Minerva takes or proposes is one row: time, mode, trigger (the transcript line and speaker, the wake phrase, a macro, chat), tool and arguments, result, who sees the effect (DM only, heard at the table, players see it), state (`done`, `undone`, `pending`, `rejected`, `dismissed`, `expired`, `failed`, `blocked`) and how fast it ran. In Assistant mode each proposal is logged when it is made and settled when the DM approves or rejects it. The DM can **undo** (where reversible; actions that cannot be undone say so), **reject** a card, or mark an automatic action **wrong**: it is undone and that cue is never acted on again in this world (listed under *Never again*, removable). Page: DM → Active mode → Log; also on the DM phone. API: `/api/worlds/:w/active/*` (DM only).
+
+## 4. Agent macros
+
+A macro step type **Minerva** (`minerva.run`): a prompt with `{{parameters}}` (or `{param}`), an optional tool allowlist and a mode (do it / propose). Runs from the macro UI, key bindings (web and the desktop app's global hotkeys), trigger URLs, the dock, and by voice ("Minerva, run Ambush at the docks"). It runs in its own chat, so the DM can read what happened, and appears in the command log. In *do* mode only allowlisted write tools run, and never a destructive one. Eleven templates ship (copy and edit): Start combat, End combat & loot, Ambush, Enter tavern, Long rest, Travel montage, Reveal handout, Shop open, Boss entrance, Session start recap, Session end wrap-up.
+
+## 5. Agents for players (the broker's voice)
+
+All read-only for the table, all built from what that player may see; writes are drafts the DM approves.
+
+| Helper | State | How |
+|---|---|---|
+| Information broker (questions, quotes, deals) | built | `features/broker2` |
+| Notebook: journal, goals, what I know | built | `my_context`, `my_memory_log`, `my_goal_update` |
+| **Journal draft** from the table transcript (what I said, what the table heard; never a DM aside) | built | `my_journal_draft`, then `my_memory_log` saves it for approval |
+| **Recap** ("catch me up") from the published session log | built | `my_recap` |
+| **Rules, spell and condition helper** from the world's game module | built | `lookup_rule`, `lookup_term`, `read_term` (offered to players) |
+| My inventory and coin help ("what do I carry?", "who owes whom") | planned | read tools exist (`get_inventory`, `list_transfers`); needs a phrasing pass |
+| Goal reminders ("what was I trying to do?") | planned | from `my_context` goals, surfaced at the start of a session |
+| Trade helper between players (draft an offer, never send one) | planned | on `sessionchat/trade` |
+| Level-up helper (what do I gain at level N, from the module) | planned | `lookup_term` kind class, plus the sheet |
+| Auto journal on session end (draft pushed to each player) | planned | `my_journal_draft` on `recording` stop, as a notification |
+
+Safety: the broker never says it works for the DM, never names Minerva, and its replies pass the sentence-level leak check against all DM-only text.
+
+## 6. What is next
+
+1. Table chat commands (`/takeover` typed in the table chat as the DM).
+2. Per-player mic attribution checks in noisy rooms (a wake word only counts when every source mic is the DM's or a room mic).
+3. The planned player helpers above; first the auto journal draft on session end.
+4. Active mode for the DM phone only (a phone that listens when the desktop is off).
+5. More undo: sound effects (stop a long effect), clock events.

@@ -12,6 +12,8 @@ import QueueTab from './QueueTab.tsx';
 import AskTab from './AskTab.tsx';
 import NotesTab from './NotesTab.tsx';
 import { buzz, lsGet, lsSet, useShape, useUndo } from './hooks.ts';
+import ModeBadge from '../active/ModeBadge.tsx';
+import { ConfirmCards, UndoToasts } from '../active/Cards.tsx';
 import './dmphone.css';
 
 type Tab = 'now' | 'remote' | 'queue' | 'ask' | 'notes';
@@ -73,9 +75,11 @@ export default function PhonePage() {
         <header className="dmp-top">
           <Link to={`/w/${info.slug}/dm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
           <span className="brand">{info.name}</span>
+          <ModeBadge phone />
           <span className="date" data-testid="phone-date"><span className={`live-dot${connected ? '' : ' off'}`} style={{ marginRight: 6 }} />{sum.data?.date.label ?? ''}</span>
         </header>
         <OfflineBanner />
+        <ConfirmCards phone />
         <div className={`dmp-main${shape.wide ? ' rail' : ''}`}>
           <div className="dmp-panes">
             {(['now', 'remote', 'queue', 'notes', 'ask'] as Tab[]).map((k) => (
@@ -94,6 +98,7 @@ export default function PhonePage() {
           </nav>
         </div>
       </div>
+      <UndoToasts phone />
       {undo && <div className="dmp-undo" role="status"><span className="grow tx">{undo.text}</span><button type="button" className="b" onClick={() => { buzz(10); undo.undo(); clear(); }}>Undo</button></div>}
     </div>
   );

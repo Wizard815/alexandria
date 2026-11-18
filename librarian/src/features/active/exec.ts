@@ -110,20 +110,22 @@ export function undoFor(c: Call, before: Snap, r: CallResult): Call[] | null {
   }
 }
 
-export interface ExecOut { ok: boolean; results: string[]; undo: Call[] | null; error?: string }
+export interface ExecOut { ok: boolean; results: string[]; undo: Call[] | null; error?: string; unchanged?: boolean }
 /** Run calls in order; the undo is the reverse of each call that can be undone (null if any one cannot). */
 export async function execCalls(d: Deps, worldId: string, calls: Call[]): Promise<ExecOut> {
   const results: string[] = [];
   const undo: Call[] = [];
   let reversible = true;
+  let unchanged = false;
   for (const c of calls) {
     const before = snapshot(d, worldId);
     const args = c.tool === 'inventory_patch' ? { ...c.args } : c.args;
     const r = await callOne(d, worldId, { tool: c.tool, args });
     results.push(r.text.slice(0, 200));
+    if (r.json?.changed === false) unchanged = true;
     if (!r.ok) return { ok: false, results, undo: undo.length && reversible ? undo.reverse() : null, error: r.text.slice(0, 200) };
     const u = undoFor(c, before, r);
     if (u === null) reversible = false; else undo.push(...u);
   }
-  return { ok: true, results, undo: reversible && undo.length ? undo.reverse() : null };
+  return { ok: true, results, undo: reversible && undo.length ? undo.reverse() : null, unchanged };
 }
