@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Modal } from '../../ui/index.tsx';
 import { DockButton, DockItem, useExclusivePanel } from '../../ui/Dock.tsx';
+import { useAuth } from '../../lib/auth.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { engine, useEngine } from './engine.ts';
 import { CardView, Highlighted, loadCard, useMatches, type Match } from './keywords.tsx';
@@ -37,17 +38,19 @@ function usePhone() {
 }
 
 export default function TranscriptOverlay() {
-  useAttach();
   return <><RecordingBadge /><ConsentPrompt /><Island /></>;
 }
 
 /** Keeps the engine in step with the world: status on load, and whenever recording starts or stops. */
 function useRecordingSync() {
-  const { on } = useWorld();
+  const { on, info } = useWorld();
+  const { client } = useAuth();
+  // Effects run children first: attach before the status call, or the engine has no world yet and the badge never shows.
+  useAttach();
   useEffect(() => {
     void engine.refresh().catch(() => {});
     return on(['recording'], () => { void engine.refresh().catch(() => {}); });
-  }, [on]);
+  }, [on, info.id, client.token]);
 }
 
 function RecordingBadge() {
