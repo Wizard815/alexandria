@@ -241,7 +241,7 @@ const compactCombat = (j: any): string => {
     const bits = [`${i + 1}. ${x.name} (id ${x.id}) init ${x.initiative}`];
     if (x.hp !== undefined && x.hp !== null) bits.push(`HP ${x.hp}${x.max_hp ?? x.maxHp ? `/${x.max_hp ?? x.maxHp}` : ''}`);
     if (x.ac) bits.push(`AC ${x.ac}`);
-    if (Array.isArray(x.effects) && x.effects.length) bits.push(x.effects.join(', '));
+    if (Array.isArray(x.effects) && x.effects.length) bits.push(x.effects.map((e: any) => (typeof e === 'string' ? e : `${e?.name ?? ''}${e?.rounds ? ` (${e.rounds} rounds)` : ''}`)).filter(Boolean).join(', '));
     if (x.hidden) bits.push('hidden');
     return bits.join(', ');
   });
