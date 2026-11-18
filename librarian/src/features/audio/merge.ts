@@ -10,6 +10,8 @@
 //   4. speaker: the mic with the strongest close signal (done by the engine)
 
 export interface Word { w: string; s: number; e: number; c: number; l: number }
+/** The longest a single line may run before it is cut at a sentence end (or the biggest pause). */
+export const MAX_UTTERANCE_MS = 20_000;
 export interface MergedWord { w: string; s: number; e: number; c: number; mic: string }
 export interface Utterance { mic: string; start: number; end: number; words: Word[] }
 export interface Group { members: Utterance[]; start: number; end: number }
@@ -43,19 +45,37 @@ export function similarity(a: string[], b: string[]): number {
   return (2 * dp[a.length][b.length]) / (a.length + b.length);
 }
 
-/** Split one mic's words into utterances at silences longer than gapMs. */
-export function utterances(mic: string, words: Word[], gapMs = 700): Utterance[] {
+/**
+ * Split one mic's words into utterances at silences longer than gapMs, and
+ * cut any longer than maxMs at its last sentence end (else its last word
+ * before the limit). The cut depends only on the words before it, so a line
+ * keeps its start (and its place in the transcript) while it grows.
+ */
+export function utterances(mic: string, words: Word[], gapMs = 700, maxMs = Infinity): Utterance[] {
   const out: Utterance[] = [];
   const sorted = [...words].filter((w) => token(w.w)).sort((x, y) => x.s - y.s);
   let cur: Utterance | null = null;
+  const open = (w: Word) => { cur = { mic, start: w.s, end: w.e, words: [w] }; out.push(cur); };
   for (const w of sorted) {
     if (cur && w.s - cur.end <= gapMs) {
+      if (w.e - cur.start > maxMs && cur.words.length > 1) {
+        // Cut after the last sentence end that leaves a decent first half, else right here.
+        let at = -1;
+        for (let i = cur.words.length - 1; i >= 0; i--) if (/[.?!]["')]*$/.test(cur.words[i].w) && cur.words[i].e - cur.start >= maxMs * 0.4) { at = i; break; }
+        if (at >= 0 && at < cur.words.length - 1) {
+          const tail: Word[] = cur.words.splice(at + 1);
+          cur.end = cur.words[cur.words.length - 1].e;
+          const next: Utterance = { mic, start: tail[0].s, end: Math.max(tail[tail.length - 1].e, w.e), words: [...tail, w] };
+          out.push(next);
+          cur = next;
+          continue;
+        }
+        open(w);
+        continue;
+      }
       cur.words.push(w);
       cur.end = Math.max(cur.end, w.e);
-    } else {
-      cur = { mic, start: w.s, end: w.e, words: [w] };
-      out.push(cur);
-    }
+    } else open(w);
   }
   return out;
 }
@@ -68,20 +88,41 @@ function quality(u: Utterance): number {
   return q;
 }
 
+/** Words of u that fall inside [from, to] (by their middle). */
+const within = (u: Utterance, from: number, to: number) => u.words.filter((w) => (w.s + w.e) / 2 >= from && (w.s + w.e) / 2 <= to).map((w) => token(w.w)).filter(Boolean);
+
+/**
+ * How alike two utterances from different mics are. Two mics rarely cut the
+ * same speech at the same place (their chunks start at different times), so
+ * besides the whole-utterance score the words each heard in the stretch of
+ * time they share are compared too.
+ */
+export function utteranceSimilarity(a: Utterance, b: Utterance, slackMs = 600): number {
+  const whole = similarity(toks(a), toks(b));
+  const from = Math.max(a.start, b.start) - slackMs / 2;
+  const to = Math.min(a.end, b.end) + slackMs / 2;
+  if (to - from < 1500) return whole;
+  const x = within(a, from, to);
+  const y = within(b, from, to);
+  if (x.length < 4 || y.length < 4) return whole;
+  return Math.max(whole, similarity(x, y));
+}
+
 /** Group utterances from different mics that are the same speech. */
-export function groupUtterances(all: Utterance[], opts: { slackMs?: number; threshold?: number } = {}): Group[] {
+export function groupUtterances(all: Utterance[], opts: { slackMs?: number; threshold?: number; maxSpanMs?: number } = {}): Group[] {
   const slack = opts.slackMs ?? 600;
   const threshold = opts.threshold ?? 0.6;
+  const maxSpan = opts.maxSpanMs ?? MAX_UTTERANCE_MS * 1.5;
   const groups: Group[] = [];
   const sorted = [...all].sort((a, b) => a.start - b.start || a.end - b.end);
   for (const u of sorted) {
-    const ut = toks(u);
     let best: Group | null = null;
     let bestSim = 0;
     for (const g of groups) {
       if (g.end < u.start - slack || g.start > u.end + slack) continue;
       if (g.members.some((m) => m.mic === u.mic)) continue;
-      const sim = Math.max(...g.members.map((m) => similarity(toks(m), ut)));
+      if (Math.max(g.end, u.end) - Math.min(g.start, u.start) > maxSpan) continue;
+      const sim = Math.max(...g.members.map((m) => utteranceSimilarity(m, u, slack)));
       if (sim >= threshold && sim > bestSim) { best = g; bestSim = sim; }
     }
     if (best) {
