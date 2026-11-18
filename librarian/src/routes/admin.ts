@@ -11,7 +11,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { type DB, one, all, run, tx } from '../core/db.ts';
-import { type Auth, createAccount, requireAdmin, validatePassword, validateUsername } from '../core/auth.ts';
+import { type Auth, createAccount, createKey, requireAdmin, validatePassword, validateUsername } from '../core/auth.ts';
 import { DEFAULT_SETTINGS } from '../core/policy.ts';
 import { HttpError, id, now, oneOf, sha256, str } from '../core/util.ts';
 import { libraryOf } from '../core/library.ts';
@@ -23,6 +23,25 @@ export default function adminRoutes(d: Deps) {
   const { db } = d;
   r.use(requireAdmin);
   const me = (res: any) => (res.locals.auth as Auth).account.id;
+
+  // The admin's own keys. Under /api/admin so an admin sign-in session reaches them (the /api/keys routes refuse one).
+  r.get('/keys', (_req, res) => {
+    res.json(all(db, `SELECT id, scope, access, world_id, label, prefix, created_at, last_used_at, revoked FROM api_keys WHERE account_id = ? AND scope = 'admin' ORDER BY created_at DESC`, me(res)));
+  });
+  r.post('/keys', (req, res) => {
+    const auth = res.locals.auth as Auth;
+    if (auth.via !== 'session' && auth.via !== 'admin_session') throw new HttpError(403, 'Make keys from a signed-in session, not with another key');
+    const label = str(req.body?.label, 'label', { max: 60 });
+    const k = createKey(db, auth.account.id, 'admin', label, null, 'write');
+    audit(db, null, auth.account.id, 'key.create', `admin write ${label}`);
+    res.status(201).json({ id: k.id, key: k.key, access: 'write', note: 'Copy this key now. It will not be shown again.' });
+  });
+  r.delete('/keys/:id', (req, res) => {
+    const a = (res.locals.auth as Auth).account;
+    if (!run(db, `UPDATE api_keys SET revoked = 1 WHERE id = ? AND account_id = ? AND scope = 'admin'`, String(req.params.id), a.id)) throw new HttpError(404, 'Key not found');
+    audit(db, null, a.id, 'key.revoke', String(req.params.id));
+    res.json({ ok: true });
+  });
 
   r.get('/overview', (_req, res) => {
     res.json({
