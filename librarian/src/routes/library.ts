@@ -5,11 +5,12 @@ import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { requireDM } from '../core/auth.ts';
 import { splitFrontmatter } from '../core/frontmatter.ts';
-import { HttpError, str } from '../core/util.ts';
+import { HttpError, int, str } from '../core/util.ts';
 import { safePagePath } from '../core/library.ts';
 import { joinFrontmatter } from '../core/frontmatter.ts';
 import { ctx, me } from './_shared.ts';
 import { hybridPages } from '../features/search/embeddings.ts';
+import { relatedPages } from '../features/search/related.ts';
 import { scopeFor } from '../features/search/global.ts';
 import { readOnOpen, readSearchHits } from '../features/connections/ondemand.ts';
 import { shareRoutes } from '../features/sourcekeys/share.ts';
@@ -22,6 +23,10 @@ export default function libraryRoutes(d: Deps) {
   r.use('/pages/:id/share', shareRoutes(d));
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   // A page held only at index depth (a tiered crawl) is read from its source first, then served.
+  r.get('/pages/:id/related', (req, res) => {
+    const c = ctx(res);
+    res.json(relatedPages(d, c.world.id, c.viewer, String(req.params.id), int(req.query.limit, 'limit', { min: 1, max: 50, optional: true }) ?? 8));
+  });
   r.get('/pages/:id', async (req, res) => {
     await readOnOpen(d, ctx(res).world.id, String(req.params.id), ctx(res).viewer);
     res.json(L.get(ctx(res).world.id, String(req.params.id), ctx(res).viewer));
@@ -60,7 +65,7 @@ export default function libraryRoutes(d: Deps) {
     // The search log keeps who (a role), the words, how many found and from which sources: never a title.
     const model = String(req.headers['x-alexandria-caller'] ?? '').toLowerCase() === 'model';
     const log = (found: { id: string }[]) => logSearch(d.db, { worldId: c.world.id, role: roleOf(c.viewer, model), origin: model ? 'agent' : 'library', q, hitIds: found.map((h) => h.id) });
-    if (req.query.semantic === '1') { const found = await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20); log(found); return void res.json(found); }
+    if (req.query.semantic === '1') { const found = await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20, c.viewer); log(found); return void res.json(found); }
     let hits = L.search(c.world.id, q, c.viewer);
     // The DM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
     if (c.viewer.role === 'dm' && await readSearchHits(d, c.world.id, hits)) hits = L.search(c.world.id, q, c.viewer);
