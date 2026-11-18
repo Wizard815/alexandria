@@ -26,7 +26,10 @@ let clock: Clock = realClock;
 /** Tests only: replace the clock (null: the real one). */
 export function setClock(c: Clock | null) { clock = c ?? realClock; }
 
-export interface Limits { perMinute: number; perSecond: number; spreadMinutes: number }
+export interface Limits { perMinute: number; perSecond: number; spreadMinutes: number; /** Calls an hour per connection (0: no hourly cap). */ perHour: number }
+
+/** Share of the per-minute and per-hour budget background reads may use: the rest is kept for pages somebody opens. */
+export const BACKGROUND_SHARE = 0.8
 
 /**
  * What each connector may be called at when the connection says nothing: the site's published limit, or something gentle.
@@ -36,14 +39,26 @@ export interface Limits { perMinute: number; perSecond: number; spreadMinutes: n
  *     60,000 a day; writes 120 a minute and 3,000 an hour; 12,000 an hour per project. 60 a minute (3,600 an hour) stays well
  *     inside every tier, and 2 a second matches the docs' "writes at least half a second apart".
  */
-export const DEFAULT_LIMITS: Record<string, { perMinute: number; perSecond: number }> = {
-  'kanka-api': { perMinute: 30, perSecond: 0 },
-  'kanka-mcp': { perMinute: 30, perSecond: 0 },
-  'legendkeeper-api': { perMinute: 60, perSecond: 2 },
-  'legendkeeper-mcp': { perMinute: 60, perSecond: 2 },
-  api: { perMinute: 60, perSecond: 0 },
+const LK_PER_HOUR = 6000;
+export const DEFAULT_LIMITS: Record<string, { perMinute: number; perSecond: number; perHour: number }> = {
+  'kanka-api': { perMinute: 30, perSecond: 0, perHour: 0 },
+  'kanka-mcp': { perMinute: 30, perSecond: 0, perHour: 0 },
+  'legendkeeper-api': { perMinute: 200, perSecond: 2, perHour: LK_PER_HOUR },
+  'legendkeeper-mcp': { perMinute: 200, perSecond: 2, perHour: LK_PER_HOUR },
+  api: { perMinute: 60, perSecond: 0, perHour: 0 },
 };
-const FALLBACK = { perMinute: 60, perSecond: 0 };
+const FALLBACK = { perMinute: 60, perSecond: 0, perHour: 0 };
+
+/**
+ * LegendKeeper also caps a whole project at 12,000 calls an hour, shared by every key that reads it (the DM's and each player's).
+ * `projectOf` names the project a connection's settings point at, or null (other connectors have no such cap).
+ */
+export const LK_PROJECT_PER_HOUR = 12_000;
+export function projectOf(connectorId: string, cfg: Record<string, any>): { id: string; perHour: number } | null {
+  if (!connectorId.startsWith('legendkeeper')) return null;
+  const id = String(cfg.projectId || /\/projects\/([^/?#]+)/.exec(String(cfg.apiUrl ?? ''))?.[1] || cfg.project || '').trim();
+  return id ? { id: id.toLowerCase(), perHour: LK_PROJECT_PER_HOUR } : null;
+}
 
 const posInt = (v: unknown): number | null => {
   if (v === undefined || v === null || v === '') return null;
@@ -59,10 +74,11 @@ export function limitsOf(connectorId: string, cfg: Record<string, any>, env: Rec
   const d = DEFAULT_LIMITS[connectorId] ?? FALLBACK;
   const pm = posInt(cfg.maxPerMinute);
   const ps = posInt(cfg.maxPerSecond);
+  const ph = posInt(cfg.maxPerHour);
   const spread = spreadOverride ?? posInt(cfg.spreadMinutes) ?? 1;
-  let out: Limits = { perMinute: pm && pm >= 1 ? Math.min(pm, 6000) : d.perMinute, perSecond: ps !== null ? Math.min(ps, 100) : d.perSecond, spreadMinutes: Math.min(spread, 24 * 60) };
+  let out: Limits = { perMinute: pm && pm >= 1 ? Math.min(pm, 6000) : d.perMinute, perSecond: ps !== null ? Math.min(ps, 100) : d.perSecond, spreadMinutes: Math.min(spread, 24 * 60), perHour: ph !== null ? Math.min(ph, 100_000) : d.perHour };
   const o = env.ALX_CRAWL_RATE;
-  if (o !== undefined && o !== '' && Number.isFinite(Number(o))) out = { perMinute: Number(o), perSecond: env.ALX_CRAWL_RATE_PER_SEC ? Number(env.ALX_CRAWL_RATE_PER_SEC) : 0, spreadMinutes: env.ALX_CRAWL_SPREAD !== undefined ? Number(env.ALX_CRAWL_SPREAD) : 0 };
+  if (o !== undefined && o !== '' && Number.isFinite(Number(o))) out = { perMinute: Number(o), perSecond: env.ALX_CRAWL_RATE_PER_SEC ? Number(env.ALX_CRAWL_RATE_PER_SEC) : 0, spreadMinutes: env.ALX_CRAWL_SPREAD !== undefined ? Number(env.ALX_CRAWL_SPREAD) : 0, perHour: env.ALX_CRAWL_RATE_PER_HOUR ? Number(env.ALX_CRAWL_RATE_PER_HOUR) : 0 };
   return out;
 }
 
@@ -70,8 +86,9 @@ export function limitsOf(connectorId: string, cfg: Record<string, any>, env: Rec
 export function rateFields(connectorId: string): ConfigField[] {
   const d = DEFAULT_LIMITS[connectorId] ?? FALLBACK;
   return [
-    { key: 'maxPerMinute', label: 'Max calls per minute', type: 'number', scope: 'connection', default: d.perMinute, help: `How many calls a minute Alexandria may make with this connection, across every world that uses it. Keep it at or under what the site allows (suggested ${d.perMinute}).` },
+    { key: 'maxPerMinute', label: 'Max calls per minute', type: 'number', scope: 'connection', default: d.perMinute, help: `How many calls a minute Alexandria may make with this connection, across every world that uses it. Keep it at or under what the site allows (suggested ${d.perMinute}). If the site reports a lower limit, that one is used. About a fifth is kept for pages somebody opens, so the background reader never takes all of it.` },
     { key: 'maxPerSecond', label: 'Max calls per second', type: 'number', scope: 'connection', default: d.perSecond, help: 'A cap on bursts. 0 means no per-second cap.' },
+    { key: 'maxPerHour', label: 'Max calls per hour', type: 'number', scope: 'connection', default: d.perHour, help: d.perHour ? `A cap on calls in any hour for this connection (the site allows ${d.perHour}; a LegendKeeper project also has a shared 12,000 an hour across every key). About a fifth is kept for pages somebody opens. 0 means no hourly cap.` : 'A cap on calls in any hour. 0 means no hourly cap (this site documents none).' },
     { key: 'spreadMinutes', label: 'Spread the first scan over (minutes)', type: 'number', scope: 'connection', default: 1, help: 'The first scan of a world lists calls evenly across this many minutes instead of all at once. 0 means as fast as the limits allow. A world can override it.' },
   ];
 }
@@ -116,11 +133,31 @@ function secondsFrom(v: string | null | undefined, at: number): number | null {
   return Number.isNaN(d) ? null : Math.max(0, (d - at) / 1000);
 }
 
+/** Calls in the last hour for a LegendKeeper project, shared by every limiter (every connection and key) that reads it. */
+export interface ProjectWindow { log: number[]; cap: number }
+const projects = new Map<string, ProjectWindow>();
+/** The shared window of a project (the database is part of the key). */
+export function projectWindow(db: object, id: string, cap: number): ProjectWindow {
+  let n = dbIds.get(db);
+  if (n === undefined) { n = nextDb++; dbIds.set(db, n); }
+  const k = `${n}:${id}`;
+  let w = projects.get(k);
+  if (!w) { w = { log: [], cap }; projects.set(k, w); }
+  w.cap = cap;
+  return w;
+}
+const HOUR = 3_600_000;
+/** What background reads may use of a cap: the reserve is kept for pages somebody opens. */
+const bgCap = (n: number) => (n <= 1 ? n : Math.max(1, Math.floor(n * BACKGROUND_SHARE)));
+
 export class Limiter {
   key: string;
   limits: Limits;
   private log: number[] = [];
   private secLog: number[] = [];
+  private hourLog: number[] = [];
+  /** The project this limiter's calls also count against (LegendKeeper: 12,000 an hour across keys). */
+  project: ProjectWindow | null = null;
   private blockedUntil = 0;
   private cap: number | null = null;
   private lastPaced = 0;
@@ -142,39 +179,50 @@ export class Limiter {
   /** Calls a minute really allowed: ours, or lower when the site said so. */
   get perMinute() { return this.cap ? Math.min(this.cap, this.limits.perMinute) : this.limits.perMinute; }
 
-  private waitFor(at: number, gapMs: number): { ms: number; why: Throttle['reason'] } {
+  private waitFor(at: number, gapMs: number, background: boolean): { ms: number; why: Throttle['reason'] } {
     let ms = 0; let why: Throttle['reason'] = 'limit';
     if (this.blockedUntil > at) { ms = this.blockedUntil - at; why = 'asked'; }
     const pm = this.perMinute;
     if (pm > 0) {
       while (this.log.length && this.log[0] <= at - 60_000) this.log.shift();
-      if (this.log.length >= pm) { const w = this.log[this.log.length - pm] + 60_000 - at; if (w > ms) { ms = w; why = this.cap && this.cap < this.limits.perMinute ? 'asked' : 'limit'; } }
+      const cap = background ? bgCap(pm) : pm;
+      if (this.log.length >= cap) { const w = this.log[this.log.length - cap] + 60_000 - at; if (w > ms) { ms = w; why = this.cap && this.cap < this.limits.perMinute ? 'asked' : 'limit'; } }
     }
     const ps = this.limits.perSecond;
     if (ps > 0) {
       while (this.secLog.length && this.secLog[0] <= at - 1000) this.secLog.shift();
       if (this.secLog.length >= ps) { const w = this.secLog[this.secLog.length - ps] + 1000 - at; if (w > ms) { ms = w; why = 'limit'; } }
     }
+    const hourly: [number[], number][] = [];
+    if (this.limits.perHour > 0) hourly.push([this.hourLog, this.limits.perHour]);
+    if (this.project && this.project.cap > 0) hourly.push([this.project.log, this.project.cap]);
+    for (const [log, total] of hourly) {
+      while (log.length && log[0] <= at - HOUR) log.shift();
+      const cap = background ? bgCap(total) : total;
+      if (log.length >= cap) { const w = log[log.length - cap] + HOUR - at; if (w > ms) { ms = w; why = 'limit'; } }
+    }
     if (gapMs > 0 && this.lastPaced) { const w = this.lastPaced + gapMs - at; if (w > ms) { ms = w; why = 'pace'; } }
     return { ms: Math.ceil(ms), why };
   }
 
   /** Wait until one more call may go, then count it. `gapMs`: the least time since the previous paced call (scan pacing). */
-  async acquire(signal?: AbortSignal, gapMs = 0): Promise<void> {
+  async acquire(signal?: AbortSignal, gapMs = 0, background = false): Promise<void> {
     for (;;) {
       if (signal?.aborted) throw new Error('Sync stopped');
       const at = clock.now();
-      const { ms, why } = this.waitFor(at, gapMs);
+      const { ms, why } = this.waitFor(at, gapMs, background);
       if (ms <= 0) {
         if (this.perMinute > 0) this.log.push(at);
         if (this.limits.perSecond > 0) this.secLog.push(at);
+        if (this.limits.perHour > 0) this.hourLog.push(at);
+        if (this.project && this.project.cap > 0) this.project.log.push(at);
         if (gapMs > 0) this.lastPaced = at;
         this.waiting = null;
         if (this.sink && this.logical) { try { this.sink.call(this.logical, at); } catch { /* the status page never stops a call */ } }
         return;
       }
-      this.waiting = { waitMs: ms, reason: why };
-      this.waitingUntil = at + ms;
+      // A wait only the reserve causes (background reads giving way) is not shown: a page somebody opens would not wait.
+      if (!background || why === 'asked' || why === 'pace') { this.waiting = { waitMs: ms, reason: why }; this.waitingUntil = at + ms; }
       await clock.sleep(Math.min(ms, 5000), signal);
     }
   }
@@ -218,6 +266,7 @@ export class Limiter {
     const at = clock.now();
     const used = this.log.filter((t) => t > at - 60_000).length;
     return {
+      usedLastHour: this.hourLog.filter((t) => t > at - HOUR).length, perHour: this.limits.perHour,
       perMinute: this.limits.perMinute, perMinuteInEffect: this.perMinute, perSecond: this.limits.perSecond, usedLastMinute: used,
       throttle: this.throttle(), lastRetryAfterSec: this.lastRetryAfterSec, lastRemaining: this.lastRemaining, lastLimit: this.lastLimit,
     };
@@ -255,23 +304,23 @@ const limiters = new Map<string, Limiter>();
 export function limiterFor(key: string, limits: Limits): Limiter {
   let l = limiters.get(key);
   if (!l) { l = new Limiter(key, limits); limiters.set(key, l); }
-  else if (l.limits.perMinute !== limits.perMinute || l.limits.perSecond !== limits.perSecond) l.configure(limits);
+  else if (l.limits.perMinute !== limits.perMinute || l.limits.perSecond !== limits.perSecond || l.limits.perHour !== limits.perHour) l.configure(limits);
   else l.limits = limits;
   return l;
 }
 export const limiterState = (key: string): Throttle | null => limiters.get(key)?.throttle() ?? null;
 export const limiterSnapshot = (key: string) => limiters.get(key)?.snapshot() ?? null;
-export const resetLimiters = () => limiters.clear();
+export const resetLimiters = () => { limiters.clear(); projects.clear(); };
 
 /**
  * A fetch that waits for the limiter, reads the site's rate-limit headers and, on a 429 (or a 503 that says Retry-After),
  * waits and asks again a few times. Anything else is returned as it is.
  */
-export function limitedFetch(inner: typeof fetch, lim: Limiter, signal: AbortSignal, calls: { credit: number }): typeof fetch {
+export function limitedFetch(inner: typeof fetch, lim: Limiter, signal: AbortSignal, calls: { credit: number }, background = false): typeof fetch {
   return (async (input: any, init?: any) => {
     for (let attempt = 0; ; attempt++) {
       // A call `take()` already paid for is not paid twice; a retry, or a fetch nobody counted, waits its turn here.
-      if (attempt === 0 && calls.credit > 0) calls.credit--; else await lim.acquire(signal);
+      if (attempt === 0 && calls.credit > 0) calls.credit--; else await lim.acquire(signal, 0, background);
       const t0 = clock.now();
       let r: Response;
       try { r = await inner(input, init); } catch (e) { lim.report(0, clock.now() - t0, e); throw e; }
