@@ -148,7 +148,7 @@ export function genDungeon(o: MapOpts = {}): MapResult {
       const [dir, rest] = [k[0], k.slice(1)];
       const [x, y] = rest.split(',').map(Number);
       const a: [number, number] = [x, y], b: [number, number] = dir === 'v' ? [x, y + 1] : [x + 1, y];
-      if (at(a[0], a[1]) === q.id || at(b[0], b[1]) === q.id) out.push('a secret door (DC 15 to find)');
+      if ((at(a[0], a[1]) === q.id || at(b[0], b[1]) === q.id) && !out.length) out.push('a secret door (DC 15 to find)');
     }
     return out;
   };
@@ -168,7 +168,7 @@ export function genDungeon(o: MapOpts = {}): MapResult {
       n: String(q.id),
       name: entrance ? 'Entrance' : noArticle(purpose),
       text: `${entrance ? 'A stair climbs out of the dark here. ' : ''}${cap(purpose)}, ${q.w * 5} by ${q.h * 5} ft, ${light}; ${sense}. ${cap(pick(r, fl.features))}. Exits: ${exitsOf(q)}.`,
-      dm: dm.join(' '),
+      dm: [...new Set(dm)].join(' '),
     });
   }
   // traps in the corridors (DM view only)
