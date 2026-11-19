@@ -193,12 +193,22 @@ export class Engine {
       const hint = hintOn && ch.level >= QUIET_LEVEL ? this.hint(ch.world_id) : '';
       const context = this.worldSetting(ch.world_id, 'transcriptContext') === 'on' ? this.contextFor(ch) : '';
       const prompt = [hint, context].filter(Boolean).join(' ');
-      let t;
+      let t: Awaited<ReturnType<typeof transcribe>>;
+      // Segments the model made up (a loop, or text it was unsure of) and the words it was sure of.
+      const madeUp = (x: typeof t) => x.segments.filter((s) => ['compression', 'logprob'].includes(junkReason(s) ?? '')).length;
+      const sure = (x: typeof t) => x.segments.filter((s) => !junkReason(s)).reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
       try {
         t = await transcribe(this.d, bytes, ch.mime, { prompt });
-        // A loop or made-up text on a chunk with signal: once more, a little warmer.
-        if (ch.level >= 0.1 && t.segments.length && t.segments.every((s) => ['compression', 'logprob'].includes(junkReason(s) ?? ''))) {
-          try { t = await transcribe(this.d, bytes, ch.mime, { prompt, temperature: 0.4 }); } catch { /* keep the first answer */ }
+        let asked = prompt;
+        // Names the speech does not contain can pull a small model off course: on real speech
+        // it wrote "grocery, Target" with the hint and "or bats, and then there's a door" without.
+        // So a chunk with made-up text is asked again without the hint, and the surer answer kept.
+        if (ch.level >= 0.1 && hint && madeUp(t)) {
+          try { const alt = await transcribe(this.d, bytes, ch.mime, { prompt: context }); if (sure(alt) > sure(t)) { t = alt; asked = context; } } catch { /* keep the first answer */ }
+        }
+        // Still nothing but a loop or made-up text on a chunk with signal: once more, a little warmer.
+        if (ch.level >= 0.1 && t.segments.length && madeUp(t) === t.segments.length) {
+          try { t = await transcribe(this.d, bytes, ch.mime, { prompt: asked, temperature: 0.4 }); } catch { /* keep the answer we have */ }
         }
       } catch (err) {
         if (!(err instanceof ModelUnavailable)) console.error('audio: transcription failed', err);
