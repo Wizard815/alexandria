@@ -323,12 +323,29 @@ test('Audio2_hallucination: a looping chunk with signal is asked once more, warm
   const sid = await newSession();
   asked.length = 0;
   let n = 0;
-  override = () => { n++; return n === 1 ? { text: 'x', segments: [{ start: 0, end: 4, text: 'the the the the', avg_logprob: -0.3, no_speech_prob: 0.01, compression_ratio: 5, words: [] }] } : null; };
+  override = () => { n++; return n <= 2 ? { text: 'x', segments: [{ start: 0, end: 4, text: 'the the the the', avg_logprob: -0.3, no_speech_prob: 0.01, compression_ratio: 5, words: [] }] } : null; };
   try { await send('dm', sid, 'table', 0, 0, [seg('open the door slowly')], 0.5); } finally { override = null; }
-  assert.equal(asked.length, 2);
+  assert.equal(asked.length, 3, 'with the hint, then without it, then warmer');
   assert.equal(asked[0].temperature, null, 'the first ask leaves temperature to the server (its own fallback schedule)');
-  assert.equal(asked[1].temperature, '0.4');
+  assert.ok(asked[0].prompt.length > 0 && asked[1].prompt === '', 'the second ask drops the hint');
+  assert.equal(asked[2].temperature, '0.4');
   assert.equal((await lines('dm', sid))[0].text, 'open the door slowly');
+});
+
+test('Audio2_hallucination: a chunk the hint pulled off course is asked again without it; the surer answer is kept', async () => {
+  const sid = await newSession();
+  asked.length = 0;
+  override = (form) => String(form.get('prompt') ?? '')
+    ? { text: 'x', segments: [{ start: 0, end: 3, text: 'grocery Target', avg_logprob: -3.9, no_speech_prob: 0.2, compression_ratio: 0.9, words: [] }] }
+    : null;
+  try { await send('dm', sid, 'table', 0, 0, [seg('or bats and then there is a door')], 0.5); } finally { override = null; }
+  assert.equal(asked.length, 2);
+  assert.equal(asked[1].prompt, '');
+  assert.deepEqual((await lines('dm', sid)).map((l) => l.text), ['or bats and then there is a door']);
+  // A clean first answer costs no second ask.
+  asked.length = 0;
+  await send('dm', sid, 'table', 1, 5000, [seg('roll for initiative')], 0.5);
+  assert.equal(asked.length, 1);
 });
 
 // ---- fix 6: dice and numbers --------------------------------------------------------------------------
