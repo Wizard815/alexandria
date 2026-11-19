@@ -484,3 +484,19 @@ test('TestActive_CueRegressions', () => {
   assert.deepEqual(pl.map((c) => c.kind), ['initiative']);
   assert.equal((pl[0] as any).value, 12);
 });
+
+test('TestActive_MonstersAddedByVoiceGetStatblockHpAndUnknownHpIsNeverDefeatedByDamage', async () => {
+  const { statsFor } = await import('../src/features/active/intents.ts');
+  const wid = (deps.db.prepare('SELECT id FROM worlds WHERE slug = ? OR id = ?').get(W, W) as any).id;
+  const g = statsFor(deps, wid, 'Goblin');
+  assert.ok(g.hp && g.hp > 0 && g.maxHp === g.hp && g.ac, `goblin stats from the rules module: ${JSON.stringify(g)}`);
+  assert.deepEqual(statsFor(deps, wid, 'Goblins'), g, 'a plural name finds the same creature');
+  const w = statsFor(deps, wid, 'Wolf');
+  assert.ok(w.hp && w.hp > 0, JSON.stringify(w));
+  assert.deepEqual(statsFor(deps, wid, 'wolves'), w, '"wolves" is a wolf');
+  assert.deepEqual(statsFor(deps, wid, 'Mister Nobody'), {}, 'no statblock: nothing made up');
+  const { id } = await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Bandit of unknown health', initiative: 3 });
+  const r = await ok('PATCH', `/api/worlds/${W}/live/combatants/${id}`, T.dm, { damage: 8 });
+  assert.equal(r.defeated, false, 'damage to unknown HP does not defeat');
+  assert.equal(r.hp, null);
+});

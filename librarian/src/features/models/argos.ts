@@ -59,7 +59,10 @@ export function normalizeModel(r: any): DiscoveredModel | null {
 }
 
 const hint = (m: DiscoveredModel) => `${m.id} ${m.name} ${m.description}`.toLowerCase();
-const EMBED = /embed/;
+// Embedding models by name: many retrieval models never say "embed" (bge-m3, e5, gte, MiniLM).
+const EMBED = /embed|\bbge[-_]|(?:^|[^a-z])(?:multilingual-)?e5[-_]|\bgte[-_]|minilm|\bretriev/;
+// Retrieval models found best for search and tool picking (docs/MODELS.md): suggested first when listed.
+const RETRIEVAL_FIRST = [/bge-m3/, /\bbge[-_]/, /\be5[-_]|\bgte[-_]/];
 const RERANK = /rerank/;
 const STT_NAME = /whisper|stt|transcri|parakeet|canary|speech.to.text/;
 const AUDITOR = /audit|classif|moderat|guard|router/;
@@ -126,11 +129,12 @@ export function suggestJobs(models: DiscoveredModel[]): Suggestions {
     if (!ms.length) { out[job] = unset(none); return; }
     let p = pickBest(ms);
     if (job === 'audio') { const named = ms.filter((m) => STT_NAME.test(hint(m))); if (named.length) p = pickBest(named); }
+    if (job === 'extra') for (const re of RETRIEVAL_FIRST) { const named = ms.filter((m) => re.test(m.id.toLowerCase())); if (named.length) { p = pickBest(named); break; } }
     out[job] = { model: p.id, reason: `${what}.${alsoNote(ms, p)}` };
   };
   one('audio', 'audio', 'Audio in, text out (speech to text)', 'No speech to text model (audio in, text out) was listed.');
   one('voice', 'voice', 'Audio out (text to speech)', 'No text to speech model (audio out) was listed.');
-  one('extra', 'extra', 'Its name or description says it makes embeddings', 'No embeddings model was listed (none mentions "embed").');
+  one('extra', 'extra', 'Its name or description says it makes embeddings (bge-m3 is preferred: it did best for search and tool picking)', 'No embeddings model was listed (none is named like one: embed, bge, e5, gte, MiniLM).');
   one('rerank', 'rerank', 'Marked as a reranker', 'No reranker was listed. Search keeps its keyword order, which is fine.');
   for (const j of JOBS) out[j] ??= unset('Not decided.');
   return out;

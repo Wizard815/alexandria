@@ -101,6 +101,25 @@ export function dmOnlyTerms(db: DB, worldId: string): string[][] {
       }
     }
   } catch { /* no pages table */ }
+  // The table's own names are never secret: player and character names (whole and each part), and the titles
+  // of Minerva's notes about the player characters. Without this, Minerva filing "Anselm" as a DM-only codex
+  // page turned every line naming the PC DM-only on a one-mic table.
+  try {
+    for (const m of all<any>(db, "SELECT a.display_name AS d, m.character_name AS c FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player'", worldId)) {
+      for (const n of [m.d, m.c]) {
+        if (typeof n !== 'string') continue;
+        const t = n.split(/\s+/).map(token).filter(Boolean);
+        if (t.length) open.add(t.join(' '));
+        for (const part of t) if (part.length >= 3) open.add(part);
+      }
+    }
+  } catch { /* no members table */ }
+  try {
+    for (const p of all<any>(db, "SELECT title FROM pages WHERE world_id = ? AND (path LIKE 'Minerva/codex/characters/pc/%' OR path LIKE 'Minerva/players/%')", worldId)) {
+      const t = String(p.title ?? '').split(/\s+/).map(token).filter(Boolean);
+      if (t.length) open.add(t.join(' '));
+    }
+  } catch { /* no pages table */ }
   for (const k of open) hidden.delete(k);
   return [...hidden.values()];
 }

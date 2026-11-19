@@ -5,6 +5,30 @@
 import type { Deps } from '../../app.ts';
 import { pageView } from '../stage/cards.ts';
 import { norm, type Category, type CueCtx, type Scored } from './cues.ts';
+import { searchTerms } from '../modules/search.ts';
+
+/** HP and AC from the rules module's statblock for a creature named exactly (or by an alias), else nothing. */
+export function statsFor(d: Deps, worldId: string, name: string): { hp?: number; maxHp?: number; ac?: number } {
+  try {
+    const n = name.toLowerCase().trim();
+    const one = n.endsWith('ves') ? n.slice(0, -3) + 'f' : n.endsWith('es') && /(x|ch|sh|ss)es$/.test(n) ? n.slice(0, -2) : n.endsWith('s') ? n.slice(0, -1) : n;
+    // The exact name, then the 2024 rules' name for the plain version of a creature ("Goblin Warrior").
+    const wants = [...new Set([n, one, `${one} warrior`])];
+    const hits = searchTerms(d.db, worldId, one, { kind: 'monster', limit: 20 }).terms as any[];
+    const t = wants.map((w) => hits.find((x) => [x.term, ...(x.aliases ?? [])].some((a: string) => a.toLowerCase() === w))).find(Boolean);
+    if (!t) return {};
+    const hp = /\bHP (\d+)/.exec(t.summary ?? '')?.[1]; const ac = /\bAC (\d+)/.exec(t.summary ?? '')?.[1];
+    return { ...(hp ? { hp: Number(hp), maxHp: Number(hp) } : {}), ...(ac ? { ac: Number(ac) } : {}) };
+  } catch { return {}; }
+}
+
+/** 2160 -> "1 day 12 hours", 90 -> "1 hour 30 min": exact, so the DM approves what will happen. */
+export function spanText(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), r = m % 60;
+  const part = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : '');
+  return [part(d, 'day', 'days'), part(h, 'hour', 'hours'), part(r, 'min', 'min')].filter(Boolean).join(' ') || '0 min';
+}
 
 export interface Call { tool: string; args: Record<string, any> }
 export interface Candidate {
@@ -113,7 +137,8 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
     }
     case 'add_monsters': {
       const existing = ctx.combat.combatants.filter((c) => norm(c.name).startsWith(norm(it.name))).length;
-      const calls: Call[] = Array.from({ length: it.count }, (_, i) => ({ tool: 'add_combatant', args: { name: it.count === 1 && !existing ? it.name : `${it.name} ${existing + i + 1}`, initiative: 1 + Math.floor(Math.random() * 20) } }));
+      const stats = statsFor(d, worldId, it.name);
+      const calls: Call[] = Array.from({ length: it.count }, (_, i) => ({ tool: 'add_combatant', args: { name: it.count === 1 && !existing ? it.name : `${it.name} ${existing + i + 1}`, initiative: 1 + Math.floor(Math.random() * 20), ...stats } }));
       return { ...base, category: 'combatAdd', calls, summary: `Add ${it.count} ${it.name}${it.count === 1 ? '' : 's'} to the fight`, ruleKey: rk(`add ${it.name}`), visible: 'players', dedupeKey: `add:${norm(it.name)}:${it.count}`, dedupeMs: 60_000 };
     }
     case 'initiative': {
@@ -129,7 +154,7 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
       return null; // resolved against the player's inventory by the engine
     case 'clock': {
       const call: Call = { tool: 'advance_world_time', args: it.preset ? { preset: it.preset, reason: 'At the table' } : { minutes: it.minutes, reason: 'At the table' } };
-      return { ...base, category: 'clock', calls: [call], summary: it.preset ? `Advance the clock: ${it.preset.replace('-', ' ')}` : `Advance the clock by ${it.minutes! >= 1440 ? `${Math.round(it.minutes! / 1440)} day(s)` : it.minutes! >= 60 ? `${Math.round(it.minutes! / 60)} hour(s)` : `${it.minutes} min`}`, ruleKey: rk(`clock ${it.preset ?? it.minutes}`), visible: 'players', dedupeKey: `clock:${it.preset ?? it.minutes}`, dedupeMs: 90_000 };
+      return { ...base, category: 'clock', calls: [call], summary: it.preset ? `Advance the clock: ${it.preset.replace('-', ' ')}` : `Advance the clock by ${spanText(it.minutes!)}`, ruleKey: rk(`clock ${it.preset ?? it.minutes}`), visible: 'players', dedupeKey: `clock:${it.preset ?? it.minutes}`, dedupeMs: 90_000 };
     }
   }
   return null;
