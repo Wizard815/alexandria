@@ -69,6 +69,17 @@ after(async () => {
 const rec = (id: string, over: Record<string, unknown> = {}) => ({ id, object: 'model', owned_by: 'argos', status: { value: 'loaded' }, ...over });
 const arch = (i: string[], o: string[]) => ({ architecture: { input_modalities: i, output_modalities: o } });
 
+test('ModelsDiscover_KnowsRetrievalModelsByNameAndPrefersBgeM3', () => {
+  const names = (ids: string[]) => suggestJobs(ids.map((id) => normalizeModel(rec(id, arch(['text'], ['text'])))!)).extra.model;
+  assert.equal(names(['qwen3-8b', 'baai/bge-m3']), 'baai/bge-m3', 'bge-m3 never says "embed"');
+  assert.equal(names(['qwen3-8b', 'intfloat/multilingual-e5-large']), 'intfloat/multilingual-e5-large');
+  assert.equal(names(['qwen3-8b', 'all-MiniLM-L6-v2']), 'all-MiniLM-L6-v2');
+  assert.equal(names(['text-embedding-3-small', 'cohere/embed-5-fast', 'baai/bge-m3']), 'baai/bge-m3', 'bge-m3 first when several are listed');
+  assert.equal(names(['nomic-embed-text', 'bge-small-en-v1.5']), 'bge-small-en-v1.5');
+  assert.equal(names(['qwen3-8b', 'bge-reranker-v2-m3']), null, 'a reranker is not an embeddings model');
+  assert.equal(names(['gemma-3-4b', 'qwen3-8b']), null);
+});
+
 test('ModelsDiscover_MapsAMixedArgosSetAndLeavesUnknownsUnset', () => {
   const models = [
     rec('qwen3-32b', { ...arch(['text'], ['text']), capabilities: { tools: true, function_calling: true }, context_length: 32768, description: 'Main chat model' }),

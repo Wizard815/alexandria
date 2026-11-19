@@ -149,8 +149,9 @@ export default function liveRoutes(d: Deps) {
     const b = req.body ?? {};
     // { damage } / { heal } let the scroll wheel or numpad change HP by an amount.
     let hp = b.hp !== undefined ? int(b.hp, 'hp', { min: -999, max: 99999 }) : x.hp;
-    if (b.damage !== undefined) hp = (hp ?? 0) - int(b.damage, 'damage', { min: 0, max: 99999 })!;
-    if (b.heal !== undefined) hp = Math.min((hp ?? 0) + int(b.heal, 'heal', { min: 0, max: 99999 })!, x.max_hp ?? Infinity);
+    // Unknown HP stays unknown: damage to a creature nobody gave HP must not count from 0 and "defeat" it.
+    if (b.damage !== undefined) { const dmg = int(b.damage, 'damage', { min: 0, max: 99999 })!; hp = hp === null || hp === undefined ? hp : hp - dmg; }
+    if (b.heal !== undefined) { const h = int(b.heal, 'heal', { min: 0, max: 99999 })!; hp = hp === null || hp === undefined ? hp : Math.min(hp + h, x.max_hp ?? Infinity); }
     // A monster dropped to 0 HP is marked Defeated (and, if the DM turned that on, taken out of the tracker).
     let eff: any[] = b.effects !== undefined ? effects(b.effects) : parseJson<any[]>(x.effects, []);
     const fell = !x.account_id && hp !== null && hp !== undefined && hp <= 0 && !(x.hp !== null && x.hp <= 0);

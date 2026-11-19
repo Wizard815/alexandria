@@ -207,6 +207,18 @@ test('Audio2_leak: dmOnlyTerms and containsTerm see titles and aliases of pages 
   assert.ok(!containsTerm('a trip to Saltmarsh', t), 'party titles are not DM-only');
 });
 
+test('Audio2_leak: the party\'s own names are never DM-only, even when Minerva files a DM-only page under one', async () => {
+  await page('Minerva/codex/characters/pc/Jessamine.md', 'dm', '# Jessamine\nNotes on the PC.\n');
+  await page('dm/Tomas Backstory.md', 'dm', '# Tomas\nHis secret past.\n');
+  const t = dmOnlyTerms(deps.db, W);
+  assert.ok(!containsTerm('Jessamine draws her sword', t), 'a PC codex page title');
+  assert.ok(!containsTerm('Tomas pays for the ale', t), 'a character name, even as a DM-only title');
+  assert.ok(containsTerm(`under ${DM_TITLE} flag`, t), 'real secrets still count');
+  const sid = await newSession();
+  await send('jess', sid, 'jess', 0, 0, [seg('Jessamine and Tomas take the ring')], 0.6);
+  assert.equal((await lines('dm', sid))[0].audience, 'players', 'one mic, party names only: players read it');
+});
+
 // ---- fix 2 and 5: lines, overlap -----------------------------------------------------------------
 
 /** Words w0, w1, ... said at 0.4 s each from t0 seconds on the session clock; the part falling inside [startMs, endMs) as a chunk's segment. */
