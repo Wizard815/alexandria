@@ -23,7 +23,7 @@ const hpClass = (hp: number | null, max: number | null) => {
   return p <= 0.25 ? 'low' : p <= 0.5 ? 'mid' : '';
 };
 
-export default function NowTab({ sum, onUndo, goQueue }: { sum: ReturnType<typeof useLoad<Summary>>; onUndo: (u: Undo) => void; goQueue: () => void }) {
+export default function NowTab({ sum, onUndo, goQueue, onAsk }: { sum: ReturnType<typeof useLoad<Summary>>; onUndo: (u: Undo) => void; goQueue: () => void; onAsk: (x: { id: string; name: string }) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [all, setAll] = useState(false);
@@ -125,6 +125,7 @@ export default function NowTab({ sum, onUndo, goQueue }: { sum: ReturnType<typeo
         <Sheet title={selected.name} onClose={() => setOpen(null)}>
           <HpPanel x={selected} hp={hpOf(selected)} change={(dv, crit) => void change(selected, dv, crit)} patch={(p) => void patch(selected, p)} busy={act.busy} />
           {c?.active && <button type="button" className="b primary big full" disabled={act.busy} onClick={() => { void next(); }}>Next turn</button>}
+          <button type="button" className="b full" onClick={() => { buzz(10); onAsk({ id: selected.id, name: selected.name }); setOpen(null); }}><i className="fa-solid fa-comments" aria-hidden="true" /> Ask the assistant about this</button>
         </Sheet>
       )}
     </>

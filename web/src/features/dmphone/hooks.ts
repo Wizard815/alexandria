@@ -27,6 +27,25 @@ export function useShape(): Shape {
 export const lsGet = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 export const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 
+/**
+ * How much of the bottom of the page the on-screen keyboard covers. Phones that leave the layout viewport alone when
+ * the keyboard opens (iOS, and Chrome's default) would hide the message box behind it; the page lifts itself by this.
+ * Zoomed in (pinching) shrinks the visual viewport too, which is not a keyboard, so it counts as none.
+ */
+export function useKeyboardInset(): number {
+  const [kb, setKb] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const f = () => { const v = Math.round(window.innerHeight - vv.height - vv.offsetTop); setKb(vv.scale > 1.01 || v < 80 ? 0 : v); };
+    f();
+    vv.addEventListener('resize', f);
+    vv.addEventListener('scroll', f);
+    return () => { vv.removeEventListener('resize', f); vv.removeEventListener('scroll', f); };
+  }, []);
+  return kb;
+}
+
 export interface Undo { text: string; undo: () => void }
 /** One undo toast at a time; it goes away after a few seconds. */
 export function useUndo() {

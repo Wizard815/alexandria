@@ -1,11 +1,12 @@
 // Queue: everything waiting on the DM. One tap to approve or reject; swipe a
 // card right to approve, left to reject; edit or price in a sheet.
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { useAction } from '../../ui/index.tsx';
 import { coins } from '../../lib/format.ts';
 import { Sheet, Err } from './Sheet.tsx';
 import { buzz, gpToCp } from './hooks.ts';
+import { ACTIONS_CHANGED, announceActions } from '../agent/Chat.tsx';
 
 const safe = <T,>(p: Promise<T>, d: T): Promise<T> => p.catch(() => d);
 
@@ -22,7 +23,13 @@ export default function QueueTab() {
   const reloadAll = () => Promise.all([ap.reload(), ag.reload(), br.reload(), rq.reload()]);
   const mode = info.settings.coins;
 
-  const call = (method: string, path: string, body?: unknown) => act.run(async () => { buzz(15); await w.call(method, path, body); await reloadAll(); });
+  // The assistant's chat shows the same actions: an approval decided in either is announced to the other at once. Reloaded even
+  // when the call fails (another device may have decided it first), so a stale card does not stay.
+  useEffect(() => { const h = () => void ag.reload(); window.addEventListener(ACTIONS_CHANGED, h); return () => window.removeEventListener(ACTIONS_CHANGED, h); }, [ag.reload]);
+  const call = (method: string, path: string, body?: unknown) => act.run(async () => {
+    buzz(15);
+    try { await w.call(method, path, body); } finally { await reloadAll(); if (path.startsWith('/agent/actions/')) announceActions(); }
+  });
   const decide = (id: string, action: 'approve' | 'reject' | 'revert') => call('POST', `/approvals/${id}`, { action });
 
   const coinRows: any[] = ap.data?.coin ?? [];
