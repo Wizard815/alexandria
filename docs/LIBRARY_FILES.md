@@ -5,12 +5,34 @@ library (`librarian/src/features/libfiles`, `web/src/features/libfiles`).
 
 ## What can be uploaded
 
-Pictures (PNG, JPEG, GIF, WebP), PDF, plain text and Markdown, JSON and CSV.
+Pictures (PNG, JPEG, GIF, WebP), videos (MP4, WebM, MOV), PDF, plain text and
+Markdown, JSON and CSV.
 The type is decided from the file's **bytes**, never its name or the type the
 browser sent. SVG, HTML, XML, scripts, programs and archives are refused (415),
 as are empty files, binary data with a text name, text that is not UTF-8, and
 JSON that does not parse. The size cap is 50 MB; change it with
 `ALX_LIBFILE_MAX_MB`.
+
+**Videos** have their own, larger cap (2048 MB; `ALX_LIBFILE_VIDEO_MAX_MB`).
+They are recognised from the first bytes (an MP4/MOV `ftyp` box, or WebM's
+EBML header), streamed to a temp file under `libfiles/.incoming` (never held in
+memory) and moved into place; an aborted or refused upload leaves nothing.
+Videos are served with HTTP Range support (206, `Accept-Ranges`) from the
+file route and from the players' screen, so seeking works. They are not sent to
+a source (Kanka, LegendKeeper).
+
+## Videos on the players' screen
+
+A library picture, GIF or video can be queued on the players' screen
+(`/w/<world>/screen/players`). The DM's choice to show a file is enough: DM-level
+files can be shown, classified ones never. A file players cannot open in the
+library is served to the screen only while it is the current, visible item (and
+never shows in players' file lists, search or the broker); "Share with party" on
+the DM page opens it for real. A video ends its slide when it ends (the screen
+reports it to the server, once per version, for the item showing now), unless
+the item has "Play for N seconds" or Loop; pictures and GIFs use the slideshow
+interval. Browsers play sound only after one click: the screen shows a single
+"Click to start" overlay (also full screen) and the desktop app needs none.
 
 Each file has a **kind** (`map`, `handout`, `item`, `rules`, `other`) and a
 **level** (`party`, `broker`, `dm`, `classified`). No level means `dm`; a level

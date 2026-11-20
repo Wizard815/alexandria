@@ -2,7 +2,7 @@
 // type the browser claimed). Allowed: pictures, PDF, plain text and Markdown,
 // JSON and CSV. Refused: SVG, HTML, XML, scripts, executables, archives.
 
-export type Family = 'image' | 'pdf' | 'text' | 'json' | 'csv';
+export type Family = 'image' | 'video' | 'pdf' | 'text' | 'json' | 'csv';
 export interface Sniffed { mime: string; ext: string; family: Family }
 
 export const KINDS = ['map', 'handout', 'item', 'rules', 'other'] as const;
@@ -14,6 +14,24 @@ const MIME: Record<string, string> = { md: 'text/plain', markdown: 'text/plain',
 
 const ascii = (b: Uint8Array, from: number, to: number) => String.fromCharCode(...b.slice(from, to));
 
+const MP4_BRANDS = new Set(['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'iso7', 'iso8', 'iso9', 'mp41', 'mp42', 'mp71', 'avc1', 'dash', 'M4V ', 'M4VH', 'M4VP', 'msnv', 'MSNV', 'f4v ', 'mmp4']);
+
+/** MP4 / MOV (an ISO "ftyp" box) or WebM (EBML with the webm doc type), from the first bytes only. Null when it is neither. */
+export function sniffVideo(b: Uint8Array): Sniffed | null {
+  if (b.length >= 16 && ascii(b, 4, 8) === 'ftyp') {
+    const size = ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 0;
+    const end = Math.min(b.length, size >= 16 ? size : 16);
+    const major = ascii(b, 8, 12);
+    if (major === 'qt  ') return { mime: 'video/quicktime', ext: 'mov', family: 'video' };
+    const brands = [major];
+    for (let i = 16; i + 4 <= end; i += 4) brands.push(ascii(b, i, i + 4));
+    if (brands.some((x) => MP4_BRANDS.has(x))) return { mime: 'video/mp4', ext: 'mp4', family: 'video' };
+    return null;
+  }
+  if (b.length >= 12 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 && ascii(b, 0, Math.min(b.length, 64)).includes('webm')) return { mime: 'video/webm', ext: 'webm', family: 'video' };
+  return null;
+}
+
 /** The type of these bytes, or a reason it is refused. `name` only decides which kind of text it is. */
 export function sniffFile(b: Uint8Array, name: string): Sniffed | { error: string } {
   if (!b.length) return { error: 'The file is empty' };
@@ -22,6 +40,8 @@ export function sniffFile(b: Uint8Array, name: string): Sniffed | { error: strin
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { mime: 'image/jpeg', ext: 'jpg', family: 'image' };
   if (b.length >= 6 && (ascii(b, 0, 6) === 'GIF87a' || ascii(b, 0, 6) === 'GIF89a')) return { mime: 'image/gif', ext: 'gif', family: 'image' };
   if (b.length >= 12 && ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WEBP') return { mime: 'image/webp', ext: 'webp', family: 'image' };
+  const video = sniffVideo(b);
+  if (video) return video;
   if (b.length >= 5 && ascii(b, 0, 5) === '%PDF-') return { mime: 'application/pdf', ext: 'pdf', family: 'pdf' };
   // Programs and archives by their first bytes.
   const head4 = ascii(b, 0, 4);

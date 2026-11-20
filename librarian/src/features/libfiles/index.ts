@@ -29,6 +29,7 @@ import { ctx, me, readerFor } from '../../routes/_shared.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
 import { KINDS, cleanName, sniffFile } from './sniff.ts';
 import { sendFile, targetFor } from './remote.ts';
+import { moveFile, receiveBody, sendRanged } from './stream.ts';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS libfiles_files (
@@ -50,6 +51,9 @@ CREATE INDEX IF NOT EXISTS libfiles_world ON libfiles_files (world_id, page_id);
 
 const DEFAULT_MAX_MB = 50;
 export const maxBytes = (d: Deps) => Math.max(1, Number(d.env.ALX_LIBFILE_MAX_MB) || DEFAULT_MAX_MB) * 1024 * 1024;
+const DEFAULT_VIDEO_MAX_MB = 2048;
+export const videoMaxBytes = (d: Deps) => Math.max(1, Number(d.env.ALX_LIBFILE_VIDEO_MAX_MB) || DEFAULT_VIDEO_MAX_MB) * 1024 * 1024;
+const incomingDir = (d: Deps) => path.join(d.dataDir ?? '', 'libfiles', '.incoming');
 const folder = (d: Deps, world: string) => path.join(d.dataDir ?? '', 'libfiles', world);
 
 interface Row { id: string; world_id: string; page_id: string; name: string; kind: string; level: string; mime: string; family: string; size: number; by_id: string | null; at: string; remote: string | null }
@@ -75,15 +79,14 @@ function view(d: Deps, f: Row, viewer: Viewer, pageTitle?: string) {
   return out;
 }
 
-function sendBytes(res: Response, f: Row, file: string, download: boolean) {
+function sendBytes(req: Request, res: Response, f: Row, file: string, download: boolean) {
   res.setHeader('Content-Type', f.mime.startsWith('text/') ? `${f.mime}; charset=utf-8` : f.mime);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
   res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('Content-Length', String(f.size));
   const safe = f.name.replace(/[^\x20-\x7e]+/g, '_').replace(/"/g, '');
   res.setHeader('Content-Disposition', `${download || f.family === 'csv' ? 'attachment' : 'inline'}; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(f.name)}`);
-  fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  sendRanged(req, res, file);
 }
 
 /** Delete bytes on disk that no row owns (a page was deleted, so its rows went with it). */
@@ -93,6 +96,7 @@ export function sweep(d: Deps) {
   let worlds: string[] = [];
   try { worlds = fs.readdirSync(root); } catch { return; }
   for (const w of worlds) {
+    if (w.startsWith('.')) continue; // .incoming: uploads in progress
     const have = new Set(all<{ id: string }>(d.db, 'SELECT id FROM libfiles_files WHERE world_id = ?', w).map((r) => r.id));
     try { for (const n of fs.readdirSync(path.join(root, w))) if (!have.has(n)) fs.rmSync(path.join(root, w, n), { force: true }); } catch { /* gone */ }
   }
@@ -124,7 +128,7 @@ function fileRoutes(d: Deps): Router {
       ? all<Row>(d.db, 'SELECT * FROM libfiles_files WHERE world_id = ? AND page_id = ? ORDER BY at', c.world.id, pageOf(res, req.query.page).id)
       : all<Row>(d.db, 'SELECT * FROM libfiles_files WHERE world_id = ? ORDER BY at DESC', c.world.id);
     const titles = new Map(all<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ?', c.world.id).map((p) => [p.id, p.title]));
-    res.json({ max: maxBytes(d), canUpload: c.viewer.role === 'dm' && !c.viewer.audience, files: rows.filter((f) => mayRead(d, f, c.viewer)).map((f) => view(d, f, c.viewer, titles.get(f.page_id))) });
+    res.json({ max: maxBytes(d), videoMax: videoMaxBytes(d), canUpload: c.viewer.role === 'dm' && !c.viewer.audience, files: rows.filter((f) => mayRead(d, f, c.viewer)).map((f) => view(d, f, c.viewer, titles.get(f.page_id))) });
   });
 
   // Maps for the Map page: pictures of kind "map" the viewer may see.
@@ -146,18 +150,27 @@ function fileRoutes(d: Deps): Router {
     res.json({ target: targetFor(d, c.world.id, pg, level, mime) });
   });
 
-  r.post('/', requireDM, express.raw({ type: () => true, limit: maxBytes(d) + 1024 * 1024 }), async (req: Request, res: Response) => {
+  // The body is read here, not by express.raw: pictures and documents are buffered (up to the normal limit);
+  // a video is recognised from its first bytes and streamed to a temp file (up to the larger video limit).
+  r.post('/', requireDM, async (req: Request, res: Response) => {
     const c = ctx(res);
     if (c.viewer.audience) throw new HttpError(403, 'Files are uploaded in the app');
     if (!d.dataDir) throw new HttpError(503, 'This server has no data folder for files');
-    const body = req.body as Buffer;
-    if (!Buffer.isBuffer(body) || !body.length) throw new HttpError(400, 'Send the file as the request body');
-    if (body.length > maxBytes(d)) throw new HttpError(413, `That file is over ${Math.round(maxBytes(d) / 1024 / 1024)} MB`);
     const name = cleanName(req.query.name);
-    const sniffed = sniffFile(body, name);
+    const mb = (n: number) => Math.round(n / 1024 / 1024);
+    const declared = Number(req.headers['content-length']);
+    const received = await receiveBody(req, name, { max: maxBytes(d), videoMax: videoMaxBytes(d), declared: Number.isFinite(declared) ? declared : 0, tmpDir: incomingDir(d) });
+    let temp = received.temp;
+    try {
+    if (received.tooBig) throw new HttpError(413, `That file is over ${mb(received.tooBig)} MB`);
+    if (!temp && !received.body.length) throw new HttpError(400, 'Send the file as the request body');
+    const body = received.body;
+    const sniffed = temp ? received.sniffed! : sniffFile(body, name);
     if ('error' in sniffed) throw new HttpError(415, sniffed.error);
+    const size = temp ? received.size : body.length;
     const kind = oneOf(req.query.kind ?? 'other', 'kind', KINDS, 'other');
     if (kind === 'map' && sniffed.family !== 'image') throw new HttpError(400, 'A map must be a picture');
+    if (temp && req.query.send) throw new HttpError(400, 'Videos stay on this server and are not sent to a source');
     // Fail closed: no level means DM-only; a level that is not one is refused.
     const level: Level = req.query.level === undefined || req.query.level === '' ? 'dm' : isLevel(req.query.level) ? req.query.level : (() => { throw new HttpError(400, 'level must be party, broker, dm or classified'); })();
     const sendTo = req.query.send ? String(req.query.send) : '';
@@ -182,15 +195,17 @@ function fileRoutes(d: Deps): Router {
 
     const fid = newId('lf_');
     fs.mkdirSync(folder(d, c.world.id), { recursive: true });
-    fs.writeFileSync(path.join(folder(d, c.world.id), fid), body);
+    const dest = path.join(folder(d, c.world.id), fid);
+    if (temp) { moveFile(temp, dest); temp = ''; } else fs.writeFileSync(dest, body);
     run(d.db, 'INSERT INTO libfiles_files (id, world_id, page_id, name, kind, level, mime, family, size, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      fid, c.world.id, pg.id, name, kind, level, sniffed.mime, sniffed.family, body.length, me(res), now());
+      fid, c.world.id, pg.id, name, kind, level, sniffed.mime, sniffed.family, size, me(res), now());
     log(d, c.world.id, me(res), 'libfile.upload', `${name} ${kind} ${level} ${pg.path}`);
     sweep(d);
     const row = one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', fid)!;
     if (sendTo) await send(res, row, pg, body);
     emit(row);
     res.status(201).json({ ...view(d, one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', fid)!, c.viewer, pg.title), pageCreated: created, page: { id: pg.id, path: pg.path, title: pg.title } });
+    } finally { if (temp) fs.rmSync(temp, { force: true }); }
   });
 
   /** Send to the page's source and record the result (the local copy stays whatever happens). */
@@ -250,7 +265,7 @@ function fileRoutes(d: Deps): Router {
   // The bytes, for a caller that can send the sign-in header (the app uses tickets in <img>/<a>).
   r.get('/:fid', (req, res) => {
     const f = fileOf(res, req.params.fid);
-    sendBytes(res, f, path.join(folder(d, W(res)), f.id), req.query.download === '1');
+    sendBytes(req, res, f, path.join(folder(d, W(res)), f.id), req.query.download === '1');
   });
   r.get('/:fid/ticket', (req, res) => res.json({ url: view(d, fileOf(res, req.params.fid), ctx(res).viewer).url }));
   return r;
@@ -304,7 +319,7 @@ const feature: Feature = {
   worldRoutes: (d) => fileRoutes(d),
   adminMount: 'library',
   adminRoutes: (d) => adminRoutes(d),
-  start: (d) => { sweep(d); },
+  start: (d) => { sweep(d); if (d.dataDir) fs.rmSync(incomingDir(d), { recursive: true, force: true }); },
   appRoutes: (app, d) => {
     // <img> and <a> cannot send the sign-in header: a signed ticket names one file and one account and is checked again on every fetch.
     // A member gets what their role may see; an admin who is not in the world gets the party copy only.
@@ -315,7 +330,7 @@ const feature: Feature = {
       const admin = !m && one(d.db, 'SELECT 1 FROM accounts WHERE id = ? AND is_admin = 1', t.a);
       const f = (m || admin) && one<Row>(d.db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', t.f, t.w);
       if (!f || !mayRead(d, f, { accountId: t.a, role: m?.role === 'dm' ? 'dm' : 'player' })) throw new HttpError(404, 'File not found');
-      sendBytes(res, f, path.join(folder(d, t.w), f.id), req.query.download === '1');
+      sendBytes(req, res, f, path.join(folder(d, t.w), f.id), req.query.download === '1');
     });
   },
 };
