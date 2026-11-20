@@ -55,6 +55,19 @@ port 8090. Fine for a table in one house. To reach it from outside, put
 it behind the Caddy setup above, a tunnel, or a VPN. Don't expose plain
 HTTP to the internet: passwords and keys would travel unencrypted.
 
+## Phones and desktops
+
+- **Install on a phone.** Open your server's address in Chrome (Android) and
+  choose Install app, or in Safari (iOS) Share, then Add to Home Screen. It
+  then opens full screen and keeps working offline for what it has saved. The
+  DM phone page (Remote tab) shows an Install button when the browser offers
+  one. This needs HTTPS (or `localhost`); on plain LAN HTTP browsers will only
+  offer a shortcut, not a full install.
+- **Desktop app.** `desktop/` holds a Tauri wrapper that asks for your server's
+  address and adds an Assistant window with always-on-top and a global
+  shortcut. It signs in like the browser. Build steps are in
+  [desktop/README.md](../desktop/README.md).
+
 ## Without Docker
 
 ```bash

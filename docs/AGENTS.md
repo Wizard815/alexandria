@@ -87,7 +87,9 @@ tested with a fake model but were not measured on the real model: off by default
 
 - **Where:** the side panel on every DM page (Ctrl+K), the Ask tab on the DM phone, and a
   pop-out window (the arrow in the panel's header) for a second screen or beside other apps.
-  The pop-out is the same conversation as the panel.
+  The pop-out is the same conversation as the panel. In the installed
+  [desktop app](../desktop/README.md) the pop-out can be kept always on top, and
+  Ctrl+Shift+Space (Cmd on macOS) shows it from any program.
 - **Voice:** the mic button beside Send records a request (up to a minute) and the world's own
   speech model (the audio job) turns it into text in the box; nothing goes to a browser or cloud
   dictation service. DM only. The wake word ("Minerva, ...") still works from the DM's mic while
