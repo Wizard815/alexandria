@@ -543,20 +543,22 @@ retrieval; without an embeddings model the embedding parts act as keywords.
 
 ## Active mode: hy4-flash and deepseek-v4.1-flash compared (Nov 2026)
 
-Four scripted sessions (95 expected actions), scored by time window, with bge-m3 embeddings:
+Four scripted sessions (95 expected actions), scored by time window, bge-m3 embeddings, after the
+item, fight and skill fixes:
 
-| Model | Actions caught | Automatic actions right | Cost per call | Median latency |
-|---|---|---|---|---|
-| tencent/hy4-flash | 79% | 89% | $0.00012 | 3.3 s |
-| deepseek/deepseek-v4.1-flash | 82% | 87% | $0.00029 | 1.2 s |
+| Model | Actions caught | Automatic actions right | Suggestions right | Median / p90 latency | Cost per call |
+|---|---|---|---|---|---|
+| tencent/hy4-flash, reasoning off | 82% | 90% | 93% | 1.8 s / 3.4 s | $0.00004 |
+| tencent/hy4-flash, reasoning on | 80% | 89% | 81% | 4.9 s / 13.9 s | $0.00018 |
+| deepseek/deepseek-v4.1-flash | 85% | 89% | 85% | 2.9 s / 8.9 s | $0.00050 |
 
-hy4-flash was thinking before every answer even though Active mode wants a quick yes or no.
-The `audit` job now sends OpenRouter `reasoning: {enabled: false}` by default; set the job
-option `reasoning: "on"` to let it think, or `reasoning: "off"` on the chat job to stop that too.
-The few-shot line examples (`ALX_ACTIVE_EXAMPLES=1`) did not help either model and stay off.
+hy4-flash thinks before every answer unless told not to. The `audit` job now sends OpenRouter
+`reasoning: {enabled: false}` by default; the job option `reasoning: "on"` lets it think, and
+`reasoning: "off"` turns it off for the chat job too (and sends the field to a non-OpenRouter
+server; a server that refuses it is remembered). The few-shot line examples
+(`ALX_ACTIVE_EXAMPLES=1`) did not help either model and stay off.
 
 Replaying three real hour-long sessions (one table recorder, crosstalk, rules chatter) showed no
 leaks; the misses were a fight already under way when the recording began (now offered as
 "start the combat tracker?") and item suggestions from table talk ("Plus Four", "Resistance"),
 which are now filtered by name.
-
