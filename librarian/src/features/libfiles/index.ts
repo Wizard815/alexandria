@@ -25,7 +25,7 @@ import { audienceOf, type Viewer } from '../../core/policy.ts';
 import { type Level, canSeeLevel, isLevel, normLevel } from '../../core/levels.ts';
 import { safePagePath } from '../../core/library.ts';
 import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
-import { ctx, me } from '../../routes/_shared.ts';
+import { ctx, me, readerFor } from '../../routes/_shared.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
 import { KINDS, cleanName, sniffFile } from './sniff.ts';
 import { sendFile, targetFor } from './remote.ts';
@@ -128,11 +128,13 @@ function fileRoutes(d: Deps): Router {
   });
 
   // Maps for the Map page: pictures of kind "map" the viewer may see.
-  r.get('/maps', (_req, res) => {
+  // ?view=players answers as a player would be (the table screen is seen by them), whoever is signed in.
+  r.get('/maps', (req, res) => {
     const c = ctx(res);
+    const v = readerFor(req, res, true);
     const titles = new Map(all<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ?', c.world.id).map((p) => [p.id, p.title]));
     res.json(all<Row>(d.db, `SELECT * FROM libfiles_files WHERE world_id = ? AND kind = 'map' AND family = 'image' ORDER BY name`, c.world.id)
-      .filter((f) => mayRead(d, f, c.viewer)).map((f) => view(d, f, c.viewer, titles.get(f.page_id))));
+      .filter((f) => mayRead(d, f, v)).map((f) => view(d, f, v, titles.get(f.page_id))));
   });
 
   // Where an upload could also be sent (DM). Null hides the option.
