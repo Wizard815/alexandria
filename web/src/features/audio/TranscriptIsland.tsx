@@ -4,18 +4,18 @@
 // On phones it is a bottom drawer. Settings are per device (localStorage).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Modal } from '../../ui/index.tsx';
+import { Markdown, Modal } from '../../ui/index.tsx';
 import { DockButton, DockItem, useExclusivePanel } from '../../ui/Dock.tsx';
 import { useAuth } from '../../lib/auth.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { engine, useEngine } from './engine.ts';
-import { CardView, Highlighted, loadCard, useMatches, type Match } from './keywords.tsx';
+import { CardView, Highlighted, loadCard, matchText, useMatches, type Match } from './keywords.tsx';
 import { useAttach } from './shared.tsx';
 
 interface Line { id: string; rev: number; start: number; end: number; speaker: string; speakerId?: string | null; text: string; audience?: 'players' | 'dm'; override?: 'players' | 'dm' | null }
 type Corner = 'br' | 'bl' | 'tr' | 'tl';
-interface Prefs { x: number; y: number; w: number; h: number; corner: Corner | null; opacity: number; colour: string; size: number; min: boolean; drawerOpen: boolean }
-const DEFAULTS: Prefs = { x: 40, y: 80, w: 340, h: 280, corner: 'br', opacity: 100, colour: 'gold', size: 15, min: true, drawerOpen: false };
+interface Prefs { x: number; y: number; w: number; h: number; corner: Corner | null; opacity: number; colour: string; size: number; min: boolean; drawerOpen: boolean; autoCards: boolean }
+const DEFAULTS: Prefs = { x: 40, y: 80, w: 340, h: 280, corner: 'br', opacity: 100, colour: 'gold', size: 15, min: true, drawerOpen: false, autoCards: true };
 const COLOURS: Record<string, string> = { gold: '#D9B26A', teal: '#86CFC4', rose: '#E39AA6', sky: '#8FB8E8', slate: '#A8B0BF' };
 const CORNERS: Corner[] = ['br', 'bl', 'tl', 'tr'];
 const KEY = 'alx.island.prefs';
@@ -97,6 +97,12 @@ function Island() {
   const [lines, setLines] = useState<Line[]>([]);
   const [sid, setSid] = useState<string | null>(null);
   const [hover, setHover] = useState<{ m: Match; x: number; y: number; card: any } | null>(null);
+  const [view, setView] = useState<'lines' | 'sofar'>('lines');
+  const [soFar, setSoFar] = useState<{ text: string; lines: number; updatedAt: string | null } | null>(null);
+  // A rules term just said at the table: its card shows by itself for a while (a click keeps it).
+  const [spoken, setSpoken] = useState<{ m: Match; card: any; keep: boolean } | null>(null);
+  const shownTerms = useRef(new Map<string, number>());
+  const lastSeen = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -138,6 +144,36 @@ function Island() {
       return [...cur, d].sort((a, b) => a.start - b.start).slice(-300);
     });
   }), [on]);
+
+  // The running summary of the session ("So far"): loaded when shown, and again whenever it is updated.
+  const loadSoFar = useCallback(async () => { if (!sid) return; try { setSoFar(await w.call<any>('GET', `/audio/sessions/${sid}/summary`)); } catch { /* none yet */ } }, [w, sid]);
+  useEffect(() => { if (view === 'sofar') void loadSoFar(); }, [view, loadSoFar]);
+  useEffect(() => on(['audio-summary'], (e) => { if (e.data?.sessionId === sid && view === 'sofar') void loadSoFar(); }), [on, sid, view, loadSoFar]);
+
+  // Rule cards by themselves: the newest line's first rules term (a spell, a condition...) that has not shown in the
+  // last five minutes. Only while recording, only new lines, never for a line loaded from the past.
+  useEffect(() => {
+    const l = lines[lines.length - 1];
+    if (!l || !prefs.autoCards || !st.recording) { if (l) lastSeen.current = l.id; return; }
+    if (lastSeen.current === null) { lastSeen.current = l.id; return; }
+    if (lastSeen.current === l.id) return;
+    lastSeen.current = l.id;
+    let alive = true;
+    void matchText(w, `${l.id}:${l.rev}`, l.text).then(async (ms) => {
+      const m = ms.find((x) => x.source === 'module' && Date.now() - (shownTerms.current.get(x.term) ?? 0) > 5 * 60_000);
+      if (!m || !alive) return;
+      const card = await loadCard(w, m);
+      if (!card || !alive) return;
+      shownTerms.current.set(m.term, Date.now());
+      setSpoken((cur) => (cur?.keep ? cur : { m, card, keep: false }));
+    });
+    return () => { alive = false; };
+  }, [lines, prefs.autoCards, st.recording, w]);
+  useEffect(() => {
+    if (!spoken || spoken.keep) return;
+    const t = setTimeout(() => setSpoken((cur) => (cur && !cur.keep ? null : cur)), 15_000);
+    return () => clearTimeout(t);
+  }, [spoken]);
 
   useEffect(() => {
     const el = body.current;
@@ -194,13 +230,30 @@ function Island() {
 
   if (!sid && !st.recording) return null;
 
-  const bubbles = (
+  const ruleCard = spoken && (
+    <div className="au-spoken" role="status" aria-live="polite" onClick={() => setSpoken({ ...spoken, keep: true })} data-testid="au-spoken">
+      <div className="au-spoken-head"><span className="muted">Said just now</span><span className="au-sp" />
+        {spoken.keep ? <span className="muted">kept</span> : <span className="muted">click to keep</span>}
+        <button type="button" className="au-btn" aria-label="Close the rule card" onClick={(e) => { e.stopPropagation(); setSpoken(null); }}>×</button></div>
+      <CardView card={spoken.card} m={spoken.m} />
+    </div>
+  );
+  const sofarView = (
+    <div className="au-body au-sofar" data-testid="au-sofar">
+      {soFar?.text ? <><Markdown text={soFar.text} /><p className="muted" style={{ fontSize: '0.8em' }}>Running summary of {soFar.lines} lines{soFar.updatedAt ? `, updated ${new Date(soFar.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}.</p></>
+        : <p className="au-empty">The summary starts after the first few minutes of play (it needs a chat model).</p>}
+      {isDM && sid && <button type="button" className="btn small" onClick={() => { void w.call('POST', `/audio/sessions/${sid}/summary/refresh`).then(loadSoFar).catch(() => {}); }}>Update now</button>}
+    </div>
+  );
+  const viewBtn = <button type="button" className={`au-btn${view === 'sofar' ? ' on' : ''}`} aria-pressed={view === 'sofar'} title="So far: the running summary of the session" onClick={() => setView((v) => (v === 'sofar' ? 'lines' : 'sofar'))} data-testid="au-sofar-btn">So far</button>;
+  const lineBubbles = (
     <div className="au-body" ref={body} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
       {lines.length === 0 && <p className="au-empty">{st.recording ? 'Listening… the first lines appear after a few seconds.' : 'No transcript yet.'}</p>}
       {(wantLine && !lines.slice(-60).some((l) => l.id === wantLine) ? lines.filter((l, i) => i >= lines.length - 60 || l.id === wantLine) : lines.slice(-60)).map((l) => <Bubble key={l.id} l={l} isDM={isDM} onHover={showCard} onMark={mark} found={l.id === wantLine} />)}
     </div>
   );
 
+  const bubbles = <>{view === 'sofar' ? sofarView : lineBubbles}{ruleCard}</>;
   const open = phone ? prefs.drawerOpen : !prefs.min;
   const pill = (
     <DockButton order={40} icon="fa-closed-captioning" label={open ? 'Close the transcript' : 'Open the transcript'} title={last ? `Transcript - ${last.speaker}: ${last.text}`.slice(0, 120) : 'Transcript'} active={open} live={st.recording}
@@ -214,7 +267,7 @@ function Island() {
     return (
       <><div className="au-island au-drawer" style={style}>
         <div className="au-head"><strong>Transcript</strong>{st.recording && <span className="au-rec-dot" />}<span className="au-sp" />
-          <Controls p={prefs} patch={patch} phone />
+          {viewBtn}<Controls p={prefs} patch={patch} phone />
           <button type="button" className="au-btn" onClick={() => patch({ drawerOpen: false })} aria-label="Close the transcript">▾</button></div>
         {bubbles}{card}
       </div>{pill}</>
@@ -225,7 +278,7 @@ function Island() {
     <>{pill}<div className={`au-island${prefs.corner ? ` c-${prefs.corner}` : ''}`} style={style} ref={box} role="complementary" aria-label="Live transcript">
       <div className="au-head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         <strong>Transcript</strong>{st.recording && <span className="au-rec-dot" />}<span className="au-sp" />
-        <Controls p={prefs} patch={patch} />
+        {viewBtn}<Controls p={prefs} patch={patch} />
         <button type="button" className="au-btn" onClick={() => patch({ min: true })} aria-label="Minimise the transcript">—</button>
       </div>
       {bubbles}{card}
@@ -247,6 +300,7 @@ function Controls({ p, patch, phone }: { p: Prefs; patch: (x: Partial<Prefs>) =>
         <div className="au-menu" onPointerDown={(e) => e.stopPropagation()}>
           <label>Opacity <input type="range" min={20} max={100} value={p.opacity} onChange={(e) => patch({ opacity: Number(e.target.value) })} /></label>
           <label>Text size <input type="range" min={11} max={26} value={p.size} onChange={(e) => patch({ size: Number(e.target.value) })} /></label>
+          <label><input type="checkbox" checked={p.autoCards} onChange={(e) => patch({ autoCards: e.target.checked })} /> Show rule cards when a rule is said</label>
           <div className="au-swatches" role="group" aria-label="Bubble colour">
             {Object.entries(COLOURS).map(([k, v]) => <button key={k} type="button" className={`au-sw${p.colour === k ? ' on' : ''}`} style={{ background: v }} aria-label={k} onClick={() => patch({ colour: k })} />)}
           </div>

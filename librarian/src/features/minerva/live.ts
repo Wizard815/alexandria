@@ -10,7 +10,7 @@
 // at once after 30 new lines) and never sends text that holds classified
 // content: such a line is left out before anything is read.
 import type { Deps } from '../../app.ts';
-import { chatJson, hasJob, ModelUnavailable } from '../../core/ai.ts';
+import { chatJson, hasJob, ModelUnavailable, wouldBeRefused } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { now } from '../../core/util.ts';
 import { listSessions, sessionLines, type TranscriptLine } from '../audio/api.ts';
@@ -34,7 +34,7 @@ export const SUGGEST_PREFIX = 'suggest-';
 export function liveLines(d: Deps, worldId: string, includeDm: boolean, limit = RECENT_LINES): { session: { id: string; name: string; active: boolean } | null; lines: TranscriptLine[] } {
   const s = listSessions(d.db, worldId)[0];
   if (!s) return { session: null, lines: [] };
-  const lines = sessionLines(d.db, worldId, s.id, { includeDm }).filter((l) => !d.library.containsClassified(worldId, l.text));
+  const lines = sessionLines(d.db, worldId, s.id, { includeDm }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
   return { session: { id: s.id, name: s.name, active: s.active }, lines: lines.slice(-limit) };
 }
 
@@ -128,7 +128,7 @@ export async function suggestionPass(d: Deps, worldId: string, opts: { force?: b
   if (!s || !s.active) return { ran: false, reason: 'No session is recording', lines: 0, drafted: 0 };
   const seen = seenOf(d, worldId);
   const since = seen && seen.sessionId === s.id ? seen.seenAt : '';
-  const all_ = sessionLines(d.db, worldId, s.id, { includeDm: true }).filter((l) => !d.library.containsClassified(worldId, l.text));
+  const all_ = sessionLines(d.db, worldId, s.id, { includeDm: true }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
   const fresh = all_.filter((l) => l.updatedAt > since);
   if (!fresh.length) return { ran: false, reason: 'No new lines', lines: 0, drafted: 0 };
   const ago = seen?.lastAt ? (opts.at ?? Date.now()) - Date.parse(seen.lastAt) : Infinity;

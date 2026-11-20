@@ -109,6 +109,17 @@ export class ClassifiedRefused extends ModelUnavailable {
  * /v1 gateway). The index is kept by the library and rebuilt when pages
  * change; an empty index (no classified content) costs nothing.
  */
+/**
+ * Would this text make screenOutgoing refuse a request? (The same test: shared word runs with any classified page.)
+ * Use it to leave such a text out of what is sent, rather than have the whole request refused.
+ */
+export function wouldBeRefused(d: Deps, text: string): boolean {
+  const lib: any = (d as any).library;
+  if (!lib || typeof lib.classifiedGrams !== 'function' || !text) return false;
+  const idx = lib.classifiedGrams();
+  return !!idx.size && classifiedMatch(text, idx) !== null;
+}
+
 export function screenOutgoing(d: Deps, job: Job, texts: Iterable<string | null | undefined>): void {
   const lib: any = (d as any).library;
   if (!lib || typeof lib.classifiedGrams !== 'function') return;
