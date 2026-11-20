@@ -7,7 +7,7 @@ import { one, all, run } from '../core/db.ts';
 import { requirePlayerOrDM } from '../core/auth.ts';
 import { canSee } from '../core/policy.ts';
 import { HttpError, id, now, oneOf, str } from '../core/util.ts';
-import { ctx, isDM, me, settings } from './_shared.ts';
+import { ctx, isDM, me, readerFor, settings } from './_shared.ts';
 
 const ICONS = ['camp', 'fight', 'danger', 'skull', 'anchor', 'question', 'rest', 'treasure', 'door', 'eye'];
 
@@ -23,9 +23,10 @@ export default function mapRoutes(d: Deps) {
 
   r.get('/:mapId/marks', (req, res) => {
     const c = ctx(res);
+    const v = readerFor(req, res);
     const rows = all<any>(db, 'SELECT * FROM map_marks WHERE world_id = ? AND map_id = ? ORDER BY created_at', c.world.id, String(req.params.mapId));
     res.json(rows
-      .filter((m) => canSee(c.viewer, m.visibility, m.author_id) && (isDM(res) || !m.hidden_by_dm || m.author_id === me(res)))
+      .filter((m) => canSee(v, m.visibility, m.author_id) && (v.role === 'dm' || !m.hidden_by_dm || m.author_id === v.accountId))
       .map((m) => ({ ...m, data: JSON.parse(m.data), hidden_by_dm: !!m.hidden_by_dm })));
   });
 
