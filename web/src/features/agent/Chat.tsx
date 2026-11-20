@@ -7,6 +7,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ErrorBox, Markdown, useAction } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
+import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
 
 interface Citation { kind: string; id: string; title: string; path?: string; snippet?: string }
 interface Timings { totalMs: number; firstTokenMs?: number; modelMs: number; toolMs: number; gatewayMs: number; rounds: number; toolCalls: number; fast?: boolean }
@@ -15,9 +16,10 @@ interface Act { id: string; tool: string; summary: string; call: unknown; status
 interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
 interface Live { text: string; status: string }
 
-const KEY = (world: string, harness: string) => `alx-agent-chat:${world}:${harness}`;
-const remembered = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
-const remember = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+const KEY = chatKey;
+const remembered = rememberedChat;
+const remember = rememberChat;
+interface ChatRow { id: string; title: string; updatedAt: string }
 
 /** [Title] in a reply becomes a [[wikilink]] when it names a page the reply drew on. */
 export function linkCitations(text: string, cites: Citation[]): string {
@@ -58,6 +60,14 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
   const [live, setLive] = useState<Live | null>(null);
   const [model, setModel] = useState<boolean | null>(null);
   const { busy, error, setError, run } = useAction();
+  const { client } = useAuth();
+  const [aloud] = useReadAloud();
+  const [aloudNote, setAloudNote] = useState('');
+  const [list, setList] = useState<ChatRow[]>([]);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
+  // Assistant messages already seen in the open chat: only one that arrives after this is read aloud.
+  const seen = useRef<{ chat: string; ids: Set<string> }>({ chat: '', ids: new Set() });
   const end = useRef<HTMLDivElement>(null);
   const chatRef = useRef<ChatState | null>(null);
   chatRef.current = chat;
@@ -82,6 +92,32 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
     })();
     return () => { alive = false; };
   }, [w, key, setError]);
+
+  const refreshList = useCallback(() => { w.call<{ chats: ChatRow[] }>('GET', '/agent/chats').then((r) => setList(r.chats ?? [])).catch(() => {}); }, [w]);
+  useEffect(() => { refreshList(); }, [refreshList, chat?.id, chat?.busy]);
+
+  const open = useCallback(async (id: string) => {
+    setConfirmDel(false); setRenaming(null); setLive(null); stopSpeaking();
+    try { const c = await w.call<ChatState>('GET', `/agent/chats/${id}`); remember(key, id); setChat(c); } catch (e: any) { setError(e.message); }
+  }, [w, key, setError]);
+  // The notice for a spoken request asks for its chat to be shown.
+  useEffect(() => {
+    const h = (e: Event) => { const id = (e as CustomEvent).detail?.chatId; if (id && harness === 'dm') void open(id); };
+    window.addEventListener(OPEN_CHAT, h);
+    return () => window.removeEventListener(OPEN_CHAT, h);
+  }, [open, harness]);
+
+  // Read a finished reply aloud (DM only, if switched on). What was already in the chat when it opened is never read.
+  useEffect(() => {
+    if (!chat) return;
+    const done = chat.messages.filter((m) => m.role === 'assistant' && m.status === 'done' && m.text.trim());
+    if (seen.current.chat !== chat.id) { seen.current = { chat: chat.id, ids: new Set(done.map((m) => m.id)) }; return; }
+    const fresh = done.filter((m) => !seen.current.ids.has(m.id));
+    for (const m of fresh) seen.current.ids.add(m.id);
+    const last = fresh.at(-1);
+    if (last && aloud && isDM && harness === 'dm' && claimSpoken(last.id)) void speakAloud(info.id, client.token, last.text).then((n) => setAloudNote(n ?? ''));
+  }, [chat, aloud, isDM, harness, info.id, client]);
+  useEffect(() => { if (!aloud) setAloudNote(''); }, [aloud]);
 
   // The title of the page that is attached, and whether a fight is running (DM only: only the DM's assistant is given it).
   useEffect(() => {
@@ -137,15 +173,25 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
     const body = (override ?? text).trim();
     if (!body) return;
     let id = chat?.id;
-    if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', {}); id = c.id; remember(key, id); }
+    if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', {}); id = c.id; remember(key, id); seen.current = { chat: id, ids: new Set() }; }
     setText('');
+    stopSpeaking();
     setLive({ text: '', status: '' });
     const sel = selection;
     setSelection('');
     setChat(await w.call<ChatState>('POST', `/agent/chats/${id}/messages`, { text: body, page: attachedPage, selection: sel || undefined }));
   });
   const stop = () => { if (chat) void w.call('POST', `/agent/chats/${chat.id}/stop`, {}).catch((e: any) => setError(e.message)); };
-  const fresh = () => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', {}); remember(key, c.id); setChat(c); setLive(null); });
+  const fresh = () => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', {}); remember(key, c.id); setChat(c); setLive(null); stopSpeaking(); });
+  const rename = (id: string, title: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { title }); setRenaming(null); refreshList(); });
+  const remove = () => run(async () => {
+    if (!chat) return;
+    await w.call('DELETE', `/agent/chats/${chat.id}`);
+    setConfirmDel(false);
+    const rest = list.filter((c) => c.id !== chat.id);
+    if (rest[0]) await open(rest[0].id); else { remember(key, ''); setChat(null); setLive(null); }
+    refreshList();
+  });
   const decide = (a: Act, decision: 'approve' | 'reject') => run(async () => {
     try { await w.call('POST', `/agent/actions/${a.id}`, { decision }); } catch (e: any) { setError(e.message); }
     if (chat) await load(chat.id);
@@ -171,6 +217,34 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
   return (
     <div className="stack" style={{ minHeight: 0, flex: 1 }}>
       {model === false && <p className="tiny muted">No chat model is set yet (Admin → Models). Dice, the date and simple combat commands still work.</p>}
+      <div className="row ag-chats" aria-label="Your chats" data-testid="ag-chats">
+        {renaming !== null && chat ? (
+          <form className="row grow" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); if (renaming.trim()) void rename(chat.id, renaming.trim()); }}>
+            <label className="grow" style={{ flex: 1 }}><span className="sr-only">Chat name</span><input style={{ width: '100%' }} value={renaming} maxLength={120} autoFocus onChange={(e) => setRenaming(e.target.value)} /></label>
+            <button type="submit" className="btn small primary" disabled={busy || !renaming.trim()}>Save</button>
+            <button type="button" className="btn small" onClick={() => setRenaming(null)}>Cancel</button>
+          </form>
+        ) : (
+          <>
+            <label className="grow" style={{ flex: 1, minWidth: 0 }}><span className="sr-only">Switch chat</span>
+              <select style={{ width: '100%' }} value={chat?.id ?? ''} onChange={(e) => { if (e.target.value) void open(e.target.value); }} data-testid="ag-chat-select">
+                {!chat && <option value="">New chat</option>}
+                {list.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
+                {chat && !list.some((c) => c.id === chat.id) && <option value={chat.id}>New chat</option>}
+              </select>
+            </label>
+            {chat && !confirmDel && <>
+              <button type="button" className="btn small ghost" aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
+              <button type="button" className="btn small ghost" aria-label="Delete this chat" title="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
+            </>}
+            {chat && confirmDel && <>
+              <span className="tiny">Delete this chat?</span>
+              <button type="button" className="btn small danger" disabled={busy} onClick={() => void remove()}>Delete</button>
+              <button type="button" className="btn small" onClick={() => setConfirmDel(false)}>Keep</button>
+            </>}
+          </>
+        )}
+      </div>
       <div className="stack" style={{ overflowY: 'auto', flex: 1, minHeight: 120 }} aria-live="polite">
         {!chat?.messages.length && <p className="tiny muted">{harness === 'dm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.'}</p>}
         {items.map((it) => {
@@ -213,6 +287,7 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
         <div ref={end} />
       </div>
       <ErrorBox error={error} />
+      {aloud && aloudNote && <p className="tiny muted" role="status">{aloudNote}</p>}
       <div className="row ag-chips" aria-label="Attached to your message">
         {attachedPage && <span className="chip gold" title="The page you are looking at is sent with your message"><i className="fa-solid fa-file-lines" aria-hidden="true" /> {pageTitle || 'This page'} <button type="button" className="ag-x" aria-label="Do not send this page" onClick={() => setDropPage(true)}>×</button></span>}
         {page && dropPage && <button type="button" className="chip" onClick={() => setDropPage(false)}>Attach this page</button>}
@@ -222,6 +297,7 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
       <div className="row ag-quick" aria-label="Quick actions">
         {quick.map((q) => <button key={q.label} type="button" className="chip ag-quick-btn" disabled={busy || working} onClick={() => { if (q.send) void send(q.send); else { setText(q.fill ?? ''); input()?.focus(); } }}>{q.label}</button>)}
         <button type="button" className="chip ag-quick-btn" onClick={() => void fresh()}>New chat</button>
+        {isDM && harness === 'dm' && <AloudToggle note={aloudNote} />}
       </div>
       <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); void send(); }}>
         <label className="grow" style={{ flex: 1 }}><span className="sr-only">Message</span>
