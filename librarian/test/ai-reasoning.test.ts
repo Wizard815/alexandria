@@ -113,5 +113,8 @@ test('AiReasoning_AuditJobAsksOpenRouterNotToThinkByDefault', async () => {
   assert.deepEqual(off.calls[0].body.reasoning, { enabled: false }, 'reasoning: off for chat');
   const local = fake({}, ok('yes'));
   await chat(local.d, 'audit', { messages: msgs, maxTokens: 50 });
-  assert.equal(local.calls[0].body.reasoning, undefined, 'a plain server is never sent the field');
+  assert.equal(local.calls[0].body.reasoning, undefined, 'a plain server is not sent the field by default');
+  const asked = fake({ options: { reasoning: 'off' } }, ok('yes'));
+  await chat(asked.d, 'audit', { messages: msgs, maxTokens: 50 });
+  assert.deepEqual(asked.calls[0].body.reasoning, { enabled: false }, 'unless the job option asks for it');
 });
