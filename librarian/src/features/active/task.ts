@@ -9,7 +9,7 @@ import { parseJson } from '../../core/util.ts';
 import { runAgent, type Caller } from '../agent/harness.ts';
 import { addMessage, newChat } from '../agent/store.ts';
 
-export interface TaskOut { chatId: string; reply: string; pending: number; ok: boolean }
+export interface TaskOut { chatId: string; messageId?: string; reply: string; pending: number; ok: boolean }
 
 export async function runTask(d: Deps, who: { worldId: string; accountId: string; token: string; port: number }, o: { prompt: string; mode: 'do' | 'propose'; allow?: string[]; title?: string }): Promise<TaskOut> {
   const w = one<any>(d.db, 'SELECT name, settings FROM worlds WHERE id = ?', who.worldId);
@@ -21,5 +21,5 @@ export async function runTask(d: Deps, who: { worldId: string; accountId: string
   await runAgent(d, caller, { chatId: chat.id, replyId: reply.id, text: o.prompt, context: {}, history: [], summary: '', fast: null, exec: { mode: o.mode, allow: o.allow } });
   const m = one<any>(d.db, 'SELECT content, status FROM agent_messages WHERE id = ?', reply.id);
   const pending = all<any>(d.db, "SELECT id FROM agent_actions WHERE chat_id = ? AND status = 'pending'", chat.id).length;
-  return { chatId: chat.id, reply: String(m?.content ?? ''), pending, ok: m?.status === 'done' };
+  return { chatId: chat.id, messageId: reply.id, reply: String(m?.content ?? ''), pending, ok: m?.status === 'done' };
 }
