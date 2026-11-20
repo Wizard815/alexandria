@@ -8,15 +8,15 @@ import { ErrorBox, Empty, Loading, Field, useAction } from '../../ui/index.tsx';
 import { LEVELS, LEVEL_LABEL, LevelChip, type Level } from '../../pages/library/Levels.tsx';
 
 export interface LibFile {
-  id: string; pageId: string; pageTitle?: string; name: string; kind: string; mime: string; family: 'image' | 'pdf' | 'text' | 'json' | 'csv'; size: number; at: string; url: string;
+  id: string; pageId: string; pageTitle?: string; name: string; kind: string; mime: string; family: 'image' | 'video' | 'pdf' | 'text' | 'json' | 'csv'; size: number; at: string; url: string;
   level?: Level; remote?: { source: string; app: string; id: string | null; error: string | null };
 }
-interface FileList { max: number; canUpload: boolean; files: LibFile[] }
+interface FileList { max: number; videoMax?: number; canUpload: boolean; files: LibFile[] }
 export const KINDS = ['map', 'handout', 'item', 'rules', 'other'] as const;
 const KIND_LABEL: Record<string, string> = { map: 'Map', handout: 'Handout', item: 'Item or weapon sheet', rules: 'Rules', other: 'Other' };
 
-const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
-const icon = (f: LibFile) => (f.family === 'image' ? 'fa-regular fa-image' : f.family === 'pdf' ? 'fa-regular fa-file-pdf' : f.family === 'csv' ? 'fa-solid fa-table' : f.family === 'json' ? 'fa-regular fa-file-code' : 'fa-regular fa-file-lines');
+const size = (n: number) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const icon = (f: LibFile) => (f.family === 'image' ? 'fa-regular fa-image' : f.family === 'video' ? 'fa-solid fa-film' : f.family === 'pdf' ? 'fa-regular fa-file-pdf' : f.family === 'csv' ? 'fa-solid fa-table' : f.family === 'json' ? 'fa-regular fa-file-code' : 'fa-regular fa-file-lines');
 
 export function useFiles(pageId?: string) {
   const { w } = useWorld();
@@ -24,7 +24,7 @@ export function useFiles(pageId?: string) {
 }
 
 /** Upload: onto a page (`pageId`) or as a new file page in a folder. */
-export function UploadForm({ pageId, max, onDone, onCancel }: { pageId?: string; max: number; onDone: (r: any) => void; onCancel?: () => void }) {
+export function UploadForm({ pageId, max, videoMax, onDone, onCancel }: { pageId?: string; max: number; videoMax?: number; onDone: (r: any) => void; onCancel?: () => void }) {
   const { w } = useWorld();
   const act = useAction();
   const input = useRef<HTMLInputElement>(null);
@@ -46,7 +46,9 @@ export function UploadForm({ pageId, max, onDone, onCancel }: { pageId?: string;
       if (/\.(png|jpe?g|gif|webp)$/i.test(f.name) && kind === 'other' && /map/i.test(f.name)) setKind('map');
     }
   };
-  const tooBig = !!file && file.size > max;
+  const isVideo = !!file && (/^video\//.test(file.type) || /\.(mp4|m4v|webm|mov)$/i.test(file.name));
+  const limit = isVideo ? videoMax ?? max : max;
+  const tooBig = !!file && file.size > limit;
   const submit = () => act.run(async () => {
     if (!file) return;
     const c = w.client;
@@ -63,10 +65,10 @@ export function UploadForm({ pageId, max, onDone, onCancel }: { pageId?: string;
 
   return (
     <form className="lf-form stack" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <Field label="File" help={`Pictures, PDF, text, Markdown, JSON or CSV, up to ${Math.round(max / 1048576)} MB.`}>
-        <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,text/csv,application/json,.md,.markdown,.txt,.json,.csv,.tsv" onChange={(e) => pick(e.target.files?.[0] ?? null)} />
+      <Field label="File" help={`Pictures and GIFs, PDF, text, Markdown, JSON or CSV, up to ${Math.round(max / 1048576)} MB. Videos (MP4, WebM, MOV) up to ${size(videoMax ?? max)}.`}>
+        <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp,video/*,.mp4,.m4v,.webm,.mov,application/pdf,text/plain,text/markdown,text/csv,application/json,.md,.markdown,.txt,.json,.csv,.tsv" onChange={(e) => pick(e.target.files?.[0] ?? null)} />
       </Field>
-      {tooBig && <div className="error-box" role="alert">That file is {size(file!.size)}; the limit is {Math.round(max / 1048576)} MB.</div>}
+      {tooBig && <div className="error-box" role="alert">That file is {size(file!.size)}; the limit is {size(limit)}.</div>}
       {!pageId && (
         <div className="lf-row">
           <Field label="Folder"><input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="Files/Maps" /></Field>
@@ -129,7 +131,8 @@ export function PageFiles({ pageId }: { pageId: string }) {
   if (!d) return files.error ? <ErrorBox error={files.error} /> : null;
   if (!d.files.length && !d.canUpload) return null;
   const pics = d.files.filter((f) => f.family === 'image');
-  const rest = d.files.filter((f) => f.family !== 'image');
+  const vids = d.files.filter((f) => f.family === 'video');
+  const rest = d.files.filter((f) => f.family !== 'image' && f.family !== 'video');
   return (
     <section className="lf-section" aria-label="Files">
       <h3 className="lib-h lib-h3">Files{d.files.length ? ` (${d.files.length})` : ''}</h3>
@@ -138,6 +141,13 @@ export function PageFiles({ pageId }: { pageId: string }) {
           <a href={f.url} target="_blank" rel="noopener noreferrer"><img src={f.url} alt={f.name} loading="lazy" /></a>
           <figcaption className="row wrap"><strong className="small">{f.name}</strong><Meta f={f} />{f.level && <LevelChip level={f.level} all />}<a className="small" href={`${f.url}${f.url.includes('?') ? '&' : '?'}download=1`}>Download</a></figcaption>
           <Remote f={f} />
+          <FileTools f={f} canUpload={d.canUpload} reload={files.reload} />
+        </figure>
+      ))}
+      {vids.map((f) => (
+        <figure className="lf-pic" key={f.id}>
+          <video className="lf-video" src={f.url} controls preload="metadata" playsInline aria-label={f.name} />
+          <figcaption className="row wrap"><strong className="small">{f.name}</strong><Meta f={f} />{f.level && <LevelChip level={f.level} all />}<a className="small" href={`${f.url}${f.url.includes('?') ? '&' : '?'}download=1`}>Download</a></figcaption>
           <FileTools f={f} canUpload={d.canUpload} reload={files.reload} />
         </figure>
       ))}
@@ -157,7 +167,7 @@ export function PageFiles({ pageId }: { pageId: string }) {
         </div>
       ))}
       {d.canUpload && (adding
-        ? <UploadForm pageId={pageId} max={d.max} onDone={() => { setAdding(false); files.reload(); }} onCancel={() => setAdding(false)} />
+        ? <UploadForm pageId={pageId} max={d.max} videoMax={d.videoMax} onDone={() => { setAdding(false); files.reload(); }} onCancel={() => setAdding(false)} />
         : <button type="button" className="btn small" onClick={() => setAdding(true)}><i className="fa-solid fa-paperclip" aria-hidden="true" /> Attach a file</button>)}
     </section>
   );
@@ -180,7 +190,7 @@ export function FilesTab({ onOpen }: { onOpen: (pageId: string) => void }) {
         <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}</select>
         {d.canUpload && !adding && <button type="button" className="btn small" onClick={() => setAdding(true)}><i className="fa-solid fa-upload" aria-hidden="true" /> Upload a file</button>}
       </div>
-      {adding && <UploadForm max={d.max} onDone={(r) => { setAdding(false); files.reload(); if (r?.page?.id) onOpen(r.page.id); }} onCancel={() => setAdding(false)} />}
+      {adding && <UploadForm max={d.max} videoMax={d.videoMax} onDone={(r) => { setAdding(false); files.reload(); if (r?.page?.id) onOpen(r.page.id); }} onCancel={() => setAdding(false)} />}
       {list.length ? (
         <div className="lib-flat">
           {list.map((f) => (
@@ -202,11 +212,12 @@ export const FILES_CSS = `
 .lf-pic img { max-width: 100%; max-height: 520px; object-fit: contain; border-radius: 6px; display: block; margin: 0 auto; background: var(--panel); }
 .lf-doc { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
 .lf-ico { font-size: 22px; color: var(--muted); width: 28px; text-align: center; flex: none; padding-top: 2px; }
+.lf-video { max-width: 100%; max-height: 520px; border-radius: 6px; display: block; margin: 0 auto; background: #000; }
 .lf-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; flex: none; }
 .lf-open { flex: none; }
 .lf-tools select { width: auto; max-width: 100%; padding: 4px 8px; font-size: 13px; }
 .lf-bad { color: var(--danger-text, #8a1c12); }
 .lf-form { padding: 12px; border: 1px dashed var(--line); border-radius: 8px; }
 .lf-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
-@media (max-width: 760px) { .lf-doc { flex-wrap: wrap; } .lf-open { width: 100%; } .lf-pic img { max-height: 340px; } }
+@media (max-width: 760px) { .lf-doc { flex-wrap: wrap; } .lf-open { width: 100%; } .lf-pic img, .lf-video { max-height: 340px; } }
 `;
