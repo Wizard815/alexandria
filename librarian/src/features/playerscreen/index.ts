@@ -10,14 +10,22 @@
 // /api/media/screen/<ticket>, which re-checks on every fetch that the picture
 // is on the board or in the visible media (hiding it takes it away).
 //
-// Media: a queue of items {youtube | image}, a mode (off, queue, slideshow,
-// focus), play/pause, loop and a slideshow interval. Writes are DM-only.
+// Media: a queue of items {youtube | image | video}, a mode (off, queue,
+// slideshow, focus), play/pause, loop and a slideshow interval. Writes are
+// DM-only. Videos are library files, served with Range support. A video
+// ends the slide when it ends: the screen reports POST /media/ended
+// {id, version}; the server accepts it only for the item showing now, once
+// per version (stale or duplicate reports from other open screens change
+// nothing) and not within a second of the item coming up. An item can instead
+// play for N seconds or loop. A DM- or party-level library file may be shown
+// by the DM's choice (classified never); a file players cannot open in the
+// library is served to the screen only while it is the current, visible item.
 // Players and the screen only receive the visible state: hidden items are
 // never sent, and only the current item is (no spoilers about what is next).
 // Live event `screen` carries just { version }; clients refetch.
 import fs from 'node:fs';
 import path from 'node:path';
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { all, one, run, tx } from '../../core/db.ts';
@@ -28,6 +36,8 @@ import { HttpError, id as newId, int, now, oneOf, str } from '../../core/util.ts
 import { ctx, me } from '../../routes/_shared.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
 import { mayRead } from '../libfiles/index.ts';
+import { sendRanged } from '../libfiles/stream.ts';
+import { normLevel } from '../../core/levels.ts';
 import { PLAYER, project, worldSettings, type CardRow } from '../stage/cards.ts';
 
 const schema = `
@@ -62,7 +72,8 @@ const MAX_ITEMS = 300;
 const DEFAULT_INTERVAL = 10;
 
 interface State { world_id: string; mode: Mode; prev_mode: Mode; current_id: string | null; focus_id: string | null; interval_sec: number; playing: number; loop: number; version: number; advanced_at: number }
-interface Item { id: string; world_id: string; kind: 'youtube' | 'image' | 'video'; ref: string; title: string; hidden: number; pos: number; created_at: string }
+interface Item { id: string; world_id: string; kind: 'youtube' | 'image' | 'video'; ref: string; title: string; hidden: number; pos: number; created_at: string; sound: number; play_secs: number; loop_video: number }
+const MIN_VIDEO_MS = 1000;
 
 /** The 11-character video id of a YouTube link (watch, youtu.be, embed, shorts, live) or a bare id; null for anything else. Only the id is stored, so nothing else of the link ever reaches an <iframe>. */
 export function youtubeId(input: unknown): string | null {
@@ -95,63 +106,89 @@ export function resolve(s: Pick<State, 'mode' | 'current_id' | 'focus_id'>, item
   const visible = items.filter((i) => !i.hidden);
   if (s.mode === 'off') return null;
   if (s.mode === 'focus') return visible.find((i) => i.id === s.focus_id) ?? null;
-  const pool = s.mode === 'slideshow' ? visible.filter((i) => i.kind === 'image') : visible;
+  const pool = s.mode === 'slideshow' ? visible.filter((i) => i.kind !== 'youtube') : visible;
   return pool.find((i) => i.id === s.current_id) ?? pool[0] ?? null;
 }
 
+/** May this library file be put on the screen at all? Anything up to DM-only, by the DM's choice; classified never (file or page). */
+const showable = (d: Deps, f: { level: string; page_id: string; world_id: string }): boolean => {
+  if (normLevel(f.level) === 'classified') return false;
+  const pg = one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
+  return !!pg && normLevel(pg.visibility) !== 'classified';
+};
+
+/** Stage pictures (and library files already open to players): on the board or anywhere in the visible media. */
 const mayFetchScreenPicture = (d: Deps, worldId: string, ref: string): boolean => {
   const s = stateOf(d, worldId);
-  if (s.mode !== 'off' && itemsOf(d, worldId).some((i) => i.ref === ref && i.kind === 'image' && !i.hidden)) return true;
+  if (s.mode !== 'off' && itemsOf(d, worldId).some((i) => i.ref === ref && i.kind !== 'youtube' && !i.hidden)) return true;
   // A picture on a card shown to everyone is already on the screen's board.
   return !!one(d.db, `SELECT 1 FROM stage_cards WHERE world_id = ? AND ref = ? AND kind IN ('image', 'event') AND visibility = 'all' AND shown_at IS NOT NULL`, worldId, ref);
 };
 
-function sendBytes(res: Response, mime: string, body: Buffer | fs.ReadStream) {
+function sendBytes(req: Request, res: Response, mime: string, body: Buffer | string) {
   res.setHeader('Content-Type', mime);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
   res.setHeader('Content-Disposition', 'inline');
   res.setHeader('Cache-Control', 'private, no-store');
   if (Buffer.isBuffer(body)) res.end(body);
-  else body.on('error', () => res.destroy()).pipe(res);
+  else sendRanged(req, res, body);
 }
 
 const libFolder = (d: Deps, world: string) => path.join(d.dataDir ?? '', 'libfiles', world);
 
-/** Move the slideshow on when its interval has run out. Called every second by the timer (and directly by tests). */
+/**
+ * Move the screen on when the current item's time has run out. Called every second by the timer (and directly by tests).
+ * A picture in a slideshow stays for the interval; a video ends the slide by itself (the screen reports it), unless it has
+ * its own "play for N seconds" (which also covers queue mode) or loops.
+ */
 export function tick(d: Deps, nowMs = Date.now()): number {
   let moved = 0;
-  for (const s of all<State>(d.db, `SELECT * FROM screen_media WHERE mode = 'slideshow' AND playing = 1`)) {
-    if (nowMs - s.advanced_at < s.interval_sec * 1000) continue;
-    step(d, s.world_id, 1, nowMs);
-    moved++;
+  for (const s of all<State>(d.db, `SELECT * FROM screen_media WHERE mode IN ('slideshow', 'queue') AND playing = 1`)) {
+    const cur = resolve(s, itemsOf(d, s.world_id));
+    if (!cur) continue;
+    const secs = cur.kind === 'video' ? (cur.play_secs > 0 ? cur.play_secs : 0) : s.mode === 'slideshow' ? s.interval_sec : 0;
+    if (!secs || nowMs - s.advanced_at < secs * 1000) continue;
+    if (step(d, s.world_id, 1, nowMs)) moved++;
   }
   return moved;
 }
 
-/** Next (+1) or previous (-1) in the mode's pool. At the end it wraps when looping, else stays (a slideshow then pauses). */
-function step(d: Deps, wid: string, dir: 1 | -1, nowMs = Date.now()) {
+/** Next (+1) or previous (-1) in the mode's pool. At the end it wraps when looping, else stays (a slideshow then pauses). False when nothing changed. */
+function step(d: Deps, wid: string, dir: 1 | -1, nowMs = Date.now()): boolean {
   const s = stateOf(d, wid);
   const items = itemsOf(d, wid).filter((i) => !i.hidden);
-  const pool = s.mode === 'slideshow' ? items.filter((i) => i.kind === 'image') : items;
+  const pool = s.mode === 'slideshow' ? items.filter((i) => i.kind !== 'youtube') : items;
   let playing = s.playing;
   let cur = s.current_id;
   if (pool.length) {
-    const at = pool.findIndex((i) => i.id === s.current_id);
-    let to = at < 0 ? (dir === 1 ? 0 : pool.length - 1) : at + dir;
+    // Nothing chosen yet means the first item of the pool is the one on screen.
+    const at = Math.max(0, pool.findIndex((i) => i.id === s.current_id));
+    let to = at + dir;
     if (to >= pool.length || to < 0) {
       if (s.loop) to = (to + pool.length) % pool.length;
-      else { to = Math.max(0, Math.min(pool.length - 1, to)); if (s.mode === 'slideshow') playing = 0; }
+      else {
+        if (s.mode !== 'slideshow') return false;
+        to = Math.max(0, Math.min(pool.length - 1, to));
+        playing = 0;
+      }
     }
     cur = pool[to].id;
   }
   run(d.db, 'UPDATE screen_media SET current_id = ?, playing = ?, advanced_at = ?, version = version + 1 WHERE world_id = ?', cur, playing, nowMs, wid);
   d.hub.emit(wid, 'screen', { version: s.version + 1 }, everyone);
+  return true;
 }
 
 const feature: Feature = {
   id: 'playerscreen',
   schema,
+  migrate(db) {
+    const cols = (db.prepare('PRAGMA table_info(screen_media_items)').all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes('sound')) db.exec('ALTER TABLE screen_media_items ADD COLUMN sound INTEGER NOT NULL DEFAULT 1');
+    if (!cols.includes('play_secs')) db.exec('ALTER TABLE screen_media_items ADD COLUMN play_secs INTEGER NOT NULL DEFAULT 0');
+    if (!cols.includes('loop_video')) db.exec('ALTER TABLE screen_media_items ADD COLUMN loop_video INTEGER NOT NULL DEFAULT 0');
+  },
   worldMount: 'screen',
   start: (d) => {
     const t = setInterval(() => { try { tick(d); } catch (e) { console.error('players screen tick', e); } }, 1000);
@@ -164,16 +201,22 @@ const feature: Feature = {
     app.get('/api/media/screen/:ticket', (req, res) => {
       const t = readTicket(String(req.params.ticket));
       const m = t && t.k === 'screen' && one(d.db, 'SELECT 1 FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);
-      if (!t || !m || !mayFetchScreenPicture(d, t.w, t.f)) throw new HttpError(404, 'Picture not found');
+      if (!t || !m) throw new HttpError(404, 'Picture not found');
       if (t.f.startsWith('stg_')) {
+        if (!mayFetchScreenPicture(d, t.w, t.f)) throw new HttpError(404, 'Picture not found');
         const u = one<any>(d.db, 'SELECT mime, data FROM stage_images WHERE id = ? AND world_id = ?', t.f, t.w);
         if (!u) throw new HttpError(404, 'Picture not found');
-        return sendBytes(res, u.mime, Buffer.from(u.data));
+        return sendBytes(req, res, u.mime, Buffer.from(u.data));
       }
-      // A library file is served only while players themselves could open it.
       const f = one<any>(d.db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', t.f, t.w);
-      if (!f || f.family !== 'image' || !mayRead(d, f, PLAYER)) throw new HttpError(404, 'Picture not found');
-      sendBytes(res, f.mime, fs.createReadStream(path.join(libFolder(d, t.w), f.id)));
+      if (!f || (f.family !== 'image' && f.family !== 'video')) throw new HttpError(404, 'Picture not found');
+      // A file players can open themselves is served while it is in the visible media. A file they cannot (the DM chose to
+      // show it anyway) only while it is the item on screen right now, in a mode that is not off.
+      const ok = mayRead(d, f, PLAYER)
+        ? mayFetchScreenPicture(d, t.w, t.f)
+        : showable(d, f) && (() => { const c = resolve(stateOf(d, t.w), itemsOf(d, t.w)); return !!c && c.kind !== 'youtube' && c.ref === t.f; })();
+      if (!ok) throw new HttpError(404, 'Picture not found');
+      sendBytes(req, res, f.mime, path.join(libFolder(d, t.w), f.id));
     });
   },
   worldRoutes: (d: Deps) => {
@@ -194,7 +237,8 @@ const feature: Feature = {
     }
 
     const itemUrl = (wid: string, i: Item, account: string) =>
-      i.kind === 'image' ? `/api/media/screen/${mintTicket({ w: wid, k: 'screen', f: i.ref, a: account })}` : null;
+      i.kind === 'image' || i.kind === 'video' ? `/api/media/screen/${mintTicket({ w: wid, k: 'screen', f: i.ref, a: account })}` : null;
+    const fileOf = (wid: string, ref: string) => (ref.startsWith('lf_') ? one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', ref, wid) : null);
 
     /** The board as the table sees it. Always the PLAYER view; `account` only names who the picture tickets are for. */
     function board(wid: string, account: string) {
@@ -221,10 +265,15 @@ const feature: Feature = {
     function publicMedia(wid: string, account: string) {
       const s = stateOf(d, wid);
       const items = itemsOf(d, wid);
-      const cur = resolve(s, items);
+      let cur = resolve(s, items);
+      // A file that became classified after it was queued is never sent.
+      if (cur && cur.ref.startsWith('lf_')) { const f = fileOf(wid, cur.ref); if (!f || !showable(d, f)) cur = null; }
       return {
         mode: s.mode, playing: !!s.playing, loop: !!s.loop, intervalSec: s.interval_sec, version: s.version, advancedAt: s.advanced_at,
-        current: cur ? { id: cur.id, kind: cur.kind, embed: cur.kind === 'youtube' ? embedUrl(cur.ref) : null, url: itemUrl(wid, cur, account) } : null,
+        current: cur ? {
+          id: cur.id, kind: cur.kind, embed: cur.kind === 'youtube' ? embedUrl(cur.ref) : null, youtubeId: cur.kind === 'youtube' ? cur.ref : null, url: itemUrl(wid, cur, account),
+          ...(cur.kind === 'video' ? { sound: !!cur.sound, loop: !!cur.loop_video, playSecs: cur.play_secs } : {}),
+        } : null,
       };
     }
 
@@ -235,10 +284,16 @@ const feature: Feature = {
       const cur = resolve(s, items);
       return {
         mode: s.mode, prevMode: s.prev_mode, playing: !!s.playing, loop: !!s.loop, intervalSec: s.interval_sec, version: s.version, currentId: cur?.id ?? null, focusId: s.mode === 'focus' ? s.focus_id : null,
-        items: items.map((i) => ({
-          id: i.id, kind: i.kind, ref: i.ref, title: i.title, hidden: !!i.hidden,
-          thumb: i.kind === 'image' ? `/api/media/${i.ref.startsWith('stg_') ? 'stage' : 'libfile'}/${mintTicket({ w: wid, k: i.ref.startsWith('stg_') ? 'stage' : 'libfile', f: i.ref, a: account })}` : i.kind === 'youtube' ? `https://img.youtube.com/vi/${i.ref}/mqdefault.jpg` : null,
-        })),
+        items: items.map((i) => {
+          const f = fileOf(wid, i.ref);
+          return {
+            id: i.id, kind: i.kind, ref: i.ref, title: i.title, hidden: !!i.hidden,
+            thumb: i.kind === 'image' || i.kind === 'video' ? `/api/media/${i.ref.startsWith('stg_') ? 'stage' : 'libfile'}/${mintTicket({ w: wid, k: i.ref.startsWith('stg_') ? 'stage' : 'libfile', f: i.ref, a: account })}` : i.kind === 'youtube' ? `https://img.youtube.com/vi/${i.ref}/mqdefault.jpg` : null,
+            // A library file players cannot open in the library: it shows on the screen only by the DM's choice, only while current.
+            ...(f ? { dmOnly: !mayRead(d, f, PLAYER), blocked: !showable(d, f) } : {}),
+            ...(i.kind === 'video' ? { sound: !!i.sound, loopVideo: !!i.loop_video, playSecs: i.play_secs } : {}),
+          };
+        }),
       };
     }
 
@@ -252,40 +307,49 @@ const feature: Feature = {
     // ---- the DM's controls ----
     r.get('/media', requireDM, (_req, res) => res.json(dmMedia(W(res), me(res))));
 
-    /** Where the DM can pick pictures from: folders of library pictures (with how many players may see) and the world's stage pictures. */
+    /** Where the DM can pick pictures and videos from: folders of library files (how many are shown-able, how many players can open) and the world's stage pictures. */
     r.get('/media/sources', requireDM, (_req, res) => {
       const w = W(res);
-      const files = all<any>(db, `SELECT f.*, p.path AS page_path FROM libfiles_files f JOIN pages p ON p.id = f.page_id WHERE f.world_id = ? AND f.family = 'image' ORDER BY p.path, f.name LIMIT 1000`, w);
-      const folders = new Map<string, { folder: string; images: number; shared: number }>();
+      const files = all<any>(db, `SELECT f.*, p.path AS page_path FROM libfiles_files f JOIN pages p ON p.id = f.page_id WHERE f.world_id = ? AND f.family IN ('image', 'video') ORDER BY p.path, f.name LIMIT 1000`, w);
+      const folders = new Map<string, { folder: string; images: number; videos: number; shared: number; showable: number }>();
       const list = files.map((f) => {
         const dir = dirOf(f.page_path);
         const shared = mayRead(d, f, PLAYER);
-        const e = folders.get(dir) ?? { folder: dir, images: 0, shared: 0 };
-        e.images++; if (shared) e.shared++;
+        const ok = showable(d, f);
+        const e = folders.get(dir) ?? { folder: dir, images: 0, videos: 0, shared: 0, showable: 0 };
+        if (f.family === 'video') e.videos++; else e.images++;
+        if (shared) e.shared++;
+        if (ok) e.showable++;
         folders.set(dir, e);
-        return { id: f.id, name: f.name, folder: dir, shared, thumb: `/api/media/libfile/${mintTicket({ w, k: 'libfile', f: f.id, a: me(res) })}` };
+        return { id: f.id, name: f.name, folder: dir, family: f.family, shared, blocked: !ok, thumb: `/api/media/libfile/${mintTicket({ w, k: 'libfile', f: f.id, a: me(res) })}` };
       });
       const stage = all<any>(db, `SELECT i.id, (SELECT COALESCE(NULLIF(c.caption, ''), NULLIF(c.label, '')) FROM stage_cards c WHERE c.ref = i.id AND c.world_id = i.world_id LIMIT 1) AS label FROM stage_images i WHERE i.world_id = ? ORDER BY i.at DESC LIMIT 200`, w)
         .map((i) => ({ id: i.id, label: i.label ?? '', thumb: `/api/media/stage/${mintTicket({ w, k: 'stage', f: i.id, a: me(res) })}` }));
       res.json({ folders: [...folders.values()].sort((a, b) => a.folder.localeCompare(b.folder)), files: list, stage });
     });
 
-    /** A picture players may be shown: a stage picture of this world, or a library picture players could open themselves (fail closed on the file's and its page's level). */
-    const imageRef = (w: string, raw: unknown): string => {
+    /** A picture or video the DM may put on the screen: a stage picture of this world, or a library picture/video (the DM's explicit choice, so DM-level files are fine; classified never). */
+    const mediaRef = (w: string, raw: unknown): { ref: string; kind: 'image' | 'video'; name: string } => {
       const v = str(raw, 'ref', { max: 200 });
       if (/^stg_[\w-]+$/.test(v)) {
         if (!one(db, 'SELECT 1 FROM stage_images WHERE id = ? AND world_id = ?', v, w)) throw new HttpError(400, 'That picture was not uploaded to this world');
-        return v;
+        return { ref: v, kind: 'image', name: '' };
       }
       if (/^lf_[\w-]+$/.test(v)) {
         const f = one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', v, w);
         if (!f) throw new HttpError(400, 'File not found');
-        if (f.family !== 'image') throw new HttpError(400, 'Only pictures can go on the screen');
-        if (!mayRead(d, f, PLAYER)) throw new HttpError(409, 'Players cannot open that file. Share it with the party first (set the file and its page to party).');
-        return v;
+        if (f.family !== 'image' && f.family !== 'video') throw new HttpError(400, 'Only pictures and videos can go on the screen');
+        if (!showable(d, f)) throw new HttpError(409, 'Classified files cannot go on the screen');
+        return { ref: v, kind: f.family, name: String(f.name).replace(/\.[A-Za-z0-9]{1,8}$/, '') };
       }
       throw new HttpError(400, 'ref must be a stage picture id or a library file id');
     };
+    /** Per-video settings from a request body: sound on/off, play for N seconds (0 or null: until it ends), loop the video. */
+    const videoOpts = (b: any, cur?: Item) => ({
+      sound: b.sound === undefined ? cur?.sound ?? 1 : b.sound ? 1 : 0,
+      play_secs: b.playSecs === undefined ? cur?.play_secs ?? 0 : b.playSecs === null || b.playSecs === 0 || b.playSecs === '' ? 0 : int(b.playSecs, 'playSecs', { min: 2, max: 3600 })!,
+      loop_video: b.loopVideo === undefined ? cur?.loop_video ?? 0 : b.loopVideo ? 1 : 0,
+    });
     const nextPos = (w: string) => one<any>(db, 'SELECT COALESCE(MAX(pos), 0) + 1 AS p FROM screen_media_items WHERE world_id = ?', w)!.p as number;
     const item = (w: string, iid: unknown) => {
       const i = one<Item>(db, 'SELECT * FROM screen_media_items WHERE id = ? AND world_id = ?', String(iid), w);
@@ -296,7 +360,7 @@ const feature: Feature = {
     r.post('/media/items', requireDM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
-      const kind = oneOf(b.kind, 'kind', ['youtube', 'image', 'video'] as const);
+      let kind: 'youtube' | 'image' | 'video' = oneOf(b.kind, 'kind', ['youtube', 'image', 'video'] as const);
       if (one<any>(db, 'SELECT COUNT(*) AS n FROM screen_media_items WHERE world_id = ?', w)!.n >= MAX_ITEMS) throw new HttpError(409, 'The screen queue is full; remove some items first');
       let ref: string;
       let title = str(b.title, 'title', { max: 160, optional: true }).trim();
@@ -305,12 +369,18 @@ const feature: Feature = {
         if (!vid) throw new HttpError(400, 'That is not a YouTube link (use a youtube.com or youtu.be address)');
         ref = vid;
         if (!title) title = `YouTube ${vid}`;
-      } else if (kind === 'image') {
-        ref = imageRef(w, b.ref);
-      } else throw new HttpError(400, 'Video files are not supported yet: the library does not take them');
+      } else {
+        // The file decides what it is (a picture, a GIF or a video), whatever kind the caller named.
+        const m = mediaRef(w, b.ref);
+        if (kind === 'video' && m.kind !== 'video') throw new HttpError(400, 'That file is not a video');
+        kind = m.kind;
+        ref = m.ref;
+        if (!title) title = m.name;
+      }
+      const vo = videoOpts(kind === 'video' ? b : {});
       const iid = newId('scm_');
       tx(db, () => {
-        run(db, 'INSERT INTO screen_media_items (id, world_id, kind, ref, title, hidden, pos, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)', iid, w, kind, ref, title, nextPos(w), now());
+        run(db, 'INSERT INTO screen_media_items (id, world_id, kind, ref, title, hidden, pos, created_at, sound, play_secs, loop_video) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)', iid, w, kind, ref, title, nextPos(w), now(), vo.sound, vo.play_secs, vo.loop_video);
         // "Play now": show it straight away in the queue.
         if (b.play === true) save(w, { mode: 'queue', current_id: iid, focus_id: null, playing: 1 }, true);
         else save(w, {});
@@ -325,7 +395,9 @@ const feature: Feature = {
       const b = req.body ?? {};
       const hidden = b.hidden === undefined ? i.hidden : b.hidden ? 1 : 0;
       const title = b.title === undefined ? i.title : str(b.title, 'title', { max: 160, optional: true }).trim();
-      run(db, 'UPDATE screen_media_items SET hidden = ?, title = ? WHERE id = ?', hidden, title, i.id);
+      if (i.kind !== 'video' && (b.sound !== undefined || b.playSecs !== undefined || b.loopVideo !== undefined)) throw new HttpError(400, 'Sound, play time and loop are for videos');
+      const vo = videoOpts(b, i);
+      run(db, 'UPDATE screen_media_items SET hidden = ?, title = ?, sound = ?, play_secs = ?, loop_video = ? WHERE id = ?', hidden, title, vo.sound, vo.play_secs, vo.loop_video, i.id);
       save(w, {});
       res.json(dmMedia(w, me(res)));
     });
@@ -357,15 +429,17 @@ const feature: Feature = {
       res.json(dmMedia(w, me(res)));
     });
 
-    // Load every picture of a library folder as a slideshow. Pictures players may not open are skipped (and counted), never shown.
+    // Load every picture, GIF and video of a library folder, in order of file name, as a slideshow (they mix). Classified files are skipped (and counted), never shown.
     r.post('/media/folder', requireDM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const dir = cleanDir(b.folder);
-      const files = all<any>(db, `SELECT f.*, p.path AS page_path FROM libfiles_files f JOIN pages p ON p.id = f.page_id WHERE f.world_id = ? AND f.family = 'image' ORDER BY p.path, f.name`, w)
-        .filter((f) => !dir || dirOf(f.page_path) === dir || f.page_path.startsWith(`${dir}/`));
-      const okFiles = files.filter((f) => mayRead(d, f, PLAYER));
-      if (!okFiles.length) throw new HttpError(files.length ? 409 : 404, files.length ? `None of the ${files.length} pictures in that folder are shared with the party` : 'No pictures in that folder');
+      const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+      const files = all<any>(db, `SELECT f.*, p.path AS page_path FROM libfiles_files f JOIN pages p ON p.id = f.page_id WHERE f.world_id = ? AND f.family IN ('image', 'video')`, w)
+        .filter((f) => !dir || dirOf(f.page_path) === dir || f.page_path.startsWith(`${dir}/`))
+        .sort((x, y) => byName.compare(x.name, y.name) || x.page_path.localeCompare(y.page_path) || x.id.localeCompare(y.id));
+      const okFiles = files.filter((f) => showable(d, f));
+      if (!okFiles.length) throw new HttpError(files.length ? 409 : 404, files.length ? `None of the ${files.length} files in that folder can be shown (classified)` : 'No pictures or videos in that folder');
       const interval = int(b.intervalSec, 'intervalSec', { min: 2, max: 3600, optional: true });
       const replace = b.replace !== false;
       let first = '';
@@ -375,12 +449,59 @@ const feature: Feature = {
         for (const f of okFiles.slice(0, MAX_ITEMS)) {
           const iid = newId('scm_');
           first ||= iid;
-          run(db, 'INSERT INTO screen_media_items (id, world_id, kind, ref, title, hidden, pos, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)', iid, w, 'image', f.id, f.name.replace(/\.[A-Za-z0-9]{1,8}$/, ''), pos++, now());
+          run(db, 'INSERT INTO screen_media_items (id, world_id, kind, ref, title, hidden, pos, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)', iid, w, f.family, f.id, f.name.replace(/\.[A-Za-z0-9]{1,8}$/, ''), pos++, now());
         }
         save(w, { mode: 'slideshow', current_id: first, focus_id: null, playing: 1, ...(interval ? { interval_sec: interval } : {}) }, true);
       });
-      audit(w, me(res), 'screen.folder', `${dir || '/'} ${okFiles.length} pictures`);
+      audit(w, me(res), 'screen.folder', `${dir || '/'} ${okFiles.length} files`);
       res.json({ ...dmMedia(w, me(res)), loaded: Math.min(okFiles.length, MAX_ITEMS), skipped: files.length - okFiles.length });
+    });
+
+    // A video reports that it has ended. Any member's screen may (the screen is opened with whoever's token), but it only ever
+    // moves the screen past the item showing now, once: the report names the item and the version it saw, and every move
+    // changes the version, so a second screen's copy of the same report (or a stale one) does nothing.
+    r.post('/media/ended', (req, res) => {
+      const w = W(res);
+      const b = req.body ?? {};
+      const iid = str(b.id, 'id', { max: 100 });
+      const version = int(b.version, 'version', { min: 0 })!;
+      const s = stateOf(d, w);
+      const no = (reason: string) => res.json({ accepted: false, reason, version: s.version });
+      if (s.version !== version) return no('stale');
+      if (s.mode !== 'queue' && s.mode !== 'slideshow') return no('mode');
+      if (!s.playing) return no('paused');
+      const cur = resolve(s, itemsOf(d, w));
+      if (!cur || cur.id !== iid) return no('not-current');
+      if (cur.kind !== 'video') return no('not-video');
+      if (cur.loop_video || cur.play_secs > 0) return no('timed');
+      if (Date.now() - s.advanced_at < MIN_VIDEO_MS) return no('early');
+      if (!step(d, w, 1)) return no('end');
+      res.json({ accepted: true, version: s.version + 1 });
+    });
+
+    // Make a library picture or video open to the party: the file's level, and its page's when that page is only a file page
+    // (no text of its own). A page with text keeps its own level (that would publish the text): the DM opens it in the library.
+    r.post('/media/share', requireDM, (req, res) => {
+      const w = W(res);
+      const fid = str(req.body?.fileId, 'fileId', { max: 100 });
+      const f = one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', fid, w);
+      if (!f || (f.family !== 'image' && f.family !== 'video')) throw new HttpError(404, 'File not found');
+      const pg = one<any>(db, 'SELECT id, path, title, body, visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, w);
+      if (!pg) throw new HttpError(404, 'Page not found');
+      if (normLevel(pg.visibility) !== 'party') {
+        if (String(pg.body ?? '').trim()) throw new HttpError(409, `The page “${pg.title}” has text that is not shared with the party. Open it in the library and share the page first.`);
+        d.library.setLevel(w, pg.id, 'party', me(res));
+      }
+      run(db, 'UPDATE libfiles_files SET level = ? WHERE id = ?', 'party', f.id);
+      const next = one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ?', f.id)!;
+      if (!mayRead(d, next, PLAYER)) {
+        run(db, 'UPDATE libfiles_files SET level = ? WHERE id = ?', f.level, f.id);
+        throw new HttpError(409, 'Players still cannot open that file (its page is marked for the DM or the broker). Change that in the library.');
+      }
+      audit(w, me(res), 'screen.share', `${f.name} party`);
+      d.hub.emit(w, 'libfile', { pageId: f.page_id }, () => true);
+      save(w, {});
+      res.json({ ok: true, id: f.id, shared: true });
     });
 
     // Mode, which item is current, play/pause, loop and interval.
@@ -447,11 +568,11 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'queue_media',
-      description: "DM: add something to the players' screen (the TV facing the table). Give a YouTube link as url, or a picture as ref (a library file id players may open, or a stage picture id). Set play true to show it right now. Players only ever see what is queued here.",
+      description: "DM: add something to the players' screen (the TV facing the table). Give a YouTube link as url, or a picture or video as ref (a library file id, never a classified one, or a stage picture id). Set play true to show it right now. Players only ever see what is queued here.",
       write: true,
       props: {
         url: { type: 'string', description: 'A youtube.com or youtu.be link' },
-        ref: { type: 'string', description: 'A library picture file id or a stage picture id' },
+        ref: { type: 'string', description: 'A library picture, GIF or video file id, or a stage picture id' },
         title: { type: 'string' },
         play: { type: 'boolean', description: 'Show it now' },
       },
