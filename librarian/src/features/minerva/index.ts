@@ -6,7 +6,7 @@
 // goals, knowledge and the party's pages, and never says who keeps them.
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
-import { hasJob } from '../../core/ai.ts';
+import { hasJob, withPriority } from '../../core/ai.ts';
 import { CALLER_HEADER, CALLER_MODEL } from '../../core/levels.ts';
 import { requireDM } from '../../core/auth.ts';
 import { all, one } from '../../core/db.ts';
@@ -280,7 +280,7 @@ const feature: Feature = {
   },
   // While a session records, draft suggestions (clues found, new NPCs, promises) into the review queue now and then.
   start: (d) => {
-    const t = setInterval(() => { for (const w of liveWorlds(d)) void suggestionPass(d, w).catch((e) => console.error('minerva: suggestion pass failed', e)); }, 30_000);
+    const t = setInterval(() => { for (const w of liveWorlds(d)) void withPriority(0, () => suggestionPass(d, w)).catch((e) => console.error('minerva: suggestion pass failed', e)); }, 30_000);
     t.unref?.();
     return () => clearInterval(t);
   },

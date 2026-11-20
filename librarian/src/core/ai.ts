@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 // The model jobs (PLAN.md §10). Every feature calls models through
 // here, never directly, so the admin can point each job at any
 // OpenAI-compatible endpoint (Argos, Ollama, a whisper server, Kokoro, or a
@@ -68,7 +69,7 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   jsonMode        'auto' | 'schema' | 'object' | 'off' (how structured output is asked for)
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens', 'maxConcurrent'] as const;
 /**
  * `reasoning: 'on' | 'off'`: whether an OpenRouter model may think before it answers. The audit job (yes/no checks,
  * routing, Active mode) defaults to off: thinking made hy4-flash about three times slower there for no better answer.
@@ -224,12 +225,59 @@ export function canFallBack(err: unknown): boolean {
  * Run `fn` against the job's chain. `screen` runs before every attempt, the
  * fallback's included, and throws ClassifiedRefused for classified text.
  */
+// ---- the queue in front of each model server ------------------------------------
+//
+// The DM, every player and the background passes (summary, rules checks, Minerva) can all ask at once. A local server
+// with one GPU answers a couple of requests at a time per model; the rest wait here instead of piling onto it, and the most
+// urgent go first: the live transcript, then the DM and Active mode, then players, then background work. A cloud
+// server takes more at once. The job option maxConcurrent sets the limit for that server.
+const gateStore = new AsyncLocalStorage<number>();
+/** Run `fn` with this priority for the model calls it makes: 3 live transcript, 2 DM, 1 player (default), 0 background. */
+export const withPriority = <T>(p: number, fn: () => Promise<T>): Promise<T> => gateStore.run(p, fn);
+class Gate {
+  active = 0;
+  queue: { p: number; seq: number; go: () => void }[] = [];
+  seq = 0;
+  max: number;
+  constructor(max: number) { this.max = max; }
+  async run<T>(p: number, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (this.active >= this.max) {
+      await new Promise<void>((resolve, reject) => {
+        const w = { p, seq: this.seq++, go: resolve };
+        this.queue.push(w);
+        this.queue.sort((a, b) => b.p - a.p || a.seq - b.seq);
+        signal?.addEventListener('abort', () => { const i = this.queue.indexOf(w); if (i >= 0) { this.queue.splice(i, 1); reject(signal.reason ?? new Error('aborted')); } }, { once: true });
+      });
+      // The slot was handed over by the request that finished: active stays as it was.
+    } else this.active++;
+    try { return await fn(); } finally {
+      const next = this.queue.shift();
+      if (next) next.go(); else this.active--;
+    }
+  }
+}
+const gates = new Map<string, Gate>();
+export function gateFor(c: JobConfig): Gate {
+  const n = Number(c.options?.maxConcurrent);
+  const max = Number.isFinite(n) && n >= 1 ? Math.min(64, Math.round(n)) : locationOf(c) === 'local' ? 2 : 8;
+  // Per model on a server: Argos and LM Studio load each model on its own, so two models answer side by side.
+  const key = `${c.baseUrl.replace(/\/+$/, '')}|${c.model}`;
+  let g = gates.get(key);
+  if (!g) gates.set(key, (g = new Gate(max)));
+  g.max = max;
+  return g;
+}
+/** Requests running and waiting per model (for the admin and tests). */
+export const gateStats = () => [...gates.entries()].map(([k, g]) => ({ server: k.split('|')[0], model: k.split('|').slice(1).join('|'), max: g.max, running: g.active, waiting: g.queue.length }));
+const JOB_PRIORITY: Partial<Record<Job, number>> = { audio: 3, voice: 2 };
+
 async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobConfig) => Promise<T>, mayRetry: () => boolean = () => true): Promise<T> {
   const chain = chainFor(d, job);
   if (!chain.length) throw new ModelUnavailable(job, `No model is set for "${job}" (Admin → Models)`);
   for (let i = 0; ; i++) {
     screen();
-    try { return await fn(chain[i]); } catch (err) {
+    const c = chain[i];
+    try { return await gateFor(c).run(gateStore.getStore() ?? JOB_PRIORITY[job] ?? 1, () => fn(c)); } catch (err) {
       if (i + 1 >= chain.length || !canFallBack(err) || !mayRetry()) throw err;
     }
   }

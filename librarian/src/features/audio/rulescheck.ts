@@ -5,7 +5,7 @@
 // Each term is checked at most once every ten minutes in a session, two per pass, and a line that repeats classified
 // text is never sent. World setting rulesCheck: 'off' turns it off.
 import type { Deps } from '../../app.ts';
-import { chatJson, hasJob, ModelUnavailable, wouldBeRefused } from '../../core/ai.ts';
+import { chatJson, hasJob, ModelUnavailable, withPriority, wouldBeRefused } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { id, now, parseJson } from '../../core/util.ts';
 import { findMatches } from '../modules/match.ts';
@@ -79,7 +79,7 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
       const excerpt = lines.slice(Math.max(0, at - 3), at + 5).map((l) => `${l.speaker || 'Someone'}: ${l.text}`).join('\n');
       let j: any = null;
       try {
-        j = await chatJson(d, hasJob(d, 'audit') ? 'audit' : 'chat', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Rule: ${term.term}${term.moduleName ? ` (${term.moduleName})` : ''}\n${String(term.text ?? term.summary ?? '').slice(0, 2500)}\n\nTranscript (the rule came up in the line from ${t.line.speaker || 'someone'}: "${t.line.text.slice(0, 200)}"):\n${excerpt.slice(0, 3000)}` }]);
+        j = await withPriority(0, () => chatJson(d, hasJob(d, 'audit') ? 'audit' : 'chat', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Rule: ${term.term}${term.moduleName ? ` (${term.moduleName})` : ''}\n${String(term.text ?? term.summary ?? '').slice(0, 2500)}\n\nTranscript (the rule came up in the line from ${t.line.speaker || 'someone'}: "${t.line.text.slice(0, 200)}"):\n${excerpt.slice(0, 3000)}` }]));
       } catch (e) {
         if (!(e instanceof ModelUnavailable)) console.error('audio: rules check failed', (e as any)?.message ?? e);
         break;
