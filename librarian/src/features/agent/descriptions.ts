@@ -110,6 +110,8 @@ export const CONCISE: Record<string, string> = {
   source_lookup: 'Use to search the connected live source (Kanka, LegendKeeper) directly. Example: "check Kanka for the entry on the Gray Order".',
   get_stage: 'Use to see the cards on the table screen. Example: "what is the group looking at right now".',
   show_on_stage: 'Use to show a page, image, person or the combat card to the table. Example: "throw the dungeon map up for everyone" or "display the Saltmarsh page for the players".',
+  queue_media: 'Use to put a YouTube video or a shared picture on the players\' TV. Example: "queue this YouTube link for the players" or "play the tavern video on the big screen".',
+  show_media: 'Use to control what the players\' TV plays: slideshow, next, pause, focus one item, or turn it off. Example: "start the slideshow" or "take the video off the TV".',
   hide_stage_card: 'Use to take a card off the table screen. Example: "clear the handout from the screen".',
   list_approvals: 'Use to see what waits for the DM\'s sign-off (coin requests, item changes, disputes). Example: "what needs my yes or no".',
   decide_approval: 'Use to approve, edit or reject a coin request or item change. Example: "go ahead and OK Ana\'s item change".',
