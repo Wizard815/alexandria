@@ -670,7 +670,20 @@ Not going to app stores: everything is installed directly (sideloaded).
   `scribes/mobile` is dropped.
   - If Tauri mobile falls short on audio, fall back to Capacitor, which also
     wraps the same web app.
-- The old skeletons in `scribes/` are replaced by this.
+- The old skeletons in `scribes/` are replaced by this. The desktop wrapper
+  now lives in `desktop/` (Tauri 2; the old `scribes/desktop` stub is gone).
+  `scribes/mobile` is still the dropped Expo skeleton.
+
+**What each client gives the assistant today:**
+
+| Client | Assistant | Pop-out | Always on top | Global shortcut | Push-to-talk |
+|---|---|---|---|---|---|
+| Browser | Side panel (Ctrl+K), Ask tab on the DM phone | A browser popup window | OS-dependent, not controlled | Only while the tab is focused | The mic button beside Send (records, then the world's speech model transcribes) |
+| Installed web app (PWA, from the manifest; Android, iOS, desktop Chrome/Edge) | Same, full screen, opens offline | Same as the browser; on phones the Ask tab is the pop-out | No | No | Same mic button |
+| Desktop app (`desktop/`) | Main window plus a separate Assistant window | Yes, own window, remembers the world | Menu toggle, remembered | Ctrl/Cmd+Shift+Space shows or hides it from any program | Same mic button; global hold-to-talk keys and multi-mic capture are still planned (§3.1) |
+
+All three sign in the same way and use the same server; the desktop app has no
+extra access to it.
 
 **Phones:**
 - **One mic, with hold to talk** as a big on-screen button.
