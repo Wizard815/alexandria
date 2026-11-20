@@ -354,11 +354,42 @@ export default function ModelsPage() {
           <h2 style={{ marginBottom: 0 }}>Session and memory</h2>
           <SessionCard onChanged={() => void refreshStatus()} />
           <VramCard refreshKey={signature} />
+          <QueueCard />
           <h2 style={{ marginBottom: 0 }}>Embeddings and story bible</h2>
           <EmbeddingsCard />
           <h2 style={{ marginBottom: 0 }}>Jobs</h2>
           {jobs.map((j) => <JobRow key={JSON.stringify(j) + providers.length} j={j} providers={providers} models={models} status={status?.jobs[j.job]} onSaved={reload} />)}
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The queue in front of each model, live: how many requests run now and how many wait. Waiting requests go in order:
+ * the live transcript, then the DM and Active mode, then players, then background work. Set a job's maxConcurrent
+ * option to change how many run at once (a local model takes 2, a cloud one 8).
+ */
+function QueueCard() {
+  const { client } = useAuth();
+  const [rows, setRows] = useState<{ server: string; model: string; max: number; running: number; waiting: number }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = () => client.request<{ models: any[] }>('GET', '/api/admin/models/queue').then((r) => { if (alive) setRows(r.models); }).catch(() => {});
+    void tick();
+    const t = setInterval(tick, 2000);
+    return () => { alive = false; clearInterval(t); };
+  }, [client]);
+  const busy = (rows ?? []).filter((r) => r.running || r.waiting);
+  return (
+    <div className="card" data-testid="model-queue">
+      <div className="row between"><strong>Requests to the models</strong><span className="muted small">{busy.length ? `${busy.reduce((n, r) => n + r.waiting, 0)} waiting` : 'nothing waiting'}</span></div>
+      <p className="muted small" style={{ margin: '4px 0 8px' }}>Live. When more people ask than a model takes at once, the rest wait here: the live transcript first, then the DM and Active mode, then players, then background work. A job's <code>maxConcurrent</code> option sets how many run at once (local 2, cloud 8).</p>
+      {!rows ? <p className="muted small">Loading…</p> : !rows.length ? <p className="muted small">No model has been asked anything since the server started.</p> : (
+        <table className="table">
+          <thead><tr><th>Model</th><th>Running</th><th>Waiting</th></tr></thead>
+          <tbody>{rows.map((r) => <tr key={r.server + r.model}><td>{r.model}<div className="muted small">{r.server}</div></td><td>{r.running} / {r.max}</td><td>{r.waiting ? <strong>{r.waiting}</strong> : 0}</td></tr>)}</tbody>
+        </table>
       )}
     </div>
   );

@@ -135,7 +135,7 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
       if (ids.length === 1 && !combatant(ids[0])) return null;
       const names = ids.map((i) => combatant(i)?.name ?? '?');
       const tool = it.kind === 'damage' ? 'damage_combatant' : 'heal_combatant';
-      return { ...base, category: 'combat', borderline: ids.length > 1 && it.confidence < 0.8, calls: ids.map((c) => ({ tool, args: { combatant: c, amount: it.amount } })), summary: `${it.kind === 'damage' ? `${it.amount} damage to` : `Heal ${it.amount} for`} ${list(names)}`, ruleKey: rk(`${it.kind} ${names[0]}`), visible: 'players', dedupeKey: `${it.kind}:${ids.join(',')}:${it.amount}`, dedupeMs: 15_000 };
+      return { ...base, category: 'combat', borderline: ids.length > 1 && it.confidence < 0.8, calls: ids.map((c) => ({ tool, args: { combatant: c, amount: it.amount, ...(it.kind === 'damage' && it.crit ? { crit: true } : {}) } })), summary: `${it.kind === 'damage' ? `${it.amount}${it.crit ? ' critical' : ''} damage to` : `Heal ${it.amount} for`} ${list(names)}`, ruleKey: rk(`${it.kind} ${names[0]}`), visible: 'players', dedupeKey: `${it.kind}:${ids.join(',')}:${it.amount}`, dedupeMs: 15_000 };
     }
     case 'condition': {
       const c = combatant(it.id);

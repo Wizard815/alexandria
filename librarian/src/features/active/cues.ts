@@ -37,7 +37,7 @@ export type Intent =
   | { kind: 'stage'; phrase: string; text?: string; title?: string; why: string }
   | { kind: 'event'; skill: string; dc?: number; save: boolean; why: string }
   | { kind: 'combat_start' | 'combat_end' | 'next_turn'; why: string; ask?: boolean }
-  | { kind: 'damage' | 'heal'; ids: string[]; amount: number; why: string }
+  | { kind: 'damage' | 'heal'; ids: string[]; amount: number; why: string; crit?: boolean }
   | { kind: 'condition'; id: string; add: string[]; remove: string[]; /** Ends at the end / start of the creature's own next turn. */ until?: 'end' | 'start'; rounds?: number; why: string }
   | { kind: 'temp_hp'; ids: string[]; amount: number; why: string }
   | { kind: 'concentration'; id: string; action: 'start' | 'lose' | 'pass'; spell?: string; why: string }
@@ -323,7 +323,10 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
       if (dmg === null && /(?:hit|hits|hurt|hurts|strike|strikes|stab|stabs|slash|slashes|burn|burns|blast|blasts|catch|catches|smash|smashes|deal|deals|punish|punishes|shoot|shoots|clip|clips)\s+(?:the\s+)?$/.test(before)) dmg = num(/^\s+(?:for|by)\s+(\d{1,4})\b/, after);
       if (dmg === null) dmg = num(/(\d{1,4})\s*(?:points?\s+of\s+)?(?:[a-z]+\s+)?damage\s+(?:to|on|against)\s+(?:the\s+)?$/, before);
       if (dmg !== null) {
-        push({ kind: 'damage', ids: mt.ids, amount: dmg, why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.92 : 0.55);
+        // "It's a crit! Tomas takes 18": said in the same line, the hit is a critical one (two death save failures
+        // on a downed character). "Not a crit" and "no crit" are not.
+        const crit = /\b(?:crit|crits|critted|critical(?:ly)?(?:\s+hit)?|nat(?:ural)?\s+(?:20|twenty))\b/i.test(low) && !/\b(?:not|no|isn'?t|wasn'?t|without)\s+(?:a\s+)?(?:crit|critical)/i.test(low);
+        push({ kind: 'damage', ids: mt.ids, amount: dmg, why: s.slice(0, 80), ...(crit ? { crit: true } : {}) }, mt.ids.length === 1 ? 0.92 : 0.55);
         // "takes 9 damage and falls to the floor, dead": the same sentence may end the creature.
         if (!pcOnly && mt.ids.length === 1 && /\b(?:and|then|,)\s+(?:it\s+)?(?:dies|is dead|is slain|drops dead|falls?\b[^.;]{0,25}\bdead|collapses[^.;]{0,15}\bdead|is killed)\b/.test(after)) push({ kind: 'remove_creature', id: mt.ids[0], why: s.slice(0, 80) }, 0.82);
         continue;

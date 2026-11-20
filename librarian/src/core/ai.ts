@@ -231,21 +231,25 @@ export function canFallBack(err: unknown): boolean {
 // with one GPU answers a couple of requests at a time per model; the rest wait here instead of piling onto it, and the most
 // urgent go first: the live transcript, then the DM and Active mode, then players, then background work. A cloud
 // server takes more at once. The job option maxConcurrent sets the limit for that server.
-const gateStore = new AsyncLocalStorage<number>();
-/** Run `fn` with this priority for the model calls it makes: 3 live transcript, 2 DM, 1 player (default), 0 background. */
-export const withPriority = <T>(p: number, fn: () => Promise<T>): Promise<T> => gateStore.run(p, fn);
+const gateStore = new AsyncLocalStorage<{ p: number; onWait?: (ahead: number) => void }>();
+/**
+ * Run `fn` with this priority for the model calls it makes: 3 live transcript, 2 DM, 1 player (default), 0 background.
+ * `onWait` hears when one of its calls has to queue, and how many are ahead (the assistant shows "waiting for the model").
+ */
+export const withPriority = <T>(p: number, fn: () => Promise<T>, onWait?: (ahead: number) => void): Promise<T> => gateStore.run({ p, onWait }, fn);
 class Gate {
   active = 0;
   queue: { p: number; seq: number; go: () => void }[] = [];
   seq = 0;
   max: number;
   constructor(max: number) { this.max = max; }
-  async run<T>(p: number, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  async run<T>(p: number, fn: () => Promise<T>, signal?: AbortSignal, onWait?: (ahead: number) => void): Promise<T> {
     if (this.active >= this.max) {
       await new Promise<void>((resolve, reject) => {
         const w = { p, seq: this.seq++, go: resolve };
         this.queue.push(w);
         this.queue.sort((a, b) => b.p - a.p || a.seq - b.seq);
+        try { onWait?.(this.queue.indexOf(w) + this.active); } catch { /* a listener's problem is not the call's */ }
         signal?.addEventListener('abort', () => { const i = this.queue.indexOf(w); if (i >= 0) { this.queue.splice(i, 1); reject(signal.reason ?? new Error('aborted')); } }, { once: true });
       });
       // The slot was handed over by the request that finished: active stays as it was.
@@ -277,7 +281,8 @@ async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobCon
   for (let i = 0; ; i++) {
     screen();
     const c = chain[i];
-    try { return await gateFor(c).run(gateStore.getStore() ?? JOB_PRIORITY[job] ?? 1, () => fn(c)); } catch (err) {
+    const st = gateStore.getStore();
+    try { return await gateFor(c).run(st?.p ?? JOB_PRIORITY[job] ?? 1, () => fn(c), undefined, st?.onWait); } catch (err) {
       if (i + 1 >= chain.length || !canFallBack(err) || !mayRetry()) throw err;
     }
   }
