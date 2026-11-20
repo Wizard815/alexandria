@@ -139,3 +139,18 @@ test('RulesCheck: a rules term said at the table is checked once; a clear mistak
   line('I cast Shield as a reaction', 'players');
   assert.equal((await rulesPass(deps, W, 'ss1')).checked, 0, 'off is off');
 });
+
+test('SessionHandoff: when a recording ends Minerva drafts "Last session" for the DM; approved, the next session reads it', async () => {
+  const { draftHandoff } = await import('../src/features/minerva/after.ts');
+  const { minervaBrief } = await import('../src/features/minerva/context.ts');
+  assert.equal(draftHandoff(deps, W, 'ss1'), false, 'nothing while Minerva is off');
+  await ok('POST', `/api/worlds/${W}/minerva/enable`, T.dm, {});
+  run(deps.db, "UPDATE audio_sessions SET stopped_at = ? WHERE id = 'ss1'", new Date().toISOString());
+  assert.equal(draftHandoff(deps, W, 'ss1'), true);
+  assert.equal(draftHandoff(deps, W, 'ss1'), false, 'once per recording');
+  assert.ok(!minervaBrief(deps, W).includes('gull steals the map'), 'not before the DM approves');
+  await ok('POST', `/api/worlds/${W}/minerva/review/approve-all`, T.dm, {});
+  const brief = minervaBrief(deps, W);
+  assert.match(brief, /Last session \(approved hand-off\)/);
+  assert.ok(brief.includes('gull steals the map'), 'the next session starts from it');
+});

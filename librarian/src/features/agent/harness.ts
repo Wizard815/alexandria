@@ -492,6 +492,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
   if (!dm) {
     if (inv?.items?.length) L.push(`This player's items: ${inv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1500)}`);
+    // The helper says an empty pack is empty, rather than that it has no list.
+    else if (c.mode === 'helper' && inv) L.push("This player's items: none (their own inventory is empty; the party pouch is separate).");
     const bought = (brk?.requests ?? []).filter((q: any) => q.answer && ['answered', 'noted'].includes(q.status)).slice(0, 12);
     if (bought.length) L.push(`Information this player bought from the broker:\n${bought.map((q: any) => `- Q: ${q.question}\n  A: ${q.answer}`).join('\n').slice(0, 3000)}`);
     const notes = (Array.isArray(ppl) ? ppl : ppl?.people ?? []).map((p: any) => (p.myNote || p.note ? `${p.name}: ${p.myNote ?? p.note}` : '')).filter(Boolean);

@@ -9,7 +9,7 @@
 // A line holding classified content is left out before anything is sent to a model. The summary is folded forward:
 // the model gets the summary so far and the lines that came in since, and returns the new summary.
 import type { Deps } from '../../app.ts';
-import { chat, hasJob, ModelUnavailable, wouldBeRefused } from '../../core/ai.ts';
+import { chat, hasJob, ModelUnavailable, withPriority, wouldBeRefused } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { now } from '../../core/util.ts';
 import { listSessions, sessionLines, type TranscriptLine } from './api.ts';
@@ -101,7 +101,7 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
       while (i < fresh.length && step.length < STEP_LINES && chars < STEP_CHARS) { step.push(fresh[i]); chars += fresh[i].text.length + 20; i++; }
       let out = '';
       try {
-        const r = await chat(d, 'chat', { messages: [{ role: 'system', content: system(audience) }, { role: 'user', content: `Summary so far:\n${text || '(nothing yet: the session just started)'}\n\nNew transcript lines (oldest first):\n${step.map(lineText).join('\n')}` }], maxTokens: 900, temperature: 0.2 });
+        const r = await withPriority(0, () => chat(d, 'chat', { messages: [{ role: 'system', content: system(audience) }, { role: 'user', content: `Summary so far:\n${text || '(nothing yet: the session just started)'}\n\nNew transcript lines (oldest first):\n${step.map(lineText).join('\n')}` }], maxTokens: 900, temperature: 0.2 }));
         out = r.content.trim().replace(/^```(?:markdown)?\s*|```$/g, '').trim();
       } catch (e) {
         if (!(e instanceof ModelUnavailable)) console.error('audio: session summary failed', (e as any)?.message ?? e);
