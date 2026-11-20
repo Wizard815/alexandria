@@ -247,3 +247,15 @@ test('TestSecurityState_DeletingAPageLeavesNothingBehind', async () => {
   assert.equal((await call('DELETE', `${W()}/library/pages/${shared.id}`, S.T.dm)).status, 200);
   assert.ok(!fs.existsSync(apiFile) && !fs.existsSync(path.join(dataDir, 'worlds', slug, 'party', shared.path)));
 });
+
+test('TestSecurityState_ASceneWithAGuessedOrNoTemplateUsesThePlayerSceneAndStillChecksLeaks', async () => {
+  const dm = (m: string, u: string, b?: unknown) => call(m, `${W()}${u}`, S.T.dm, b);
+  for (const templateId of ['generic', undefined]) {
+    const ok = await dm('POST', '/sculpt/send', { templateId, values: { location: 'the Lantern Hall', description: 'The doors stand open; the room is empty.' } });
+    assert.ok(ok.status < 300, `${templateId}: ${ok.status} ${ok.text.slice(0, 200)}`);
+    const leak = await dm('POST', '/sculpt/send', { templateId, values: { location: S.pages.dm.id, description: 'The wind rises.' } });
+    for (const m of leaksFor('jess', leak.text)) assert.fail(`${templateId}: the reply leaked ${m.id}`);
+  }
+  const threads = (await asJess('/messages')).json as any[];
+  for (const t of threads) for (const m of leaksFor('jess', JSON.stringify((await asJess(`/messages/${t.id}`)).json))) assert.fail(`a sent scene leaked ${m.id}`);
+});

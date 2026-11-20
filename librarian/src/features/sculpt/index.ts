@@ -431,7 +431,12 @@ function routes(d: Deps) {
   });
 
   r.post('/send', (req, res) => {
-    const tpl = asTpl(find(res, req.body?.templateId));
+    // No template, or one the assistant guessed ("generic"): the standard player-perspective scene.
+    const ref = req.body?.templateId;
+    let row: any;
+    try { row = find(res, ref); } catch { row = null; }
+    if (!row || (row.perspective !== 'player' && !ref)) row = find(res, 'scene-player');
+    const tpl = asTpl(row);
     if (tpl.perspective !== 'player') throw new HttpError(422, 'Only player-perspective templates can be sent to players');
     const rc = rcFor(res, tpl, contextIn(req.body?.context));
     const c = cleanForPlayer(d, W(res), tpl, valuesOf(req.body?.values), rc);
@@ -499,8 +504,8 @@ const feature: Feature = {
   }, {
     name: 'send_scene', write: true,
     description: "DM: send a player-perspective scene (template 'Scene, player perspective', with the values sculpt gave back) to every player as a message. Refused if it repeats DM-only notes.",
-    props: { template: { type: 'string', description: 'A player-perspective template name or id' }, values: { type: 'object', description: 'The filled fields (location, time, weather, mood, description)' } },
-    required: ['template', 'values'],
+    props: { template: { type: 'string', description: "A player-perspective template name or id; leave it out for the standard 'Scene, player perspective'" }, values: { type: 'object', description: 'The filled fields (location, time, weather, mood, description)' } },
+    required: ['values'],
     call: (a) => ({ method: 'POST', path: '/sculpt/send', body: { templateId: a.template, values: a.values } }),
   }, {
     name: 'sculpt_templates', dmOnly: true,
