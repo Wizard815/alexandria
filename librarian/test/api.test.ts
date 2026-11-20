@@ -411,3 +411,13 @@ test('TestJoin_AutoReadOnlyMcpKeyAndSignedInJoin', async () => {
   assert.equal(j2.account.id, ID.tom);
   assert.equal(j2.token, T.tom);
 });
+
+test('TestPeople_ToolsFindAPersonByNameAsWellAsId', async () => {
+  const p = await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Captain Marrow', role: 'Smuggler', kind: 'rival' });
+  await ok('POST', `/api/worlds/${W}/people/${encodeURIComponent('captain marrow')}/quotes`, T.dm, { text: 'The tide waits for no one.' });
+  await ok('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.dm, { kind: 'ally' });
+  const got = (await ok('GET', `/api/worlds/${W}/people`, T.dm)).find((x: any) => x.id === p.id);
+  assert.equal(got.kind, 'ally', 'a unique start of the name finds them');
+  await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Captain Mardel', role: 'Harbour', kind: 'neutral' });
+  assert.equal((await call('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.dm, { kind: 'rival' })).status, 404, 'two people start that way: no guess');
+});
