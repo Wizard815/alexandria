@@ -94,6 +94,8 @@ async function crawl(browser, p) {
   const open = async (url) => { await page.goto(url); await page.locator('main, .page, #root > *').first().waitFor({ timeout: 10000 }).catch(() => {}); await page.waitForTimeout(500); };
 
   const links = new Set(PLAYER_ROUTES.map((r) => `${W}/${r}`.replace(/\/$/, '')));
+  // The players' screen is a route of its own (no layout, no links to it): visit it as every player and the guest too.
+  links.add(`${W}/screen/players`);
   await open(W);
   for (const h of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')))) if (h?.startsWith(`/w/${world.slug}`) && !h.includes('/dm')) links.add(base + h.split('#')[0]);
   for (const pg of Object.values(world.pages)) links.add(`${W}/library?page=${encodeURIComponent(pg.id)}`);
@@ -156,8 +158,30 @@ async function crawl(browser, p) {
   await ctx.close();
 }
 
+/** The players' screen, opened with the DM's own token: it must show no more than a guest may read (the player view), and no app chrome. */
+async function crawlScreen(browser) {
+  const tag = 'dm@screen';
+  const { ctx, page } = await signIn(browser, base, 'dungeon', 'dm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
+  page.on('pageerror', (e) => hits.set(`${tag}: page error ${e.message}`, true));
+  // Only what this route itself fetched: the DM's own offline cache legitimately holds DM data.
+  page.on('response', async (r) => {
+    if (!/\/screen\/players|\/api\/media\/screen/.test(r.url())) return;
+    const t = await r.text().catch(() => '');
+    if (t) check('guest', `${tag} [API ${r.url().replace(base, '').slice(0, 80)}]`, t);
+  });
+  await page.goto(`${W}/screen/players`);
+  await page.locator('.ps').waitFor({ timeout: 10000 }).catch(() => hits.set(`${tag}: the screen did not render`, true));
+  await page.waitForTimeout(1500);
+  await scanDom(page, 'guest', `${tag} /screen/players`);
+  const info = await page.evaluate(() => ({ chrome: !!document.querySelector('nav, .topbar, .side, #alx-dock, .dm-phonebar'), text: document.body.innerText, url: location.pathname }));
+  if (info.chrome) hits.set(`${tag}: the players' screen shows app navigation`, true);
+  if (!info.url.endsWith('/screen/players')) hits.set(`${tag}: left the screen route (${info.url})`, true);
+  if (!/Board for everyone/.test(info.text) || !/Combat/.test(info.text)) hits.set(`${tag}: the screen is not showing the shown card and the combat card, so the crawl is not reaching the content`, true);
+  await ctx.close();
+}
+
 const browser = await chromium.launch();
-try { await Promise.all(PEOPLE.map((p) => crawl(browser, p))); }
+try { await Promise.all([...PEOPLE.map((p) => crawl(browser, p)), crawlScreen(browser)]); }
 catch (e) { hits.set('crawler crashed: ' + (e.stack || e), true); }
 finally { await browser.close(); srv.kill(); }
 
