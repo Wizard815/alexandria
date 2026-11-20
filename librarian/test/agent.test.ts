@@ -809,3 +809,16 @@ test('Agent: the gateway adds under 50 ms per model round (fake model, instant t
   const p = await ask(e, e.T.jess, 'Overhead check for players');
   assert.ok(p.reply.timings.gatewayMs < 50, `player gateway ${p.reply.timings.gatewayMs} ms`);
 });
+
+test('Agent: a reply whose stream stops after a word with no finish is asked for once more', async () => {
+  const e = env;
+  const cut = (): Response => {
+    const enc = new TextEncoder();
+    const c = (delta: object) => `data: ${JSON.stringify({ id: 'c', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`;
+    // "The" and then the connection ends: no finish_reason, no [DONE].
+    return new Response(new ReadableStream<Uint8Array>({ start(ctl) { ctl.enqueue(enc.encode(c({ role: 'assistant', content: 'The' }))); ctl.close(); } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  e.model.queue.push(cut, () => streamOf(['The vote is out to the table.']));
+  const { reply } = await ask(e, e.T.dm, 'Tell me about the vote');
+  assert.equal(reply.text, 'The vote is out to the table.');
+});
