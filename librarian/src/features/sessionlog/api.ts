@@ -34,6 +34,8 @@ export interface Gathered {
   broker: string[];
   clock: string[];
   audioSessionIds: string[];
+  /** The players' running summaries of these sessions (built only from lines players could read). */
+  notes?: string[];
 }
 
 export function resolveRange(db: DB, worldId: string, b: { audioSessionId?: unknown; from?: unknown; to?: unknown }): { from: string; to: string; sessionIds: string[] } {
@@ -64,7 +66,10 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
   const holds = all<any>(db, "SELECT h.session_id, h.start_ms, h.end_ms FROM audio_holds h JOIN audio_sessions s ON s.id = h.session_id WHERE s.world_id = ? AND h.kind = 'aside'", worldId);
   const playerLines: Gathered['playerLines'] = [];
   const dmLines: Gathered['dmLines'] = [];
+  const notes: string[] = [];
   for (const sid of range.sessionIds) {
+    const n = one<any>(db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'party'", sid);
+    if (n?.text) notes.push(String(n.text));
     for (const l of sessionLines(db, worldId, sid)) playerLines.push({ at: l.start, speaker: l.speaker, text: l.text });
     const rows = all<any>(db, "SELECT session_id, start_ms, end_ms, speaker_label, text, sources FROM audio_lines WHERE world_id = ? AND session_id = ? AND audience = 'dm' ORDER BY start_ms", worldId, sid);
     for (const l of rows) dmLines.push({ speaker: l.speaker_label || 'DM', text: l.text, aside: lineIsAside(l, mics, holds) });
@@ -80,7 +85,7 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
   const clockRows = all<any>(db, `SELECT kind, reason, before_label, after_label, before_minutes FROM clock_log WHERE world_id = ? AND kind IN ('advance','set') AND undone = 0 AND ${inRange('at')} ORDER BY rowid`, worldId, range.from, range.to);
   const clock = clockRows.map((c) => `${c.before_label} to ${c.after_label}${c.reason ? `: ${c.reason}` : ''}`);
   const worldStartMinutes = clockRows.length ? (clockRows[0].before_minutes as number) : getClock(db, worldId).minutes;
-  return { from: range.from, to: range.to, worldStartMinutes, playerLines, dmLines, combat, coin, loot, broker, clock, audioSessionIds: range.sessionIds };
+  return { from: range.from, to: range.to, worldStartMinutes, playerLines, dmLines, combat, coin, loot, broker, clock, audioSessionIds: range.sessionIds, notes };
 }
 
 const bullets = (xs: string[], none: string) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : none);
@@ -93,6 +98,8 @@ export function material(g: Gathered): string {
     t = `${t.slice(0, keep)}\n[...middle of the transcript left out...]\n${t.slice(-keep)}`;
   }
   return [
+    // The running notes cover the whole night, the middle a long transcript leaves out included.
+    ...(g.notes?.length ? [`RUNNING NOTES (kept during the session, players' view):\n${g.notes.join('\n\n')}`] : []),
     `TRANSCRIPT (players' view):\n${t || '(none)'}`,
     `COMBAT:\n${bullets(g.combat, '(none)')}`,
     `COIN:\n${bullets(g.coin, '(none)')}`,

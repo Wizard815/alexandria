@@ -28,6 +28,7 @@ import { getClock } from '../clock/api.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { worldModules } from '../modules/store.ts';
 import { findMatches } from '../modules/match.ts';
+import { latestSummary } from '../audio/summary.ts';
 import { DM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
 import { agentOptions } from './options.ts';
 import { CONCISE } from './descriptions.ts';
@@ -450,6 +451,10 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   } else L.push('Library matches for this message: none.');
   // While a session is recording the last lines ride along (the DM's: everything DM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
   const budget = budgetFor(d);
+  // The running summary of tonight's session (the DM's, or the players' for a player): the whole night in a few
+  // hundred words, so a model that only gets the last lines still knows what came before.
+  const sum = latestSummary(d, c.worldId, dm ? 'dm' : 'party');
+  if (sum) L.push(`Session so far ("${sum.name}"${sum.active ? ', recording now' : ', ended'}; running summary of ${sum.lines} transcript lines):\n${sum.text.slice(0, 3000)}`);
   const live = liveLines(d, c.worldId, dm, budget.liveLines);
   if (live.session?.active && live.lines.length) {
     // The newest lines matter most: a long session keeps its end, not its start.

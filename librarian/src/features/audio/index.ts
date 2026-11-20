@@ -13,6 +13,7 @@ import { HttpError, id, int, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, type LineRow, type MicRow } from './engine.ts';
+import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
 
 // (app.ts cannot be imported by a feature: it is waiting on the registry.)
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
@@ -36,7 +37,7 @@ const sessionOut = (s: any) => ({ id: s.id, name: s.name, startedAt: s.started_a
 
 const feature: Feature = {
   id: 'audio',
-  schema: SCHEMA,
+  schema: SCHEMA + SUMMARY_SCHEMA,
   settings: {
     recordingConsentText: { type: 'string', default: DEFAULT_CONSENT_TEXT, max: 2000 },
     audioRetentionDays: { type: 'int', default: 30, min: 1, max: 3650, nullable: true },
@@ -177,6 +178,8 @@ const feature: Feature = {
       eng.flush(s.id);
       eng.broadcastRecording(c.world.id, false, null);
       eng.scheduleRefine(s.id);
+      // The last lines go into the running summary once the recording ends (after the chunks are flushed).
+      setTimeout(() => { void updateBoth(d, c.world.id, s.id, { force: true }).catch(() => {}); }, 5_000).unref();
       res.json(sessionOut(one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', s.id)));
     });
 
@@ -250,6 +253,18 @@ const feature: Feature = {
     });
 
     // ---- the transcript ------------------------------------------------------------------
+    // The running summary of a session: the DM's (every line they can read) or, for anyone else, the players' one.
+    r.get('/sessions/:sid/summary', (req, res) => {
+      const s = sessionOf(res, String(req.params.sid));
+      res.json(getSummary(d, s.id, isDM(res) ? 'dm' : 'party'));
+    });
+    r.post('/sessions/:sid/summary/refresh', requireDM, async (req, res) => {
+      const c = ctx(res);
+      const s = sessionOf(res, String(req.params.sid));
+      const r2 = await updateBoth(d, c.world.id, s.id, { force: true });
+      res.json({ ...r2, summary: getSummary(d, s.id, 'dm') });
+    });
+
     r.get('/sessions/:sid/lines', (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
@@ -289,9 +304,12 @@ const feature: Feature = {
     const eng = engine(d);
     const retry = setInterval(() => { void eng.retryPending().catch((e) => console.error('audio: retry failed', e)); }, 60_000);
     const keep = setInterval(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } }, 60 * 60_000);
+    // The running summaries of sessions recording now (each folds in new lines only when enough have come in).
+    const summ = setInterval(() => { for (const x of recordingSessions(d)) void updateBoth(d, x.worldId, x.sessionId).catch((e) => console.error('audio: summary pass failed', e)); }, 30_000);
+    summ.unref();
     const first = setTimeout(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } void eng.retryPending().catch(() => {}); }, 10_000);
     for (const t of [retry, keep, first]) t.unref();
-    return () => { clearInterval(retry); clearInterval(keep); clearTimeout(first); eng.flushAll(); };
+    return () => { clearInterval(retry); clearInterval(keep); clearInterval(summ); clearTimeout(first); eng.flushAll(); };
   },
 };
 
