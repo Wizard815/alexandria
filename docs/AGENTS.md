@@ -105,3 +105,28 @@ tested with a fake model but were not measured on the real model: off by default
 - **Honesty:** earlier replies in the history carry a note of which tools really ran, and a reply
   that claims a change with no tool call is asked again with a tool call required.
 
+## 9. Many people at once, and memory across the night and across sessions
+
+- **Who can ask:** the DM and every player, each in their own chats (a player has the broker and
+  the table helper). A chat is private to its owner: anyone else gets "not found". One message
+  at a time per chat; different people's messages run side by side.
+- **The queue:** every model call goes through a queue per model (core/ai.ts). A local model takes
+  2 at a time, a cloud one 8; the job option `maxConcurrent` changes that. Waiting calls go by
+  priority: the live transcript, then the DM and Active mode, then players, then background
+  work (the running summary, rules checks, Minerva's suggestions). A DM question that needs
+  several model calls in a row queues each one, so players' single calls fit in between.
+- **Context per message:** each message is built fresh from the world as it is now (combat, the
+  clock, the library as this person may see it, the live transcript, the session so far), so
+  everyone's assistant agrees with everyone else's without sharing a conversation. Nothing a
+  player is not allowed to see is ever in a player's context.
+- **Auto-compaction:** a chat keeps its last turns word for word (8, more with a large
+  `contextTokens`) and folds older ones into a short running summary; every request is also
+  fitted to the model's window (old tool results are cut first).
+- **Within a session:** the running session summary (the DM's and the players') covers the
+  whole night in a few hundred words.
+- **Across sessions:** when a recording stops, Minerva drafts a "Last session" update to the
+  Campaign Status from the DM's running summary. Approved on her review page, it goes into every
+  later message, so the next session starts from it. Publishing a session log also files the
+  session under the open arc and drafts status, codex, journal and hook updates, now from the
+  players' recap and the DM's running notes together.
+

@@ -97,8 +97,8 @@ export function minervaBrief(d: Deps, worldId: string): string {
   const pick = (h: string) => { const t = sectionOf(body, h)?.text ?? ''; return /^_.*_$/.test(t.trim()) ? '' : t; };
   const arc = openArc(d.db, worldId);
   const pending = one<any>(d.db, `SELECT COUNT(*) AS n FROM minerva_drafts WHERE world_id = ? AND status = 'pending'`, worldId)?.n ?? 0;
-  const parts = [`Campaign status (the living doc; context_for has all of it)${arc ? `, arc: ${arc.title}` : ''}:`, pick('Now') && `Now: ${pick('Now')}`, pick('Active threads') && `Active threads:\n${pick('Active threads')}`, pending ? `${pending} drafts wait on the DM's review page.` : ''].filter(Boolean);
-  return parts.length > 1 ? parts.join('\n').slice(0, 1400) : '';
+  const parts = [`Campaign status (the living doc; context_for has all of it)${arc ? `, arc: ${arc.title}` : ''}:`, pick('Now') && `Now: ${pick('Now')}`, pick('Active threads') && `Active threads:\n${pick('Active threads')}`, pick('Next session') && `Next session:\n${pick('Next session').slice(0, 600)}`, pick('Last session') && `Last session (approved hand-off):\n${pick('Last session').slice(0, 2600)}`, pending ? `${pending} drafts wait on the DM's review page.` : ''].filter(Boolean);
+  return parts.length > 1 ? parts.join('\n').slice(0, 4200) : '';
 }
 
 /**

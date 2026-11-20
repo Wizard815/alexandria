@@ -155,13 +155,13 @@ export function hadActivity(title: string, corpus: string): boolean {
   return keys.length === 1 ? have === 1 : have >= 2 && have / keys.length >= 0.6;
 }
 
-async function modelStatus(d: Deps, worldId: string, summary: string): Promise<{ changed: string[]; next: string[] } | null> {
+async function modelStatus(d: Deps, worldId: string, summary: string, dmNotes = ''): Promise<{ changed: string[]; next: string[] } | null> {
   if (!hasJob(d, 'chat') || !summary.trim()) return null;
   try {
     const status = readPage(d, worldId, STATUS_PATH);
     const j: any = await chatJson(d, 'chat', [
       { role: 'system', content: 'You help a Dungeon Master keep a campaign status document current. From the session recap, say what changed and what to prepare next. Use only the material; never invent. JSON only: {"changed": ["short bullet", ...], "next": ["short bullet", ...]} with at most 6 bullets each.' },
-      { role: 'user', content: `Current status "Now":\n${(status ? sectionOf(status.body, 'Now')?.text : '') ?? ''}\n\nSession recap (what the players know):\n${summary.slice(0, 6000)}` },
+      { role: 'user', content: `Current status "Now":\n${(status ? sectionOf(status.body, 'Now')?.text : '') ?? ''}\n\nSession recap (what the players know):\n${summary.slice(0, 6000)}${dmNotes ? `\n\nThe DM's running notes of the session (DM-only developments included):\n${dmNotes.slice(0, 4000)}` : ''}` },
     ]);
     const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => clean(x, 240)).filter(Boolean).slice(0, 6) : []);
     const out = { changed: list(j?.changed), next: list(j?.next) };
@@ -201,7 +201,9 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   const met = bullets(sectionOf(summary, 'People met')?.text ?? '');
 
   // 1. The status doc: what changed, what is next, the threads by heat.
-  const ms = await modelStatus(d, worldId, summary);
+  // The DM's running summary of the recording, when there was one: what happened that the players did not see.
+  const dmRun = draft?.audio_session_id ? String(one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'dm'", draft.audio_session_id)?.text ?? '') : '';
+  const ms = await modelStatus(d, worldId, summary, dmRun);
   const changed = ms?.changed.length ? ms.changed : [...moments, ...recap.slice(0, moments.length ? 0 : 4)].slice(0, 8);
   const next = ms?.next.length ? ms.next : open.slice(0, 6);
   if (changed.length) add('status', 'Status: what changed last session', STATUS_SECTION_OPS(changed.map((x) => `- ${x}`).join('\n'), 'What changed last session'));
@@ -281,3 +283,22 @@ function sessionTexts(d: Deps, worldId: string, draft: { audio_session_id?: stri
   return out;
 }
 
+
+
+/**
+ * The hand-off when a recording ends: the DM's running summary becomes a "Last session" update to the Campaign Status,
+ * drafted for the DM's review. Approved, it is in every later conversation (the status doc rides along with each
+ * message), so the next session starts from what happened in this one even when no session log is published. Once
+ * per recording; nothing when Minerva is off or there is no summary.
+ */
+export function draftHandoff(d: Deps, worldId: string, sessionId: string): boolean {
+  try { requireEnabled(d.db, worldId); } catch { return false; }
+  const sum = one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'dm'", sessionId);
+  const s = one<any>(d.db, 'SELECT name, stopped_at FROM audio_sessions WHERE id = ? AND world_id = ?', sessionId, worldId);
+  if (!sum?.text || !s) return false;
+  const review = `handoff-${sessionId}`;
+  if (one(d.db, 'SELECT 1 FROM minerva_drafts WHERE world_id = ? AND review = ?', worldId, review)) return false;
+  const when = String(s.stopped_at ?? now()).slice(0, 10);
+  createDraft(d, worldId, { review, kind: 'status', title: `Status: last session (${s.name}, from the running notes)`, op: { op: 'section', rel: STATUS_PATH, section: 'Last session', text: `_${s.name}, ${when}: the running notes, approved by the DM._\n\n${String(sum.text).trim()}`, mode: 'replace' } as Op, tool: 'session_handoff' });
+  return true;
+}
