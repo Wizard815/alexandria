@@ -51,3 +51,8 @@
 
 /* The line a search result linked to. */
 .au-bubble.found { outline: 2px solid var(--teal, #86CFC4); outline-offset: 2px; }
+/* A rules term said just now: its card at the foot of the island, for 15 s unless kept. */
+.au-spoken { margin: 6px 8px 8px; padding: 8px 10px; max-height: 45%; overflow: auto; border-radius: 8px; background: var(--panel-2, #232A37); border: 1px solid var(--au-colour, #D9B26A); font-size: 14px; cursor: pointer; flex-shrink: 0; }
+.au-spoken-head { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 4px; }
+.au-sofar { padding: 8px 12px; font-size: calc(var(--au-size, 15px) * 0.9); }
+.au-btn.on { background: color-mix(in srgb, var(--au-colour, #D9B26A) 30%, transparent); }
