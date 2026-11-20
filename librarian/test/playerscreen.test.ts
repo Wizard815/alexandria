@@ -195,8 +195,10 @@ test('TestPlayerScreen_LibraryPicturesNeedPartyLevelAndAreRecheckedOnFetch', asy
   const open = await upload('torch.png', { level: 'party', folder: 'Handouts', title: 'Torch' });
   const closed = await upload('vault-map.png', { level: 'dm', folder: 'Handouts', title: 'Vault map' });
   const secret = await upload('seal.png', { level: 'classified', folder: 'Handouts', title: 'Seal' });
-  // A file players cannot open is refused (fail closed), whatever the DM asks.
-  for (const f of [closed, secret]) assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: f.id })).status, 409);
+  // A classified file is refused (fail closed); a DM-only one is the DM's choice to show (see screenvideo.test.ts).
+  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: secret.id })).status, 409);
+  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: closed.id })).status, 201);
+  await wipe();
   assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: 'lf_nope' })).status, 400);
   assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: 'stg_nope' })).status, 400);
   const m = await ok('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: open.id, play: true });
@@ -211,8 +213,11 @@ test('TestPlayerScreen_LibraryPicturesNeedPartyLevelAndAreRecheckedOnFetch', asy
   await ok('PATCH', `${SC()}/media/items/${m.items[0].id}`, T.dm, { hidden: false });
   assert.equal((await call('GET', cur.url)).status, 200);
   // The file stops being for players: the ticket stops working at once.
+  // (a DM-only file is still shown while it is the current item: that is the DM's choice) but classified never is.
   await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'dm' });
-  assert.equal((await call('GET', cur.url)).status, 404, 'level changed to dm');
+  assert.equal((await call('GET', cur.url)).status, 200, 'DM-level and current: still served');
+  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'classified' });
+  assert.equal((await call('GET', cur.url)).status, 404, 'level changed to classified');
   await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'party' });
   await ok('PUT', `${SC()}/media`, T.dm, { mode: 'off' });
   assert.equal((await call('GET', cur.url)).status, 404, 'media off');
@@ -245,14 +250,14 @@ test('TestPlayerScreen_FolderBecomesASlideshowAndSkipsUnsharedPictures', async (
   await upload('three.png', { level: 'dm', folder: 'Maps/Coast', title: 'Coast three' });
   await upload('dm.png', { level: 'dm', folder: 'Maps/Hidden', title: 'Hidden one' });
   const src = await ok('GET', `${SC()}/media/sources`, T.dm);
-  assert.deepEqual(src.folders.find((f: any) => f.folder === 'Maps/Coast'), { folder: 'Maps/Coast', images: 3, shared: 2 });
+  assert.deepEqual(src.folders.find((f: any) => f.folder === 'Maps/Coast'), { folder: 'Maps/Coast', images: 3, videos: 0, shared: 2, showable: 3 });
   const r = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Coast', intervalSec: 5 });
-  assert.equal(r.loaded, 2);
-  assert.equal(r.skipped, 1);
+  assert.equal(r.loaded, 3, 'a DM-only picture is loaded too: showing it is the DM\'s choice');
+  assert.equal(r.skipped, 0);
   assert.equal(r.mode, 'slideshow');
   assert.equal(r.intervalSec, 5);
-  assert.equal(r.items.length, 2);
-  assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Hidden' })).status, 409, 'nothing in it is shared');
+  assert.equal(r.items.length, 3);
+  assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Hidden' })).status, 200, 'a DM-only folder can be shown');
   assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Nowhere' })).status, 404);
   assert.equal((await call('PUT', `${SC()}/media`, T.dm, { intervalSec: 1 })).status, 400);
   await wipe();
