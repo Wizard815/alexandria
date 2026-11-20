@@ -6,7 +6,7 @@ import { useAction } from '../../ui/index.tsx';
 import { Sheet, Err } from './Sheet.tsx';
 import { buzz, type Undo } from './hooks.ts';
 
-export interface Combatant { id: string; name: string; initiative: number; hp: number | null; max_hp: number | null; effects: { name: string; rounds?: number }[]; hidden: boolean; is_pc: boolean; ac?: number | null }
+export interface Combatant { id: string; name: string; initiative: number; hp: number | null; max_hp: number | null; effects: { name: string; rounds?: number; until?: unknown }[]; hidden: boolean; is_pc: boolean; ac?: number | null; temp_hp?: number; concentration?: { spell: string; dc: number | null } | null; death_saves?: { successes: number; failures: number; stable?: boolean; dead?: boolean } | null }
 export interface Summary {
   date: { label: string; minutes: number };
   combat: { active: boolean; round: number; turn: number; total: number; current: Combatant | null; next: Combatant[] };
@@ -37,19 +37,23 @@ export default function NowTab({ sum, onUndo, goQueue }: { sum: ReturnType<typeo
   const known: Combatant[] = all && full.data?.combatants ? full.data.combatants : [...(c?.current ? [c.current] : []), ...(c?.next ?? [])];
   const byId = (id: string) => known.find((x) => x.id === id) ?? full.data?.combatants?.find((x: Combatant) => x.id === id) ?? null;
   const hpOf = (x: Combatant) => (over[x.id] !== undefined ? over[x.id] : x.hp);
-  const selected = open ? byId(open) : null;
+  // The full record (temporary HP, concentration, death saves) when it has loaded; the summary's copy until then.
+  const selected = open ? (full.data?.combatants?.find((x: Combatant) => x.id === open) ?? byId(open)) : null;
 
   const refresh = async () => { await Promise.all([sum.reload(), full.reload()]); };
-  const setHp = async (x: Combatant, next: number, withUndo = true) => {
+  // Damage and healing go to the server as damage and healing, so its rules apply: temporary HP soak damage first, a
+  // concentration save comes due, a downed character takes death save failures. Undo puts HP and temporary HP back.
+  const change = async (x: Combatant, delta: number, crit = false, withUndo = true) => {
     const prev = hpOf(x);
-    if (prev === null) return;
-    const target = Math.max(0, x.max_hp ? Math.min(next, x.max_hp) : next);
-    if (target === prev) return;
-    buzz(target < prev ? [14, 30, 14] : 14);
-    setOver((o) => ({ ...o, [x.id]: target }));
+    if (prev === null || !delta) return;
+    const prevTemp = x.temp_hp ?? 0;
+    const shown = delta < 0 ? Math.max(0, prev - Math.max(0, -delta - prevTemp)) : Math.max(0, x.max_hp ? Math.min(prev + delta, x.max_hp) : prev + delta);
+    buzz(delta < 0 ? [14, 30, 14] : 14);
+    setOver((o) => ({ ...o, [x.id]: shown }));
     try {
-      await w.updateCombatant(x.id, { hp: target });
-      if (withUndo) onUndo({ text: `${x.name} ${target > prev ? '+' : '−'}${Math.abs(target - prev)}  (${prev} → ${target})`, undo: () => { void setHp({ ...x, hp: target }, prev, false); } });
+      const r: any = await w.updateCombatant(x.id, delta < 0 ? { damage: -delta, ...(crit ? { crit: true } : {}) } : { heal: delta });
+      const notes: string[] = Array.isArray(r?.notes) ? r.notes : [];
+      if (withUndo) onUndo({ text: `${x.name} ${delta > 0 ? '+' : '−'}${Math.abs(delta)}${crit ? ' (crit)' : ''}${notes.length ? `. ${notes.join('. ')}` : ''}`, undo: () => { void act.run(async () => { await w.updateCombatant(x.id, { hp: prev, setTempHp: prevTemp }); await refresh(); }); } });
     } catch (e: any) {
       act.setError(e.message ?? String(e));
     } finally {
@@ -67,7 +71,12 @@ export default function NowTab({ sum, onUndo, goQueue }: { sum: ReturnType<typeo
         <span className="init">{x.initiative}</span>
         <span className="grow tx">
           <b style={{ fontSize: cur ? 20 : 17 }}>{x.name}</b>{x.hidden && <span className="pill red" style={{ marginLeft: 6 }}>hidden</span>}
-          {x.effects?.length > 0 && <span className="sub" style={{ display: 'block' }}>{x.effects.map((e) => e.name).join(', ')}</span>}
+          {(x.effects?.length > 0 || x.concentration || (x.temp_hp ?? 0) > 0 || x.death_saves) && <span className="sub" style={{ display: 'block' }}>{[
+            (x.temp_hp ?? 0) > 0 ? `+${x.temp_hp} temp` : '',
+            x.concentration ? `concentrating: ${x.concentration.spell}${x.concentration.dc !== null ? ` (save DC ${x.concentration.dc})` : ''}` : '',
+            x.death_saves && !x.death_saves.stable && !x.death_saves.dead ? `death saves ${x.death_saves.successes}✓ ${x.death_saves.failures}✗` : '',
+            ...(x.effects ?? []).map((e) => `${e.name}${e.rounds ? ` (${e.rounds})` : ''}`),
+          ].filter(Boolean).join(' · ')}</span>}
           {hp !== null && x.max_hp ? <span className={`hpbar ${hpClass(hp, x.max_hp)}`} style={{ display: 'block', marginTop: 4 }}><span style={{ width: `${Math.max(0, Math.min(100, (hp / x.max_hp) * 100))}%` }} /></span> : null}
         </span>
         {hp !== null && <span style={{ fontWeight: 700, fontSize: 18 }}>{hp}<span className="sub">/{x.max_hp}</span></span>}
@@ -114,7 +123,7 @@ export default function NowTab({ sum, onUndo, goQueue }: { sum: ReturnType<typeo
 
       {selected && (
         <Sheet title={selected.name} onClose={() => setOpen(null)}>
-          <HpPanel x={selected} hp={hpOf(selected)} setHp={(v) => void setHp(selected, v)} patch={(p) => void patch(selected, p)} busy={act.busy} />
+          <HpPanel x={selected} hp={hpOf(selected)} change={(dv, crit) => void change(selected, dv, crit)} patch={(p) => void patch(selected, p)} busy={act.busy} />
           {c?.active && <button type="button" className="b primary big full" disabled={act.busy} onClick={() => { void next(); }}>Next turn</button>}
         </Sheet>
       )}
@@ -122,23 +131,52 @@ export default function NowTab({ sum, onUndo, goQueue }: { sum: ReturnType<typeo
   );
 }
 
-function HpPanel({ x, hp, setHp, patch, busy }: { x: Combatant; hp: number | null; setHp: (v: number) => void; patch: (p: Record<string, unknown>) => void; busy: boolean }) {
+function HpPanel({ x, hp, change, patch, busy }: { x: Combatant; hp: number | null; change: (delta: number, crit?: boolean) => void; patch: (p: Record<string, unknown>) => void; busy: boolean }) {
   const [amt, setAmt] = useState('');
+  const [crit, setCrit] = useState(false);
   const n = parseInt(amt, 10) || 0;
-  const apply = (sign: 1 | -1) => { if (hp === null || !n) return; setHp(hp + sign * n); setAmt(''); };
+  const apply = (sign: 1 | -1) => { if (hp === null || !n) return; change(sign * n, sign < 0 && crit); setAmt(''); setCrit(false); };
   const on = new Set((x.effects ?? []).map((e) => e.name.toLowerCase()));
   const toggle = (name: string) => patch({ effects: on.has(name.toLowerCase()) ? x.effects.filter((e) => e.name.toLowerCase() !== name.toLowerCase()) : [...(x.effects ?? []), { name }] });
+  const conc = x.concentration;
+  const ds = x.death_saves;
+  const downed = x.is_pc && hp === 0 && !(ds?.stable || ds?.dead);
   return (
     <>
       <div className="row between">
         <span className="hpbig" aria-live="polite" data-testid="hp-now">{hp ?? '—'}<span className="sub" style={{ fontSize: 18 }}> / {x.max_hp ?? '—'}</span></span>
-        {x.ac != null && <span className="pill">AC {x.ac}</span>}
+        <span className="row" style={{ gap: 6 }}>
+          {(x.temp_hp ?? 0) > 0 && <button type="button" className="pill" title="Temporary HP: tap to clear" onClick={() => patch({ setTempHp: 0 })} data-testid="phone-temp">+{x.temp_hp} temp ×</button>}
+          {x.ac != null && <span className="pill">AC {x.ac}</span>}
+        </span>
       </div>
+      {conc && (
+        <div className="row between" data-testid="phone-conc">
+          <span>Concentrating on <strong>{conc.spell}</strong>{conc.dc !== null && <> · <strong>CON save DC {conc.dc}</strong> due</>}</span>
+          <span className="row" style={{ gap: 6 }}>
+            {conc.dc !== null && <button type="button" className="b ok" disabled={busy} onClick={() => patch({ concentrationSave: { result: 'pass' } })}>Passed</button>}
+            {conc.dc !== null && <button type="button" className="b danger" disabled={busy} onClick={() => patch({ concentrationSave: { result: 'fail' } })}>Failed</button>}
+            {conc.dc === null && <button type="button" className="b" disabled={busy} onClick={() => patch({ concentration: null })}>Drop</button>}
+          </span>
+        </div>
+      )}
+      {ds && (ds.stable || ds.dead) && <div className="pill" data-testid="phone-ds-state">{ds.dead ? 'Dead' : 'Stable'}</div>}
+      {downed && (
+        <div data-testid="phone-death">
+          <div className="row between"><strong>Death saves</strong><span>{'✓'.repeat(ds?.successes ?? 0)}{'·'.repeat(3 - (ds?.successes ?? 0))} &nbsp; {'✗'.repeat(ds?.failures ?? 0)}{'·'.repeat(3 - (ds?.failures ?? 0))}</span></div>
+          <div className="grid g2">
+            <button type="button" className="b ok big" disabled={busy} onClick={() => patch({ deathSave: { result: 'success' } })}>Success</button>
+            <button type="button" className="b danger big" disabled={busy} onClick={() => patch({ deathSave: { result: 'failure' } })}>Failure</button>
+            <button type="button" className="b ok" disabled={busy} onClick={() => patch({ deathSave: { roll: 20 } })}>Nat 20: up at 1 HP</button>
+            <button type="button" className="b danger" disabled={busy} onClick={() => patch({ deathSave: { roll: 1 } })}>Nat 1: two failures</button>
+          </div>
+        </div>
+      )}
       {hp !== null && (
         <>
           <div className="grid g3">
-            {[1, 5, 10].map((d) => <button key={`-${d}`} type="button" className="b danger big" disabled={busy} onClick={() => setHp(hp - d)}>−{d}</button>)}
-            {[1, 5, 10].map((d) => <button key={`+${d}`} type="button" className="b ok big" disabled={busy} onClick={() => setHp(hp + d)}>+{d}</button>)}
+            {[1, 5, 10].map((d) => <button key={`-${d}`} type="button" className="b danger big" disabled={busy} onClick={() => change(-d)}>−{d}</button>)}
+            {[1, 5, 10].map((d) => <button key={`+${d}`} type="button" className="b ok big" disabled={busy} onClick={() => change(d)}>+{d}</button>)}
           </div>
           <div className="amount c" style={{ padding: 8 }} aria-label="Amount">{amt || '0'}</div>
           <div className="pad">
@@ -150,11 +188,13 @@ function HpPanel({ x, hp, setHp, patch, busy }: { x: Combatant; hp: number | nul
           <div className="grid g2">
             <button type="button" className="b danger big" disabled={busy || !n} onClick={() => apply(-1)}>Damage {n || ''}</button>
             <button type="button" className="b ok big" disabled={busy || !n} onClick={() => apply(1)}>Heal {n || ''}</button>
+            <button type="button" className="b" disabled={busy || !n} title="Temporary HP never stack: the higher number is kept" onClick={() => { patch({ tempHp: n }); setAmt(''); }}>Temp HP {n || ''}</button>
+            <button type="button" className={`b${crit ? ' on' : ''}`} aria-pressed={crit} onClick={() => setCrit((v) => !v)} title="A critical hit: two death save failures on a downed character">Crit {crit ? 'on' : 'off'}</button>
           </div>
         </>
       )}
       <h3 className="sub" style={{ margin: 0 }}>Conditions</h3>
-      <div className="flow">{CONDITIONS.map((cn) => <button key={cn} type="button" className={`b chip${on.has(cn.toLowerCase()) ? ' on' : ''}`} aria-pressed={on.has(cn.toLowerCase())} disabled={busy} onClick={() => toggle(cn)}>{cn}</button>)}</div>
+      <div className="flow">{CONDITIONS.map((cn) => { const e = (x.effects ?? []).find((y) => y.name.toLowerCase() === cn.toLowerCase()); return <button key={cn} type="button" className={`b chip${e ? ' on' : ''}`} aria-pressed={!!e} disabled={busy} onClick={() => toggle(cn)}>{cn}{e?.rounds ? ` (${e.rounds})` : e?.until ? ' (timed)' : ''}</button>; })}</div>
     </>
   );
 }

@@ -26,7 +26,7 @@ import type { Deps } from '../../app.ts'; // type only: a runtime import would d
 import { all, one, run } from '../../core/db.ts';
 import { requireDM, type Auth } from '../../core/auth.ts';
 import { HttpError, now } from '../../core/util.ts';
-import { JOBS, chat, chainFor, embed, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
+import { JOBS, chat, chainFor, gateStats, embed, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
 import { argosWebUrl, discover, fetchVoices, listModels, type ModelStatus } from './argos.ts';
 import { testJob } from './probe.ts';
 import { argosSnippets, budgetFor, readArgos } from './pool.ts';
@@ -270,6 +270,8 @@ const feature: Feature = {
     r.get('/', (_req, res) => res.json(all6()));
 
     r.get('/status', async (_req, res) => res.json(await statusOf(d)));
+    // The queue in front of each model right now: how many requests run and how many wait (core/ai.ts).
+    r.get('/queue', (_req, res) => res.json({ models: gateStats() }));
 
     // ---- providers
     r.post('/providers', (req, res) => {
