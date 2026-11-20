@@ -4,7 +4,23 @@
 // open, and a DM-aside line only gets the categories listed in ASIDE_OK.
 import type { Deps } from '../../app.ts';
 import { pageView } from '../stage/cards.ts';
-import { norm, type Category, type CueCtx, type Scored } from './cues.ts';
+import { norm, SKILLS, type Category, type CueCtx, type Scored } from './cues.ts';
+
+const SKILL_RE = new RegExp(`^(?:${SKILLS}|initiative)$`, 'i');
+/**
+ * Is this a thing a character can carry? Rules and the model both propose items from table talk, and
+ * real sessions gave "Strength Score Of 20", "Plus Four", "Resistance", "Going" and long garbled phrases.
+ */
+export function itemName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (n.length < 2 || n.length > 40) return false;
+  const words = n.split(/\s+/);
+  if (words.length > 5) return false;
+  if (words.filter((w) => /^(of|the|on|to|for|in|at|with|and|from)$/.test(w)).length > 1) return false;
+  if (/\d+$/.test(n) || /^plus \w+$/.test(n)) return false;
+  if (words.length === 1 && /ing$/.test(n)) return false;
+  return !/\b(score|check|save|saving throw|bonus|modifier|advantage|disadvantage|resistance|immunity|vulnerability|health|hp|hit points?|damage|inspiration|proficiency|initiative|turn|action|reaction|re-?roll|level|xp|experience|spell slots?|armor class|ac|credit|chance|try|moment|break|hug|ride|call|number|idea|thought|time|point|points|life|luck|reach|speed|stat|stats)\b/.test(n);
+}
 import { searchTerms } from '../modules/search.ts';
 
 /** HP and AC from the rules module's statblock for a creature named exactly (or by an alias), else nothing. */
@@ -103,11 +119,14 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
       return { ...base, category: 'stage', confidence: pg.ambiguous ? Math.min(it.confidence, 0.6) : Math.max(it.confidence, pg.score >= 0.99 ? 0.85 : it.confidence), borderline: pg.ambiguous || pg.score < 0.99, calls: [{ tool: 'show_on_stage', args: { kind: 'place', ref: pg.id, title: pg.title } }], summary: `Show the players "${pg.title}"`, ruleKey: rk(`stage ${pg.title}`), visible: 'players', dedupeKey: `stage:${pg.id}`, dedupeMs: 90_000 };
     }
     case 'event': {
+      // A roll the table can make: a skill, an ability or initiative ("D4 check" is a die, not a check).
+      if (!SKILL_RE.test(it.skill.trim())) return null;
       const skill = it.skill.replace(/^(\w)/, (c) => c.toUpperCase());
       const title = `${skill} ${it.save ? 'save' : 'check'}${it.dc ? ` (DC ${it.dc})` : ''}`;
-      return { ...base, category: 'events', calls: [{ tool: 'send_quick_event', args: { kind: it.save ? 'save' : 'notice', title, prompt: `Roll ${it.save ? 'a' : 'a'} ${skill} ${it.save ? 'save' : 'check'}.`, skill, ...(it.dc ? { dc: it.dc } : {}) } }], summary: `Ask the table for a ${title}`, ruleKey: rk(`event ${it.skill}`), visible: 'players', dedupeKey: `event:${norm(it.skill)}:${it.dc ?? ''}`, dedupeMs: 30_000 };
+      return { ...base, category: 'events', calls: [{ tool: 'send_quick_event', args: { kind: it.save ? 'save' : 'notice', title, prompt: `Roll ${/^[aeiou]/i.test(skill) ? 'an' : 'a'} ${skill} ${it.save ? 'save' : 'check'}.`, skill, ...(it.dc ? { dc: it.dc } : {}) } }], summary: `Ask the table for ${/^[aeiou]/i.test(title) ? 'an' : 'a'} ${title}`, ruleKey: rk(`event ${it.skill}`), visible: 'players', dedupeKey: `event:${norm(it.skill)}:${it.dc ?? ''}`, dedupeMs: 30_000 };
     }
     case 'combat_start':
+      if (it.ask) return { ...base, category: 'combat', calls: [{ tool: 'set_combat', args: { active: true } }], summary: 'This sounds like a fight: start the combat tracker?', ruleKey: rk('combat underway'), visible: 'players', dedupeKey: 'combat:underway', dedupeMs: 600_000, forceAsk: true };
       return { ...base, category: 'combat', calls: [{ tool: 'set_combat', args: { active: true } }], summary: 'Start combat', ruleKey: rk('combat start'), visible: 'players', dedupeKey: 'combat:start', dedupeMs: 30_000 };
     case 'combat_end':
       return { ...base, category: 'combat', calls: [{ tool: 'set_combat', args: { active: false } }], summary: 'End combat', ruleKey: rk('combat end'), visible: 'players', dedupeKey: 'combat:end', dedupeMs: 30_000 };
@@ -149,6 +168,7 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
     case 'coins':
       return { ...base, category: 'items', calls: it.owner === 'party' && it.each ? ctx.party.map((p) => ({ tool: 'add_coin', args: { owner: p.accountId, amountCp: it.cp, note: 'Awarded at the table' } })) : [{ tool: 'add_coin', args: { owner: it.owner, amountCp: it.cp, note: 'Awarded at the table' } }], summary: `${it.each ? 'Each: ' : ''}${cp(it.cp)} to ${it.each ? 'every player' : it.ownerName}`, ruleKey: rk(`coins ${it.ownerName}`), visible: 'players', dedupeKey: `coins:${it.owner}:${it.cp}`, dedupeMs: 40_000 };
     case 'item':
+      if (!itemName(it.name)) return null;
       return { ...base, category: 'items', calls: [{ tool: 'add_item', args: { owner: it.owner, name: it.name, qty: it.qty, reason: 'Found at the table' } }], summary: `Give ${it.qty > 1 ? `${it.qty} x ` : ''}${it.name} to ${it.ownerName}`, ruleKey: rk(`item ${it.name}`), visible: 'players', dedupeKey: `item:${it.owner}:${norm(it.name)}`, dedupeMs: 60_000 };
     case 'use_item':
       return null; // resolved against the player's inventory by the engine

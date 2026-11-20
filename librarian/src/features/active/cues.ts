@@ -36,7 +36,7 @@ export type Intent =
   | { kind: 'sfx'; name: string; why: string }
   | { kind: 'stage'; phrase: string; text?: string; title?: string; why: string }
   | { kind: 'event'; skill: string; dc?: number; save: boolean; why: string }
-  | { kind: 'combat_start' | 'combat_end' | 'next_turn'; why: string }
+  | { kind: 'combat_start' | 'combat_end' | 'next_turn'; why: string; ask?: boolean }
   | { kind: 'damage' | 'heal'; ids: string[]; amount: number; why: string }
   | { kind: 'condition'; id: string; add: string[]; remove: string[]; why: string }
   | { kind: 'remove_creature'; id: string; why: string }
@@ -78,7 +78,7 @@ const NUMW: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, fo
 const CONDS = 'prone|poisoned|stunned|frightened|grappled|restrained|blinded|deafened|charmed|paralyzed|incapacitated|unconscious|invisible|exhausted|petrified|burning|bleeding|slowed|asleep|dazed|confused|enraged|hasted|blessed';
 const PRON = new Set(['it', 'he', 'she', 'they', 'him', 'her', 'them', 'you', 'that', 'this']);
 
-const SKILLS = 'perception|investigation|insight|stealth|athletics|acrobatics|arcana|history|nature|religion|survival|medicine|persuasion|deception|intimidation|performance|sleight of hand|animal handling|strength|dexterity|constitution|intelligence|wisdom|charisma|dex|con|wis|int|str|cha';
+export const SKILLS = 'perception|investigation|insight|stealth|athletics|acrobatics|arcana|history|nature|religion|survival|medicine|persuasion|deception|intimidation|performance|sleight of hand|animal handling|strength|dexterity|constitution|intelligence|wisdom|charisma|dex|con|wis|int|str|cha';
 const COIN_CP: Record<string, number> = { cp: 1, copper: 1, sp: 10, silver: 10, ep: 50, electrum: 50, gp: 100, gold: 100, pp: 1000, platinum: 1000 };
 
 const UNITS: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
@@ -279,6 +279,9 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
   let m: RegExpMatchArray | null;
   const q = /\?/.test(low);
   if (!c.active && !q && !/\bdon'?t\b|\bnot yet\b|\bwhen\b|\bif\b/.test(low) && (m = low.match(/\b(?:roll|rolling|everyone roll|everybody roll|time to roll|give me|go ahead and roll)\s+(?:for\s+)?initiative\b|\binitiative\s*[,!:]?\s*(?:everyone|everybody|please)\b|\b(?:combat|the fight|the battle|the encounter)\s+(?:begins|starts|breaks out|erupts)\b|\bdraw your (?:weapons|swords|steel)\b/))) push({ kind: 'combat_start', why: m[0] }, /initiative/.test(m[0]) ? 0.93 : 0.75);
+  // A fight already under way (the recording started mid-combat, nobody said "initiative"): a damage amount and an
+  // attack word in one line. Only ever offered, never started on its own.
+  else if (!c.active && !q && /\b\d+\s+(?:points?\s+of\s+)?(?:[a-z]+\s+)?damage\b|\b(?:takes?|deals?|did|does|for)\s+\d+\b/.test(low) && /\b(?:to hit|hits?|miss(?:es)?|attacks?|crit\w*|legendary action|your turn|my turn|armor class|ac \d+|saving throw|save)\b/.test(low)) push({ kind: 'combat_start', why: 'fight under way', ask: true }, 0.7);
   if (c.active && !q && (m = low.match(/\b(?:end|ends|ending|stop)\s+(?:the\s+)?(?:combat|fight|battle|encounter)\b|\b(?:combat|the fight|the battle|the encounter)\s+(?:is\s+|has\s+)?(?:over|ends|ended|finished|done)\b|\bthe (?:last|final)\s+(?:\w+\s+){0,2}(?:falls|dies|drops|is dead|is down)\b|\bsilence (?:returns|settles)\b.*\b(?:fight|battle)\b/))) push({ kind: 'combat_end', why: m[0] }, /last|final|silence/.test(m[0]) ? 0.6 : 0.93);
   if (!c.active || !c.combatants.length) return out;
 

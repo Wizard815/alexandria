@@ -68,7 +68,16 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   jsonMode        'auto' | 'schema' | 'object' | 'off' (how structured output is asked for)
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning'] as const;
+/**
+ * `reasoning: 'on' | 'off'`: whether an OpenRouter model may think before it answers. The audit job (yes/no checks,
+ * routing, Active mode) defaults to off: thinking made hy4-flash about three times slower there for no better answer.
+ * The chat job leaves it to the model unless set.
+ */
+const reasoningFor = (job: 'chat' | 'audit', c: JobConfig, req: ChatRequest): ChatRequest => {
+  const o = opt(c, 'reasoning');
+  return o === 'off' || (job === 'audit' && o !== 'on') ? { ...req, reasoningOff: true } : req;
+};
 /**
  * Output-token floor per job. A reasoning model spends part of the budget on thinking, so a small max_tokens
  * can leave an empty answer. Chat and audit requests never ask for fewer than this many tokens unless the
@@ -523,7 +532,8 @@ export async function chat(d: Deps, job: 'chat' | 'audit', req: ChatRequest, sig
   return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatOne(d, job, c, req, signal));
 }
 
-async function chatOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
+async function chatOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req0: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
+  const req = reasoningFor(job, c, req0);
   const r = await chatOnce(d, job, c, req, signal);
   // A reasoning model that used the whole budget thinking: once more with twice the budget (and no thinking where that can be asked).
   return emptyForLength(r) ? chatOnce(d, job, c, widerRequest(c, req), signal) : r;
@@ -638,7 +648,8 @@ export async function chatStream(d: Deps, job: 'chat' | 'audit', req: ChatReques
   return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatStreamOne(d, job, c, req, (t) => { started = true; onDelta(t); }, signal), () => !started);
 }
 
-async function chatStreamOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
+async function chatStreamOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req0: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
+  const req = reasoningFor(job, c, req0);
   const r = await chatStreamOnce(d, job, c, req, onDelta, signal);
   // Nothing was streamed (the budget went on thinking): try again wider.
   return emptyForLength(r) ? chatStreamOnce(d, job, c, widerRequest(c, req), onDelta, signal) : r;
