@@ -30,7 +30,7 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   const st = (stats[tag] = { pages: 0, clicks: 0, forms: 0, dead: 0, skipped: 0 });
   const { ctx, page } = await signIn(browser, base, user, PASS[user], viewport, mobile);
   await ctx.addInitScript(INIT);
-  let reqs = 0, dialogs = 0, downloads = 0;
+  let reqs = 0, dialogs = 0, downloads = 0, popups = 0;
   let here = '';
   const bad = (m) => problems.push(`${tag} ${here}: ${m}`);
   page.on('pageerror', (e) => bad(`page error: ${e.message}`));
@@ -40,6 +40,8 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   page.on('requestfailed', (r) => { const f = r.failure()?.errorText ?? ''; if (!/ABORTED/.test(f) && !r.url().includes('fonts.g') && !r.url().includes('/events')) bad(`request failed (${f}) ${r.url().replace(base, '')}`); });
   page.on('dialog', (d) => { dialogs++; void d.dismiss().catch(() => {}); });
   page.on('download', () => { downloads++; });
+  // A pop-out (the Screens page, a panel's ↗) opens a window: that is its effect. Close it, or its live connection starves the page.
+  page.on('popup', (p) => { popups++; void p.close().catch(() => {}); });
 
   const open = async (url) => { await page.goto(url); await page.locator('main, .page, #root > *').first().waitFor({ timeout: 10000 }).catch(() => {}); await page.waitForTimeout(250); };
   const snap = () => page.evaluate(() => window.__crawl.snap());
@@ -53,7 +55,7 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
     const el = await page.evaluateHandle(([k, n]) => window.__crawl.find(k, n), [c.key, c.nth]);
     if (!(await el.evaluate((e) => !!e).catch(() => false))) return 'gone';
     const before = await snap();
-    const r0 = reqs, d0 = dialogs, dl0 = downloads;
+    const r0 = reqs, d0 = dialogs, dl0 = downloads, p0 = popups;
     try { await el.asElement().scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {}); await el.asElement().click({ timeout: 3000 }); }
     catch (e) {
       const why = String(e.message);
@@ -65,8 +67,8 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
     let after = await snap();
     if (after === before && reqs === r0) { await page.waitForTimeout(350); after = await snap(); }
     if (shot) await page.screenshot({ path: shot }).catch(() => {});
-    if (after === before && reqs === r0 && dialogs === d0 && downloads === dl0 && c.nth > 0) return 'changed';
-    if (after === before && reqs === r0 && dialogs === d0 && downloads === dl0) { dead(`${c.key}  ${(await el.evaluate((e) => e.outerHTML.slice(0, 140)).catch(() => ''))}`); return 'dead'; }
+    if (after === before && reqs === r0 && dialogs === d0 && downloads === dl0 && popups === p0 && c.nth > 0) return 'changed';
+    if (after === before && reqs === r0 && dialogs === d0 && downloads === dl0 && popups === p0) { dead(`${c.key}  ${(await el.evaluate((e) => e.outerHTML.slice(0, 140)).catch(() => ''))}`); return 'dead'; }
     return 'changed';
   }
 

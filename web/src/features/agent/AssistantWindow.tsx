@@ -6,6 +6,18 @@ import Chat from './Chat.tsx';
 import { SpokenNotice } from './aloud.tsx';
 import './agent.css';
 
+/** The assistant's chat on its own: a pop-out window or a panel on the side screen shows this. */
+export function AssistantBody() {
+  return (
+    <>
+      <div className="ag-body" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
+        <Chat harness="dm" placeholder="Ask, or tell it what to do…" />
+      </div>
+      <SpokenNotice />
+    </>
+  );
+}
+
 export default function AssistantWindow() {
   const { isDM, info } = useWorld();
   useEffect(() => { document.title = `Assistant · ${info?.name ?? 'Alexandria'}`; }, [info?.name]);
@@ -15,10 +27,7 @@ export default function AssistantWindow() {
       <header className="ag-head" style={{ padding: '8px 12px' }}>
         <strong style={{ flex: 1 }}><i className="fa-solid fa-comments" aria-hidden="true" /> Assistant</strong>
       </header>
-      <div className="ag-body" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
-        <Chat harness="dm" placeholder="Ask, or tell it what to do…" />
-      </div>
-      <SpokenNotice />
+      <AssistantBody />
     </div>
   );
 }
