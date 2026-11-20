@@ -91,7 +91,30 @@
 .dmp .ask { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .dmp .ask-log { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .dmp .ask-bar { border-top: 1px solid var(--line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; background: var(--side); }
-.dmp .ask-bar textarea { min-height: 52px; height: 52px; }
+.dmp .ask-bar textarea { min-height: 56px; max-height: 150px; resize: none; line-height: 1.35; }
+.dmp .ask-top { padding: 8px 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.dmp .ask-chats { flex-wrap: nowrap; }
+.dmp .ask-chats select { text-overflow: ellipsis; }
+.dmp .ask-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.dmp .ask-chips > * { flex: 0 0 auto; }
+.dmp .ask-form { align-items: flex-end; gap: 8px; }
+.dmp .ask-form .b { min-width: 56px; min-height: 56px; flex: 0 0 auto; }
+/* hold to talk: no text selection or context menu from the long press */
+.dmp .b.mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.dmp .b.mic[data-state='rec'] { animation: dmp-rec 1s ease-in-out infinite; }
+@keyframes dmp-rec { 50% { box-shadow: 0 0 0 6px rgba(255, 90, 90, 0.35); } }
+@media (prefers-reduced-motion: reduce) { .dmp .b.mic[data-state='rec'] { animation: none; } }
+/* the keyboard is up: the page has been lifted above it, so the tab bar gives its room to the message box */
+.dmp.kb .dmp-tabs { display: none; }
+.dmp .sofar { margin: 8px 12px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.dmp .sofar-head { border: 0; border-radius: 0; background: transparent; justify-content: flex-start; }
+.dmp .sofar-body { max-height: 34dvh; overflow-y: auto; padding: 4px 14px 12px; border-top: 1px solid var(--line); }
+.dmp .ag-sources { margin: 6px 0 0; padding-left: 16px; }
+.dmp .ag-sources a { display: inline-block; padding: 4px 0; }
+/* the notice for a spoken "Minerva, ..." request sits under the top bar, clear of the message box */
+.dmp .ag-toast { position: fixed; left: 12px; right: 12px; top: calc(64px + env(safe-area-inset-top, 0px)); bottom: auto; max-width: 536px; margin: 0 auto; z-index: 1030; align-items: center; }
+.dmp .ag-toast-open { flex: 1 1 0; min-height: 48px; font-size: 15px; justify-content: center; }
+.dmp .ag-toast .ag-x { min-width: 48px; min-height: 48px; font-size: 22px; }
 .dmp .msg { max-width: 92%; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); overflow-wrap: anywhere; }
 .dmp .msg.me { align-self: flex-end; border-color: var(--accent); background: var(--accent-bg); }
 .dmp .md p { margin: 0 0 6px; } .dmp .md ul, .dmp .md ol { margin: 0 0 6px; padding-left: 20px; }
