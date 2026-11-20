@@ -284,7 +284,7 @@ const feature: Feature = {
       name: 'add_combatant', write: true,
       description: 'DM: add a creature or a player character to the combat tracker in initiative order. For a player character give accountId (from list_members) and the initiative that player rolled. Give hp (and ac) or a statblock object (from make_statblock); without an initiative one is rolled (d20 plus Dexterity) when a statblock is given or the creature is in the rules module (the result says what was rolled).',
       props: {
-        name: S('Name, e.g. Goblin Boss'), initiative: { type: 'integer', description: 'Initiative total' }, hp: { type: 'integer' }, maxHp: { type: 'integer' }, ac: { type: 'integer', description: 'Armor class' },
+        name: S('Name, e.g. Goblin Boss'), initiative: { type: 'integer', description: 'Initiative total; leave it out unless someone said it, and it is rolled' }, hp: { type: 'integer' }, maxHp: { type: 'integer' }, ac: { type: 'integer', description: 'Armor class' },
         hidden: { type: 'boolean', description: 'Hide from players' }, effects: { type: 'array', items: COND_ITEM },
         accountId: S("A player's account id, for a player character"), tempHp: { type: 'integer', description: 'Temporary HP' }, concentration: S('Spell being concentrated on'), deathSaves: { type: 'object', description: 'Death saves {successes, failures, stable, dead}' }, statblockPage: S('Library page id of the saved statblock'), statblock: { type: 'object', description: 'A statblock with hp, ac and abilities' },
       },
@@ -293,7 +293,9 @@ const feature: Feature = {
         const sb = a.statblock && typeof a.statblock === 'object' ? a.statblock : null;
         const hp = a.hp ?? sb?.hp;
         const dex = sb?.abilities?.dex;
-        const initiative = a.initiative ?? (typeof dex === 'number' ? Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + mod(dex))) : undefined);
+        // Models fill in 0 when nobody said an initiative: for a creature that means "roll it".
+        const given = a.initiative === 0 && !a.accountId ? undefined : a.initiative;
+        const initiative = given ?? (typeof dex === 'number' ? Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + mod(dex))) : undefined);
         return { method: 'POST', path: '/live/combatants', body: { name: a.name, initiative, hp, maxHp: a.maxHp ?? hp, ac: a.ac ?? sb?.ac, hidden: a.hidden, effects: a.effects, statblockPage: a.statblockPage, accountId: a.accountId, tempHp: a.tempHp, concentration: a.concentration, deathSaves: a.deathSaves } };
       },
     },

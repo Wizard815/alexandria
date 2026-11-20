@@ -146,8 +146,16 @@ export default function liveRoutes(d: Deps) {
   r.post('/combatants', requireDM, (req, res) => {
     const c = ctx(res);
     const b = req.body ?? {};
-    const acc = b.accountId ? str(b.accountId, 'accountId', { max: 60 }) : null;
+    let acc = b.accountId ? str(b.accountId, 'accountId', { max: 60 }) : null;
     if (acc && !memberIds(db, c.world.id).includes(acc)) throw new HttpError(400, 'Player not found');
+    // A party member added by name is that player's character (death saves, the player's own view), not a monster:
+    // the assistant often adds "Anselm" with no account. Exactly one player's character or display name must match.
+    if (!acc && b.monster !== true && typeof b.name === 'string') {
+      const n = b.name.trim().toLowerCase();
+      const hits = all<any>(db, "SELECT m.account_id AS id, m.character_name AS ch, a.display_name AS dn FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player'", c.world.id)
+        .filter((m) => [m.ch, m.dn].some((x) => typeof x === 'string' && x.trim().toLowerCase() === n));
+      if (hits.length === 1 && !one(db, 'SELECT 1 FROM combatants WHERE world_id = ? AND account_id = ?', c.world.id, hits[0].id)) acc = hits[0].id;
+    }
     // Two creatures with one name can't be told apart ("Wolf 2 takes 9"): number them, and the first one too.
     let nm = str(b.name, 'name', { max: 80 }).trim();
     if (!acc && !/\s\d+$/.test(nm)) {
@@ -300,7 +308,8 @@ function normEffects(v: unknown, cx: EffectCtx): Effect[] {
   if (!Array.isArray(v) || v.length > 20) throw new HttpError(400, 'effects must be a list');
   const who = (raw: unknown, f: string): string => {
     const s = String(raw ?? '').trim();
-    if (s.toLowerCase() === 'self') return cx.selfId;
+    // "Until the end of his next turn": the model writes the turn, not the creature ("next turn", "his next turn", "own").
+    if (/^(self|own|itself|themselves|(?:(?:his|her|its|their|my|your|the) )?(?:own )?(?:next |current )?turn)$/i.test(s)) return cx.selfId;
     const hit = cx.ids.find((c) => c.id === s) ?? cx.ids.find((c) => c.name.toLowerCase() === s.toLowerCase());
     if (hit) return hit.id;
     throw new HttpError(400, `${f}: no such combatant`);
