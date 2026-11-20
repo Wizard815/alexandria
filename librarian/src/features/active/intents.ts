@@ -21,20 +21,16 @@ export function itemName(name: string): boolean {
   if (words.length === 1 && /ing$/.test(n)) return false;
   return !/\b(score|check|save|saving throw|bonus|modifier|advantage|disadvantage|resistance|immunity|vulnerability|health|hp|hit points?|damage|inspiration|proficiency|initiative|turn|action|reaction|re-?roll|level|xp|experience|spell slots?|armor class|ac|credit|chance|try|moment|break|hug|ride|call|number|idea|thought|time|point|points|life|luck|reach|speed|stat|stats)\b/.test(n);
 }
-import { searchTerms } from '../modules/search.ts';
+import { dexModifier, findMonster } from '../modules/search.ts';
 
-/** HP and AC from the rules module's statblock for a creature named exactly (or by an alias), else nothing. */
-export function statsFor(d: Deps, worldId: string, name: string): { hp?: number; maxHp?: number; ac?: number } {
+/** HP, AC and the Dexterity modifier (for initiative) from the rules module's statblock for a creature named exactly (or by an alias), else nothing. */
+export function statsFor(d: Deps, worldId: string, name: string): { hp?: number; maxHp?: number; ac?: number; dexMod?: number } {
   try {
-    const n = name.toLowerCase().trim();
-    const one = n.endsWith('ves') ? n.slice(0, -3) + 'f' : n.endsWith('es') && /(x|ch|sh|ss)es$/.test(n) ? n.slice(0, -2) : n.endsWith('s') ? n.slice(0, -1) : n;
-    // The exact name, then the 2024 rules' name for the plain version of a creature ("Goblin Warrior").
-    const wants = [...new Set([n, one, `${one} warrior`])];
-    const hits = searchTerms(d.db, worldId, one, { kind: 'monster', limit: 20 }).terms as any[];
-    const t = wants.map((w) => hits.find((x) => [x.term, ...(x.aliases ?? [])].some((a: string) => a.toLowerCase() === w))).find(Boolean);
+    const t = findMonster(d.db, worldId, name);
     if (!t) return {};
     const hp = /\bHP (\d+)/.exec(t.summary ?? '')?.[1]; const ac = /\bAC (\d+)/.exec(t.summary ?? '')?.[1];
-    return { ...(hp ? { hp: Number(hp), maxHp: Number(hp) } : {}), ...(ac ? { ac: Number(ac) } : {}) };
+    const dex = dexModifier(t);
+    return { ...(hp ? { hp: Number(hp), maxHp: Number(hp) } : {}), ...(ac ? { ac: Number(ac) } : {}), ...(dex !== null ? { dexMod: dex } : {}) };
   } catch { return {}; }
 }
 
@@ -145,9 +141,32 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
       const c = combatant(it.id);
       if (!c) return null;
       const have = c.effects.map(String);
-      const next = [...have.filter((e) => !it.remove.some((r) => norm(r) === norm(e)) && !it.add.some((a) => norm(a) === norm(e))), ...it.add];
-      if (stable(next.map(norm).sort()) === stable(have.map(norm).sort())) return null;
-      return { ...base, category: 'combat', calls: [{ tool: 'set_conditions', args: { combatant: c.id, conditions: next } }], summary: `${c.name}: ${it.add.length ? `now ${list(it.add)}` : `no longer ${list(it.remove)}`}`, ruleKey: rk(`condition ${c.name} ${it.add.concat(it.remove).join(' ')}`), visible: 'players', dedupeKey: `cond:${c.id}:${next.map(norm).sort().join('+')}`, dedupeMs: 20_000 };
+      // Bare names keep any timer the creature's condition already has (the server matches by name); new ones may carry their own.
+      const timed = (a: string) => (it.until ? { name: a, [it.until === 'end' ? 'untilEndOf' : 'untilStartOf']: c.id } : it.rounds ? { name: a, rounds: it.rounds } : a);
+      const next = [...have.filter((e) => !it.remove.some((r) => norm(r) === norm(e)) && !it.add.some((a) => norm(a) === norm(e))), ...it.add.map(timed)];
+      if (!it.until && !it.rounds && stable(next.map((e) => norm(String(e))).sort()) === stable(have.map(norm).sort())) return null;
+      return { ...base, category: 'combat', calls: [{ tool: 'set_conditions', args: { combatant: c.id, conditions: next } }], summary: `${c.name}: ${it.add.length ? `now ${list(it.add)}` : `no longer ${list(it.remove)}`}`, ruleKey: rk(`condition ${c.name} ${it.add.concat(it.remove).join(' ')}`), visible: 'players', dedupeKey: `cond:${c.id}:${next.map((e) => norm(typeof e === "string" ? e : JSON.stringify(e))).sort().join("+")}`, dedupeMs: 20_000 };
+    }
+    case 'temp_hp': {
+      if (!it.ids.length || it.ids.some((i) => !combatant(i))) return null;
+      const names = it.ids.map((i) => combatant(i)!.name);
+      return { ...base, category: 'combat', calls: it.ids.map((c) => ({ tool: 'give_temp_hp', args: { combatant: c, amount: it.amount } })), summary: `${it.amount} temporary HP for ${list(names)}`, ruleKey: rk(`temp ${names[0]}`), visible: 'players', dedupeKey: `temp:${it.ids.join(',')}:${it.amount}`, dedupeMs: 15_000 };
+    }
+    case 'concentration': {
+      const c = combatant(it.id);
+      if (!c) return null;
+      const cur = c.concentration;
+      if (it.action === 'start') return { ...base, category: 'combat', calls: [{ tool: 'set_concentration', args: { combatant: c.id, spell: it.spell } }], summary: `${c.name} concentrates on ${it.spell}`, ruleKey: rk(`conc ${c.name} ${it.spell}`), visible: 'players', dedupeKey: `conc:${c.id}:${norm(it.spell ?? '')}`, dedupeMs: 20_000 };
+      if (!cur) return null; // nothing to lose or keep
+      // A pending save is settled; otherwise losing it just clears it.
+      if (it.action === 'pass') return cur.dc === null ? null : { ...base, category: 'combat', calls: [{ tool: 'concentration_save', args: { combatant: c.id, result: 'pass' } }], summary: `${c.name} keeps concentration on ${cur.spell}`, ruleKey: rk(`conc pass ${c.name}`), visible: 'players', dedupeKey: `concpass:${c.id}`, dedupeMs: 20_000 };
+      return { ...base, category: 'combat', calls: [cur.dc === null ? { tool: 'set_concentration', args: { combatant: c.id } } : { tool: 'concentration_save', args: { combatant: c.id, result: 'fail' } }], summary: `${c.name} loses concentration on ${cur.spell}`, ruleKey: rk(`conc lose ${c.name}`), visible: 'players', dedupeKey: `conclose:${c.id}`, dedupeMs: 20_000 };
+    }
+    case 'death_save': {
+      const c = combatant(it.id);
+      // Only a player character who is down (HP known and 0) rolls death saves.
+      if (!c || !c.isPc || c.hp === null || c.hp === undefined || c.hp > 0) return null;
+      return { ...base, category: 'combat', calls: [{ tool: 'death_save', args: { combatant: c.id, ...(it.roll !== undefined ? { roll: it.roll } : { result: it.result }) } }], summary: `${c.name}: death save ${it.roll !== undefined ? `rolled ${it.roll}` : it.result}`, ruleKey: rk(`death ${c.name}`), visible: 'players', dedupeKey: `death:${c.id}:${it.roll ?? it.result}`, dedupeMs: 8_000 };
     }
     case 'remove_creature': {
       const c = combatant(it.id);
@@ -156,8 +175,9 @@ export function build(d: Deps, worldId: string, ctx: CueCtx, it: Scored, cue: st
     }
     case 'add_monsters': {
       const existing = ctx.combat.combatants.filter((c) => norm(c.name).startsWith(norm(it.name))).length;
-      const stats = statsFor(d, worldId, it.name);
-      const calls: Call[] = Array.from({ length: it.count }, (_, i) => ({ tool: 'add_combatant', args: { name: it.count === 1 && !existing ? it.name : `${it.name} ${existing + i + 1}`, initiative: 1 + Math.floor(Math.random() * 20), ...stats } }));
+      const { dexMod, ...stats } = statsFor(d, worldId, it.name);
+      // Each creature rolls its own d20, plus Dexterity when its statblock is known.
+      const calls: Call[] = Array.from({ length: it.count }, (_, i) => ({ tool: 'add_combatant', args: { name: it.count === 1 && !existing ? it.name : `${it.name} ${existing + i + 1}`, initiative: Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + (dexMod ?? 0))), ...stats } }));
       return { ...base, category: 'combatAdd', calls, summary: `Add ${it.count} ${it.name}${it.count === 1 ? '' : 's'} to the fight`, ruleKey: rk(`add ${it.name}`), visible: 'players', dedupeKey: `add:${norm(it.name)}:${it.count}`, dedupeMs: 60_000 };
     }
     case 'initiative': {
