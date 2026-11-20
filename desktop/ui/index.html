@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alexandria</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Alexandria</h1>
+  <p>Enter the address of your Alexandria server. You sign in there with your usual account.</p>
+  <form id="f">
+    <label for="url">Server address</label>
+    <input id="url" name="url" type="text" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://alexandria.example.com" required autofocus>
+    <div class="row">
+      <button id="go" type="submit">Connect</button>
+      <button id="anyway" class="ghost" type="button" hidden>Connect anyway</button>
+    </div>
+    <div id="msg" role="status" aria-live="polite"></div>
+  </form>
+  <small>On your own network, use the machine's address, for example http://192.168.1.20:8080. The address is remembered; change it later from the Alexandria menu.</small>
+</main>
+<script src="connect.js"></script>
+</body>
+</html>

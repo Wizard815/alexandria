@@ -5,6 +5,7 @@ import { AuthProvider } from './lib/auth.tsx';
 import { App } from './App.tsx';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './theme.css';
+import './lib/install.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
