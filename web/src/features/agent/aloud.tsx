@@ -76,10 +76,10 @@ export function claimSpoken(id: string): boolean {
 }
 
 /** The speaker switch in the chat. */
-export function AloudToggle({ note }: { note?: string }) {
+export function AloudToggle({ note, phone }: { note?: string; phone?: boolean }) {
   const [on, setOn] = useReadAloud();
   return (
-    <button type="button" className={`chip ag-quick-btn${on ? ' on' : ''}`} aria-pressed={on} onClick={() => setOn(!on)} data-testid="ag-aloud"
+    <button type="button" className={`${phone ? 'b chip' : 'chip ag-quick-btn'}${on ? ' on' : ''}`} aria-pressed={on} onClick={() => setOn(!on)} data-testid="ag-aloud"
       title={note || (on ? 'Replies are read aloud on this device only. Click to turn off.' : 'Read replies aloud on this device only (not the table speakers)')}>
       <i className={`fa-solid ${on ? 'fa-volume-high' : 'fa-volume-xmark'}`} aria-hidden="true" /> Read aloud{on ? ': on' : ''}
     </button>
@@ -92,7 +92,7 @@ interface Spoken { chatId: string; text: string; request?: string; pending?: num
  * Listens for the reply to a spoken "Minerva, ..." request. It lives outside the chat so it works with the panel
  * collapsed. Clicking the notice opens that chat; `onOpen` lets the panel unfold itself.
  */
-export function SpokenNotice({ onOpen }: { onOpen?: () => void }) {
+export function SpokenNotice({ onOpen, phone }: { onOpen?: () => void; phone?: boolean }) {
   const { on, info, isDM } = useWorld();
   const { client } = useAuth();
   const [shown, setShown] = useState<Spoken | null>(null);
@@ -103,11 +103,13 @@ export function SpokenNotice({ onOpen }: { onOpen?: () => void }) {
     return on(['agent'], (e) => {
       const d: any = e.data;
       if (d?.kind !== 'spoken' || !d.chatId || typeof d.text !== 'string') return;
+      // The DM phone covers the screen and shows its own notice; the layout's (behind it) must not take the event first.
+      if (!phone && document.querySelector('[data-testid="dmphone"]')) return;
       if (!claimSpoken(`${d.messageId ?? d.chatId}`)) return;
       setShown({ chatId: d.chatId, text: d.text, request: d.request, pending: d.pending });
       if (aloudNow()) void speakAloud(world, client.token, d.text);
     });
-  }, [on, isDM, client, world]);
+  }, [on, isDM, client, world, phone]);
 
   useEffect(() => {
     if (!shown) return;
