@@ -564,6 +564,11 @@ function migrate(db: DB) {
 
   // Broker v2 and item pictures.
   if (!cols('items').includes('image')) db.exec('ALTER TABLE items ADD COLUMN image TEXT');
+  // Combat bookkeeping: temp HP, concentration and death saves (JSON) on each combatant.
+  const cbc = cols('combatants');
+  if (!cbc.includes('temp_hp')) db.exec('ALTER TABLE combatants ADD COLUMN temp_hp INTEGER NOT NULL DEFAULT 0');
+  if (!cbc.includes('concentration')) db.exec('ALTER TABLE combatants ADD COLUMN concentration TEXT');
+  if (!cbc.includes('death_saves')) db.exec('ALTER TABLE combatants ADD COLUMN death_saves TEXT');
   if (!cols('broker_requests').includes('classification')) db.exec('ALTER TABLE broker_requests ADD COLUMN classification TEXT');
   if (!cols('ledger').includes('transfer_id')) db.exec('ALTER TABLE ledger ADD COLUMN transfer_id TEXT');
   // 'noted': a question the broker turned away; only the DM sees it.
