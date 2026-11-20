@@ -533,3 +533,18 @@ test('TestActive_SpokenRequestReplyReachesOnlyTheDm', async () => {
   chat.queue.length = 0;
   await dmTap.close(); await jessTap.close();
 });
+
+test('TestCombat_AssistantAddsAPartyMemberByNameAsTheirCharacterAndTurnTimersMeanSelf', async () => {
+  for (const cb of (await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants) await call('DELETE', `/api/worlds/${W}/live/combatants/${cb.id}`, T.dm);
+  const wid = (deps.db.prepare('SELECT id FROM worlds WHERE slug = ? OR id = ?').get(W, W) as any).id;
+  const pc = deps.db.prepare("SELECT m.account_id AS id, m.character_name AS ch FROM members m WHERE m.world_id = ? AND m.role = 'player' AND m.character_name IS NOT NULL AND m.character_name <> '' LIMIT 1").get(wid) as any;
+  assert.ok(pc, 'a player with a character');
+  const { id } = await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: pc.ch, initiative: 12, hp: 20, maxHp: 20 });
+  const row = (await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants.find((x: any) => x.id === id);
+  assert.equal(row.accountId ?? row.account_id, pc.id, 'linked to the player: death saves, not "defeated"');
+  const ogre = await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Ogre', initiative: 5, hp: 59 });
+  await ok('PATCH', `/api/worlds/${W}/live/combatants/${ogre.id}`, T.dm, { effects: [{ name: 'Stunned', untilEndOf: 'next turn' }] });
+  const tool = (await import('../src/features/agent/index.ts')).default.mcpTools!.find((t) => t.name === 'add_combatant')!;
+  assert.equal((tool.call({ name: 'Wolf', initiative: 0 }) as any).body.initiative, undefined, 'a 0 from the model is rolled');
+  assert.equal((tool.call({ name: 'Wolf', initiative: 14 }) as any).body.initiative, 14);
+});

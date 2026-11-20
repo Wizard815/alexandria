@@ -789,7 +789,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
           for (const t of [...matchTools(tools, `${input.text} ${reply}`, true, 8), ...tools.filter((x) => selectTools(input.text, names, 99, true).includes(x.name))]) if (t.write) picked.add(t.name);
           // This time a tool call is required: asking alone let models answer "I did make the call" without one.
           mustCall = true;
-          messages.push({ role: 'assistant', content: reply }, { role: 'user', content: 'You said something was proposed or changed, but you made no write tool call. Call the right write tool now (the matching write tools are offered).' });
+          messages.push({ role: 'assistant', content: reply }, { role: 'user', content: 'For my last message you said something was proposed or changed, but you made no write tool call. Call the write tool for my last message only, now. Do not repeat changes from earlier messages: those are already handled.' });
           continue;
         }
         done = true;
