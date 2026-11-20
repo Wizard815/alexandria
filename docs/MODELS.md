@@ -562,3 +562,23 @@ Replaying three real hour-long sessions (one table recorder, crosstalk, rules ch
 leaks; the misses were a fight already under way when the recording began (now offered as
 "start the combat tracker?") and item suggestions from table talk ("Plus Four", "Resistance"),
 which are now filtered by name.
+
+## Minerva request sets on hy4-flash (Nov 2026)
+
+The 112-request tool set and the 83-request fresh set, with `tencent/hy4-flash` for chat and audit
+(job option `reasoning: "off"`), bge-m3 embeddings and the default agent options:
+
+| Run | Requested job done, by the scorer | Judged by reading each reply | Median reply | Cost per request |
+|---|---|---|---|---|
+| hy4-flash, before the fixes below | 177/194 (91.2%) | 189/193 (97.9%) | 6.3 s | $0.00018 |
+| deepseek-v4.1-flash, same code | 177/194 (91.2%) | 190/194 (97.9%) | 3.7 s | $0.00089 |
+| hy4-flash, after the fixes | 182/194 (93.8%) | 191/194 (98.5%) | 6.3 s | $0.0002 |
+
+The scorer counts a request as missed when the expected tool was not called; reading the replies,
+most of those were right (the date answered from the context block, "no macros saved", a vote that
+could not be cancelled before approval, a question about which of three drafts). The fixes: the
+lite prompt now says to go on to the write after a look-up instead of asking "shall I?" (hy4-flash
+stopped there), "display ... for the players" offers show_on_stage, and "something spooky for the
+cellar" offers the music tools. Left: "next Friday" for a game night (asks for the real date),
+writing and then linking an item page in one turn, and a date change on a draft.
+
