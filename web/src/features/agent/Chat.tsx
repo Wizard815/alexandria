@@ -2,35 +2,27 @@
 // (live 'agent' events, with the chat polled as a fallback), can be stopped,
 // quotes its sources as links to library pages, and (for the DM) shows
 // actions waiting for approval right under the message that proposed them.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// The same component runs the desktop panel, the pop-out window and, with
+// `phone`, the DM phone's Ask tab (big targets, quick prompts, hold-to-talk),
+// so every feature lands in both.
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ErrorBox, Markdown, useAction } from '../../ui/index.tsx';
+import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
+import { buzz } from '../dmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
+import { ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
 
-interface Citation { kind: string; id: string; title: string; path?: string; snippet?: string }
-interface Timings { totalMs: number; firstTokenMs?: number; modelMs: number; toolMs: number; gatewayMs: number; rounds: number; toolCalls: number; fast?: boolean }
-interface Msg { id: string; role: 'user' | 'assistant'; text: string; status: 'done' | 'working' | 'error'; citations: Citation[]; at: string; timings?: Timings | null }
-interface Act { id: string; tool: string; summary: string; call: unknown; status: string; result: string | null; createdAt: string }
-interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
-interface Live { text: string; status: string }
+export { linkCitations } from './ChatParts.tsx';
+
+/** Told to every chat and to the phone's Queue when an agent action is decided, so none waits for the server's event. */
+export const ACTIONS_CHANGED = 'alx-agent-actions-changed';
+export const announceActions = () => { try { window.dispatchEvent(new Event(ACTIONS_CHANGED)); } catch { /* no window */ } };
 
 const KEY = chatKey;
 const remembered = rememberedChat;
 const remember = rememberChat;
-interface ChatRow { id: string; title: string; updatedAt: string }
-
-/** [Title] in a reply becomes a [[wikilink]] when it names a page the reply drew on. */
-export function linkCitations(text: string, cites: Citation[]): string {
-  const pages = new Set(cites.filter((c) => c.kind === 'page').map((c) => c.title.toLowerCase()));
-  if (!pages.size) return text;
-  return text.replace(/\[([^\][\n]{2,120})\](?![(:[])/g, (m, t: string) => (pages.has(t.trim().toLowerCase()) ? `[[${t.trim()}]]` : m));
-}
-
-const seconds = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
-const timingText = (t: Timings) => `${seconds(t.totalMs)}${t.fast ? ' (no model)' : t.firstTokenMs !== undefined ? `, first text ${seconds(t.firstTokenMs)}` : ''}${t.toolCalls ? `, ${t.toolCalls} tool call${t.toolCalls === 1 ? '' : 's'}` : ''}`;
-const timingTitle = (t: Timings) => `Total ${t.totalMs} ms: model ${t.modelMs} ms, tools ${t.toolMs} ms, Alexandria ${t.gatewayMs} ms, ${t.rounds} model round${t.rounds === 1 ? '' : 's'}`;
 
 type Quick = { label: string; send?: string; fill?: string; needs?: 'page' };
 const QUICK: Record<'dm' | 'player', Quick[]> = {
@@ -47,7 +39,26 @@ const QUICK: Record<'dm' | 'player', Quick[]> = {
   ],
 };
 
-export default function Chat({ harness, page, placeholder, mode }: { harness: 'dm' | 'player'; page?: string; placeholder?: string; /** A player's table helper instead of the broker. */ mode?: 'helper' }) {
+/** Something the DM's phone adds to every message (the combatant picked on the Now tab). `get` reads it fresh at send time. */
+export interface ChatContext { label: string; get: () => Promise<string | undefined>; drop: () => void }
+
+export interface ChatProps {
+  harness: 'dm' | 'player'; page?: string; placeholder?: string;
+  /** A player's table helper instead of the broker. */
+  mode?: 'helper';
+  /** The DM phone's layout: big targets, a pinned input, quick prompts and hold-to-talk. */
+  phone?: boolean;
+  /** Phone: shown at the top of the chat (the session summary). */
+  header?: ReactNode;
+  context?: ChatContext | null;
+  /** Phone: offered when nothing is attached (the combatant whose turn it is). */
+  attachable?: { label: string; attach: () => void } | null;
+  /** Phone: one-tap prompts, and the button that edits them. */
+  quickPrompts?: { label: string; text: string }[];
+  onEditQuick?: () => void;
+}
+
+export default function Chat({ harness, page, placeholder, mode, phone, header, context, attachable, quickPrompts, onEditQuick }: ChatProps) {
   const { w, info, on, isDM } = useWorld();
   const { world = '' } = useParams();
   const navigate = useNavigate();
@@ -69,6 +80,7 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
   // Assistant messages already seen in the open chat: only one that arrives after this is read aloud.
   const seen = useRef<{ chat: string; ids: Set<string> }>({ chat: '', ids: new Set() });
   const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   const chatRef = useRef<ChatState | null>(null);
   chatRef.current = chat;
   const key = KEY(info.id, mode ? `${harness}-${mode}` : harness);
@@ -115,8 +127,9 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
     const fresh = done.filter((m) => !seen.current.ids.has(m.id));
     for (const m of fresh) seen.current.ids.add(m.id);
     const last = fresh.at(-1);
+    if (last && phone) buzz([10, 40, 10]);
     if (last && aloud && isDM && harness === 'dm' && claimSpoken(last.id)) void speakAloud(info.id, client.token, last.text).then((n) => setAloudNote(n ?? ''));
-  }, [chat, aloud, isDM, harness, info.id, client]);
+  }, [chat, aloud, isDM, harness, phone, info.id, client]);
   useEffect(() => { if (!aloud) setAloudNote(''); }, [aloud]);
 
   // The title of the page that is attached, and whether a fight is running (DM only: only the DM's assistant is given it).
@@ -131,9 +144,9 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
   const loadCombat = useCallback(() => { if (isDM) w.call<any>('GET', '/live/combat').then((c) => setCombat({ active: !!c.active, round: c.round })).catch(() => {}); }, [w, isDM]);
   useEffect(() => { loadCombat(); return on(['combat'], loadCombat); }, [on, loadCombat]);
 
-  // Text selected on the page (outside this panel) is offered as context.
+  // Text selected on the page (outside this panel) is offered as context. A phone has no page behind the chat.
   useEffect(() => {
-    if (harness !== 'dm') return;
+    if (harness !== 'dm' || phone) return;
     let t: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
       clearTimeout(t);
@@ -146,7 +159,7 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
     };
     document.addEventListener('selectionchange', check);
     return () => { clearTimeout(t); document.removeEventListener('selectionchange', check); };
-  }, [harness]);
+  }, [harness, phone]);
 
   // The reply arriving: pieces of text, a reset when the model turns to tools, a replacement, a status line.
   useEffect(() => on(['agent'], (e) => {
@@ -159,6 +172,12 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
     else if (d.kind === 'status') setLive((l) => ({ text: l?.text ?? '', status: String(d.status ?? d.text ?? '') }));
     else if (d.kind === 'message' || d.kind === 'action') { if (d.kind === 'message') setLive(null); void load(cur.id); }
   }), [on, load]);
+  // An action decided elsewhere on this device (the phone's Queue) leaves this chat at once.
+  useEffect(() => {
+    const h = () => { const cur = chatRef.current; if (cur) void load(cur.id); };
+    window.addEventListener(ACTIONS_CHANGED, h);
+    return () => window.removeEventListener(ACTIONS_CHANGED, h);
+  }, [load]);
 
   // Fallback while it is working: poll (this also carries the text so far, if the live stream was missed).
   useEffect(() => {
@@ -169,15 +188,31 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
   useEffect(() => { if (!chat?.busy) setLive(null); }, [chat?.busy]);
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [chat?.messages.length, chat?.actions.length, live?.text.length]);
 
+  // A new proposal buzzes the phone: it is waiting for a thumb.
+  const pending = (chat?.actions ?? []).filter((a) => a.status === 'pending').length;
+  const lastPending = useRef(0);
+  useEffect(() => { if (phone && pending > lastPending.current) buzz([30, 50, 30]); lastPending.current = pending; }, [pending, phone]);
+
+  // The phone's box grows with what is typed (up to a few lines) and shrinks back after a send.
+  useEffect(() => {
+    const el = box.current;
+    if (!phone || !el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 150)}px`;
+  }, [text, phone]);
+
   const send = (override?: string) => run(async () => {
     const body = (override ?? text).trim();
     if (!body) return;
+    if (phone) buzz(10);
+    // What the phone attaches is read now, so a fight that moved on since it was picked is not described by old numbers.
+    const extra = context ? await context.get().catch(() => undefined) : undefined;
     let id = chat?.id;
     if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); id = c.id; remember(key, id); seen.current = { chat: id, ids: new Set() }; }
     setText('');
     stopSpeaking();
     setLive({ text: '', status: '' });
-    const sel = selection;
+    const sel = [selection, extra].filter(Boolean).join('\n\n').slice(0, 3000);
     setSelection('');
     setChat(await w.call<ChatState>('POST', `/agent/chats/${id}/messages`, { text: body, page: attachedPage, selection: sel || undefined }));
   });
@@ -193,8 +228,10 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
     refreshList();
   });
   const decide = (a: Act, decision: 'approve' | 'reject') => run(async () => {
+    if (phone) buzz(decision === 'approve' ? 15 : [20, 40, 20]);
     try { await w.call('POST', `/agent/actions/${a.id}`, { decision }); } catch (e: any) { setError(e.message); }
     if (chat) await load(chat.id);
+    announceActions();
   });
 
   const libraryHref = useCallback((id: string) => `/w/${world}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(id)}`, [world, isDM]);
@@ -204,86 +241,65 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
     if (href?.startsWith('/')) { e.preventDefault(); navigate(href); }
   };
 
-  // Messages and the actions waiting on the DM, in the order they happened.
   const items = useMemo(() => {
-    const out: ({ t: 'msg'; m: Msg } | { t: 'act'; a: Act })[] = (chat?.messages ?? []).map((m) => ({ t: 'msg' as const, m }));
+    const out: Item[] = (chat?.messages ?? []).map((m) => ({ t: 'msg' as const, m }));
     for (const a of chat?.actions ?? []) if (a.status === 'pending' || a.status === 'running') out.push({ t: 'act' as const, a });
     return out.sort((x, y) => (x.t === 'msg' ? x.m.at : x.a.createdAt).localeCompare(y.t === 'msg' ? y.m.at : y.a.createdAt));
   }, [chat?.messages, chat?.actions]);
 
-  const quick = QUICK[harness].filter((q) => q.needs !== 'page' || attachedPage);
   const working = !!chat?.busy;
-  const input = () => document.querySelector<HTMLTextAreaElement>('[data-ag-input]');
+  const focusInput = () => (box.current ?? document.querySelector<HTMLTextAreaElement>('[data-ag-input]'))?.focus();
+  const addText = (t: string) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); focusInput(); };
+  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh() };
+  const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} busy={busy} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={(a, d) => void decide(a, d)} />;
+  const noModel = model === false && <p className="tiny muted">No chat model is set yet (Admin → Models). Dice, the date and simple combat commands still work.</p>;
+  const hello = harness === 'dm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.';
+
+  if (phone) {
+    return (
+      <div className="ask">
+        {header}
+        <div className="ask-top">
+          {model === false && <div className="sub">No chat model is set (Admin, Models). Dice, the date and simple combat commands still work.</div>}
+          <ChatSwitcher phone s={switcher} />
+        </div>
+        <div className="ask-log" aria-live="polite" data-testid="ask-log">
+          {!chat?.messages.length && <div className="empty">{hello}</div>}
+          {messages}
+          <div ref={end} />
+        </div>
+        <div className="ask-bar">
+          {error && <div className="err" role="alert">{error}</div>}
+          {aloud && aloudNote && <div className="sub" role="status">{aloudNote}</div>}
+          <div className="flow ask-chips" aria-label="Quick asks">
+            {context && <button type="button" className="b chip on" aria-label={`Do not send ${context.label}`} title="Sent with your message. Tap to drop it." onClick={context.drop}><i className="fa-solid fa-khanda" aria-hidden="true" /> {context.label} <i className="fa-solid fa-xmark" aria-hidden="true" /></button>}
+            {attachable && <button type="button" className="b chip" aria-label={`Attach ${attachable.label}`} title="Send this combatant with your message" onClick={attachable.attach}><i className="fa-solid fa-plus" aria-hidden="true" /> {attachable.label}</button>}
+            {isDM && combat?.active && <span className="pill gold" title="The fight now is sent with your message"><i className="fa-solid fa-khanda" aria-hidden="true" /> Round {combat.round}</span>}
+            {(quickPrompts ?? []).map((q) => <button key={q.label} type="button" className="b chip" disabled={busy || working} onClick={() => void send(q.text)}>{q.label}</button>)}
+            {onEditQuick && <button type="button" className="b chip" aria-label="Edit quick prompts" title="Edit quick prompts" onClick={onEditQuick} data-testid="quick-edit"><i className="fa-solid fa-pen" aria-hidden="true" /></button>}
+            {isDM && harness === 'dm' && <AloudToggle phone note={aloudNote} />}
+          </div>
+          <form className="row ask-form" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+            <label className="grow"><span className="sr-only">Message</span>
+              <textarea ref={box} data-ag-input rows={1} value={text} placeholder={placeholder ?? 'Ask…'} enterKeyHint="send" onChange={(e) => setText(e.target.value)} /></label>
+            {isDM && <MicButton hold disabled={busy || working} onText={addText} onError={setError} />}
+            {working
+              ? <button type="button" className="b danger" onClick={stop} aria-label="Stop the answer"><i className="fa-solid fa-stop" aria-hidden="true" /></button>
+              : <button type="submit" className="b primary" disabled={busy || !text.trim()} aria-label="Send"><i className="fa-solid fa-paper-plane" aria-hidden="true" /></button>}
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  const quick = QUICK[harness].filter((q) => q.needs !== 'page' || attachedPage);
   return (
     <div className="stack" style={{ minHeight: 0, flex: 1 }}>
-      {model === false && <p className="tiny muted">No chat model is set yet (Admin → Models). Dice, the date and simple combat commands still work.</p>}
-      <div className="row ag-chats" aria-label="Your chats" data-testid="ag-chats">
-        {renaming !== null && chat ? (
-          <form className="row grow" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); if (renaming.trim()) void rename(chat.id, renaming.trim()); }}>
-            <label className="grow" style={{ flex: 1 }}><span className="sr-only">Chat name</span><input style={{ width: '100%' }} value={renaming} maxLength={120} autoFocus onChange={(e) => setRenaming(e.target.value)} /></label>
-            <button type="submit" className="btn small primary" disabled={busy || !renaming.trim()}>Save</button>
-            <button type="button" className="btn small" onClick={() => setRenaming(null)}>Cancel</button>
-          </form>
-        ) : (
-          <>
-            <label className="grow" style={{ flex: 1, minWidth: 0 }}><span className="sr-only">Switch chat</span>
-              <select style={{ width: '100%' }} value={chat?.id ?? ''} onChange={(e) => { if (e.target.value) void open(e.target.value); }} data-testid="ag-chat-select">
-                {!chat && <option value="">New chat</option>}
-                {list.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
-                {chat && !list.some((c) => c.id === chat.id) && <option value={chat.id}>New chat</option>}
-              </select>
-            </label>
-            {chat && !confirmDel && <>
-              <button type="button" className="btn small ghost" aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
-              <button type="button" className="btn small ghost" aria-label="Delete this chat" title="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
-            </>}
-            {chat && confirmDel && <>
-              <span className="tiny">Delete this chat?</span>
-              <button type="button" className="btn small danger" disabled={busy} onClick={() => void remove()}>Delete</button>
-              <button type="button" className="btn small" onClick={() => setConfirmDel(false)}>Keep</button>
-            </>}
-          </>
-        )}
-      </div>
+      {noModel}
+      <ChatSwitcher s={switcher} />
       <div className="stack" style={{ overflowY: 'auto', flex: 1, minHeight: 120 }} aria-live="polite">
-        {!chat?.messages.length && <p className="tiny muted">{harness === 'dm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.'}</p>}
-        {items.map((it) => {
-          if (it.t === 'act') {
-            const a = it.a;
-            return (
-              <div key={a.id} className="card gold" style={{ padding: '10px 12px' }} role="group" aria-label="Waiting for your approval">
-                <strong>{a.summary.replace(/\s*·\s*Visible to players.*$/, '')}</strong>
-                {/Visible to players/.test(a.summary) && <span className="chip red" role="status">{a.summary.slice(a.summary.indexOf('Visible to players'))}</span>}
-                <details className="tiny muted"><summary>Exact call</summary><code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{a.tool} {JSON.stringify(a.call)}</code></details>
-                <div className="row"><button type="button" className="btn small primary" disabled={busy || a.status !== 'pending'} onClick={() => void decide(a, 'approve')}>Approve</button><button type="button" className="btn small" disabled={busy || a.status !== 'pending'} onClick={() => void decide(a, 'reject')}>Reject</button></div>
-              </div>
-            );
-          }
-          const m = it.m;
-          const shown = m.status === 'working' ? (live && live.text.length >= m.text.length ? live.text : m.text) : m.text;
-          return (
-            <div key={m.id} className="stack tight" style={{ alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div className="card ag-msg" style={{ padding: '8px 12px', maxWidth: '92%', borderColor: m.role === 'user' ? 'var(--accent)' : undefined }} onClick={goLink}>
-                {m.status === 'working' && !shown ? <span className="muted">{live?.status ? `Using ${live.status}…` : 'Thinking…'}</span>
-                  : m.role === 'assistant' ? <><Markdown text={linkCitations(shown, m.citations)} linkTo={(title) => { const c = m.citations.find((x) => x.kind === 'page' && x.title.toLowerCase() === title.toLowerCase()); return c ? libraryHref(c.id) : '#'; }} />{m.status === 'working' && <span className="ag-cursor" aria-hidden="true" />}</>
-                    : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>}
-                {m.status === 'working' && shown && live?.status && <span className="tiny muted"> Using {live.status}…</span>}
-                {m.status === 'error' && <span className="tiny" style={{ color: 'var(--danger-text)' }}>That did not work.</span>}
-              </div>
-              {m.citations.length > 0 && m.status !== 'working' && (
-                <ul className="tiny muted ag-sources" aria-label="Sources">
-                  {m.citations.map((c) => (
-                    <li key={`${c.kind}${c.id}`}>
-                      {c.kind === 'page' ? <a href={libraryHref(c.id)} className="wikilink" onClick={(e) => { e.preventDefault(); navigate(libraryHref(c.id)); }}>{c.title}</a> : <strong>{c.kind === 'transcript' ? `Transcript, ${c.title}` : c.title}</strong>}
-                      {c.snippet ? `: ${c.snippet}` : ''}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {isDM && m.role === 'assistant' && m.timings && m.status !== 'working' && <span className="tiny muted" title={timingTitle(m.timings)}>{timingText(m.timings)}</span>}
-            </div>
-          );
-        })}
+        {!chat?.messages.length && <p className="tiny muted">{hello}</p>}
+        {messages}
         <div ref={end} />
       </div>
       <ErrorBox error={error} />
@@ -295,64 +311,19 @@ export default function Chat({ harness, page, placeholder, mode }: { harness: 'd
         {isDM && combat?.active && <span className="chip teal" title="The fight now is sent with your message"><i className="fa-solid fa-khanda" aria-hidden="true" /> Combat, round {combat.round}</span>}
       </div>
       <div className="row ag-quick" aria-label="Quick actions">
-        {quick.map((q) => <button key={q.label} type="button" className="chip ag-quick-btn" disabled={busy || working} onClick={() => { if (q.send) void send(q.send); else { setText(q.fill ?? ''); input()?.focus(); } }}>{q.label}</button>)}
+        {quick.map((q) => <button key={q.label} type="button" className="chip ag-quick-btn" disabled={busy || working} onClick={() => { if (q.send) void send(q.send); else { setText(q.fill ?? ''); focusInput(); } }}>{q.label}</button>)}
         <button type="button" className="chip ag-quick-btn" onClick={() => void fresh()}>New chat</button>
         {isDM && harness === 'dm' && <AloudToggle note={aloudNote} />}
       </div>
       <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); void send(); }}>
         <label className="grow" style={{ flex: 1 }}><span className="sr-only">Message</span>
-          <textarea data-ag-input rows={2} style={{ width: '100%' }} value={text} placeholder={placeholder ?? 'Ask…'} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!working) void send(); } }} />
+          <textarea ref={box} data-ag-input rows={2} style={{ width: '100%' }} value={text} placeholder={placeholder ?? 'Ask…'} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!working) void send(); } }} />
         </label>
-        {isDM && <MicButton disabled={busy || working} onText={(t) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); input()?.focus(); }} />}
+        {isDM && <MicButton disabled={busy || working} onText={addText} />}
         {working
           ? <button type="button" className="btn small danger" onClick={stop} aria-label="Stop the answer"><i className="fa-solid fa-stop" aria-hidden="true" /> Stop</button>
           : <button type="submit" className="btn primary small" disabled={busy || !text.trim()}>Send</button>}
       </form>
     </div>
-  );
-}
-
-/**
- * Talk instead of type: hold or tap to record, tap again to stop. The recording is turned into text by the world's own
- * speech model (the audio job on the server, never a browser dictation service) and put in the box to check and send.
- */
-function MicButton({ onText, disabled }: { onText: (t: string) => void; disabled?: boolean }) {
-  const { world } = useParams();
-  const { client } = useAuth();
-  const [state, setState] = useState<'idle' | 'rec' | 'busy'>('idle');
-  const [err, setErr] = useState('');
-  const rec = useRef<MediaRecorder | null>(null);
-  const can = typeof window !== 'undefined' && typeof (window as any).MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
-  if (!can) return null;
-  const start = async () => {
-    setErr('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      const parts: Blob[] = [];
-      mr.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setState('busy');
-        try {
-          const blob = new Blob(parts, { type: mr.mimeType || 'audio/webm' });
-          const r = await fetch(`${window.location.origin}/api/worlds/${encodeURIComponent(world ?? '')}/agent/dictate`, { method: 'POST', headers: { Authorization: `Bearer ${client.token ?? ''}`, 'Content-Type': blob.type }, body: blob });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(j.error ?? `Dictation failed (${r.status})`);
-          if (j.text) onText(j.text);
-        } catch (e: any) { setErr(e.message ?? 'Dictation failed'); } finally { setState('idle'); }
-      };
-      rec.current = mr;
-      mr.start();
-      setState('rec');
-      // A minute at most: this is for a request, not a monologue.
-      setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 60_000);
-    } catch { setErr('No microphone (or permission refused)'); setState('idle'); }
-  };
-  const stopRec = () => { if (rec.current?.state === 'recording') rec.current.stop(); };
-  return (
-    <button type="button" className={`btn small${state === 'rec' ? ' danger' : ''}`} disabled={disabled || state === 'busy'} title={err || (state === 'rec' ? 'Stop and turn it into text' : 'Talk to the assistant')} aria-label={state === 'rec' ? 'Stop recording' : 'Talk to the assistant'} onClick={() => (state === 'rec' ? stopRec() : void start())} data-testid="ag-mic">
-      <i className={`fa-solid ${state === 'busy' ? 'fa-spinner fa-spin' : state === 'rec' ? 'fa-stop' : 'fa-microphone'}`} aria-hidden="true" />
-    </button>
   );
 }
