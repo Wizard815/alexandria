@@ -79,7 +79,8 @@ export default function peopleRoutes(d: Deps) {
   const person = (res: any, pid: string) => {
     const wid = ctx(res).world.id;
     // An id, or the person's name (the assistant often has the name and not the id): exact, then a unique start.
-    let p = one<any>(db, 'SELECT * FROM people WHERE id = ? AND world_id = ?', pid, wid);
+    // Also the person whose library page this is (the assistant sometimes has the page id).
+    let p = one<any>(db, 'SELECT * FROM people WHERE (id = ? OR page_id = ?) AND world_id = ?', pid, pid, wid);
     if (!p && pid.trim().length >= 2) {
       p = one<any>(db, 'SELECT * FROM people WHERE world_id = ? AND name = ? COLLATE NOCASE', wid, pid.trim());
       if (!p) { const hits = all<any>(db, "SELECT * FROM people WHERE world_id = ? AND name LIKE ? ESCAPE '\\' COLLATE NOCASE LIMIT 2", wid, pid.trim().replace(/[\\%_]/g, (m) => '\\' + m) + '%'); if (hits.length === 1) p = hits[0]; }

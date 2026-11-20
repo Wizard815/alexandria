@@ -129,7 +129,31 @@ function liftedTexts(d: Deps, c: Caller): string[] {
 export interface ToolRun { ok: boolean; status: number; text: string }
 
 /** Call a tool against the world API with the given token. */
-export async function runTool(d: Deps, caller: { worldId: string; token: string; port: number }, tool: McpTool, args: any): Promise<ToolRun> {
+const PLAYER_KEYS = ['accountId', 'to', 'owner', 'playerId', 'account'] as const;
+/**
+ * The model often names a player where an account id is wanted ("jess", "Tomas", "acc_Tomas"). A value that is
+ * not an account id in this world but names exactly one player (username, display name or character) becomes
+ * that player's id; anything else is left for the route to refuse.
+ */
+export function playerRefs(d: Deps, worldId: string, args: any): any {
+  if (!args || typeof args !== 'object') return args;
+  let members: { id: string; names: string[] }[] | null = null;
+  const out = { ...args };
+  for (const k of PLAYER_KEYS) {
+    const v = out[k];
+    if (typeof v !== 'string' || !v.trim() || v === 'party' || v === 'me') continue;
+    members ??= all<any>(d.db, "SELECT a.id, a.username, a.display_name, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?", worldId)
+      .map((r) => ({ id: r.id as string, names: [r.username, r.display_name, r.character_name].filter(Boolean).map((x: string) => x.toLowerCase()) }));
+    if (members.some((m) => m.id === v)) continue;
+    const want = v.replace(/^acc_/i, '').trim().toLowerCase();
+    const hits = members.filter((m) => m.names.some((n) => n === want || n.split(/\s+/)[0] === want));
+    if (hits.length === 1) out[k] = hits[0].id;
+  }
+  return out;
+}
+
+export async function runTool(d: Deps, caller: { worldId: string; token: string; port: number }, tool: McpTool, args0: any): Promise<ToolRun> {
+  const args = tool.write ? playerRefs(d, caller.worldId, args0) : args0;
   for (const k of tool.required ?? []) if (args?.[k] === undefined) return { ok: false, status: 400, text: `Missing ${k}` };
   const c = tool.call(args ?? {});
   const base = `http://127.0.0.1:${caller.port}/api/worlds/${enc(caller.worldId)}`;

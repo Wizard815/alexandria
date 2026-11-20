@@ -53,7 +53,8 @@ export default function requestRoutes(d: Deps) {
     const reply = str(req.body?.reply, 'reply', { max: 5000, optional: true }) || null;
     let applied: any = null;
     const apply = req.body?.apply;
-    if (decision === 'accepted' && apply) {
+    // An apply with no mode (the assistant sent only an answer) is not a page change: the reply carries the answer.
+    if (decision === 'accepted' && apply && apply.mode !== undefined) {
       const mode = oneOf(apply.mode, 'apply.mode', ['append', 'replace', 'create'] as const);
       const text = typeof apply.body === 'string' ? apply.body : row.body;
       if (mode === 'create') {
