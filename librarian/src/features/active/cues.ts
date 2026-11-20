@@ -19,7 +19,7 @@ export interface LineIn {
   aside: boolean;
 }
 
-export interface CombatantLite { id: string; name: string; hp?: number | null; maxHp?: number | null; effects: string[]; isPc: boolean; accountId?: string | null }
+export interface CombatantLite { id: string; name: string; hp?: number | null; maxHp?: number | null; effects: string[]; isPc: boolean; accountId?: string | null; concentration?: { spell: string; dc: number | null } | null }
 export interface CueCtx {
   combat: { active: boolean; turn: number; combatants: CombatantLite[] };
   party: { accountId: string; name: string; character: string }[];
@@ -38,7 +38,10 @@ export type Intent =
   | { kind: 'event'; skill: string; dc?: number; save: boolean; why: string }
   | { kind: 'combat_start' | 'combat_end' | 'next_turn'; why: string; ask?: boolean }
   | { kind: 'damage' | 'heal'; ids: string[]; amount: number; why: string }
-  | { kind: 'condition'; id: string; add: string[]; remove: string[]; why: string }
+  | { kind: 'condition'; id: string; add: string[]; remove: string[]; /** Ends at the end / start of the creature's own next turn. */ until?: 'end' | 'start'; rounds?: number; why: string }
+  | { kind: 'temp_hp'; ids: string[]; amount: number; why: string }
+  | { kind: 'concentration'; id: string; action: 'start' | 'lose' | 'pass'; spell?: string; why: string }
+  | { kind: 'death_save'; id: string; roll?: number; result?: 'success' | 'failure'; why: string }
   | { kind: 'remove_creature'; id: string; why: string }
   | { kind: 'add_monsters'; name: string; count: number; why: string }
   | { kind: 'initiative'; accountId: string | null; name: string; value: number; why: string }
@@ -325,6 +328,25 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
         if (!pcOnly && mt.ids.length === 1 && /\b(?:and|then|,)\s+(?:it\s+)?(?:dies|is dead|is slain|drops dead|falls?\b[^.;]{0,25}\bdead|collapses[^.;]{0,15}\bdead|is killed)\b/.test(after)) push({ kind: 'remove_creature', id: mt.ids[0], why: s.slice(0, 80) }, 0.82);
         continue;
       }
+      // temporary hit points are never healing ("Tomas gains 8 temporary hit points")
+      const tmp = num(/^\W*(?:(?:also|then|now)\s+)?(?:gains?|gets?|receives?|is granted|has)\s+(\d{1,3})\s+(?:temporary\s+hit\s+points|temp(?:orary)?\s+(?:hp|hit\s+points))/, after);
+      if (tmp !== null) { push({ kind: 'temp_hp', ids: mt.ids, amount: tmp, why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.9 : 0.55); continue; }
+      // concentration: starting a spell, losing it, or keeping it
+      if (mt.ids.length === 1) {
+        const cs = after.match(/^\W*(?:(?:is|are)\s+)?(?:now\s+)?concentrat(?:es|ing)\s+on\s+([a-z' -]{3,40}?)(?:[.,;!?]|\s+(?:and|but|while|as|so|with|to)\b|$)/);
+        if (cs && !/^(?:it|that|this|them)$/.test(cs[1])) { push({ kind: 'concentration', id: mt.ids[0], action: 'start', spell: cs[1].replace(/(^|\s)(\p{L})/gu, (_x, a, b) => a + b.toUpperCase()).replace(/\b(Of|The|And)\b/g, (x) => x.toLowerCase()), why: s.slice(0, 80) }, 0.85); continue; }
+        if (/^\W*(?:(?:also|then|now)\s+)?(?:loses|lost|drops|dropped|breaks|broke)\s+(?:his|her|their|its|the)?\s*concentration\b|^\W*fails\s+(?:his|her|their|its|the)?\s*concentration\s+(?:check|save|saving throw)|^\W*(?:fails|failed)\s+(?:the\s+)?(?:con(?:stitution)?\s+)?save\b[^.;]{0,30}\bconcentration/.test(after)) { push({ kind: 'concentration', id: mt.ids[0], action: 'lose', why: s.slice(0, 80) }, 0.88); continue; }
+        if (/^\W*(?:makes|made|passes|passed|succeeds on|keeps|kept|holds|held)\s+(?:his|her|their|its|the)?\s*concentration(?:\s+(?:check|save|saving throw))?\b/.test(after)) { push({ kind: 'concentration', id: mt.ids[0], action: 'pass', why: s.slice(0, 80) }, 0.85); continue; }
+      }
+      // a death save at the table: "Tomas rolls a 14 on his death save", "Tomas fails a death save"
+      if (mt.ids.length === 1 && pcOnly && /\bdeath sav/.test(after)) {
+        const dr = after.match(/^\W*(?:rolls?|rolled|got|gets|makes|made|throws?|threw)\s+(?:an?\s+)?(?:natural\s+|nat\s+)?(\d{1,2})\b/);
+        const nat = /\b(?:natural|nat)\s+(?:20|twenty)\b/.test(after) ? 20 : /\b(?:natural|nat)\s+(?:1|one)\b/.test(after) ? 1 : null;
+        const roll = nat ?? (dr ? Number(dr[1]) : null);
+        if (roll !== null && roll >= 1 && roll <= 20) { push({ kind: 'death_save', id: mt.ids[0], roll, why: s.slice(0, 80) }, 0.85); continue; }
+        if (/^\W*(?:fails?|failed|blows|botches)\b/.test(after)) { push({ kind: 'death_save', id: mt.ids[0], result: 'failure', why: s.slice(0, 80) }, 0.8); continue; }
+        if (/^\W*(?:succeeds?|succeeded|passes|passed|makes|made)\b/.test(after)) { push({ kind: 'death_save', id: mt.ids[0], result: 'success', why: s.slice(0, 80) }, 0.8); continue; }
+      }
       // healing
       let hl: number | null = num(new RegExp(`^\\W*(?:(?:also|then|now)\\s+)?(?:heals?|regains?|recovers?|gets? healed|is healed|gains?)\\s+(?:for\\s+)?(\\d{1,4})\\b(?:\\s*(?:hit points|hp|health|points))?${noTime}`), after);
       if (hl !== null && /spell slot|inspiration|exhaustion/.test(after)) hl = null;
@@ -338,7 +360,10 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
       const gone = after.match(new RegExp(`^\\W*(?:is|are)\\s+no longer\\s+(${CONDS})\\b|^\\W*(?:shakes? off|recovers? from|is cured of|breaks? free of|is freed from|throws? off)\\s+(?:the\\s+)?(${CONDS})\\b`));
       if (gone) { push({ kind: 'condition', id: mt.ids[0], add: [], remove: [cap(gone[1] ?? gone[2])], why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.88 : 0.5); continue; }
       const cd = after.match(new RegExp(`^\\W*(?:(?:is|are|falls?|gets?|becomes?|now|also|still|go(?:es)?|has been|was|were)\\s+)*(?:knocked\\s+|now\\s+)?(${CONDS})\\b`));
-      if (cd && !/\bnot\b/.test(after.slice(0, (cd.index ?? 0) + 12))) { push({ kind: 'condition', id: mt.ids[0], add: [cap(cd[1])], remove: [], why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.88 : 0.5); continue; }
+      // "stunned until the end of his next turn", "poisoned for 3 rounds": the condition carries its duration
+      const span = /\buntil\s+(?:the\s+)?(end|start)\s+of\s+(?:his|her|their|its)\s+next\s+turn\b/.exec(after);
+      const rd = /\bfor\s+(\d{1,2})\s+rounds?\b/.exec(after);
+      if (cd && !/\bnot\b/.test(after.slice(0, (cd.index ?? 0) + 12))) { push({ kind: 'condition', id: mt.ids[0], add: [cap(cd[1])], remove: [], ...(span && mt.ids.length === 1 ? { until: span[1] as 'end' | 'start' } : rd ? { rounds: Number(rd[1]) } : {}), why: s.slice(0, 80) }, mt.ids.length === 1 ? 0.88 : 0.5); continue; }
       // dies: only a creature, never a player character
       if (!pcOnly && mt.ids.length === 1 && /^\W*(?:dies|is dead|is slain|is defeated|drops dead|falls dead|is killed|collapses dead|slumps lifeless|is down for good|crumples and (?:dies|is still)|dies on the spot)\b/.test(after)) push({ kind: 'remove_creature', id: mt.ids[0], why: s.slice(0, 80) }, 0.82);
       void i;

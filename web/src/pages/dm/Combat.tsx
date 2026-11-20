@@ -7,12 +7,14 @@ import { healthPreview, usePlayers } from './shared.tsx';
 import SculptButton from '../../features/sculpt/SculptButton.tsx';
 import '../combat.css';
 
-type Effect = { name: string; rounds?: number };
+type Effect = { name: string; rounds?: number; until?: { of: string; at: 'start' | 'end' } };
 
 export default function DMCombat() {
   const { w, info } = useWorld();
   const combat = useLoad<any>(() => w.combat(), [w], ['combat']);
   const act = useAction();
+  // Conditions that ran out, and a dying PC's turn, as the last "next turn" reported them.
+  const [turnNote, setTurnNote] = useState('');
   const c = combat.data;
   const list: any[] = c?.combatants ?? [];
   const turnIdx = list.length ? c.turn % list.length : -1;
@@ -27,7 +29,7 @@ export default function DMCombat() {
         {c?.active ? (
           <>
             <span className="chip gold" style={{ fontSize: 15, padding: '4px 12px' }}>Round {c.round}</span>
-            <button type="button" className="btn primary next" disabled={act.busy || !list.length} onClick={() => act.run(async () => { combat.setData(await w.nextTurn()); })}>Next turn ▸</button>
+            <button type="button" className="btn primary next" disabled={act.busy || !list.length} onClick={() => act.run(async () => { const r: any = await w.nextTurn(); combat.setData(r); setTurnNote([...(r.ended ?? []).map((e: any) => `${e.name} ended on ${e.combatant}`), ...(r.deathSaveDue ? [`${r.deathSaveDue} is down: death save`] : [])].join('. ')); })}>Next turn ▸</button>
             <button type="button" className="btn" disabled={act.busy} onClick={() => void setState({ active: false })}>End combat</button>
           </>
         ) : (
@@ -35,9 +37,10 @@ export default function DMCombat() {
         )}
       </div>
       <ErrorBox error={combat.error || act.error} />
+      {turnNote && <div role="status" className="chip gold" style={{ whiteSpace: 'normal', alignSelf: 'flex-start' }}>{turnNote}</div>}
       <div className="cols">
         <section className="col-3 stack" aria-label="Initiative order">
-          {combat.loading ? <Loading /> : list.length ? list.map((x, i) => <Row key={x.id} x={x} current={!!c.active && i === turnIdx} mode={info.settings.monsterHealth} />) : (
+          {combat.loading ? <Loading /> : list.length ? list.map((x, i) => <Row key={x.id} x={x} current={!!c.active && i === turnIdx} mode={info.settings.monsterHealth} allNames={list.map((o) => ({ id: o.id, name: o.name }))} />) : (
             <div className="card"><Empty>No one in the fight yet. Add combatants on the right.</Empty></div>
           )}
           {list.length > 0 && (
@@ -52,20 +55,41 @@ export default function DMCombat() {
   );
 }
 
-function Row({ x, current, mode }: { x: any; current: boolean; mode: string }) {
+/** "Prone · 2 rd", "Stunned · until end of Cora's turn". */
+function effectLabel(ef: Effect, names: { id: string; name: string }[]): string {
+  const who = ef.until ? (names.find((n) => n.id === ef.until!.of)?.name ?? 'its source') : '';
+  return `${ef.name}${ef.rounds ? ` · ${ef.rounds} rd` : ''}${ef.until ? ` · until ${ef.until.at} of ${who}'s turn` : ''}`;
+}
+
+function Row({ x, current, mode, allNames }: { x: any; current: boolean; mode: string; allNames: { id: string; name: string }[] }) {
   const { w, nameOf } = useWorld();
   const act = useAction();
   const [amount, setAmount] = useState('');
   const [effect, setEffect] = useState('');
   const [rounds, setRounds] = useState('');
+  const [lasts, setLasts] = useState('none');
+  const [lastsOf, setLastsOf] = useState('self');
+  const [crit, setCrit] = useState(false);
+  const [spell, setSpell] = useState('');
+  const [roll, setRoll] = useState('');
+  // What the last change did (a concentration save is due, a death save failed), until the next one.
+  const [notice, setNotice] = useState('');
   const effects: Effect[] = x.effects ?? [];
-  const patch = (p: Record<string, unknown>) => act.run(() => w.updateCombatant(x.id, p));
+  const patch = (p: Record<string, unknown>) => act.run(async () => {
+    const r: any = await w.updateCombatant(x.id, p);
+    setNotice(Array.isArray(r?.notes) ? r.notes.join('. ') : '');
+    return r;
+  });
+  const conc: { spell: string; dc: number | null } | null = x.concentration ?? null;
+  const ds: { successes: number; failures: number; stable: boolean; dead: boolean } | null = x.death_saves ?? null;
+  const dying = !!x.is_pc && x.hp !== null && x.hp <= 0 && !ds?.stable && !ds?.dead;
 
   const applyAmount = (heal: boolean) => {
     const n = Math.abs(parseInt(amount, 10));
     if (!n) return;
-    void patch(heal ? { heal: n } : { damage: n });
+    void patch(heal ? { heal: n } : { damage: n, ...(crit ? { crit: true } : {}) });
     setAmount('');
+    setCrit(false);
   };
   // Native, non-passive wheel listener so scrolling the HP box changes HP
   // instead of the page.
@@ -88,10 +112,13 @@ function Row({ x, current, mode }: { x: any; current: boolean; mode: string }) {
     e.preventDefault();
     if (!effect.trim()) return;
     const r = parseInt(rounds, 10);
-    void patch({ effects: [...effects, r > 0 ? { name: effect.trim(), rounds: r } : { name: effect.trim() }] });
+    const timer = lasts === 'rounds' ? (r > 0 ? { rounds: r } : {}) : lasts === 'end' ? { untilEndOf: lastsOf } : lasts === 'start' ? { untilStartOf: lastsOf } : {};
+    void patch({ effects: [...effects, { name: effect.trim(), ...timer }] });
     setEffect('');
     setRounds('');
+    setLasts('none');
   };
+  const others: { id: string; name: string }[] = allNames;
   const pct = x.hp !== null && x.max_hp ? Math.max(0, Math.min(100, (x.hp / x.max_hp) * 100)) : null;
 
   const [fxOpen, setFxOpen] = useState(false);
@@ -113,17 +140,58 @@ function Row({ x, current, mode }: { x: any; current: boolean; mode: string }) {
             {pct !== null && <span className="bar"><span style={{ width: `${pct}%`, background: pct > 50 ? 'var(--ok-text)' : pct > 25 ? 'var(--accent)' : 'var(--danger)' }} /></span>}
           </span>
         )}
+        {x.temp_hp > 0 && (
+          <span className="chip teal" title="Temporary HP: damage takes these first, and they never stack">+{x.temp_hp} temp
+            <button type="button" className="btn ghost small x" aria-label={`Clear temporary HP on ${x.name}`} onClick={() => void patch({ setTempHp: 0 })}>×</button>
+          </span>
+        )}
         <form className="row" style={{ flex: '1 1 auto', gap: 8 }} onSubmit={(e) => { e.preventDefault(); applyAmount(false); }}>
           <label className="sr-only" htmlFor={`amt-${x.id}`}>Amount for {x.name}</label>
           <input id={`amt-${x.id}`} className="input" inputMode="numeric" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
             onKeyDown={(e) => { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); applyAmount(true); } }} />
           <button type="submit" className="btn danger" disabled={!amount}>Damage</button>
           <button type="button" className="btn" disabled={!amount} onClick={() => applyAmount(true)}>Heal</button>
+          <button type="button" className="btn" disabled={!amount} title="Temporary HP never stack: the higher number is kept" onClick={() => { void patch({ tempHp: Math.abs(parseInt(amount, 10)) }); setAmount(''); }}>Temp HP</button>
+          {x.is_pc && <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={crit} onChange={(e) => setCrit(e.target.checked)} /> Crit</label>}
         </form>
       </div>
+      {notice && <div role="status" className="chip gold" style={{ whiteSpace: 'normal', alignSelf: 'flex-start' }}>{notice}</div>}
+      <div className="cb-fx">
+        {conc ? (
+          <>
+            <span className="chip teal">Concentrating: {conc.spell}</span>
+            {conc.dc !== null && <span className="chip red" role="status">Constitution save DC {conc.dc}</span>}
+            {conc.dc !== null && <button type="button" className="btn small" onClick={() => void patch({ concentrationSave: { result: 'pass' } })}>Passed</button>}
+            {conc.dc !== null && <button type="button" className="btn small danger" onClick={() => void patch({ concentrationSave: { result: 'fail' } })}>Failed: loses it</button>}
+            <button type="button" className="btn small ghost" aria-label={`${x.name} stops concentrating`} onClick={() => void patch({ concentration: null })}>Drop</button>
+          </>
+        ) : (
+          <form onSubmit={(e) => { e.preventDefault(); if (spell.trim()) { void patch({ concentration: spell.trim() }); setSpell(''); } }}>
+            <label className="sr-only" htmlFor={`conc-${x.id}`}>Concentrating on, for {x.name}</label>
+            <input id={`conc-${x.id}`} className="input" style={{ width: 170 }} placeholder="Concentrating on…" value={spell} onChange={(e) => setSpell(e.target.value)} />
+            <button type="submit" className="btn small" disabled={!spell.trim()}>Concentrate</button>
+          </form>
+        )}
+      </div>
+      {x.is_pc && (ds?.dead || ds?.stable || dying) && (
+        <div className="cb-fx" aria-label={`Death saves for ${x.name}`}>
+          {ds?.dead ? <span className="chip red">Dead</span> : ds?.stable ? <span className="chip teal">Stable at 0 HP</span> : (
+            <>
+              <span className="chip red">Death saves</span>
+              <span title="Successes">✓ {ds?.successes ?? 0}/3</span>
+              <span title="Failures">✗ {ds?.failures ?? 0}/3</span>
+              <label className="sr-only" htmlFor={`roll-${x.id}`}>Death save d20 for {x.name}</label>
+              <input id={`roll-${x.id}`} className="input" style={{ width: 80 }} inputMode="numeric" placeholder="d20" value={roll} onChange={(e) => setRoll(e.target.value.replace(/[^\d]/g, ''))} />
+              <button type="button" className="btn small" disabled={!(parseInt(roll, 10) >= 1 && parseInt(roll, 10) <= 20)} onClick={() => { void patch({ deathSave: { roll: parseInt(roll, 10) } }); setRoll(''); }}>Roll</button>
+              <button type="button" className="btn small" onClick={() => void patch({ deathSave: { result: 'success' } })}>Success</button>
+              <button type="button" className="btn small danger" onClick={() => void patch({ deathSave: { result: 'failure' } })}>Failure</button>
+            </>
+          )}
+        </div>
+      )}
       <div className="cb-fx">
         {effects.map((ef, i) => (
-          <span key={i} className="chip gold">{ef.name}{ef.rounds ? ` · ${ef.rounds} rd` : ''}
+          <span key={i} className="chip gold">{effectLabel(ef, allNames)}
             <button type="button" className="btn ghost small x" aria-label={`Remove ${ef.name}`} onClick={() => void patch({ effects: effects.filter((_, j) => j !== i) })}>×</button>
           </span>
         ))}
@@ -131,8 +199,28 @@ function Row({ x, current, mode }: { x: any; current: boolean; mode: string }) {
           <form onSubmit={(e) => { addEffect(e); setFxOpen(false); }}>
             <label className="sr-only" htmlFor={`ef-${x.id}`}>New condition on {x.name}</label>
             <input id={`ef-${x.id}`} className="input" style={{ width: 150 }} placeholder="Prone, Poisoned…" autoFocus value={effect} onChange={(e) => setEffect(e.target.value)} />
-            <label className="sr-only" htmlFor={`efr-${x.id}`}>Rounds</label>
-            <input id={`efr-${x.id}`} className="input" style={{ width: 80 }} inputMode="numeric" placeholder="Rounds" value={rounds} onChange={(e) => setRounds(e.target.value.replace(/[^\d]/g, ''))} />
+            <label className="sr-only" htmlFor={`efl-${x.id}`}>How long it lasts</label>
+            <select id={`efl-${x.id}`} value={lasts} onChange={(e) => setLasts(e.target.value)}>
+              <option value="none">Until removed</option>
+              <option value="rounds">Rounds</option>
+              <option value="end">Until end of a turn</option>
+              <option value="start">Until start of a turn</option>
+            </select>
+            {lasts === 'rounds' && (
+              <>
+                <label className="sr-only" htmlFor={`efr-${x.id}`}>Rounds</label>
+                <input id={`efr-${x.id}`} className="input" style={{ width: 80 }} inputMode="numeric" placeholder="Rounds" value={rounds} onChange={(e) => setRounds(e.target.value.replace(/[^\d]/g, ''))} />
+              </>
+            )}
+            {(lasts === 'end' || lasts === 'start') && (
+              <>
+                <label className="sr-only" htmlFor={`efo-${x.id}`}>Whose turn</label>
+                <select id={`efo-${x.id}`} value={lastsOf} onChange={(e) => setLastsOf(e.target.value)}>
+                  <option value="self">{x.name}'s next turn</option>
+                  {others.filter((o) => o.id !== x.id).map((o) => <option key={o.id} value={o.id}>{o.name}'s next turn</option>)}
+                </select>
+              </>
+            )}
             <button type="submit" className="btn small" disabled={!effect.trim()}>Add</button>
             <button type="button" className="btn small ghost" onClick={() => setFxOpen(false)}>Cancel</button>
           </form>
@@ -163,7 +251,8 @@ function AddForm() {
     for (let i = 1; i <= n; i++) {
       await w.addCombatant({
         name: n > 1 ? `${base} ${i}` : base,
-        initiative: init ? parseInt(init, 10) : Math.floor(Math.random() * 20) + 1,
+        // Blank: a monster with a rules statblock rolls d20 plus Dexterity on the server, anything else a plain d20.
+        ...(init ? { initiative: parseInt(init, 10) } : acc ? { initiative: Math.floor(Math.random() * 20) + 1 } : { roll: true }),
         ...(hp ? { hp: parseInt(hp, 10), maxHp: parseInt(hp, 10) } : {}),
         ...(acc ? { accountId: acc } : {}),
         hidden,
@@ -183,7 +272,7 @@ function AddForm() {
       </Field>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder={acc ? 'Their character name' : 'Dock thug'} /></Field>
       <div className="grid small">
-        <Field label="Initiative" help="Empty rolls a d20"><input inputMode="numeric" value={init} onChange={(e) => setInit(e.target.value.replace(/[^\d-]/g, ''))} /></Field>
+        <Field label="Initiative" help="Empty rolls a d20 (plus Dexterity for a known monster)"><input inputMode="numeric" value={init} onChange={(e) => setInit(e.target.value.replace(/[^\d-]/g, ''))} /></Field>
         <Field label="HP" help={acc ? 'Optional for PCs' : 'Max HP'}><input inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value.replace(/[^\d]/g, ''))} /></Field>
         {!acc && <Field label="How many"><input inputMode="numeric" value={count} onChange={(e) => setCount(e.target.value.replace(/[^\d]/g, ''))} /></Field>}
       </div>
