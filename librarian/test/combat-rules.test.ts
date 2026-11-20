@@ -336,3 +336,9 @@ test('Combat_Migration: the new columns are additive on an existing database', (
   const cols = (k.deps.db.prepare('PRAGMA table_info(combatants)').all() as any[]).map((c) => c.name);
   for (const c of ['temp_hp', 'concentration', 'death_saves']) assert.ok(cols.includes(c), c);
 });
+
+
+test('Combat_ConcentrationSentAsJsonTextIsReadAsTheObject', async () => {
+  const id = await add({ name: 'Mage Orrin', initiative: 7, hp: 20, maxHp: 20 });
+  assert.deepEqual((await patch(id, { concentration: '{"spell": "Bless", "dc": 10}' })).concentration, { spell: 'Bless', dc: 10 }, 'what a model sends as text');
+});

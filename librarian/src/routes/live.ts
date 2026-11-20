@@ -281,6 +281,8 @@ const oneOfResult = (v: unknown): 'success' | 'failure' => {
 /** A spell name (or {spell, dc}) starts concentration, a new one replacing the old; null or "" drops it. */
 function concInput(v: unknown): Concentration | null {
   if (v === null || v === '') return null;
+  // A model sometimes sends the object as text ('{"spell": "Bless"}'): read it as the object it is.
+  if (typeof v === 'string' && /^\s*\{/.test(v)) { try { return concInput(JSON.parse(v)); } catch (e) { if (e instanceof HttpError) throw e; } }
   if (typeof v === 'string') return { spell: str(v, 'concentration', { max: 80 }), dc: null };
   if (v && typeof v === 'object') {
     const o = v as any;
