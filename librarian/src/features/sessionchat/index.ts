@@ -146,6 +146,8 @@ const feature: Feature = {
     r.post('/sessions/start', requireDM, (req, res) => {
       const w = W(res);
       const cur = currentSession(db, w);
+      // The assistant asked to open the table and it is open: that is done, not a failure.
+      if (cur && req.get('X-Alexandria-Caller') === 'model') { res.json({ ...sessionOut(cur), alreadyRunning: true }); return; }
       if (cur) throw new HttpError(409, 'A session is already running');
       const s = startSession(db, w, str(req.body?.title, 'title', { max: 100, optional: true }) || 'Game night', me(res), 'manual', null);
       audit(db, w, me(res), 'sessionchat.start', s.title);

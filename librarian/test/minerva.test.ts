@@ -227,6 +227,9 @@ test('TestMinerva_PromotionNeedsThreeSessionsAnActiveThreadOrABond', async () =>
   assert.match((await page(made.rel)).body, /\[\[session-3\]\]/);
   assert.ok(!(await dm('GET', '/minerva/promotions')).candidates.some((x: any) => x.name === 'Mara Quill'));
   assert.equal((await call('POST', w('/minerva/promote'), T.dm, { name: 'Mara Quill' })).status, 409, 'no second page');
+  const viaModel = await fetch(base + w('/minerva/promote'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${T.dm}`, 'X-Alexandria-Caller': 'model' }, body: JSON.stringify({ name: 'Mara Quill' }) });
+  assert.equal(viaModel.status, 200, 'for the assistant an existing page is the asked-for state');
+  assert.equal(((await viaModel.json()) as any).existing, true);
 });
 
 test('TestMinerva_RevelationMarksBecomeKnowledge', async () => {
