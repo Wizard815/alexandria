@@ -61,6 +61,7 @@ export default function ScreensPage() {
         <p className="small muted">Open each display, then put it on its monitor. {can
           ? 'This browser can do that for you: find your screens below, choose one for each display, and it opens full-size there.'
           : 'This browser cannot choose the monitor for a window (Chrome and Edge can). Open the display, drag its window onto the right screen and press F11 for full screen.'}</p>
+        <p className="small muted" data-testid="screens-sound-note"><strong>Sound on the TV:</strong> a browser plays video with sound only after one click on the page, so the Players’ screen asks for a single click when it opens (that click also goes full screen). In Chrome or Edge you can allow sound for this site for good: open the lock icon in the address bar, Site settings, Sound (or Autoplay), Allow. The Alexandria desktop app needs no click: its menu has “Open players’ screen”.</p>
       </section>
 
       {can && (

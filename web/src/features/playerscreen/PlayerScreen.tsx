@@ -3,7 +3,7 @@
 // GET /screen/players, which the server builds as the player view whoever is
 // signed in; nothing here fetches a DM endpoint. Live through the world's
 // event stream, like the player stage.
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { Markdown } from '../../ui/index.tsx';
@@ -12,7 +12,8 @@ import { Blocks, Facts, LIB_CSS, type RenderCtx } from '../../pages/library/Bloc
 interface Combatant { id: string; name: string; is_pc: boolean; effects: { name: string; rounds?: number }[]; health: string | null }
 interface Combat { active: boolean; round: number; currentId?: string | null; combatants?: Combatant[] }
 interface Card { id: string; kind: string; z: number; data: any }
-interface Media { mode: string; playing: boolean; current: { id: string; kind: 'youtube' | 'image' | 'video'; embed: string | null; url: string | null } | null }
+interface Current { id: string; kind: 'youtube' | 'image' | 'video'; embed: string | null; youtubeId: string | null; url: string | null; sound?: boolean; loop?: boolean; playSecs?: number }
+interface Media { mode: string; playing: boolean; version: number; advancedAt: number; current: Current | null }
 interface ScreenData { world: { name: string }; stage: { layout: string; spotlightId: string | null; cards: Card[]; combat: Combat | null }; media: Media }
 
 const NOOP_CTX: RenderCtx = { links: {}, isDM: false, children: [], open: () => {} };
@@ -23,6 +24,12 @@ export const CSS = `
 .ps-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 2vh; }
 .ps-media { position: absolute; inset: 0; background: #000; z-index: 2; display: flex; align-items: center; justify-content: center; }
 .ps-media iframe { width: 100%; height: 100%; border: 0; }
+.ps-media video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.ps-yt { position: absolute; inset: 0; }
+.ps-yt iframe { width: 100%; height: 100%; border: 0; }
+.ps-unlock { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 0.5em; background: color-mix(in srgb, var(--bg) 94%, #000); color: var(--text); border: 0; font: inherit; font-size: 1.4em; cursor: pointer; text-align: center; padding: 4vw; }
+.ps-unlock strong { font-family: var(--font-head); font-size: 2em; color: var(--accent-strong); }
+.ps-sound { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 0.55); color: #fff; border: 0; font: inherit; font-size: 2.2em; cursor: pointer; }
 .ps-media img { max-width: 100%; max-height: 100%; object-fit: contain; animation: ps-fade 0.6s ease; }
 @keyframes ps-fade { from { opacity: 0; } to { opacity: 1; } }
 .ps-side { flex: 0 0 min(28vw, 560px); min-height: 0; overflow: hidden; z-index: 3; }
@@ -61,6 +68,106 @@ function Countdown({ endsAt }: { endsAt: string }) {
 function useSrc() {
   const { client } = useAuth();
   return (url: string | null) => (url ? (url.startsWith('/') ? client.baseUrl + url : url) : undefined);
+}
+
+// ---- sound unlock and video ----
+
+/** Can this page start a video with sound right now? Tried for real with a silent half-second sound. */
+async function canAutoplayWithSound(): Promise<boolean> {
+  try {
+    const rate = 8000, n = rate / 2;
+    const b = new Uint8Array(44 + n);
+    const v = new DataView(b.buffer);
+    const w = (o: number, t: string) => { for (let i = 0; i < t.length; i++) b[o + i] = t.charCodeAt(i); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+    const url = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+    const a = new Audio(url);
+    a.volume = 0.01;
+    try { await a.play(); a.pause(); return true; } catch { return false; } finally { URL.revokeObjectURL(url); }
+  } catch { return false; }
+}
+
+let ytApi: Promise<any> | null = null;
+/** YouTube's IFrame Player API (script loaded once). Rejects when it cannot be loaded. */
+function loadYouTube(): Promise<any> {
+  if ((window as any).YT?.Player) return Promise.resolve((window as any).YT);
+  ytApi ??= new Promise((resolve, reject) => {
+    const prev = (window as any).onYouTubeIframeAPIReady;
+    (window as any).onYouTubeIframeAPIReady = () => { prev?.(); resolve((window as any).YT); };
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.onerror = () => { ytApi = null; reject(new Error('YouTube could not be loaded')); };
+    document.head.appendChild(tag);
+    setTimeout(() => { if (!(window as any).YT?.Player) { ytApi = null; reject(new Error('YouTube took too long')); } }, 10000);
+  });
+  return ytApi;
+}
+
+/**
+ * One YouTube player for the whole session. After the one click that unlocks sound, each queued video is started with
+ * loadVideoById / unMute / playVideo on the same player, rather than a fresh autoplay iframe the browser may block again.
+ * If the API cannot load, a plain embed is used instead.
+ */
+function YouTubeLayer({ id, embed, unlocked }: { id: string | null; embed: string | null; unlocked: boolean }) {
+  const host = useRef<HTMLDivElement>(null);
+  const player = useRef<any>(null);
+  const want = useRef<string | null>(id);
+  const [failed, setFailed] = useState(false);
+  want.current = id;
+  const play = (p: any, vid: string) => {
+    try { p.loadVideoById(vid); p.unMute?.(); p.setVolume?.(100); p.playVideo?.(); } catch { /* player not ready */ }
+  };
+  useEffect(() => {
+    if (!id || player.current || failed) return;
+    let dead = false;
+    loadYouTube().then((YT) => {
+      if (dead || player.current || !host.current) return;
+      const el = document.createElement('div');
+      host.current.appendChild(el);
+      player.current = new YT.Player(el, {
+        host: 'https://www.youtube-nocookie.com',
+        width: '100%', height: '100%', videoId: want.current ?? undefined,
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, enablejsapi: 1, origin: window.location.origin },
+        events: { onReady: (e: any) => { if (want.current) play(e.target, want.current); } },
+      });
+    }, () => { if (!dead) setFailed(true); });
+    return () => { dead = true; };
+  }, [id, failed]);
+  useEffect(() => {
+    const p = player.current;
+    if (!p) return;
+    if (id) play(p, id); else { try { p.stopVideo(); } catch { /* not ready */ } }
+  }, [id]);
+  // The click that unlocks sound: unmute whatever is playing.
+  useEffect(() => { if (unlocked && id && player.current) { try { player.current.unMute(); player.current.playVideo(); } catch { /* not ready */ } } }, [unlocked, id]);
+  if (failed) return id && embed ? <iframe key={id} src={embed} title="Video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" /> : null;
+  return <div className="ps-yt" ref={host} style={{ display: id ? undefined : 'none' }} data-testid="yt-layer" />;
+}
+
+/** A library video. Sound on by default; if the browser refuses sound it plays muted behind a big "Tap to start sound". When it ends the server is told (see report). */
+function ScreenVideo({ cur, url, ended }: { cur: Current; url: string | undefined; ended: () => void }) {
+  const el = useRef<HTMLVideoElement>(null);
+  const [blocked, setBlocked] = useState(false);
+  const sound = cur.sound !== false;
+  const start = useCallback(() => {
+    const v = el.current;
+    if (!v) return;
+    v.muted = !sound;
+    v.play().then(() => setBlocked(false), () => {
+      if (!sound) return;
+      v.muted = true;
+      setBlocked(true);
+      v.play().catch(() => {});
+    });
+  }, [sound]);
+  useEffect(() => { start(); }, [start]);
+  return (
+    <>
+      <video ref={el} src={url} playsInline preload="auto" loop={!!cur.loop || (cur.playSecs ?? 0) > 0} muted={!sound} data-testid="screen-video" onEnded={ended} onCanPlay={() => { if (el.current?.paused) start(); }} />
+      {blocked && <button type="button" className="ps-sound" data-testid="tap-for-sound" onClick={() => { const v = el.current; if (v) { v.muted = false; void v.play(); } setBlocked(false); }}>Tap to start sound</button>}
+    </>
+  );
 }
 
 function PageBody({ page }: { page: any }) {
@@ -146,6 +253,18 @@ export default function PlayerScreen() {
   const data = useLoad(() => w.call<ScreenData>('GET', '/screen/players'), [w], ['stage', 'combat', 'person', 'page', 'settings', 'screen', 'libfile']);
   const [idle, setIdle] = useState(false);
   const [full, setFull] = useState(!!document.fullscreenElement);
+  // Browsers play sound only after one click on the page: asked once, then the whole session is unlocked.
+  const [unlocked, setUnlocked] = useState(false);
+  const [probed, setProbed] = useState(false);
+  const [endedKey, setEndedKey] = useState('');
+  const [retry, setRetry] = useState(0);
+  const [ytSeen, setYtSeen] = useState(false);
+  useEffect(() => { let on = true; void canAutoplayWithSound().then((ok) => { if (on) { if (ok) setUnlocked(true); setProbed(true); } }); return () => { on = false; }; }, []);
+  const unlock = () => {
+    setUnlocked(true);
+    void canAutoplayWithSound();
+    if (document.fullscreenEnabled && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
+  };
 
   useEffect(() => { document.title = `Players' screen · ${info.name}`; }, [info.name]);
   // Picture tickets expire after hours: a table that stays on all night refreshes them.
@@ -169,15 +288,36 @@ export default function PlayerScreen() {
   const combat = s?.stage.combat ?? null;
   const hasStage = !!s && s.stage.cards.length > 0;
   const mh = info.settings.monsterHealth;
+  const curKey = cur ? `${cur.id}:${s!.media.advancedAt}` : '';
+  const version = s?.media.version ?? 0;
+  useEffect(() => { if (cur?.kind === 'youtube') setYtSeen(true); }, [cur?.kind]);
+
+  // A video that has ended tells the server (item id and the version this screen saw). The server moves on once; if the
+  // version changed meanwhile (the report is stale) this runs again with the new one, and if it came too early it retries.
+  useEffect(() => {
+    if (!cur || cur.kind !== 'video' || endedKey !== curKey) return;
+    let on = true;
+    void w.call<{ accepted: boolean; reason?: string }>('POST', '/screen/media/ended', { id: cur.id, version }).then((r) => {
+      if (on && !r.accepted && r.reason === 'early') setTimeout(() => setRetry((n) => n + 1), 1100);
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [endedKey, curKey, version, retry]);
 
   return (
     <div className={`t-fantasy ps${idle ? ' idle' : ''}${cur ? ' media' : ''}`} aria-label="Players' screen">
       <style>{LIB_CSS + CSS}</style>
       {cur && (
         <div className="ps-media">
-          {cur.kind === 'youtube' && cur.embed && <iframe key={cur.id} src={cur.embed} title="Video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />}
           {cur.kind === 'image' && cur.url && <img key={cur.id} src={src(cur.url)} alt="" referrerPolicy="no-referrer" />}
+          {cur.kind === 'video' && cur.url && <ScreenVideo key={curKey} cur={cur} url={src(cur.url)} ended={() => setEndedKey(curKey)} />}
         </div>
+      )}
+      {(ytSeen || cur?.kind === 'youtube') && <div className="ps-media" style={{ display: cur?.kind === 'youtube' ? undefined : 'none' }}><YouTubeLayer id={cur?.kind === 'youtube' ? cur.youtubeId : null} embed={cur?.embed ?? null} unlocked={unlocked} /></div>}
+      {probed && !unlocked && (
+        <button type="button" className="ps-unlock" data-testid="unlock-sound" onClick={unlock}>
+          <strong>Click to start the players’ screen</strong>
+          <span>One click lets this screen play video with sound, and goes full screen.</span>
+        </button>
       )}
       {!cur && (hasStage ? <Stage stage={s!.stage} /> : <div className="ps-idle"><h1>{s?.world.name ?? info.name}</h1><p>The adventure continues…</p></div>)}
       {combat && <aside className="ps-side"><Order combat={combat} monsterHealth={mh} /></aside>}
