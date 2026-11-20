@@ -234,6 +234,12 @@ const ARGS: Record<string, Maker> = {
   set_initiative: async () => ({ combatant: await combatant('Goblin 1'), value: 14 }),
   heal_combatant: async () => ({ combatant: await combatant('Goblin 1'), amount: 2 }),
   set_conditions: async () => ({ combatant: await combatant('Goblin 1'), conditions: ['Prone'] }),
+  give_temp_hp: async () => ({ combatant: await combatant('Goblin 1'), amount: 5 }),
+  set_concentration: async () => ({ combatant: await combatant('Goblin 1'), spell: 'Bless' }),
+  // A save is only owed to someone concentrating, and death saves belong to a downed player character.
+  concentration_save: async () => ({ combatant: await once('cb-mage', async () => (await dm('POST', '/live/combatants', { name: 'Mage', initiative: 9, hp: 20, maxHp: 20, concentration: { spell: 'Bless', dc: 10 } })).id as string), result: 'pass' }),
+  set_combatant_state: async () => ({ combatant: await combatant('Goblin 1'), tempHp: 0 }),
+  death_save: async () => ({ combatant: await once('cb-downed', async () => (await dm('POST', '/live/combatants', { name: 'Tomas', initiative: 8, hp: 0, maxHp: 10, accountId: ID.tom })).id as string), roll: 12 }),
   remove_combatant: async () => ({ combatant: await combatant('Goblin 2') }),
   set_combat: () => ({ active: true, round: 1 }),
   make_statblock: () => ({ moduleTermId: 'dnd-2024:monster-goblin-warrior', addToCombat: true, initiative: 12 }),

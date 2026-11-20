@@ -86,7 +86,7 @@ export function loadCtx(d: Deps, worldId: string, initiativeOpen: boolean): CueC
   let sfx: string[] = [];
   try { sfx = indexOf(d).sfx.map((x) => x.name); } catch { sfx = []; }
   return {
-    combat: { active: !!st.active, turn: st.turn, combatants: rows.map((x) => ({ id: x.id, name: x.name, hp: x.hp, maxHp: x.max_hp, effects: parseJson<string[]>(x.effects, []).map(String), isPc: !!x.is_pc, accountId: x.account_id })) },
+    combat: { active: !!st.active, turn: st.turn, combatants: rows.map((x) => ({ id: x.id, name: x.name, hp: x.hp, maxHp: x.max_hp, effects: parseJson<any[]>(x.effects, []).map((e) => String(e?.name ?? e)), isPc: !!x.is_pc, accountId: x.account_id, concentration: parseJson(x.concentration, null) })) },
     party, pages, sfx, initiativeOpen,
   };
 }

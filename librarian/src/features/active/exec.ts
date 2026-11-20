@@ -12,6 +12,7 @@ import type { Call } from './intents.ts';
 export const ALLOWED = new Set([
   'play_music', 'stop_music', 'play_ambience', 'play_sfx', 'show_on_stage', 'hide_stage_card', 'send_quick_event', 'cancel_quick_event',
   'set_combat', 'next_turn', 'damage_combatant', 'heal_combatant', 'set_conditions', 'add_combatant', 'remove_combatant', 'set_initiative',
+  'give_temp_hp', 'set_concentration', 'concentration_save', 'death_save', 'set_combatant_state',
   'add_item', 'add_coin', 'advance_world_time', 'inventory_patch', 'inventory_delete', 'clock_undo',
 ]);
 
@@ -69,6 +70,9 @@ export function snapshot(d: Deps, worldId: string): Snap {
   return { combat: { active: !!st.active, round: st.round, turn: st.turn, list }, sound: { music: s?.music ? parseJson(s.music, null) : null, ambience: s?.ambience ? parseJson(s.ambience, null) : null } };
 }
 
+/** Everything the combat rules can change on one combatant, as it was in the snapshot. */
+const restore = (b: any): Call => ({ tool: 'set_combatant_state', args: { combatant: b.id, ...(b.hp !== null && b.hp !== undefined ? { hp: b.hp } : {}), tempHp: b.temp_hp ?? 0, concentration: parseJson(b.concentration, null), deathSaves: parseJson(b.death_saves, null), conditions: b.effects } });
+
 /** The calls that put things back, from before and after one call. Null: it cannot be undone. */
 export function undoFor(c: Call, before: Snap, r: CallResult): Call[] | null {
   const j = r.json ?? {};
@@ -86,10 +90,23 @@ export function undoFor(c: Call, before: Snap, r: CallResult): Call[] | null {
     case 'show_on_stage': { const id = j.id ?? j.card?.id; return id ? [{ tool: 'hide_stage_card', args: { cardId: id } }] : null; }
     case 'send_quick_event': { const id = j.id ?? j.event?.id; return id ? [{ tool: 'cancel_quick_event', args: { id } }] : null; }
     case 'set_combat': return [{ tool: 'set_combat', args: { active: before.combat.active, round: before.combat.round, turn: before.combat.turn } }];
-    case 'next_turn': return [{ tool: 'set_combat', args: { round: before.combat.round, turn: before.combat.turn } }];
+    case 'next_turn': {
+      // Conditions that counted down or ended come back as they were.
+      const now: any[] = Array.isArray(j.combatants) ? j.combatants : [];
+      const fx = before.combat.list.filter((b) => { const a = now.find((x) => x.id === b.id); return a && JSON.stringify(a.effects) !== JSON.stringify(b.effects); }).map((b): Call => ({ tool: 'set_conditions', args: { combatant: b.id, conditions: b.effects } }));
+      return [{ tool: 'set_combat', args: { round: before.combat.round, turn: before.combat.turn } }, ...fx];
+    }
+    case 'give_temp_hp': case 'set_concentration': case 'concentration_save': case 'death_save': case 'set_combatant_state': {
+      const b = before.combat.list.find((x) => x.id === c.args.combatant);
+      return b ? [restore(b)] : null;
+    }
     case 'damage_combatant': case 'heal_combatant': {
       const b = before.combat.list.find((x) => x.id === c.args.combatant);
-      if (!b || b.hp === null || b.hp === undefined) return null;
+      if (!b) return null;
+      // Temp HP, concentration or death saves moved too: a plain heal/damage back would not put them right.
+      const same = (a: unknown, z: unknown) => JSON.stringify(a ?? null) === JSON.stringify(z ?? null);
+      if ((typeof j.tempHp === 'number' && j.tempHp !== (b.temp_hp ?? 0)) || ('concentration' in j && !same(j.concentration, parseJson(b.concentration, null))) || ('deathSaves' in j && !same(j.deathSaves, parseJson(b.death_saves, null)))) return [restore(b)];
+      if (b.hp === null || b.hp === undefined) return null;
       const after = typeof j.hp === 'number' ? j.hp : j.combatant?.hp;
       const delta = typeof after === 'number' ? b.hp - after : null;
       if (delta === null) return null;
@@ -99,7 +116,9 @@ export function undoFor(c: Call, before: Snap, r: CallResult): Call[] | null {
     case 'add_combatant': { const id = j.id ?? j.combatant?.id; return id ? [{ tool: 'remove_combatant', args: { combatant: id } }] : null; }
     case 'remove_combatant': {
       const b = before.combat.list.find((x) => x.id === c.args.combatant);
-      return b ? [{ tool: 'add_combatant', args: { name: b.name, initiative: b.initiative, hp: b.hp ?? undefined, maxHp: b.max_hp ?? undefined, ac: b.ac ?? undefined, hidden: !!b.hidden, effects: b.effects, ...(b.account_id ? { accountId: b.account_id } : {}) } }] : null;
+      return b ? [{ tool: 'add_combatant', args: { name: b.name, initiative: b.initiative, hp: b.hp ?? undefined, maxHp: b.max_hp ?? undefined, ac: b.ac ?? undefined, hidden: !!b.hidden, tempHp: b.temp_hp || undefined, concentration: parseJson<any>(b.concentration, null) ?? undefined, deathSaves: parseJson<any>(b.death_saves, null) ?? undefined,
+        // A turn timer points at a combatant id, and this one gets a new id: keep the round counts only.
+        effects: b.effects.map((e: any) => ({ name: e.name, ...(e.rounds ? { rounds: e.rounds } : {}) })), ...(b.account_id ? { accountId: b.account_id } : {}) } }] : null;
     }
     case 'set_initiative': { const b = before.combat.list.find((x) => x.id === c.args.combatant); return b ? [{ tool: 'set_initiative', args: { combatant: b.id, value: b.initiative } }] : null; }
     case 'add_item': { const id = j.id ?? j.item?.id; return id ? [{ tool: 'inventory_delete', args: { id } }] : null; }
