@@ -82,3 +82,24 @@ See "What helps the DM agent" in MODELS.md. Recommended: set the embeddings job
 to a retrieval model such as bge-m3 and leave `ALX_AGENT_OPTS` at its defaults.
 Active mode scan examples (`ALX_ACTIVE_EXAMPLES=1`) are implemented and unit
 tested with a fake model but were not measured on the real model: off by default.
+
+## 8. Talking to the assistant, and how much it is given
+
+- **Where:** the side panel on every DM page (Ctrl+K), the Ask tab on the DM phone, and a
+  pop-out window (the arrow in the panel's header) for a second screen or beside other apps.
+  The pop-out is the same conversation as the panel.
+- **Voice:** the mic button beside Send records a request (up to a minute) and the world's own
+  speech model (the audio job) turns it into text in the box; nothing goes to a browser or cloud
+  dictation service. DM only. The wake word ("Minerva, ...") still works from the DM's mic while
+  recording.
+- **The live transcript:** while a session records, every message carries the newest transcript
+  lines and the rules terms said in them (the same terms the transcript highlights, "counter
+  spell" included), each with its one-line summary; `lookup_rule` gives the full text.
+- **Context size:** set the chat job option `contextTokens` to the model's window (Discover fills
+  it in). Unset is 32K, the sizes Alexandria always used: 20 transcript lines, 8 history turns,
+  12,000 characters per tool result. Under 16K it gives less; 100K-400K gives 300 lines; a 1M
+  model gets the whole night's transcript (3,000 lines). Every request is also fitted to the
+  window: old tool results are cut down first, then the oldest history turns go.
+- **Honesty:** earlier replies in the history carry a note of which tools really ran, and a reply
+  that claims a change with no tool call is asked again with a tool call required.
+

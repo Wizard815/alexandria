@@ -26,7 +26,7 @@ export interface Match {
 }
 
 interface Entry { term: string; kind: string; source: 'module' | 'library'; id: string; /** A common one-word item name: only a capitalised match counts. */ weak?: boolean; /** A one-word rules term that is also plain English: capitalised and not opening a sentence. */ plain?: boolean }
-interface Index { key: string; map: Map<string, Entry>; maxWords: number }
+interface Index { key: string; map: Map<string, Entry>; compact: Map<string, Entry>; maxWords: number }
 
 const MAX_WORDS = 6;
 const MAX_TEXT = 100_000;
@@ -70,14 +70,18 @@ const keyOf = (phrase: string): { key: string; words: number } | null => {
 
 function build(key: string, add: (put: (phrase: string, e: Entry, opts?: { weak?: boolean }) => void) => void): Index {
   const map = new Map<string, Entry>();
+  // The same names with the spaces taken out ("counterspell", "mistystep"): a speech model writes "counter spell".
+  const compact = new Map<string, Entry>();
   let maxWords = 1;
   add((phrase, e) => {
     const k = keyOf(phrase);
     if (!k || map.has(k.key)) return;
     map.set(k.key, e);
     if (k.words > maxWords) maxWords = k.words;
+    const c = k.key.replace(/[\s'’-]+/g, '');
+    if (c.length >= 7 && !compact.has(c) && !e.weak && !e.plain) compact.set(c, e);
   });
-  return { key, map, maxWords };
+  return { key, map, compact, maxWords };
 }
 
 const indexes = new WeakMap<DB, Map<string, Index>>();
@@ -121,7 +125,11 @@ function indexFor(db: DB, worldId: string, viewer: Viewer): Index {
   return idx;
 }
 
-export function findMatches(db: DB, worldId: string, viewer: Viewer, text: string): Match[] {
+/**
+ * `spoken`: the text is a transcript. Conditions then match in lower case too ("he is grappled"): said at the table
+ * they almost always mean the condition, and a speech model rarely capitalises them.
+ */
+export function findMatches(db: DB, worldId: string, viewer: Viewer, text: string, opts: { spoken?: boolean } = {}): Match[] {
   const idx = indexFor(db, worldId, viewer);
   const t = tokens(text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text);
   const out: Match[] = [];
@@ -135,7 +143,7 @@ export function findMatches(db: DB, worldId: string, viewer: Viewer, text: strin
       const key = t.slice(i, i + n).map((x) => x.w).join(' ');
       const e = idx.map.get(key);
       if (e && e.weak && n === 1 && (COMMON_ITEM_WORDS.has(key) || !/^\p{Lu}/u.test(text.slice(t[i].start, t[i].end)))) continue;
-      if (e && e.plain && n === 1) {
+      if (e && e.plain && n === 1 && !(opts.spoken && e.kind === 'condition')) {
         const first = text.slice(t[i].start, t[i].end);
         const before = text.slice(0, t[i].start).replace(/[\s"'“‘(\[]+$/, '');
         if (!/^\p{Lu}/u.test(first) || before === '' || /[.!?…:]$/.test(before)) continue;
@@ -147,6 +155,19 @@ export function findMatches(db: DB, worldId: string, viewer: Viewer, text: strin
         found = true;
         break;
       }
+    }
+    // Nothing by the words as written: the words run together ("counter spell" is Counterspell).
+    if (!found) for (let n = Math.min(3, t.length - i); n >= 2; n--) {
+      let ok = true;
+      for (let j = i; j < i + n - 1; j++) if (!/^[\s\-–—]+$/.test(text.slice(t[j].end, t[j + 1].start))) { ok = false; break; }
+      if (!ok) continue;
+      const e = idx.compact.get(t.slice(i, i + n).map((x) => x.w.replace(/['’]/g, '')).join(''));
+      if (!e) continue;
+      const start = t[i].start, end = t[i + n - 1].end;
+      out.push({ start, end, text: text.slice(start, end), term: e.term, kind: e.kind, source: e.source, id: e.id });
+      i += n;
+      found = true;
+      break;
     }
     if (!found) i++;
   }
