@@ -56,3 +56,4 @@
 .au-spoken-head { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 4px; }
 .au-sofar { padding: 8px 12px; font-size: calc(var(--au-size, 15px) * 0.9); }
 .au-btn.on { background: color-mix(in srgb, var(--au-colour, #D9B26A) 30%, transparent); }
+.au-rules-note { margin: 0 0 6px; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, #E39AA6 18%, transparent); font-size: 13px; }

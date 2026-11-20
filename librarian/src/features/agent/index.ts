@@ -53,6 +53,10 @@ function routes(d: import('../../app.ts').Deps) {
   r.post('/chats', (req, res) => {
     const c = caller(req, res);
     const chat = newChat(d.db, c.worldId, c.accountId, c.harness, str(req.body?.title, 'title', { max: 120, optional: true }));
+    if (req.body?.mode === 'helper' && c.harness === 'player') {
+      if (featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The DM has turned the table helper off');
+      run(d.db, "UPDATE agent_chats SET mode = 'helper' WHERE id = ?", chat.id);
+    }
     res.status(201).json(chatView(d.db, chat.id));
   });
   r.get('/chats/:id', (req, res) => {
@@ -88,6 +92,9 @@ function routes(d: import('../../app.ts').Deps) {
     const chat = ownChat(d.db, W(res), me(res), String(req.params.id));
     if (!chat) throw new HttpError(404, 'Chat not found');
     if (chat.harness !== who.harness) throw new HttpError(403, 'This chat belongs to another role');
+    // A player's helper chat (checked before anything is stored: a refused message leaves nothing behind).
+    const mode = (one<any>(d.db, 'SELECT mode FROM agent_chats WHERE id = ?', chat.id)?.mode ?? '') === 'helper' && who.harness === 'player' ? 'helper' as const : undefined;
+    if (mode === 'helper' && featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The DM has turned the table helper off');
     const text = str(req.body?.text, 'text', { max: 8000 }).trim();
     if (!text) throw new HttpError(400, 'text is required');
     const page = str(req.body?.page, 'page', { max: 300, optional: true });
@@ -109,7 +116,7 @@ function routes(d: import('../../app.ts').Deps) {
     addMessage(d.db, chat.id, 'user', text, { context: { page: page || undefined, selection: selection || undefined } });
     if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
-    void runAgent(d, who, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast });
+    void runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast });
     res.status(202).json(chatView(d.db, chat.id));
   });
 
@@ -225,6 +232,8 @@ const feature: Feature = {
     const ccols = (db.prepare('PRAGMA table_info(agent_chats)').all() as any[]).map((c) => c.name);
     if (!ccols.includes('summary')) db.exec(`ALTER TABLE agent_chats ADD COLUMN summary TEXT NOT NULL DEFAULT ''`);
     if (!ccols.includes('summary_upto')) db.exec('ALTER TABLE agent_chats ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0');
+    // A player's chat is with the broker ('') or with their table helper ('helper').
+    if (!ccols.includes('mode')) db.exec(`ALTER TABLE agent_chats ADD COLUMN mode TEXT NOT NULL DEFAULT ''`);
   },
   settings: {
     agentAutoApprove: {
@@ -232,6 +241,8 @@ const feature: Feature = {
       validate: (v) => { if (!Array.isArray(v) || v.length > 60 || v.some((x) => typeof x !== 'string' || x.length > 60)) throw new Error('agentAutoApprove must be a list of tool names'); },
     },
     agentPlayerChat: { type: 'boolean', default: true },
+    // A player's own out-of-character helper (their character, items, rules, what the party learned), beside the broker.
+    agentPlayerHelper: { type: 'boolean', default: true },
     combatRemoveDefeated: { type: 'boolean', default: false },
   },
   worldMount: 'agent',
