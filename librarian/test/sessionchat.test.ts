@@ -111,6 +111,12 @@ test('TestSessionChat_NeedsASessionAndTheDMStartsOne', async () => {
   const s = await ok('POST', C('/sessions/start'), T.dm, { title: 'Night one' });
   assert.equal(s.open, true);
   assert.equal((await call('POST', C('/sessions/start'), T.dm, {})).status, 409);
+  // The assistant asking to open an open table gets the session back, marked as already running.
+  const viaModel = await fetch(base + C('/sessions/start'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${T.dm}`, 'X-Alexandria-Caller': 'model' }, body: '{}' });
+  assert.equal(viaModel.status, 200);
+  const vm = await viaModel.json() as any;
+  assert.equal(vm.alreadyRunning, true);
+  assert.equal(vm.id, s.id);
   const after = await ok('GET', C('/current'), T.jess);
   assert.equal(after.session.id, s.id);
   assert.deepEqual(after.channels.map((c: any) => c.channel), ['table', 'party']);
