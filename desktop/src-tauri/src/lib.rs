@@ -100,6 +100,8 @@ fn window_opener(app: &AppHandle, url: Url) {
     let ours = server_url(app).is_some_and(|s| s.origin() == url.origin());
     if ours && url.path().ends_with("/assistant-window") {
         spawn_assistant(app, world_of(&url), false);
+    } else if ours && url.path().ends_with("/screen/players") {
+        spawn_players_screen(app, world_of(&url));
     } else {
         open_external(&url);
     }
@@ -184,6 +186,60 @@ fn spawn_assistant(app: &AppHandle, world: Option<String>, toggle: bool) {
     });
 }
 
+/// Show (or create) the players' screen window: the TV facing the table. Autoplay with sound is
+/// allowed here without a click (the DM chose to open this window): Windows WebView2 through a
+/// browser argument, Linux WebKitGTK through the webview setting. macOS WKWebView only takes
+/// that choice when the webview is created and Tauri offers no hook for it, so there the
+/// screen's own "Click to start" overlay unlocks sound.
+fn show_players_screen(app: &AppHandle, world: Option<String>) -> Result<(), String> {
+    let mut url = server_url(app).ok_or("No server address is set yet.")?;
+    let world = world.or_else(|| current_world(app)).ok_or("Open a world in the main window first.")?;
+    url.set_path(&format!("/w/{world}/screen/players"));
+    url.set_query(None);
+
+    if let Some(win) = app.get_webview_window("players-screen") {
+        if win.url().map(|u| u.path() != url.path()).unwrap_or(true) {
+            let _ = win.navigate(url);
+        }
+        let _ = win.show();
+        let _ = win.unminimize();
+        return win.set_focus().map_err(|e| e.to_string());
+    }
+
+    let nav = app.clone();
+    let builder = WebviewWindowBuilder::new(app, "players-screen", WebviewUrl::External(url))
+        .title("Players' screen · Alexandria")
+        .inner_size(1280.0, 720.0)
+        .min_inner_size(480.0, 270.0)
+        .on_navigation(move |u| allow_navigation(&nav, u));
+    #[cfg(windows)]
+    let builder = builder.additional_browser_args(
+        "--autoplay-policy=no-user-gesture-required",
+    );
+    let win = builder.build().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        let _ = win.with_webview(|wv| {
+            use webkit2gtk::{SettingsExt, WebViewExt};
+            if let Some(settings) = wv.inner().settings() {
+                settings.set_media_playback_requires_user_gesture(false);
+            }
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = win;
+    Ok(())
+}
+
+fn spawn_players_screen(app: &AppHandle, world: Option<String>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = show_players_screen(&app, world) {
+            eprintln!("players' screen window: {e}");
+        }
+    });
+}
+
 #[tauri::command]
 fn get_server(app: AppHandle) -> Option<String> {
     app.state::<State>().get().server
@@ -211,12 +267,13 @@ async fn set_server(app: AppHandle, url: String) -> Result<(), String> {
 fn build_menu(app: &AppHandle, on_top: bool) -> tauri::Result<(Menu<Wry>, CheckMenuItem<Wry>)> {
     let show = MenuItem::with_id(app, "show_assistant", format!("Show Assistant ({SHORTCUT})"), true, None::<&str>)?;
     let top = CheckMenuItem::with_id(app, "assistant_on_top", "Assistant always on top", true, on_top, None::<&str>)?;
+    let screen = MenuItem::with_id(app, "open_players_screen", "Open players' screen", true, None::<&str>)?;
     let reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
     let change = MenuItem::with_id(app, "change_server", "Change server…", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = PredefinedMenuItem::quit(app, None)?;
-    let main_menu = Submenu::with_items(app, "Alexandria", true, &[&show, &top, &sep1, &reload, &change, &sep2, &quit])?;
+    let main_menu = Submenu::with_items(app, "Alexandria", true, &[&show, &screen, &top, &sep1, &reload, &change, &sep2, &quit])?;
     let edit = Submenu::with_items(
         app,
         "Edit",
@@ -237,6 +294,7 @@ fn build_menu(app: &AppHandle, on_top: bool) -> tauri::Result<(Menu<Wry>, CheckM
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show_assistant" => spawn_assistant(app, None, false),
+        "open_players_screen" => spawn_players_screen(app, None),
         "assistant_on_top" => {
             let on = app.state::<OnTopItem>().0.is_checked().unwrap_or(false);
             app.state::<State>().update(|s| s.assistant_on_top = on);
