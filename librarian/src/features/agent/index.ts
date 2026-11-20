@@ -3,9 +3,10 @@
 // background and delivered by polling (GET /chats/:id) or the 'agent' event.
 // Writes the DM agent wants to make wait as pending actions until the DM
 // approves them (POST /actions/:id). Combat tools and statblocks live here.
-import { Router } from 'express';
+import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
-import { hasJob } from '../../core/ai.ts';
+import { hasJob, transcribe, ModelUnavailable } from '../../core/ai.ts';
+import { buildHint } from '../audio/hint.ts';
 import { all, one, run } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
 import { requireDM } from '../../core/auth.ts';
@@ -13,7 +14,7 @@ import { featureSetting } from '../../core/policy.ts';
 import { HttpError, int, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
-import { describeCall, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
+import { budgetFor, describeCall, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
 import { fastPlan } from './intent.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
 import { tryChatCommand } from '../active/commands.ts';
@@ -67,6 +68,21 @@ function routes(d: import('../../app.ts').Deps) {
     res.json({ ok: true });
   });
 
+  // Talk to the assistant: a short recording from the chat's mic button, turned into text by the world's own speech
+  // model (the audio job), never a browser or cloud dictation service. The text goes back to the box to send.
+  r.post('/dictate', requireDM, express.raw({ type: ['audio/*', 'video/webm', 'application/octet-stream'], limit: 8 * 1024 * 1024 }), async (req, res) => {
+    const c = ctx(res);
+    if (!Buffer.isBuffer(req.body) || req.body.length < 100) throw new HttpError(400, 'Send the recording as the request body');
+    if (!hasJob(d, 'audio')) throw new HttpError(503, 'No speech model is set (Admin, Models: the audio job)');
+    try {
+      const t = await transcribe(d, req.body, String(req.headers['content-type'] ?? 'audio/webm'), { prompt: buildHint(d.db, c.world.id) });
+      res.json({ text: (t.text ?? t.segments.map((s) => s.text).join(' ')).replace(/\s+/g, ' ').trim() });
+    } catch (e) {
+      if (e instanceof ModelUnavailable) throw new HttpError(503, 'The speech model is not available right now');
+      throw e;
+    }
+  });
+
   r.post('/chats/:id/messages', async (req, res) => {
     const who = caller(req, res);
     const chat = ownChat(d.db, W(res), me(res), String(req.params.id));
@@ -89,7 +105,7 @@ function routes(d: import('../../app.ts').Deps) {
     const fast = fastPlan(text, who.harness === 'dm');
     if (!fast) needModel();
     if (one(d.db, `SELECT 1 FROM agent_messages WHERE chat_id = ? AND status = 'working' AND created_at > ?`, chat.id, new Date(Date.now() - 10 * 60_000).toISOString())) throw new HttpError(409, 'The assistant is still answering the last message');
-    const { messages: history, summary } = historyFor(d, chat.id);
+    const { messages: history, summary } = historyFor(d, chat.id, budgetFor(d).history);
     addMessage(d.db, chat.id, 'user', text, { context: { page: page || undefined, selection: selection || undefined } });
     if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });

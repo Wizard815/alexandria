@@ -78,7 +78,7 @@ function routes(d: Deps) {
   // matched only for pages this viewer can open.
   r.post('/match', (req, res) => {
     const text = str(req.body?.text, 'text', { max: 200_000, optional: true });
-    res.json(findMatches(d.db, W(res), ctx(res).viewer, text));
+    res.json(findMatches(d.db, W(res), ctx(res).viewer, text, { spoken: req.body?.spoken === true }));
   });
 
   r.get('/card/:source/:id', (req, res) => {
