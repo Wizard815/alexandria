@@ -122,3 +122,40 @@ export function searchRules(db: DB, worldId: string, q: string, limit = 5): Rule
     score: Math.round(s * 100) / 100,
   }));
 }
+
+/** The monster statblock a combat name points at ("Goblins", "wolves", "Goblin 2"), or null. */
+export function findMonster(db: DB, worldId: string, name: string): MergedTerm | null {
+  const n = name.toLowerCase().trim().replace(/\s+\d+$/, '');
+  if (!n) return null;
+  const one = n.endsWith('ves') ? n.slice(0, -3) + 'f' : n.endsWith('es') && /(x|ch|sh|ss)es$/.test(n) ? n.slice(0, -2) : n.endsWith('s') ? n.slice(0, -1) : n;
+  // The exact name, then the 2024 rules' name for the plain version of a creature ("Goblin Warrior").
+  const wants = [...new Set([n, one, `${one} warrior`])];
+  const hits = searchTerms(db, worldId, one, { kind: 'monster', limit: 20 }).terms;
+  const t = wants.map((w) => hits.find((x) => [x.term, ...x.aliases].some((a) => a.toLowerCase() === w))).find(Boolean);
+  return t ? worldModules(db, worldId).byRef.get(t.id) ?? null : null;
+}
+
+/** Dexterity modifier of a monster term: its structured abilities, else the ability table in its text ("| 21 (+5) | 9 (-1) |"). */
+export function dexModifier(t: Pick<MergedTerm, 'text' | 'data'>): number | null {
+  const score = (t.data as any)?.abilities?.dex;
+  if (typeof score === 'number') return Math.floor((score - 10) / 2);
+  const rows = t.text.split('\n').filter((l) => l.trim().startsWith('|'));
+  const cells = (l: string) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  for (let i = 0; i + 2 < rows.length; i++) {
+    const col = cells(rows[i]).map((h) => h.toUpperCase()).indexOf('DEX');
+    if (col < 0 || !/^[\s|:-]+$/.test(rows[i + 1])) continue;
+    const m = /^(\d+)(?:\s*\(([+\-−–]?\d+)\))?/.exec(cells(rows[i + 2])[col] ?? '');
+    if (!m) return null;
+    return m[2] !== undefined ? Number(m[2].replace(/[−–]/, '-')) : Math.floor((Number(m[1]) - 10) / 2);
+  }
+  return null;
+}
+
+/** d20 plus Dexterity for a creature in the rules module; without a statblock only `plain` rolls (a bare d20). Null: nothing to roll. */
+export function rollMonsterInitiative(db: DB, worldId: string, name: string, plain = false): { d20: number; dex: number | null; total: number } | null {
+  let dex: number | null = null;
+  try { const t = findMonster(db, worldId, name); dex = t ? dexModifier(t) : null; } catch { dex = null; }
+  if (dex === null && !plain) return null;
+  const d20 = 1 + Math.floor(Math.random() * 20);
+  return { d20, dex, total: Math.max(-20, Math.min(60, d20 + (dex ?? 0))) };
+}
