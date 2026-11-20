@@ -34,7 +34,7 @@ export async function signIn(browser, base, user, pass, viewport, mobile, landin
   return { ctx, page };
 }
 
-export const DM_ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect', 'phone'];
+export const DM_ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect', 'phone'];
 export const PLAYER_ROUTES = ['', 'live', 'library', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect', 'rules', 'chat', 'sessionlog', 'bible', 'stage', 'audio', 'journal'];
 
 /** Console noise that is expected: permission checks (403/404), fonts, ResizeObserver. */

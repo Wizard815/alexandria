@@ -36,6 +36,9 @@ import MapBoard from './pages/shared/MapBoard.tsx';
 import * as F from './features/registry.ts';
 import AssistantWindow from './features/agent/AssistantWindow.tsx';
 import PlayerScreen from './features/playerscreen/PlayerScreen.tsx';
+import PanelRoute from './features/screens/PanelRoute.tsx';
+import SideScreen from './features/screens/SideScreen.tsx';
+import TableScreen from './features/screens/TableScreen.tsx';
 
 export function App() {
   const { ready } = useAuth();
@@ -59,6 +62,9 @@ export function App() {
       <Route path="/w/:world" element={<WorldProvider><WorldOutlet /></WorldProvider>}>
         <Route path="assistant-window" element={<AssistantWindow />} />
         <Route path="screen/players" element={<PlayerScreen />} />
+        <Route path="panel/:name" element={<PanelRoute />} />
+        <Route path="screen/side" element={<SideScreen />} />
+        <Route path="screen/table" element={<TableScreen />} />
         <Route path="dm" element={<DMLayout />}>
           <Route index element={<DMTable />} />
           <Route path="library" element={<LibraryPage />} />
