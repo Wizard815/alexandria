@@ -40,6 +40,11 @@ const fakeFetch: typeof fetch = async (input: any, init?: any) => {
   if (!url.startsWith('http://fake/')) return fetch(input, init);
   const body = JSON.parse(init.body);
   const user = String(body.messages.at(-1).content);
+  if (String(body.messages[0].content).startsWith('You check how a tabletop')) {
+    asked.push('RULES ' + user);
+    const content = /^Rule: Counterspell/.test(user) && /Arcana check/.test(user) ? JSON.stringify({ ok: false, note: 'In the 2024 rules Counterspell has no ability check: the caster of the spell makes a Constitution save.' }) : JSON.stringify({ ok: true });
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
   asked.push(user);
   const prev = /Summary so far:\n([\s\S]*?)\n\nNew transcript lines/.exec(user)?.[1] ?? '';
   const fresh = (user.split('New transcript lines (oldest first):\n')[1] ?? '').split('\n').filter(Boolean);
@@ -112,4 +117,25 @@ test('SessionSummary: a line repeating classified text is left out of the assist
   const live = liveLines(deps, W, true, 200);
   assert.ok(live.lines.length > 0);
   assert.ok(live.lines.every((l: any) => !l.text.includes('Glass Throne')), 'the classified line is not handed to the harness');
+});
+
+test('RulesCheck: a rules term said at the table is checked once; a clear mistake becomes a DM-only note', async () => {
+  const { rulesPass, ruleNotes } = await import('../src/features/audio/rulescheck.ts');
+  await rulesPass(deps, W, 'ss1'); // everything said so far is seen first
+  line('Jessamine: I cast counter spell on the mage!', 'players');
+  line('DM: Okay, make an Arcana check for the counterspell.', 'players');
+  asked.length = 0;
+  const r = await rulesPass(deps, W, 'ss1');
+  assert.equal(r.flagged, 1, JSON.stringify(r));
+  assert.ok(asked.some((a) => a.startsWith('RULES') && a.includes('Counterspell')), 'the rule text and the lines went to the model');
+  const notes = ruleNotes(deps, 'ss1', { onlyFlags: true });
+  assert.equal(notes[0].term, 'Counterspell');
+  assert.match(notes[0].note, /Constitution save/);
+  line('DM: and counter spell again next round', 'players');
+  assert.equal((await rulesPass(deps, W, 'ss1')).checked, 0, 'not the same term again within ten minutes');
+  assert.equal((await call('GET', `/api/worlds/${W}/audio/sessions/ss1/rule-notes`, T.jess)).status, 403, 'players never see the checks');
+  assert.equal((await ok('GET', `/api/worlds/${W}/audio/sessions/ss1/rule-notes`, T.dm)).notes.length, 1);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { rulesCheck: 'off' });
+  line('I cast Shield as a reaction', 'players');
+  assert.equal((await rulesPass(deps, W, 'ss1')).checked, 0, 'off is off');
 });

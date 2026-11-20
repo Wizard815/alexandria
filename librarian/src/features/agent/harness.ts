@@ -29,6 +29,7 @@ import { listSessions, sessionLines } from '../audio/api.ts';
 import { worldModules } from '../modules/store.ts';
 import { findMatches } from '../modules/match.ts';
 import { latestSummary } from '../audio/summary.ts';
+import { ruleNotes } from '../audio/rulescheck.ts';
 import { DM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
 import { agentOptions } from './options.ts';
 import { CONCISE } from './descriptions.ts';
@@ -63,6 +64,8 @@ export interface Caller {
   accountId: string;
   viewer: Viewer;
   harness: 'dm' | 'player';
+  /** A player's table helper rather than the broker. */
+  mode?: 'helper';
   /** The caller's own session token; held in memory only for this run. */
   token: string;
   port: number;
@@ -266,7 +269,7 @@ export function fitToBudget(messages: ChatMessage[], tokens: number): ChatMessag
   return out;
 }
 
-export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}, skills: 'full' | 'lite' | 'off' | boolean = 'full'): string {
+export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, summary = '', persona: Persona = {}, skills: 'full' | 'lite' | 'off' | boolean = 'full'): string {
   const dm = c.harness === 'dm';
   const mode = skills === true ? 'full' : skills === false ? 'off' : skills;
   const L: string[] = dm && mode === 'lite'
@@ -305,7 +308,16 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
       '- When the request has enough to act on, call the write tool right away (the DM confirms it). Fill small gaps yourself (a teaser, a title, a price in the DM\'s words) instead of asking or refusing. Do not say you lack a tool for something a tool you were given does.',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble, no repeating the question.',
     ]
-    : [
+    : c.mode === 'helper' ? [
+      `You are the table helper of one player in the tabletop campaign "${c.worldName}": out of character, friendly and quick, like a player who knows the rules well.`,
+      'You help with their own character (who they are, their items and coin, their goals and journal), the rules (spells, conditions, actions: use lookup_rule, never from memory), and what the party has seen and learned (tonight\'s summary, the transcript the players heard, the library pages shared with the party).',
+      'How to work:',
+      '- The message starts with a context block: who you are helping, their items, tonight so far, library matches. Use it first; most questions need no tool.',
+      '- You know only what this player knows. Never guess at secrets, hidden plots, monster stats the players have not seen, or what the DM has planned; say that is up to the DM.',
+      '- You cannot change anything. For their own journal and goals use my_memory_log and my_goal_update (the DM looks them over); for anything else, say what to ask the DM.',
+      '- Rules answers: name the rule, give the short version, then what it means for them right now. Cite pages as [Page title].',
+      '- Be brief. Lead with the answer; short bullets in Markdown; no preamble.',
+    ] : [
       `You are ${persona.brokerName || 'The Broker'}${persona.brokerTitle ? `, ${persona.brokerTitle}` : ''}, the information broker of the tabletop campaign "${c.worldName}". You talk to one player at a time, in the broker's own voice. You know only what this player knows: the library pages shared with the party, what the players heard, and this player's own notes, goals and clues.`,
       'How to work:',
       '- The message starts with a context block: library matches, the page on screen, what this player knows. Use it first; most questions need no tool.',
@@ -420,7 +432,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const ctxIn = input.context;
   const [combat, inv, brk, ppl] = await Promise.all([
     dm ? get(d, c, '/live/combat') : null,
-    !dm && WANTS_ITEMS.test(text) ? get(d, c, '/inventory?owner=me') : null,
+    !dm && (c.mode === 'helper' || WANTS_ITEMS.test(text)) ? get(d, c, '/inventory?owner=me') : null,
     !dm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
     !dm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
   ]);
@@ -450,11 +462,18 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     L.push(`Library matches for this message (page id in parentheses; cite by [title]):\n${hits.map((h, i) => `- [${h.title}] (${h.id}): ${h.snippet}${top[i] && i < 2 ? `\n  Starts: ${top[i]}` : ''}`).join('\n')}`);
   } else L.push('Library matches for this message: none.');
   // While a session is recording the last lines ride along (the DM's: everything DM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
+  // The table helper knows whose helper it is.
+  if (!dm && c.mode === 'helper') {
+    const me_ = one<any>(d.db, 'SELECT a.display_name AS d, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', c.worldId, c.accountId);
+    if (me_) L.push(`You are helping ${me_.d}${me_.ch ? `, who plays ${me_.ch}` : ''}.`);
+  }
   const budget = budgetFor(d);
   // The running summary of tonight's session (the DM's, or the players' for a player): the whole night in a few
   // hundred words, so a model that only gets the last lines still knows what came before.
   const sum = latestSummary(d, c.worldId, dm ? 'dm' : 'party');
   if (sum) L.push(`Session so far ("${sum.name}"${sum.active ? ', recording now' : ', ended'}; running summary of ${sum.lines} transcript lines):\n${sum.text.slice(0, 3000)}`);
+  // The rules calls Minerva flagged tonight (DM only): so "was that right?" has the answer at hand.
+  if (dm && sum) { const notes = ruleNotes(d, sum.sessionId, { onlyFlags: true, limit: 3 }); if (notes.length) L.push(`Rules checks flagged this session (newest first):\n${notes.map((n) => `- ${n.term}: ${n.note}`).join('\n')}`); }
   const live = liveLines(d, c.worldId, dm, budget.liveLines);
   if (live.session?.active && live.lines.length) {
     // The newest lines matter most: a long session keeps its end, not its start.

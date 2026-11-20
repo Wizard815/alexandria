@@ -822,3 +822,22 @@ test('Agent: a reply whose stream stops after a word with no finish is asked for
   const { reply } = await ask(e, e.T.dm, 'Tell me about the vote');
   assert.equal(reply.text, 'The vote is out to the table.');
 });
+
+test('Agent: a player\'s table helper is out of character, knows whose helper it is, reads only, and the DM can turn it off', async () => {
+  const e = env;
+  const h = await e.ok('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' });
+  assert.equal((await e.ok('POST', `${A(e)}/chats`, e.T.dm, { mode: 'helper' })).id ? true : false, true, 'a DM chat ignores the mode');
+  e.model.seen.length = 0;
+  e.model.queue.push(() => say('Shield is a reaction: +5 AC until the start of your next turn.'));
+  const r = await ask(e, e.T.jess, 'What does Shield do?', {}, h.id);
+  assert.match(r.reply.text, /reaction/);
+  const sys = e.model.seen[0].messages[0].content;
+  assert.match(sys, /table helper/);
+  assert.ok(!/broker/i.test(sys.split('\n')[0]), 'not the broker voice');
+  assert.match(e.model.seen[0].messages.at(-1).content, /You are helping/);
+  assert.ok(toolNames(e.model.seen[0]).every((t: string) => !/^(add_|damage_|set_|save_page|send_)/.test(t)), 'read tools only');
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerHelper: false });
+  assert.equal((await e.call('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' })).status, 403);
+  assert.equal((await e.call('POST', `${A(e)}/chats/${h.id}/messages`, e.T.jess, { text: 'hi' })).status, 403, 'an old helper chat stops too');
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerHelper: true });
+});
