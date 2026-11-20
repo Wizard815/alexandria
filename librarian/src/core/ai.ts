@@ -468,7 +468,8 @@ function buildBody(job: Job, c: JobConfig, req: ChatRequest, stream: boolean, l:
   }
   if (jm === 'schema' && req.jsonSchema) body.response_format = { type: 'json_schema', json_schema: { name: req.jsonSchema.name, schema: req.jsonSchema.schema, strict: req.jsonSchema.strict ?? false } };
   else if (jm === 'object' || jm === 'schema') body.response_format = { type: 'json_object' };
-  if (req.reasoningOff && isOpenRouter(c) && !l.noReasoning) body.reasoning = { enabled: false };
+  // OpenRouter's field; another server gets it only when the job option asks for it (a refusal is remembered).
+  if (req.reasoningOff && (isOpenRouter(c) || opt(c, 'reasoning') === 'off') && !l.noReasoning) body.reasoning = { enabled: false };
   if (stream && !l.noStreamOptions) body.stream_options = { include_usage: true };
   return { body, json: jm === null ? 'none' : jm === 'off' ? 'prompt' : jm };
 }
