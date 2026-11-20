@@ -48,14 +48,15 @@ await dm('PUT', '/live/combat', { active: true, round: 1, turn: 0 });
 const led = await api(tokJess, 'POST', '/live/ledger', { owner: 'me', amountCp: 700, note: 'Sold a spare dagger' });
 const pendingBefore = (await dm('GET', '/approvals')).counts.coin;
 
-const browser = await chromium.launch();
+// A fake microphone, so hold-to-talk records something the demo's fake speech model turns into text.
+const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const quiet = (t) => /Failed to load resource.*(40[1349]|5\d\d)|fonts\.g|net::ERR_|ResizeObserver/.test(t);
 const watch = (page, who) => {
   page.on('pageerror', (e) => problems.push(`${who} page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`${who} console: ${m.text()}`); });
 };
 async function signIn(viewport, mobile, who) {
-  const ctx = await browser.newContext({ viewport, isMobile: !!mobile, hasTouch: !!mobile });
+  const ctx = await browser.newContext({ viewport, isMobile: !!mobile, hasTouch: !!mobile, permissions: ['microphone'] });
   const page = await ctx.newPage();
   watch(page, who);
   await page.goto(base + '/login');
@@ -90,6 +91,140 @@ async function tour(page, label, wide) {
     check(both.includes('Now') && both.includes('Ask'), `${label}: two-pane shows ${both.join(', ')} not Now + Ask`);
   }
   note(`${label}: tabs load, no sideways scroll`);
+}
+
+// ---- the Ask tab: the real chat in its phone layout ----------------------------------------------
+const box = (page) => page.getByPlaceholder(/^Ask/);
+const sendText = async (page, text) => { await box(page).fill(text); await page.getByRole('button', { name: 'Send', exact: true }).click(); };
+const replied = (page, re, what) => page.waitForFunction((src) => [...document.querySelectorAll('[data-testid=ask-log] .msg:not(.me)')].some((m) => new RegExp(src).test(m.textContent)), re.source, { timeout: 30000 }).then(() => true).catch(() => { problems.push(`${what}: no reply matching ${re}`); return false; });
+const queueCount = (page) => page.evaluate(() => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Queue/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0); });
+const approvalCard = (page) => page.getByRole('group', { name: 'Waiting for your approval' }).first();
+
+async function askTour(page, label, wide) {
+  await tab(page, 'Ask').click();
+  await box(page).waitFor({ timeout: 8000 });
+
+  // Start from a chat of our own, so its title (the first message) is known below.
+  const empty = () => page.waitForFunction(() => document.querySelectorAll('[data-testid=ask-log] .msg').length === 0, null, { timeout: 8000 }).catch(() => problems.push(`${label}: a new chat should be empty`));
+  if (await page.getByRole('button', { name: 'New chat', exact: true }).count()) { await page.getByRole('button', { name: 'New chat', exact: true }).click(); await empty(); }
+  // A typed message and its streamed reply.
+  await sendText(page, 'Summarise the Lantern Hall in one line');
+  await replied(page, /You said: "Summarise the Lantern Hall/, `${label} typed message`);
+  // One tap on a quick prompt sends it.
+  await page.getByRole('button', { name: 'Who is concentrating?' }).click();
+  await replied(page, /You said: "Who is concentrating/, `${label} quick prompt`);
+  // The input is big and pinned just above the tab bar (a side rail on the Fold).
+  const inp = await box(page).boundingBox();
+  check(inp.height >= 52, `${label}: the message box is only ${inp.height}px tall`);
+  if (!wide) check(inp.y + inp.height <= (await page.locator('.dmp-tabs').boundingBox()).y + 1, `${label}: the message box is not above the tab bar`);
+  note(`${label}: Ask answered a typed message and a quick prompt`);
+
+  // Past chats: start one, name it, go back, come again, delete it.
+  const sel = page.getByTestId('ag-chat-select');
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await empty();
+  await page.getByRole('button', { name: 'Rename this chat' }).click();
+  await page.getByLabel('Chat name').fill('Table talk');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=ag-chat-select] option')].some((o) => /^Table talk/.test(o.textContent)), null, { timeout: 8000 }).catch(() => problems.push(`${label}: the rename did not show`));
+  const old = await page.evaluate(() => [...document.querySelectorAll('[data-testid=ag-chat-select] option')].find((o) => /^Summarise/.test(o.textContent))?.value);
+  check(!!old, `${label}: the first chat is not in the switcher`);
+  if (old) {
+    await sel.selectOption(old);
+    await replied(page, /You said: "Summarise the Lantern Hall/, `${label} back in the first chat`);
+    const talk = await page.evaluate(() => [...document.querySelectorAll('[data-testid=ag-chat-select] option')].find((o) => /^Table talk/.test(o.textContent))?.value);
+    await sel.selectOption(talk);
+    await page.getByRole('button', { name: 'Delete this chat' }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.waitForFunction(() => ![...document.querySelectorAll('[data-testid=ag-chat-select] option')].some((o) => /^Table talk/.test(o.textContent)), null, { timeout: 8000 }).catch(() => problems.push(`${label}: the chat was not deleted`));
+  }
+  note(`${label}: chat switcher: new, rename, switch, delete`);
+
+  // An approval card in the chat: big buttons, counted in the Queue badge, and approving clears both.
+  const before = await queueCount(page);
+  await sendText(page, 'Next turn: call next_turn');
+  const card = approvalCard(page);
+  await card.waitFor({ timeout: 20000 }).catch(() => problems.push(`${label}: no approval card appeared`));
+  const ab = await card.getByRole('button', { name: 'Approve' }).boundingBox();
+  check(ab && ab.height >= 60 && ab.width >= 100, `${label}: the Approve button is small (${ab?.width}x${ab?.height})`);
+  await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Queue/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before + 1, { timeout: 8000 }).catch(() => problems.push(`${label}: the Queue badge did not count the proposal`));
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await card.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push(`${label}: the card stayed after approving`));
+  check(((await dm('GET', '/agent/actions')).actions ?? []).length === 0, `${label}: approving in the chat left a pending action`);
+  await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Queue/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before, { timeout: 8000 }).catch(() => problems.push(`${label}: the badge did not drop after approving in the chat`));
+  await replied(page, /Done: /, `${label} approval result`);
+  note(`${label}: approval card approved in the chat, badge followed`);
+
+  // The other way round: approve in the Queue and the chat card goes (live, with both on screen on the Fold).
+  await sendText(page, 'Next turn: call next_turn');
+  await card.waitFor({ timeout: 20000 }).catch(() => problems.push(`${label}: no second approval card`));
+  await tab(page, 'Queue').click();
+  await page.locator('[aria-label="The assistant wants to"] [role=group]').first().getByRole('button', { name: 'Approve' }).click();
+  await tab(page, 'Ask').click();
+  await card.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push(`${label}: the chat card stayed after approving in the Queue`));
+  check(((await dm('GET', '/agent/actions')).actions ?? []).length === 0, `${label}: approving in the Queue left a pending action`);
+  note(`${label}: approval from the Queue cleared the chat card`);
+
+  // The combatant picked on Now goes along with the question.
+  await tab(page, 'Now').click();
+  await page.locator('.dmp .who').first().click();
+  await page.getByRole('button', { name: /Ask the assistant about this/ }).click();
+  const chip = page.getByRole('button', { name: /^Do not send / });
+  await chip.waitFor({ timeout: 5000 }).catch(() => problems.push(`${label}: the combatant was not attached in Ask`));
+  await tab(page, 'Ask').click();
+  await sendText(page, 'How hurt is this one?');
+  await replied(page, /You said: "How hurt is this one/, `${label} with a combatant attached`);
+  check((await chip.count()) === 1, `${label}: the attached combatant should stay until dropped`);
+  await chip.click();
+  check((await page.getByRole('button', { name: /^Attach / }).count()) === 1, `${label}: after dropping, the current turn should be offered`);
+  note(`${label}: a combatant attached from Now and dropped`);
+
+  // The session so far, folded away until asked for.
+  const st = await dm('GET', '/audio/status');
+  const sid = st.session?.id ?? st.lastSession?.id;
+  if (sid) await dm('POST', `/audio/sessions/${sid}/summary/refresh`, {});
+  const sofar = page.getByTestId('sofar');
+  await sofar.waitFor({ timeout: 8000 }).catch(() => problems.push(`${label}: no session summary card`));
+  const head = sofar.getByRole('button').first();
+  if ((await head.getAttribute('aria-expanded')) === 'false') await head.click();
+  check((await head.getAttribute('aria-expanded')) === 'true', `${label}: the summary card did not open`);
+  check((await page.locator('#sofar-body').innerText()).trim().length > 5, `${label}: the summary card is empty`);
+  await head.click();
+  check((await page.locator('#sofar-body').count()) === 0, `${label}: the summary card did not fold`);
+  note(`${label}: session-so-far card opens and folds`);
+
+  // Hold to talk: the fake microphone and the demo's fake speech model put text in the box.
+  const mic = page.getByTestId('ag-mic');
+  if (await mic.count()) {
+    const m = await mic.boundingBox();
+    await box(page).fill('');
+    await page.mouse.move(m.x + m.width / 2, m.y + m.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(900);
+    await page.mouse.up();
+    await page.waitForFunction(() => (document.querySelector('[data-ag-input]')?.value ?? '').trim().length > 0, null, { timeout: 15000 }).catch(() => problems.push(`${label}: hold-to-talk put nothing in the box`));
+    await box(page).fill('');
+    note(`${label}: hold-to-talk dictated into the box`);
+  } else problems.push(`${label}: no mic button`);
+
+  // Quick prompts are the DM's own: add one, and it is still there after a reload.
+  await page.getByTestId('quick-edit').click();
+  const dlg = page.getByRole('dialog', { name: 'Quick prompts' });
+  await dlg.getByRole('button', { name: 'Add a prompt' }).click();
+  await dlg.getByLabel('Button').last().fill('Zap check');
+  await dlg.getByLabel('What it asks').last().fill('Zap check please');
+  await dlg.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Zap check', exact: true }).waitFor({ timeout: 5000 }).catch(() => problems.push(`${label}: the new quick prompt did not appear`));
+  await page.reload();
+  await page.getByTestId('dmphone').waitFor({ timeout: 10000 });
+  await tab(page, 'Ask').click();
+  await page.getByRole('button', { name: 'Zap check', exact: true }).click();
+  await replied(page, /You said: "Zap check please/, `${label} edited quick prompt`);
+  note(`${label}: quick prompt added, remembered and sent`);
+
+  const small = await page.evaluate(() => [...document.querySelectorAll('.dmp button, .dmp a.b, .dmp input, .dmp textarea, .dmp select')].filter((e) => e.offsetParent && !e.closest('[hidden]') && e.closest('[role=tabpanel]')?.getAttribute('aria-label') === 'Ask').map((e) => { const r = e.getBoundingClientRect(); return { n: (e.getAttribute('aria-label') || e.textContent || e.tagName).trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height), pill: e.classList.contains('pill') }; }).filter((b) => !b.pill && (b.h < 47 || b.w < 47)));
+  check(!small.length, `${label}: Ask has small touch targets: ${small.map((b) => `${b.n} ${b.w}x${b.h}`).join(', ')}`);
+  check((await sideways(page)) <= 1, `${label}: Ask scrolls sideways`);
 }
 
 try {
@@ -146,12 +281,7 @@ try {
   check((await dm('GET', '/approvals')).counts.coin === pendingBefore - 1, 'approving from the queue did not clear the coin request');
   note('Queue: approved a coin request in one tap');
 
-  // Ask: the agent answers.
-  await tab(page, 'Ask').click();
-  await page.getByPlaceholder('Ask…').fill('Summarise the Lantern Hall in one line');
-  await page.getByRole('button', { name: 'Send' }).click();
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=ask-log] .msg')].filter((m) => !m.classList.contains('me') && m.textContent.trim().length > 3 && !/Thinking/.test(m.textContent)).length >= 1, null, { timeout: 30000 }).catch(() => problems.push('the agent chat did not answer'));
-  note('Ask: the agent replied');
+  await askTour(page, 'phone 390x844', false);
 
   // Notes: quick gen and a DM-only prep note.
   await tab(page, 'Notes').click();
@@ -174,6 +304,7 @@ try {
   // ---- Fold inner screen -----------------------------------------------------
   const f = await signIn({ width: 700, height: 850 }, true, 'fold');
   await tour(f.page, 'fold 700x850', true);
+  await askTour(f.page, 'fold 700x850', true);
   // The Queue tab in the left pane, Ask stays on the right.
   await tab(f.page, 'Queue').click();
   await f.page.waitForTimeout(500);
