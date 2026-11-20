@@ -508,3 +508,28 @@ test('TestCombat_CreaturesWithTheSameNameAreNumbered', async () => {
   const names = (await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants.map((x: any) => x.name).sort();
   assert.deepEqual(names, ['Bandit Captain', 'Wolf 1', 'Wolf 2', 'Wolf 3']);
 });
+
+test('TestActive_SpokenRequestReplyReachesOnlyTheDm', async () => {
+  await reset();
+  const { EventTap } = await import('./security-kit.ts');
+  const dmTap = new EventTap(`${base}/api/worlds/${W}/events`, T.dm);
+  const jessTap = new EventTap(`${base}/api/worlds/${W}/events`, T.jess);
+  await new Promise((r) => setTimeout(r, 100));
+  chat.queue.length = 0;
+  chat.queue.push(() => msg('The harbour council answers to Velmira, a DM secret.'), () => msg('The harbour council answers to Velmira, a DM secret.'));
+  await say('dm', 'Minerva, tell me who really rules the harbour council.');
+  await new Promise((r) => setTimeout(r, 150));
+  const row = (await log('done')).find((l) => l.tool === 'agent');
+  assert.ok(row, 'the spoken request ran as a task');
+  const spoken = (tap: { text: string }) => tap.text.split('\n\n').filter((b) => b.includes('"kind":"spoken"'));
+  const got = spoken(dmTap);
+  assert.equal(got.length, 1, dmTap.text);
+  const ev = JSON.parse(got[0].split('\n').find((l) => l.startsWith('data:'))!.slice(5));
+  const data = ev.data ?? ev;
+  assert.match(data.text, /Velmira/);
+  assert.ok((await ok('GET', `/api/worlds/${W}/agent/chats/${data.chatId}`, T.dm)).messages.length >= 2, 'the event names the chat that holds the reply');
+  assert.equal(jessTap.text.includes('Velmira'), false, 'a player never receives the reply');
+  assert.equal(spoken(jessTap).length, 0);
+  chat.queue.length = 0;
+  await dmTap.close(); await jessTap.close();
+});
