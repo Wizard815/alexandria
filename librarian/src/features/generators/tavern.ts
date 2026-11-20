@@ -72,7 +72,8 @@ const lockStr = (locks: Record<string, unknown> | undefined, k: string): string 
 
 export function genTavern(o: TavernOpts = {}): TavernResult {
   const seed = seedOf(o.seed);
-  const flavour = String(o.flavour ?? 'common').toLowerCase();
+  // Empty (a save that only passed the kind and the seed) means the default, as when it was generated.
+  const flavour = String(o.flavour ?? '').toLowerCase().trim().replace(/^(undefined|null)$/, '') || 'common';
   if (!(TAVERN_PRESETS as readonly string[]).includes(flavour)) throw new RangeError(`flavour must be one of ${TAVERN_PRESETS.join(', ')}`);
   const size = o.size === 'small' || o.size === 'large' ? o.size : 'medium';
   const coins = o.coins ?? o.world?.coins ?? 'gsc';

@@ -14,6 +14,7 @@ let tmp = '';
 const T: Record<string, string> = {};
 const ID: Record<string, string> = {};
 let W = '';
+let deps: any;
 
 async function call(method: string, url: string, token?: string, body?: unknown) {
   const r = await fetch(base + url, {
@@ -56,7 +57,9 @@ title: Brother Tamsin
 ---
 DM-only page by default.
 `);
-  const { app } = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
+  const { app } = made;
+  deps = made.deps;
   server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -420,4 +423,17 @@ test('TestPeople_ToolsFindAPersonByNameAsWellAsId', async () => {
   assert.equal(got.kind, 'ally', 'a unique start of the name finds them');
   await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Captain Mardel', role: 'Harbour', kind: 'neutral' });
   assert.equal((await call('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.dm, { kind: 'rival' })).status, 404, 'two people start that way: no guess');
+});
+
+test('TestAgentArgs_PlayerNamesPageIdsAndLooseAppliesResolve', async () => {
+  const { playerRefs } = await import('../src/features/agent/harness.ts');
+  const wid = (deps.db.prepare('SELECT id FROM worlds WHERE slug = ? OR id = ?').get(W, W) as any).id;
+  const mem = deps.db.prepare("SELECT a.id, a.username FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player' LIMIT 1").get(wid) as any;
+  assert.equal(playerRefs(deps, wid, { to: mem.username }).to, mem.id, 'a username');
+  assert.equal(playerRefs(deps, wid, { accountId: `acc_${mem.username}` }).accountId, mem.id, 'a made-up acc_ name');
+  assert.equal(playerRefs(deps, wid, { owner: 'party' }).owner, 'party');
+  assert.equal(playerRefs(deps, wid, { to: 'nobody at all' }).to, 'nobody at all', 'no guess');
+  const { genTavern } = await import('../src/features/generators/tavern.ts');
+  assert.equal(genTavern({ seed: 'abc', flavour: '' as any }).flavour, 'common', 'an empty flavour is the default');
+  assert.throws(() => genTavern({ seed: 'abc', flavour: 'spaceship' as any }));
 });
