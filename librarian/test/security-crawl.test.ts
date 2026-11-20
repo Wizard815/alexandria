@@ -691,7 +691,7 @@ test('TestSecurityAI_ClassifiedTextTypedByTheDmIsRefusedNotSent', async () => {
  * on purpose, in review; a new DM route needs nothing and is checked automatically.
  */
 const PLAYER_ROUTES = [
-  'DELETE /agent/chats/:id', 'DELETE /inventory/:iid', 'DELETE /live/presence', 'DELETE /map/:mapId/marks/:mid', 'DELETE /profiles/me/blocks/:bid', 'DELETE /sessionchat/messages/:mid',
+  'DELETE /agent/chats/:id', 'PATCH /agent/chats/:id', 'DELETE /inventory/:iid', 'DELETE /live/presence', 'DELETE /map/:mapId/marks/:mid', 'DELETE /profiles/me/blocks/:bid', 'DELETE /sessionchat/messages/:mid',
   'PATCH /inventory/:iid', 'PATCH /map/:mapId/marks/:mid', 'PATCH /sessionchat/messages/:mid',
   'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
