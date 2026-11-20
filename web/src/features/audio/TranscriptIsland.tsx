@@ -100,7 +100,7 @@ function Island() {
   const [view, setView] = useState<'lines' | 'sofar'>('lines');
   const [soFar, setSoFar] = useState<{ text: string; lines: number; updatedAt: string | null } | null>(null);
   // A rules term just said at the table: its card shows by itself for a while (a click keeps it).
-  const [spoken, setSpoken] = useState<{ m: Match; card: any; keep: boolean } | null>(null);
+  const [spoken, setSpoken] = useState<{ m: Match; card: any; keep: boolean; note?: string } | null>(null);
   const shownTerms = useRef(new Map<string, number>());
   const lastSeen = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -169,6 +169,13 @@ function Island() {
     });
     return () => { alive = false; };
   }, [lines, prefs.autoCards, st.recording, w]);
+  // Minerva flagged a rules call (DM only): the rule's card with her one-line note, kept until closed.
+  useEffect(() => on(['rules-note'], (e) => {
+    const n = e.data;
+    if (!isDM || !n || (sid && n.sessionId !== sid)) return;
+    const m: Match = { start: 0, end: 0, text: n.term, term: n.term, kind: 'rule', source: 'module', id: n.ref } as Match;
+    void loadCard(w, m).then((card) => { if (card) setSpoken({ m, card, keep: true, note: n.note }); });
+  }), [on, isDM, sid, w]);
   useEffect(() => {
     if (!spoken || spoken.keep) return;
     const t = setTimeout(() => setSpoken((cur) => (cur && !cur.keep ? null : cur)), 15_000);
@@ -232,9 +239,10 @@ function Island() {
 
   const ruleCard = spoken && (
     <div className="au-spoken" role="status" aria-live="polite" onClick={() => setSpoken({ ...spoken, keep: true })} data-testid="au-spoken">
-      <div className="au-spoken-head"><span className="muted">Said just now</span><span className="au-sp" />
-        {spoken.keep ? <span className="muted">kept</span> : <span className="muted">click to keep</span>}
+      <div className="au-spoken-head"><span className="muted">{spoken.note ? "Minerva" : "Said just now"}</span><span className="au-sp" />
+        {spoken.note ? <span className="muted">Rules check</span> : spoken.keep ? <span className="muted">kept</span> : <span className="muted">click to keep</span>}
         <button type="button" className="au-btn" aria-label="Close the rule card" onClick={(e) => { e.stopPropagation(); setSpoken(null); }}>×</button></div>
+      {spoken.note && <p className="au-rules-note" data-testid="au-rules-note"><i className="fa-solid fa-scale-balanced" aria-hidden="true" /> {spoken.note}</p>}
       <CardView card={spoken.card} m={spoken.m} />
     </div>
   );
