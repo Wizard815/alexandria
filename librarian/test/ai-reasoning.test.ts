@@ -95,3 +95,23 @@ test('AiReasoning_StreamedEmptyCutOffIsRetriedWiderToo', async () => {
   assert.equal(got.join(''), 'late answer');
   assert.equal(f.calls[1].body.max_tokens, 4000);
 });
+
+test('AiReasoning_AuditJobAsksOpenRouterNotToThinkByDefault', async () => {
+  const OR = { baseUrl: 'https://openrouter.ai/api/v1' };
+  const a = fake(OR, ok('yes'));
+  await chat(a.d, 'audit', { messages: msgs, maxTokens: 50 });
+  assert.deepEqual(a.calls[0].body.reasoning, { enabled: false }, 'audit: no thinking');
+  const c = fake(OR, ok('hi'));
+  await chat(c.d, 'chat', { messages: msgs, maxTokens: 50 });
+  assert.equal(c.calls[0].body.reasoning, undefined, 'chat: left to the model');
+  const on = fake({ ...OR, options: { reasoning: 'on' } }, ok('yes'));
+  await chat(on.d, 'audit', { messages: msgs, maxTokens: 50 });
+  assert.equal(on.calls[0].body.reasoning, undefined, 'reasoning: on lets audit think');
+  assert.ok(!('reasoning' in (on.calls[0].body.options ?? {})), 'the option is not sent');
+  const off = fake({ ...OR, options: { reasoning: 'off' } }, ok('hi'));
+  await chat(off.d, 'chat', { messages: msgs, maxTokens: 50 });
+  assert.deepEqual(off.calls[0].body.reasoning, { enabled: false }, 'reasoning: off for chat');
+  const local = fake({}, ok('yes'));
+  await chat(local.d, 'audit', { messages: msgs, maxTokens: 50 });
+  assert.equal(local.calls[0].body.reasoning, undefined, 'a plain server is never sent the field');
+});
