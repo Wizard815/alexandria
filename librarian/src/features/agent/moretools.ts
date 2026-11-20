@@ -43,22 +43,31 @@ export function describeTools(list: McpTool[]): string {
 const CLAIM = /(?:\bproposed\b|\bi['’]?ve (?:added|set|noted|updated|saved|logged|created|removed|queued|dealt|applied)\b|\bi (?:added|set|noted|updated|saved|logged|created|removed|queued|dealt|applied)\b|\b(?:was|has been|have been|is now) (?:added|set|updated|saved|logged|removed|applied)\b|\bset to \d+|\bnoted[.!:,]|\bhas been noted\b)/i;
 const NEGATED = /\b(?:not|never|n['’]t|no|nothing|without|unless|if)\b[^.!?\n]{0,30}$/i;
 
-/** Sentences of the reply that claim a change was proposed or made. */
-export function claimSentences(reply: string): string[] {
-  return (reply.match(/[^.!?\n]+[.!?]*/g) ?? []).filter((s) => {
+const flat = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/**
+ * Sentences of the reply that claim a change was proposed or made. `quoted` is what this turn's tools returned:
+ * a sentence copied from there (a draft shown in full, a page read back) is data, not a claim; so are quoted
+ * blocks, tables and code.
+ */
+export function claimSentences(reply: string, quoted = ''): string[] {
+  const own = reply.split('\n').filter((l) => !/^\s*(?:>|\||```|    )/.test(l)).join('\n').replace(/```[\s\S]*?```/g, ' ');
+  const src = quoted ? flat(quoted) : '';
+  return (own.match(/[^.!?\n]+[.!?]*/g) ?? []).filter((s) => {
     const m = CLAIM.exec(s);
     if (!m) return false;
+    const f = flat(s);
+    if (src && f.length >= 20 && src.includes(f)) return false;
     return !NEGATED.test(s.slice(0, m.index));
   });
 }
-export const claimsChange = (reply: string): boolean => claimSentences(reply).length > 0;
+export const claimsChange = (reply: string, quoted = ''): boolean => claimSentences(reply, quoted).length > 0;
 
 export const COULD_NOT = "I couldn't make that change — here's what I'd do:";
 
 /** The reply with its claim sentences taken out and the honest line in front. */
-export function rewriteClaim(reply: string): string {
+export function rewriteClaim(reply: string, quoted = ''): string {
   let rest = reply;
-  for (const s of claimSentences(reply)) rest = rest.replace(s, '');
+  for (const s of claimSentences(reply, quoted)) rest = rest.replace(s, '');
   rest = rest.replace(/\n{3,}/g, '\n\n').replace(/^[\s:-]+/, '').trim();
   return rest ? `${COULD_NOT}\n\n${rest}` : COULD_NOT;
 }

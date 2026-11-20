@@ -10,6 +10,8 @@ import { HttpError, now } from '../../core/util.ts';
 import { ctx, isDM, me, names, settings } from '../../routes/_shared.ts';
 import { blocksToMarkdown, type Block, type PropertyGroup } from '../../intake/model.ts';
 import { checkPageId } from './link.ts';
+import { splitFrontmatter } from '../../core/frontmatter.ts';
+import { safePagePath } from '../../core/library.ts';
 
 const EXCERPT_CHARS = 800;
 
@@ -117,7 +119,20 @@ const feature: Feature = {
       const c = ctx(res);
       if (c.viewer.role !== 'dm' && c.viewer.role !== 'player') throw new HttpError(403, 'Only players and the DM can link items');
       const it = find(res, String(req.params.itemId));
-      const pageId = checkPageId(d, res, (req.body ?? {}).pageId);
+      const b = req.body ?? {};
+      let pageId: string | null | undefined;
+      // The DM (or the assistant, on approval) may write the item's page and link it in one go.
+      if (b.newPage && typeof b.newPage === 'object') {
+        if (c.viewer.role !== 'dm') throw new HttpError(403, 'Only the DM can write a new page here');
+        const np = b.newPage;
+        const title = typeof np.title === 'string' && np.title.trim() ? np.title.trim().slice(0, 120) : it.name;
+        const path = safePagePath(typeof np.path === 'string' && np.path.trim() ? np.path : `items/${title}`);
+        if (c.viewer.audience === 'ai' && d.library.hasClassified(c.world.id, path)) throw new HttpError(409, 'That page holds classified content that no AI can see. Edit it in the app.');
+        const { fm, body } = splitFrontmatter(typeof np.markdown === 'string' ? np.markdown : `# ${title}\n`);
+        const saved: any = d.library.save(c.world.id, { path, title, body, frontmatter: fm, visibility: np.visibility === 'party' ? 'party' : 'dm' }, me(res));
+        d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'dm' || saved.visibility === 'party');
+        pageId = String(saved.id);
+      } else pageId = checkPageId(d, res, b.pageId);
       if (pageId === undefined) throw new HttpError(400, 'pageId is required (a page id, or null to unlink)');
       run(db, 'UPDATE items SET page_id = ?, updated_at = ? WHERE id = ?', pageId, now(), it.id);
       // (not app.ts's audit(): features must not import app.ts, which loads them)
@@ -137,11 +152,15 @@ const feature: Feature = {
     },
     {
       name: 'link_item_page',
-      description: 'Link an inventory item to a library page (any source), or unlink it with pageId null. The card then shows that page live.',
+      description: 'Link an inventory item to a library page (any source), or unlink it with pageId null. To write a new page for the item and link it in one step, give newPage instead of pageId. The card then shows that page live.',
       write: true,
-      props: { itemId: { type: 'string' }, pageId: { type: ['string', 'null'], description: 'Library page id, or null to unlink' } },
-      required: ['itemId', 'pageId'],
-      call: (a) => ({ method: 'PUT', path: `/itemcards/${encodeURIComponent(String(a.itemId))}/page`, body: { pageId: a.pageId ?? null } }),
+      props: {
+        itemId: { type: 'string' },
+        pageId: { type: ['string', 'null'], description: 'Library page id, or null to unlink' },
+        newPage: { type: 'object', description: 'Write this page and link it (DM): {title, markdown, visibility: dm|party}', properties: { title: { type: 'string' }, markdown: { type: 'string' }, visibility: { type: 'string', enum: ['dm', 'party'] } } },
+      },
+      required: ['itemId'],
+      call: (a) => ({ method: 'PUT', path: `/itemcards/${encodeURIComponent(String(a.itemId))}/page`, body: a.newPage ? { newPage: a.newPage } : { pageId: a.pageId ?? null } }),
     },
   ],
 };

@@ -90,6 +90,12 @@ export function describeCall(tool: string, a: any): string {
       const hp = a.hp ?? a.maxHp ?? a.statblock?.hp;
       return `Add ${n(a.name)} to combat${hp !== undefined ? ` with ${hp} HP` : ''}${a.initiative !== undefined ? `, initiative ${a.initiative}` : ''}`;
     }
+    case 'decide_session_date': {
+      if (a.accept === false) return `Decline the date change on draft ${n(a.draftId)}`;
+      const m = Number(a.minutes);
+      const span = Number.isFinite(m) && m > 0 ? [Math.floor(m / 1440) && `${Math.floor(m / 1440)} day${Math.floor(m / 1440) === 1 ? '' : 's'}`, Math.floor((m % 1440) / 60) && `${Math.floor((m % 1440) / 60)} hour${Math.floor((m % 1440) / 60) === 1 ? '' : 's'}`, m % 60 && `${m % 60} min`].filter(Boolean).join(' ') : '';
+      return span ? `Move the world clock forward ${span} for draft ${n(a.draftId)}${a.reason ? ` (${n(a.reason)})` : ''}` : `Accept the date change draft ${n(a.draftId)} proposes`;
+    }
     case 'damage_combatant': return `Deal ${n(a.amount)} damage to combatant ${n(a.combatant)}`;
     case 'heal_combatant': return `Heal combatant ${n(a.combatant)} for ${n(a.amount)}`;
     case 'set_conditions': return `Set conditions on combatant ${n(a.combatant)} to: ${Array.isArray(a.conditions) && a.conditions.length ? a.conditions.join(', ') : 'none'}`;
@@ -162,6 +168,16 @@ export interface Persona { agentName?: string; brokerName?: string; brokerTitle?
  * the world's information broker: it has the broker's own name and voice and is
  * never told Minerva exists, and never says it works for the DM.
  */
+/** What this turn's tools returned, as one text (for telling quoted data from the model's own claims). */
+const toolText = (messages: { role: string; content?: unknown }[]) => messages.filter((m) => m.role === 'tool').map((m) => String(m.content ?? '')).join('\n');
+
+/** "Friday 2026-11-20 14:05 UTC" in the server's time zone (TZ). */
+export function realToday(now = new Date()): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now).map((x) => [x.type, x.value]));
+  return `${p.weekday} ${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ${tz}`;
+}
+
 export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}, skills: 'full' | 'lite' | 'off' | boolean = 'full'): string {
   const dm = c.harness === 'dm';
   const mode = skills === true ? 'full' : skills === false ? 'off' : skills;
@@ -326,6 +342,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const L: string[] = [];
   const clock = (() => { try { return getClock(d.db, c.worldId).label; } catch { return ''; } })();
   if (clock) L.push(`World date: ${clock}.`);
+  // The real date too, so "next Friday" for a game night needs no question back.
+  L.push(`Today in the real world: ${realToday()}.`);
   const mods = worldModules(d.db, c.worldId).enabled.map((m) => m.name).join(', ');
   if (mods) L.push(`Game modules: ${mods}.`);
   if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
@@ -615,6 +633,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     let escalated = false;
     let wrote = false;
     let retried = false;
+    let cutRetried = false;
     for (let round = 0; round < MAX_TOOL_ROUNDS + 1 && !done; round++) {
       const last = round === MAX_TOOL_ROUNDS || T.toolCalls >= MAX_TOOL_CALLS;
       if (last) messages.push({ role: 'user', content: 'You have used all your tool calls. Give your final answer now from what you have.' });
@@ -626,10 +645,17 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         r = await chatStream(d, 'chat', { messages, tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
       } finally { T.modelMs += ms(tm); }
       T.rounds++;
+      // The stream stopped with no finish reason after a few words (the connection dropped mid-answer): ask once more.
+      if (!last && !r.toolCalls.length && r.finishReason === null && r.content.trim().length < 80 && !cutRetried) {
+        cutRetried = true;
+        live.reset();
+        gate = null;
+        continue;
+      }
       if (!r.toolCalls.length || last) {
         reply = r.content;
         // The reply says something was proposed or changed but no write tool ran: give the model the tools for that area and one more go.
-        if (dmHarness && !last && !retried && !wrote && claimsChange(reply)) {
+        if (dmHarness && !last && !retried && !wrote && claimsChange(reply, toolText(messages))) {
           retried = true;
           live.reset();
           for (const t of [...matchTools(tools, `${input.text} ${reply}`, true, 8), ...tools.filter((x) => selectTools(input.text, names, 99, true).includes(x.name))]) if (t.write) picked.add(t.name);
@@ -665,7 +691,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     }
     reply = reply.trim() || 'I have nothing to add.';
     // Still claiming a change nobody made: say so instead.
-    if (dmHarness && !wrote && claimsChange(reply)) { reply = rewriteClaim(reply); live.replace(reply); }
+    if (dmHarness && !wrote && claimsChange(reply, toolText(messages))) { reply = rewriteClaim(reply, toolText(messages)); live.replace(reply); }
     let blocked = false;
     if (check) {
       const chk = check(reply);

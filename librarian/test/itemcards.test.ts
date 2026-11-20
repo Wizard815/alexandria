@@ -239,3 +239,13 @@ test('TestItemCards_MCPTools', async () => {
   assert.ok(!asPlayer.includes('Ashgrove'));
   assert.ok((await mcp(dmKey.key, 'get_item_card', { itemId: it.id })).includes('Ashgrove'));
 });
+
+test('TestItemCards_DMWritesTheItemPageAndLinksItInOneStep', async () => {
+  const it = await add(T.dm, { owner: 'party', name: 'Silver-hilted dagger' });
+  const r = await ok('PUT', `${IC()}/${it.id}/page`, T.dm, { newPage: { title: 'Silver-hilted dagger', markdown: '# Silver-hilted dagger\nA fine blade with a fish on the pommel.\n', visibility: 'party' } });
+  assert.ok(r.pageId);
+  const card = await ok('GET', `${IC()}/${it.id}`, T.dm);
+  assert.equal(card.page.title, 'Silver-hilted dagger');
+  const mine = await add(T.dm, { owner: ID.jess, name: 'Lucky stone', reason: 'gift' });
+  assert.equal((await call('PUT', `${IC()}/${mine.id}/page`, T.jess, { newPage: { title: 'Lucky stone' } })).status, 403, 'players link pages, they do not write them here');
+});
