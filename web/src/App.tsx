@@ -35,6 +35,7 @@ import ConnectAI from './pages/shared/ConnectAI.tsx';
 import MapBoard from './pages/shared/MapBoard.tsx';
 import * as F from './features/registry.ts';
 import AssistantWindow from './features/agent/AssistantWindow.tsx';
+import PlayerScreen from './features/playerscreen/PlayerScreen.tsx';
 
 export function App() {
   const { ready } = useAuth();
@@ -57,6 +58,7 @@ export function App() {
       </Route>
       <Route path="/w/:world" element={<WorldProvider><WorldOutlet /></WorldProvider>}>
         <Route path="assistant-window" element={<AssistantWindow />} />
+        <Route path="screen/players" element={<PlayerScreen />} />
         <Route path="dm" element={<DMLayout />}>
           <Route index element={<DMTable />} />
           <Route path="library" element={<LibraryPage />} />
