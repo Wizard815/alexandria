@@ -10,6 +10,8 @@ import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
 import { dmAnd } from '../core/events.ts';
 import { featureSetting, type Viewer, type WorldSettings } from '../core/policy.ts';
 import { HttpError, id, int, now, parseJson, str } from '../core/util.ts';
+import { applyDamage, applyHeal, gainTempHp, isDying, rollDeathSave, syncDeathTags, tickEffects, type Concentration, type DeathSaves, type Effect, type Fighter } from '../core/combatRules.ts';
+import { rollMonsterInitiative } from '../features/modules/search.ts';
 import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
 
 export default function liveRoutes(d: Deps) {
@@ -25,6 +27,15 @@ export default function liveRoutes(d: Deps) {
 
   // Balances count approved entries only; player changes wait for the DM.
   const balance = (worldId: string, owner: string) => one<any>(db, `SELECT COALESCE(SUM(amount_cp), 0) AS cp FROM ledger WHERE world_id = ? AND owner = ? AND status = 'approved'`, worldId, owner)!.cp as number;
+
+  const combatantIds = (worldId: string) => all<any>(db, 'SELECT id, name FROM combatants WHERE world_id = ?', worldId) as { id: string; name: string }[];
+  // Whose turn it is right now (null when combat is not running).
+  const currentId = (worldId: string): string | null => {
+    const st = one<any>(db, 'SELECT active, turn FROM combat WHERE world_id = ?', worldId);
+    if (!st?.active) return null;
+    const l = all<any>(db, 'SELECT id FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', worldId);
+    return l.length ? l[st.turn % l.length].id : null;
+  };
 
   r.get('/', (req, res) => {
     const c = ctx(res);
@@ -114,20 +125,23 @@ export default function liveRoutes(d: Deps) {
   });
   r.post('/combat/next', requireDM, (_req, res) => {
     const c = ctx(res);
-    const n = one<any>(db, 'SELECT COUNT(*) AS n FROM combatants WHERE world_id = ?', c.world.id)!.n || 1;
-    const cur = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', c.world.id) ?? { round: 1, turn: 0 };
+    const list = all<any>(db, 'SELECT id, name, account_id, is_pc, hp, death_saves, effects FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', c.world.id);
+    const n = list.length || 1;
+    const cur = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', c.world.id) ?? { active: 0, round: 1, turn: 0 };
     const turn = (cur.turn + 1) % n;
     const round = turn === 0 ? cur.round + 1 : cur.round;
     run(db, `INSERT INTO combat (world_id, active, round, turn) VALUES (?, 1, ?, ?) ON CONFLICT (world_id) DO UPDATE SET active = 1, round = excluded.round, turn = excluded.turn`, c.world.id, round, turn);
-    // Effects with a duration in rounds tick down when a new round starts.
-    if (turn === 0) {
-      for (const x of all<any>(db, 'SELECT id, effects FROM combatants WHERE world_id = ?', c.world.id)) {
-        const eff = parseJson<any[]>(x.effects, []).map((e) => (typeof e.rounds === 'number' ? { ...e, rounds: e.rounds - 1 } : e)).filter((e) => typeof e.rounds !== 'number' || e.rounds > 0);
-        run(db, 'UPDATE combatants SET effects = ? WHERE id = ?', JSON.stringify(eff), x.id);
-      }
-    }
+    // Timed conditions count down on a new round or end on their creature's turn. Nobody's turn ends when combat only just started.
+    const ending = cur.active && list.length ? list[cur.turn % n].id : null;
+    const { changed, ended } = tickEffects(list.map((x) => ({ id: x.id, effects: parseJson<Effect[]>(x.effects, []) })), { ending, starting: list[turn]?.id ?? null, newRound: turn === 0 });
+    for (const ch of changed) run(db, 'UPDATE combatants SET effects = ? WHERE id = ?', JSON.stringify(ch.effects), ch.id);
+    const named = ended.map((e) => ({ ...e, combatant: list.find((x) => x.id === e.combatantId)?.name ?? '?' }));
+    if (named.length) audit(db, c.world.id, me(res), 'combat.effects_ended', named.map((e) => `${e.name} on ${e.combatant} (${e.why})`).join('; '));
     pushCombat(res);
-    res.json(combatView(c.world.id, c.viewer, settings(res)));
+    // A PC who is down rolls a death save when their turn comes up: say so for the DM (and the agent).
+    const up = list[turn];
+    const deathSaveDue = up && isDying({ hp: up.hp, isPc: !!up.is_pc, deathSaves: parseJson(up.death_saves, null) }) ? up.name : undefined;
+    res.json({ ...combatView(c.world.id, c.viewer, settings(res)), ...(named.length ? { ended: named } : {}), ...(deathSaveDue ? { deathSaveDue } : {}) });
   });
   r.post('/combatants', requireDM, (req, res) => {
     const c = ctx(res);
@@ -145,39 +159,101 @@ export default function liveRoutes(d: Deps) {
         nm = `${nm} ${top + 1}`;
       }
     }
-    const x = { id: id('cb_'), name: nm, initiative: int(b.initiative, 'initiative', { min: -20, max: 60, optional: true }) ?? 0, hp: int(b.hp, 'hp', { min: -999, max: 99999, optional: true }), max_hp: int(b.maxHp, 'maxHp', { min: 0, max: 99999, optional: true }) };
+    const x = { id: id('cb_'), name: nm, initiative: int(b.initiative, 'initiative', { min: -20, max: 60, optional: true }), hp: int(b.hp, 'hp', { min: -999, max: 99999, optional: true }), max_hp: int(b.maxHp, 'maxHp', { min: 0, max: 99999, optional: true }) };
+    // No initiative given for a monster: roll d20 plus Dexterity when its rules statblock is known (or `roll` asks for a plain d20).
+    let rolled: { d20: number; dex: number | null; total: number } | undefined;
+    if (x.initiative === null && !acc) {
+      const rl = rollMonsterInitiative(db, c.world.id, nm, !!b.roll);
+      if (rl) { rolled = rl; x.initiative = rl.total; }
+    }
     // Armor class and the statblock page are DM-only; the player view never sends them.
     const ac = int(b.ac, 'ac', { min: 0, max: 99, optional: true });
     const sbPage = b.statblockPage ? str(b.statblockPage, 'statblockPage', { max: 80 }) : null;
-    run(db, 'INSERT INTO combatants (id, world_id, name, account_id, is_pc, initiative, hp, max_hp, effects, hidden, ac, statblock_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', x.id, c.world.id, x.name, acc, acc ? 1 : 0, x.initiative, x.hp, x.max_hp ?? x.hp, JSON.stringify(effects(b.effects)), b.hidden ? 1 : 0, ac, sbPage);
+    const eff = normEffects(b.effects, { ids: combatantIds(c.world.id), selfId: x.id, currentId: null, existing: [] });
+    run(db, 'INSERT INTO combatants (id, world_id, name, account_id, is_pc, initiative, hp, max_hp, effects, hidden, ac, statblock_page, temp_hp, concentration, death_saves) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', x.id, c.world.id, x.name, acc, acc ? 1 : 0, x.initiative ?? 0, x.hp, x.max_hp ?? x.hp, JSON.stringify(eff), b.hidden ? 1 : 0, ac, sbPage,
+      b.tempHp !== undefined ? int(b.tempHp, 'tempHp', { min: 0, max: 99999 }) : 0, jsonOrNull(b.concentration === undefined ? null : concInput(b.concentration)), jsonOrNull(deathInput(b.deathSaves)));
     pushCombat(res);
-    res.status(201).json({ id: x.id });
+    res.status(201).json({ id: x.id, initiative: x.initiative ?? 0, ...(rolled ? { rolled } : {}) });
   });
   r.patch('/combatants/:cid', requireDM, (req, res) => {
     const c = ctx(res);
     const x = one<any>(db, 'SELECT * FROM combatants WHERE id = ? AND world_id = ?', String(req.params.cid), c.world.id);
     if (!x) throw new HttpError(404, 'Combatant not found');
     const b = req.body ?? {};
+    const isPc = !!x.account_id;
+    const known = (v: number | null | undefined) => v !== null && v !== undefined;
     // { damage } / { heal } let the scroll wheel or numpad change HP by an amount.
-    let hp = b.hp !== undefined ? int(b.hp, 'hp', { min: -999, max: 99999 }) : x.hp;
-    // Unknown HP stays unknown: damage to a creature nobody gave HP must not count from 0 and "defeat" it.
-    if (b.damage !== undefined) { const dmg = int(b.damage, 'damage', { min: 0, max: 99999 })!; hp = hp === null || hp === undefined ? hp : hp - dmg; }
-    if (b.heal !== undefined) { const h = int(b.heal, 'heal', { min: 0, max: 99999 })!; hp = hp === null || hp === undefined ? hp : Math.min(hp + h, x.max_hp ?? Infinity); }
+    let f: Fighter = { hp: b.hp !== undefined ? int(b.hp, 'hp', { min: -999, max: 99999 }) : x.hp, maxHp: x.max_hp, tempHp: x.temp_hp ?? 0, isPc, concentration: parseJson<Concentration | null>(x.concentration, null), deathSaves: parseJson<DeathSaves | null>(x.death_saves, null) };
+    const notes: string[] = [];
+    let absorbed = 0, concentrationSave: { spell: string; dc: number } | null = null, concentrationEnded: string | null = null, dropped = false, died = false;
+    // A PC lifted above 0 by any means is no longer dying.
+    if (b.hp !== undefined && isPc && known(f.hp) && f.hp! > 0) f.deathSaves = null;
+    if (b.setTempHp !== undefined) f.tempHp = int(b.setTempHp, 'setTempHp', { min: 0, max: 99999 })!;
+    if (b.tempHp !== undefined) {
+      const grant = int(b.tempHp, 'tempHp', { min: 0, max: 99999 })!;
+      const had = f.tempHp;
+      f.tempHp = gainTempHp(had, grant);
+      notes.push(grant > had ? `temporary HP now ${f.tempHp}` : `kept ${had} temporary HP (they do not stack; ${grant} is not higher)`);
+    }
+    if (b.damage !== undefined) {
+      const hit = applyDamage(f, int(b.damage, 'damage', { min: 0, max: 99999 })!, !!b.crit);
+      ({ absorbed, concentrationSave, concentrationEnded, dropped, died } = hit);
+      notes.push(...hit.notes);
+      f = hit;
+    }
+    if (b.heal !== undefined) {
+      const h = applyHeal(f, int(b.heal, 'heal', { min: 0, max: 99999 })!);
+      if (h.revived) notes.push('back above 0 HP: death saves reset');
+      f = { ...f, hp: h.hp, deathSaves: h.deathSaves };
+    }
+    // Concentration: start (a new spell replaces the old), drop, or settle the pending save.
+    if (b.concentration !== undefined) f.concentration = concInput(b.concentration);
+    if (b.concentrationSave !== undefined) {
+      const cs = f.concentration;
+      if (!cs) throw new HttpError(400, 'Not concentrating on anything');
+      if (cs.dc === null) throw new HttpError(400, 'No concentration save is due');
+      const sv = b.concentrationSave;
+      const pass = sv?.result === 'pass' ? true : sv?.result === 'fail' ? false : Number.isFinite(Number(sv?.roll)) && sv?.roll !== null && sv?.roll !== '' ? Number(sv.roll) >= cs.dc : null;
+      if (pass === null) throw new HttpError(400, 'concentrationSave needs { result: "pass" | "fail" } or { roll }');
+      if (pass) { f.concentration = { spell: cs.spell, dc: null }; notes.push(`kept concentration on ${cs.spell}`); }
+      else { f.concentration = null; concentrationEnded = cs.spell; notes.push(`lost concentration on ${cs.spell}`); }
+    }
+    // Down at 0 HP ends concentration however the HP got there.
+    if (f.concentration && known(f.hp) && f.hp! <= 0 && !(known(x.hp) && x.hp <= 0)) { concentrationEnded = f.concentration.spell; notes.push(`concentration on ${f.concentration.spell} ends (down at 0 HP)`); f.concentration = null; }
+    if (b.deathSave !== undefined) {
+      if (!isDying(f)) throw new HttpError(400, isPc ? 'Only a player character at 0 HP who is not stable or dead rolls death saves' : 'Only player characters roll death saves');
+      const roll = b.deathSave?.roll !== undefined ? int(b.deathSave.roll, 'deathSave.roll', { min: 1, max: 20 })! : undefined;
+      const out = rollDeathSave(f.deathSaves, roll !== undefined ? { roll } : { result: oneOfResult(b.deathSave?.result) });
+      f = { ...f, deathSaves: out.deathSaves, hp: out.regained ? 1 : f.hp };
+      died = died || !!out.deathSaves?.dead;
+      notes.push(out.text);
+    }
+    if (b.deathSaves !== undefined) f.deathSaves = deathInput(b.deathSaves);
+    const hp = f.hp;
     // A monster dropped to 0 HP is marked Defeated (and, if the DM turned that on, taken out of the tracker).
-    let eff: any[] = b.effects !== undefined ? effects(b.effects) : parseJson<any[]>(x.effects, []);
-    const fell = !x.account_id && hp !== null && hp !== undefined && hp <= 0 && !(x.hp !== null && x.hp <= 0);
+    const had: Effect[] = parseJson<Effect[]>(x.effects, []);
+    let eff: Effect[] = b.effects !== undefined ? normEffects(b.effects, { ids: combatantIds(c.world.id), selfId: x.id, currentId: currentId(c.world.id), existing: had }) : had;
+    const fell = !x.account_id && known(hp) && hp! <= 0 && !(known(x.hp) && x.hp <= 0);
     if (fell && !eff.some((e) => String(e?.name ?? e).toLowerCase() === 'defeated')) eff = [...eff, { name: 'Defeated' }];
-    run(db, 'UPDATE combatants SET name = ?, initiative = ?, hp = ?, max_hp = ?, effects = ?, hidden = ?, ac = ? WHERE id = ?',
+    // Stable and Dead tags follow the death saves, unless the DM is setting the conditions by hand.
+    if (isPc && b.effects === undefined && (b.damage !== undefined || b.deathSave !== undefined || b.deathSaves !== undefined || b.heal !== undefined || b.hp !== undefined)) eff = syncDeathTags(eff, f.deathSaves);
+    run(db, 'UPDATE combatants SET name = ?, initiative = ?, hp = ?, max_hp = ?, effects = ?, hidden = ?, ac = ?, temp_hp = ?, concentration = ?, death_saves = ? WHERE id = ?',
       b.name !== undefined ? str(b.name, 'name', { max: 80 }) : x.name,
       b.initiative !== undefined ? int(b.initiative, 'initiative', { min: -20, max: 60 }) : x.initiative,
       hp, b.maxHp !== undefined ? int(b.maxHp, 'maxHp', { min: 0, max: 99999 }) : x.max_hp,
       JSON.stringify(eff),
       b.hidden !== undefined ? (b.hidden ? 1 : 0) : x.hidden,
-      b.ac !== undefined ? int(b.ac, 'ac', { min: 0, max: 99 }) : x.ac ?? null, x.id);
+      b.ac !== undefined ? int(b.ac, 'ac', { min: 0, max: 99 }) : x.ac ?? null,
+      f.tempHp, jsonOrNull(f.concentration), jsonOrNull(f.deathSaves), x.id);
     const removed = fell && featureSetting<boolean>(settings(res), 'combatRemoveDefeated') === true;
     if (removed) run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', x.id, c.world.id);
     pushCombat(res);
-    res.json({ ok: true, hp, defeated: fell, removed });
+    res.json({
+      ok: true, hp, tempHp: f.tempHp, defeated: fell, removed,
+      ...(absorbed ? { absorbed } : {}), ...(dropped ? { droppedToZero: true } : {}), ...(died ? { died: true } : {}),
+      concentration: f.concentration, ...(concentrationSave ? { concentrationSave: { ability: 'Constitution', ...concentrationSave } } : {}), ...(concentrationEnded ? { concentrationEnded } : {}),
+      deathSaves: f.deathSaves, ...(notes.length ? { notes } : {}),
+    });
   });
   r.delete('/combatants/:cid', requireDM, (req, res) => {
     if (!run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', String(req.params.cid), ctx(res).world.id)) throw new HttpError(404, 'Combatant not found');
@@ -188,12 +264,61 @@ export default function liveRoutes(d: Deps) {
   return r;
 }
 
-function effects(v: unknown) {
+const jsonOrNull = (v: unknown) => (v === null || v === undefined ? null : JSON.stringify(v));
+const oneOfResult = (v: unknown): 'success' | 'failure' => {
+  if (v === 'success' || v === 'failure') return v;
+  throw new HttpError(400, 'deathSave needs { roll: 1-20 } or { result: "success" | "failure" }');
+};
+
+/** A spell name (or {spell, dc}) starts concentration, a new one replacing the old; null or "" drops it. */
+function concInput(v: unknown): Concentration | null {
+  if (v === null || v === '') return null;
+  if (typeof v === 'string') return { spell: str(v, 'concentration', { max: 80 }), dc: null };
+  if (v && typeof v === 'object') {
+    const o = v as any;
+    const dc = o.dc === null || o.dc === undefined ? null : int(o.dc, 'concentration.dc', { min: 1, max: 99 });
+    return { spell: str(o.spell, 'concentration.spell', { max: 80 }), dc };
+  }
+  throw new HttpError(400, 'concentration must be a spell name or null');
+}
+
+function deathInput(v: unknown): DeathSaves | null {
+  if (v === null || v === undefined) return null;
+  const o = v as any;
+  if (typeof o !== 'object') throw new HttpError(400, 'deathSaves must be an object or null');
+  return { successes: int(o.successes ?? 0, 'deathSaves.successes', { min: 0, max: 3 })!, failures: int(o.failures ?? 0, 'deathSaves.failures', { min: 0, max: 3 })!, stable: !!o.stable, dead: !!o.dead };
+}
+
+interface EffectCtx { ids: { id: string; name: string }[]; selfId: string; currentId: string | null; existing: Effect[] }
+/**
+ * Conditions: a name, or an object with a duration. `rounds` counts down each new round; `untilEndOf` / `untilStartOf`
+ * (a combatant id, name or "self") end it on that creature's turn. A bare name keeps the timer of the same condition
+ * already on the creature, so re-sending the list never silently makes a timed condition permanent.
+ */
+function normEffects(v: unknown, cx: EffectCtx): Effect[] {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v) || v.length > 20) throw new HttpError(400, 'effects must be a list');
-  return v.map((e, i) => {
-    if (typeof e === 'string') return { name: str(e, `effects[${i}]`, { max: 60 }) };
-    if (e && typeof e === 'object') return { name: str((e as any).name, `effects[${i}].name`, { max: 60 }), ...((e as any).rounds !== undefined ? { rounds: int((e as any).rounds, `effects[${i}].rounds`, { min: 1, max: 1000 }) } : {}) };
-    throw new HttpError(400, 'Bad effect');
+  const who = (raw: unknown, f: string): string => {
+    const s = String(raw ?? '').trim();
+    if (s.toLowerCase() === 'self') return cx.selfId;
+    const hit = cx.ids.find((c) => c.id === s) ?? cx.ids.find((c) => c.name.toLowerCase() === s.toLowerCase());
+    if (hit) return hit.id;
+    throw new HttpError(400, `${f}: no such combatant`);
+  };
+  return v.map((e, i): Effect => {
+    if (typeof e === 'string') {
+      const name = str(e, `effects[${i}]`, { max: 60 });
+      return cx.existing.find((o) => o.name.toLowerCase() === name.toLowerCase()) ?? { name };
+    }
+    if (!e || typeof e !== 'object') throw new HttpError(400, 'Bad effect');
+    const o = e as any;
+    const out: Effect = { name: str(o.name, `effects[${i}].name`, { max: 60 }) };
+    if (o.rounds !== undefined) out.rounds = int(o.rounds, `effects[${i}].rounds`, { min: 1, max: 1000 })!;
+    const end = o.untilEndOf ?? (o.until?.at === 'end' ? o.until.of : undefined);
+    const start = o.untilStartOf ?? (o.until?.at === 'start' ? o.until.of : undefined);
+    if (end !== undefined && start !== undefined) throw new HttpError(400, 'A condition ends at the end or the start of a turn, not both');
+    if (end !== undefined) { const of = who(end, `effects[${i}].untilEndOf`); out.until = { of, at: 'end', skip: o.until?.skip !== undefined ? !!o.until.skip : of === cx.currentId }; }
+    else if (start !== undefined) out.until = { of: who(start, `effects[${i}].untilStartOf`), at: 'start' };
+    return out;
   });
 }
