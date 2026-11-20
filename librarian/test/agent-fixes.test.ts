@@ -776,3 +776,15 @@ test('AgentPrep_ThePrepContextCarriesTheStatusTheArcAndTheLastSessionAndTheModel
   await ask(e, e.T.jess, 'Prep next session for me: what should I do');
   assert.ok(!/Prefetched for prep|Campaign Status/.test(JSON.stringify(e.model.seen.at(-1).messages)));
 });
+
+test('AgentFixes_QuotedToolOutputIsNotAClaimAndTheRealDateIsKnown', async () => {
+  const { claimSentences } = await import('../src/features/agent/moretools.ts');
+  const { realToday } = await import('../src/features/agent/harness.ts');
+  const draft = '## Recap\nTomas proposed a toast to the harbour council before the storm.\n';
+  const reply = 'Here is the draft in full:\n\nTomas proposed a toast to the harbour council before the storm.';
+  assert.equal(claimSentences(reply).length, 1, 'without the tool output it looks like a claim');
+  assert.equal(claimSentences(reply, draft).length, 0, 'copied from what the tool returned: data, not a claim');
+  assert.equal(claimSentences('> I proposed nothing new, this is a quote').length, 0, 'quoted blocks are skipped');
+  assert.equal(claimSentences('I proposed moving the dagger to Tomas.', draft).length, 1, 'its own claim still counts');
+  assert.match(realToday(new Date('2026-11-20T14:05:00Z')), /^Friday 2026-11-20 \d\d:\d\d /);
+});

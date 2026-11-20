@@ -213,3 +213,14 @@ test('SessionLog: MCP tools: players read the log, only the DM write key drafts'
   assert.ok(got.includes('Captain Aldous') && !got.includes('vampire'));
   assert.ok((await rpc(pk.key, 'tools/call', { name: 'draft_session_summary', arguments: {} })).includes('error'));
 });
+
+test('SessionLog: the assistant may only accept a date change a draft actually proposes', async () => {
+  deps.db.prepare("UPDATE sessionlog_drafts SET date_status = 'none', proposal = NULL WHERE id = ?").run(draftId);
+  const r = await call('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true, requireProposal: true });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.match(String(r.body?.error), /nothing to accept/);
+  const given = await ok('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true, minutes: 1440, requireProposal: true });
+  assert.equal(given.dateStatus, 'accepted', 'a time the DM gave is set');
+  const tool = (await import('../src/features/sessionlog/index.ts')).default.mcpTools!.find((t) => t.name === 'decide_session_date')!;
+  assert.equal((tool.call({ draftId: 'x', accept: true }) as any).body.requireProposal, true, 'the tool always asks for a real proposal');
+});
