@@ -365,6 +365,14 @@ async function send(d: Deps, job: Job, c: JobConfig, path: string, body: unknown
       if (err?.name === 'AbortError') throw err;
       throw new ModelUnavailable(job, `The ${job} model did not answer: ${String(err?.message ?? err).slice(0, 160)}`);
     }
+    // OpenRouter's 502 "Provider returned error" is the provider behind it failing once: one more try usually works.
+    // (Other servers fall back to the job's fallback model at once, which is quicker.)
+    if (isOpenRouter(c) && [502, 504].includes(r.status) && n < 1) {
+      await r.text().catch(() => '');
+      guard.clear();
+      await sleep(800, signal);
+      continue;
+    }
     if (r.status === 429 && n < MAX_429_RETRIES) {
       const wait = Math.min(retryAfter(r, n), MAX_RETRY_WAIT_MS);
       const text = await r.text().catch(() => '');
