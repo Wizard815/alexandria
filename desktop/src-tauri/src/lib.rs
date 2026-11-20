@@ -1,0 +1,298 @@
+//! Alexandria desktop: the web app in a native window pointed at the user's
+//! server, plus a separate Assistant window (optionally always on top) that a
+//! global shortcut shows and focuses.
+//!
+//! The web app and the assistant window are remote pages. They are given no
+//! access to this app (see capabilities/default.json): the menu, the shortcut
+//! and the window handling are all done here in Rust, and sign-in is the web
+//! app's own, exactly as in a browser.
+
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::webview::NewWindowResponse;
+use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+/// Shows and focuses the Assistant window from anywhere (Cmd on macOS).
+const SHORTCUT: &str = "CommandOrControl+Shift+Space";
+
+#[derive(Default, Clone, Serialize, Deserialize)]
+struct Settings {
+    /// Origin of the Alexandria server, e.g. "https://alexandria.example.com".
+    server: Option<String>,
+    /// Slug of the world last open in the main window, for the Assistant.
+    last_world: Option<String>,
+    assistant_on_top: bool,
+}
+
+struct State {
+    settings: Mutex<Settings>,
+    path: PathBuf,
+}
+
+struct OnTopItem(CheckMenuItem<Wry>);
+
+impl State {
+    fn load(path: PathBuf) -> Self {
+        let settings = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        State { settings: Mutex::new(settings), path }
+    }
+
+    fn update(&self, f: impl FnOnce(&mut Settings)) {
+        let mut s = self.settings.lock().unwrap();
+        f(&mut s);
+        if let Some(dir) = self.path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(text) = serde_json::to_string_pretty(&*s) {
+            let _ = std::fs::write(&self.path, text);
+        }
+    }
+
+    fn get(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+}
+
+/// Where the bundled first-run screen lives, whatever the platform.
+fn local_url(path: &str) -> Url {
+    let base = if cfg!(any(windows, target_os = "android")) { "http://tauri.localhost/" } else { "tauri://localhost/" };
+    Url::parse(base).and_then(|b| b.join(path)).expect("valid local url")
+}
+
+fn server_url(app: &AppHandle) -> Option<Url> {
+    app.state::<State>().get().server.and_then(|s| Url::parse(&s).ok())
+}
+
+/// "/w/<slug>/..." gives the slug.
+fn world_of(url: &Url) -> Option<String> {
+    let mut seg = url.path_segments()?;
+    (seg.next()? == "w").then(|| seg.next().filter(|s| !s.is_empty()).map(str::to_string))?
+}
+
+fn open_external(url: &Url) {
+    if matches!(url.scheme(), "http" | "https") {
+        let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
+    }
+}
+
+/// The main and assistant windows may show the local screen and the user's
+/// server. Any other address opens in the system browser instead.
+fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
+    if matches!(url.scheme(), "tauri" | "about" | "data" | "blob") || url.host_str() == Some("tauri.localhost") {
+        return true;
+    }
+    if server_url(app).is_some_and(|s| s.origin() == url.origin()) {
+        return true;
+    }
+    open_external(url);
+    false
+}
+
+fn window_opener(app: &AppHandle, url: Url) {
+    // The web app's "pop out" button calls window.open(.../assistant-window).
+    let ours = server_url(app).is_some_and(|s| s.origin() == url.origin());
+    if ours && url.path().ends_with("/assistant-window") {
+        spawn_assistant(app, world_of(&url), false);
+    } else {
+        open_external(&url);
+    }
+}
+
+fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let url = match server_url(app) {
+        Some(u) => WebviewUrl::External(u),
+        None => WebviewUrl::App("index.html".into()),
+    };
+    let (nav, new) = (app.clone(), app.clone());
+    WebviewWindowBuilder::new(app, "main", url)
+        .title("Alexandria")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(480.0, 360.0)
+        .on_navigation(move |u| allow_navigation(&nav, u))
+        .on_new_window(move |u, _features| {
+            window_opener(&new, u);
+            NewWindowResponse::Deny
+        })
+        .build()
+}
+
+/// The world open in the main window, remembered for next time.
+fn current_world(app: &AppHandle) -> Option<String> {
+    let seen = app.get_webview_window("main").and_then(|w| w.url().ok()).and_then(|u| world_of(&u));
+    let state = app.state::<State>();
+    match seen {
+        Some(w) => {
+            if state.get().last_world.as_deref() != Some(&w) {
+                state.update(|s| s.last_world = Some(w.clone()));
+            }
+            Some(w)
+        }
+        None => state.get().last_world,
+    }
+}
+
+/// Show (or create) the Assistant window. With `toggle`, a focused window hides instead.
+fn show_assistant(app: &AppHandle, world: Option<String>, toggle: bool) -> Result<(), String> {
+    let mut url = server_url(app).ok_or("No server address is set yet.")?;
+    let world = world.or_else(|| current_world(app));
+    let known = world.is_some();
+    match &world {
+        Some(w) => url.set_path(&format!("/w/{w}/assistant-window")),
+        None => url.set_path("/"),
+    }
+    url.set_query(None);
+    let on_top = app.state::<State>().get().assistant_on_top;
+
+    if let Some(win) = app.get_webview_window("assistant") {
+        if toggle && win.is_visible().unwrap_or(false) && win.is_focused().unwrap_or(false) {
+            return win.hide().map_err(|e| e.to_string());
+        }
+        if known && win.url().map(|u| u.path() != url.path()).unwrap_or(true) {
+            let _ = win.navigate(url);
+        }
+        let _ = win.show();
+        let _ = win.unminimize();
+        return win.set_focus().map_err(|e| e.to_string());
+    }
+
+    let nav = app.clone();
+    WebviewWindowBuilder::new(app, "assistant", WebviewUrl::External(url))
+        .title("Assistant · Alexandria")
+        .inner_size(460.0, 800.0)
+        .min_inner_size(340.0, 400.0)
+        .always_on_top(on_top)
+        .on_navigation(move |u| allow_navigation(&nav, u))
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Windows are created off the event and menu threads, which would otherwise deadlock on Windows.
+fn spawn_assistant(app: &AppHandle, world: Option<String>, toggle: bool) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = show_assistant(&app, world, toggle) {
+            eprintln!("assistant window: {e}");
+        }
+    });
+}
+
+#[tauri::command]
+fn get_server(app: AppHandle) -> Option<String> {
+    app.state::<State>().get().server
+}
+
+/// Called by the first-run screen: remember the address and open the web app.
+#[tauri::command]
+async fn set_server(app: AppHandle, url: String) -> Result<(), String> {
+    let parsed = Url::parse(url.trim()).map_err(|_| "That is not a valid address.".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err("The address must start with http:// or https://".into());
+    }
+    let origin = parsed.origin().ascii_serialization();
+    app.state::<State>().update(|s| {
+        if s.server.as_deref() != Some(&origin) {
+            s.last_world = None;
+        }
+        s.server = Some(origin.clone());
+    });
+    let target = Url::parse(&origin).map_err(|e| e.to_string())?;
+    let main = app.get_webview_window("main").ok_or("The main window is gone.")?;
+    main.navigate(target).map_err(|e| e.to_string())
+}
+
+fn build_menu(app: &AppHandle, on_top: bool) -> tauri::Result<(Menu<Wry>, CheckMenuItem<Wry>)> {
+    let show = MenuItem::with_id(app, "show_assistant", format!("Show Assistant ({SHORTCUT})"), true, None::<&str>)?;
+    let top = CheckMenuItem::with_id(app, "assistant_on_top", "Assistant always on top", true, on_top, None::<&str>)?;
+    let reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
+    let change = MenuItem::with_id(app, "change_server", "Change server…", true, None::<&str>)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let quit = PredefinedMenuItem::quit(app, None)?;
+    let main_menu = Submenu::with_items(app, "Alexandria", true, &[&show, &top, &sep1, &reload, &change, &sep2, &quit])?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    Ok((Menu::with_items(app, &[&main_menu, &edit])?, top))
+}
+
+fn on_menu(app: &AppHandle, id: &str) {
+    match id {
+        "show_assistant" => spawn_assistant(app, None, false),
+        "assistant_on_top" => {
+            let on = app.state::<OnTopItem>().0.is_checked().unwrap_or(false);
+            app.state::<State>().update(|s| s.assistant_on_top = on);
+            if let Some(win) = app.get_webview_window("assistant") {
+                let _ = win.set_always_on_top(on);
+            }
+        }
+        "reload" => {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.eval("location.reload()");
+            }
+        }
+        "change_server" => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.navigate(local_url("index.html"));
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![get_server, set_server])
+        .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let state = State::load(app.path().app_config_dir()?.join("settings.json"));
+            let on_top = state.get().assistant_on_top;
+            app.manage(state);
+
+            let (menu, top) = build_menu(&handle, on_top)?;
+            app.manage(OnTopItem(top));
+            handle.set_menu(menu)?;
+
+            create_main(&handle)?;
+
+            let for_shortcut = handle.clone();
+            if let Err(e) = app.global_shortcut().on_shortcut(SHORTCUT, move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    spawn_assistant(&for_shortcut, None, true);
+                }
+            }) {
+                // Another program may already own the shortcut; the menu still works.
+                eprintln!("could not register {SHORTCUT}: {e}");
+            }
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running Alexandria desktop");
+}
