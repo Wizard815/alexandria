@@ -173,7 +173,12 @@ function routes(d: import('../../app.ts').Deps) {
   r.post('/promote', (req, res) => {
     const w = W(res);
     requireEnabled(d.db, w);
-    const p = promotionDraft(d, w, str(req.body?.name, 'name', { max: 120 }), req.body?.kind);
+    let p;
+    try { p = promotionDraft(d, w, str(req.body?.name, 'name', { max: 120 }), req.body?.kind); } catch (e) {
+      // Already promoted: for the assistant that is the asked-for state, with a pointer to codex_upsert.
+      if (e instanceof HttpError && e.status === 409 && req.get('X-Alexandria-Caller') === 'model') { res.json({ existing: true, note: e.message }); return; }
+      throw e;
+    }
     const out = applyOp(d, w, { op: 'create', ...p }, me(res));
     refreshHome(d, w, me(res));
     res.status(201).json({ rel: out.rel, title: p.title });
