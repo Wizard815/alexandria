@@ -9,7 +9,7 @@ import { parseJson } from './util.ts';
 export function combatViewFor(db: DB, worldId: string, v: Viewer, s: WorldSettings) {
   const state = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', worldId) ?? { active: 0, round: 1, turn: 0 };
   const list = all<any>(db, 'SELECT * FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', worldId);
-  if (v.role === 'dm') return { active: !!state.active, round: state.round, turn: state.turn, combatants: list.map((x) => ({ ...x, effects: parseJson(x.effects, []), hidden: !!x.hidden, is_pc: !!x.is_pc })) };
+  if (v.role === 'dm') return { active: !!state.active, round: state.round, turn: state.turn, combatants: list.map((x) => ({ ...x, effects: parseJson(x.effects, []), hidden: !!x.hidden, is_pc: !!x.is_pc, temp_hp: x.temp_hp ?? 0, concentration: parseJson(x.concentration, null), death_saves: parseJson(x.death_saves, null) })) };
   const shown = list.filter((x) => !x.hidden);
   const current = list[state.turn % Math.max(list.length, 1)];
   const myTurn = !!state.active && current?.account_id === v.accountId;
@@ -19,7 +19,8 @@ export function combatViewFor(db: DB, worldId: string, v: Viewer, s: WorldSettin
     currentId: current && !current.hidden ? current.id : null,
     combatants: shown.map((x) => ({
       id: x.id, name: x.name, is_pc: !!x.is_pc, mine: x.account_id === v.accountId,
-      effects: parseJson(x.effects, []),
+      // Name and rounds only: a timer's source is a combatant id, which may be a hidden foe.
+      effects: parseJson<any[]>(x.effects, []).map((e) => ({ name: e.name, ...(typeof e.rounds === 'number' ? { rounds: e.rounds } : {}) })),
       health: x.is_pc ? null : healthForPlayers(x.hp, x.max_hp, s.monsterHealth),
     })),
   };

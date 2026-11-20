@@ -101,9 +101,14 @@ export function describeCall(tool: string, a: any): string {
       const span = Number.isFinite(m) && m > 0 ? [Math.floor(m / 1440) && `${Math.floor(m / 1440)} day${Math.floor(m / 1440) === 1 ? '' : 's'}`, Math.floor((m % 1440) / 60) && `${Math.floor((m % 1440) / 60)} hour${Math.floor((m % 1440) / 60) === 1 ? '' : 's'}`, m % 60 && `${m % 60} min`].filter(Boolean).join(' ') : '';
       return span ? `Move the world clock forward ${span} for draft ${n(a.draftId)}${a.reason ? ` (${n(a.reason)})` : ''}` : `Accept the date change draft ${n(a.draftId)} proposes`;
     }
-    case 'damage_combatant': return `Deal ${n(a.amount)} damage to combatant ${n(a.combatant)}`;
+    case 'damage_combatant': return `Deal ${n(a.amount)} damage${a.crit ? ' (critical hit)' : ''} to combatant ${n(a.combatant)}`;
+    case 'give_temp_hp': return `Give combatant ${n(a.combatant)} ${n(a.amount)} temporary HP`;
+    case 'set_concentration': return a.spell ? `Combatant ${n(a.combatant)} concentrates on ${n(a.spell)}` : `Combatant ${n(a.combatant)} stops concentrating`;
+    case 'concentration_save': return `Combatant ${n(a.combatant)} ${a.result ? (a.result === 'pass' ? 'passes' : 'fails') : `rolls ${n(a.roll)} on`} the concentration save`;
+    case 'death_save': return `Death save for combatant ${n(a.combatant)}: ${a.roll !== undefined ? `rolled ${n(a.roll)}` : n(a.result)}`;
+    case 'set_combatant_state': return `Correct the state of combatant ${n(a.combatant)}`;
     case 'heal_combatant': return `Heal combatant ${n(a.combatant)} for ${n(a.amount)}`;
-    case 'set_conditions': return `Set conditions on combatant ${n(a.combatant)} to: ${Array.isArray(a.conditions) && a.conditions.length ? a.conditions.join(', ') : 'none'}`;
+    case 'set_conditions': return `Set conditions on combatant ${n(a.combatant)} to: ${Array.isArray(a.conditions) && a.conditions.length ? a.conditions.map((e: any) => (typeof e === 'string' ? e : `${n(e?.name)}${e?.rounds ? ` (${e.rounds} rounds)` : ''}${e?.untilEndOf ? ` (until end of ${n(e.untilEndOf)}'s turn)` : ''}${e?.untilStartOf ? ` (until start of ${n(e.untilStartOf)}'s turn)` : ''}`)).join(', ') : 'none'}`;
     case 'next_turn': return 'Advance combat to the next turn';
     case 'make_statblock': return `Make a statblock from ${a.moduleTermId ? `module monster ${a.moduleTermId}` : a.pageId ? `page ${a.pageId}` : `"${n(a.prompt).slice(0, 80)}"`}${a.addToCombat ? ' and add it to combat' : ''}`;
     case 'save_page': return `Save library page ${n(a.path)}${a.visibility === 'party' ? ' (shared with the party)' : ' (DM only)'}`;
@@ -412,9 +417,11 @@ const compactCombat = (j: any): string => {
   if (!j?.active && !j?.combatants?.length) return '';
   const list = (j.combatants ?? []).slice(0, 30).map((x: any, i: number) => {
     const bits = [`${i + 1}. ${x.name} (id ${x.id}) init ${x.initiative}`];
-    if (x.hp !== undefined && x.hp !== null) bits.push(`HP ${x.hp}${x.max_hp ?? x.maxHp ? `/${x.max_hp ?? x.maxHp}` : ''}`);
+    if (x.hp !== undefined && x.hp !== null) bits.push(`HP ${x.hp}${x.max_hp ?? x.maxHp ? `/${x.max_hp ?? x.maxHp}` : ''}${x.temp_hp ? ` +${x.temp_hp} temp` : ''}`);
     if (x.ac) bits.push(`AC ${x.ac}`);
-    if (Array.isArray(x.effects) && x.effects.length) bits.push(x.effects.map((e: any) => (typeof e === 'string' ? e : `${e?.name ?? ''}${e?.rounds ? ` (${e.rounds} rounds)` : ''}`)).filter(Boolean).join(', '));
+    if (Array.isArray(x.effects) && x.effects.length) bits.push(x.effects.map((e: any) => (typeof e === 'string' ? e : `${e?.name ?? ''}${e?.rounds ? ` (${e.rounds} rounds)` : ''}${e?.until ? ` (until ${e.until.at} of ${(j.combatants ?? []).find((o: any) => o.id === e.until.of)?.name ?? 'its source'}'s turn)` : ''}`)).filter(Boolean).join(', '));
+    if (x.concentration) bits.push(`concentrating on ${x.concentration.spell}${x.concentration.dc ? ` (CON save DC ${x.concentration.dc} due)` : ''}`);
+    if (x.death_saves) bits.push(x.death_saves.dead ? 'dead' : x.death_saves.stable ? 'stable' : `death saves ${x.death_saves.successes} ok / ${x.death_saves.failures} failed`);
     if (x.hidden) bits.push('hidden');
     return bits.join(', ');
   });
@@ -645,7 +652,7 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
     }
   }
   const done = await Promise.all(calls.map((x) => execCall(d, c, input.chatId, byName, auto, x.tool, x.args)));
-  const lines = done.map((r, i) => (r.proposed ? `- Waiting for your approval: ${r.summary}` : r.ran?.ok ? `- Done: ${r.summary}${(() => { const j = parseJson<any>(r.content, null); return j?.removed ? ' (defeated and removed from the fight)' : j?.defeated ? ' (defeated)' : ''; })()}` : `- That did not work: ${describeCall(calls[i].tool, calls[i].args)}. ${r.content.slice(0, 160)}`));
+  const lines = done.map((r, i) => (r.proposed ? `- Waiting for your approval: ${r.summary}` : r.ran?.ok ? `- Done: ${r.summary}${(() => { const j = parseJson<any>(r.content, null); return (j?.removed ? ' (defeated and removed from the fight)' : j?.defeated ? ' (defeated)' : '') + (j?.concentrationSave ? ` (Constitution save DC ${j.concentrationSave.dc} due to keep concentrating on ${j.concentrationSave.spell})` : '') + (j?.died ? ' (dead)' : ''); })()}` : `- That did not work: ${describeCall(calls[i].tool, calls[i].args)}. ${r.content.slice(0, 160)}`));
   return { text: `${intro}\n\n${lines.join('\n')}`, cites: [] };
 }
 
