@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import Chat from './Chat.tsx';
+import { SpokenNotice } from './aloud.tsx';
 import './agent.css';
 
 export default function AssistantWindow() {
@@ -17,6 +18,7 @@ export default function AssistantWindow() {
       <div className="ag-body" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
         <Chat harness="dm" placeholder="Ask, or tell it what to do…" />
       </div>
+      <SpokenNotice />
     </div>
   );
 }

@@ -9,7 +9,7 @@ import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable } from '../../core/ai.ts';
 import { examplesOn, similarLineExamples } from './examples.ts';
 import { all, one } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { dmOnly, only } from '../../core/events.ts';
 import { parseJson } from '../../core/util.ts';
 import { listSessions } from '../audio/api.ts';
 import { onTranscriptLine } from '../audio/hooks.ts';
@@ -360,6 +360,8 @@ async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof line
   if (!a) return;
   const { runTask } = await import('./task.ts');
   const r = await runTask(d, { worldId, accountId: a.accountId, token: a.token, port: portOf(d) }, { prompt: cmd, mode: 'propose', title: `Spoken: ${cmd.slice(0, 40)}` });
+  // The reply reaches the DM's own screen (and is read aloud there if they chose that), never the table: it may hold DM-only text.
+  if (r.chatId && r.reply.trim()) d.hub.emit(worldId, 'agent', { kind: 'spoken', chatId: r.chatId, messageId: r.messageId, text: r.reply.slice(0, 4000), request: cmd.slice(0, 120), pending: r.pending }, only(a.accountId));
   log(`Asked the assistant: ${cmd.slice(0, 120)}${r.pending ? ` (${r.pending} proposal${r.pending === 1 ? '' : 's'} waiting in your chat)` : ''}`, { tool: 'agent', result: r.reply.slice(0, 600) });
 }
 
