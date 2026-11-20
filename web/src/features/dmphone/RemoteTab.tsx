@@ -6,6 +6,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { useAction } from '../../ui/index.tsx';
 import { loadSpeakers, saveSpeakers } from '../sound/engine.ts';
 import { Err } from './Sheet.tsx';
+import { InstallHint } from '../../lib/install.tsx';
 import { buzz, useFlash } from './hooks.ts';
 
 const safe = <T,>(p: Promise<T>, d: T): Promise<T> => p.catch(() => d);
@@ -128,6 +129,7 @@ export default function RemoteTab() {
         <button type="button" className={`b${tableSound ? ' on' : ''}`} aria-pressed={tableSound} onClick={() => { const s = loadSpeakers(); saveSpeakers({ ...s, tableOn: !tableSound }); setTableSound(!tableSound); }}>{tableSound ? 'Table sound plays on this phone' : 'Table sound stays off this phone'}</button>
         <span className="tiny">Pads and music play where the desktop is. Turn this on only if this phone is the table speaker.</span>
       </section>
+      <InstallHint />
     </>
   );
 }
