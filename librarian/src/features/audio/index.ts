@@ -182,7 +182,12 @@ const feature: Feature = {
       eng.broadcastRecording(c.world.id, false, null);
       eng.scheduleRefine(s.id);
       // The last lines go into the running summary once the recording ends (after the chunks are flushed).
-      setTimeout(() => { void updateBoth(d, c.world.id, s.id, { force: true }).catch(() => {}); }, 5_000).unref();
+      // Then Minerva drafts the hand-off for the DM's review: the running notes as "Last session" in the status doc,
+      // which the next session reads.
+      setTimeout(() => {
+        void updateBoth(d, c.world.id, s.id, { force: true })
+          .then(() => import('../minerva/after.ts')).then((m) => m.draftHandoff(d, c.world.id, s.id)).catch(() => {});
+      }, 5_000).unref();
       res.json(sessionOut(one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', s.id)));
     });
 

@@ -5,7 +5,7 @@
 // approves them (POST /actions/:id). Combat tools and statblocks live here.
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
-import { hasJob, transcribe, speak, ModelUnavailable } from '../../core/ai.ts';
+import { hasJob, transcribe, speak, ModelUnavailable, withPriority } from '../../core/ai.ts';
 import { buildHint } from '../audio/hint.ts';
 import { all, one, run } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
@@ -146,7 +146,8 @@ function routes(d: import('../../app.ts').Deps) {
     addMessage(d.db, chat.id, 'user', text, { context: { page: page || undefined, selection: selection || undefined } });
     if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
-    void runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast });
+    // The DM's questions go before players' when the model server is busy (core/ai.ts, the queue).
+    void withPriority(who.harness === 'dm' ? 2 : 1, () => runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast }));
     res.status(202).json(chatView(d.db, chat.id));
   });
 
