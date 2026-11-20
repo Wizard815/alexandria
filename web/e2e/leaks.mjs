@@ -20,6 +20,9 @@ const PEOPLE = [
   ['jess', 'player pass 123', 1280], ['tom', 'player pass 123', 1280], ['guest', 'guest pass 1234', 1280], ['jess', 'player pass 123', 390],
 ].map(([u, p, w]) => ({ who: u, user: u === 'guest' ? 'visitor' : u, pass: p, width: w }));
 
+// The table screen is seen by the players, so it may show what both players may see and nothing else, even on the DM's login.
+for (const m of markers) if (m.seen.includes('jess') && m.seen.includes('tom')) m.seen.push('table');
+
 const hits = new Map();
 const allowedSeen = {};
 // LEAK_SELFTEST=1: nothing is allowed for anyone, so the crawl must report hits (proves the scan can see).
@@ -156,8 +159,34 @@ async function crawl(browser, p) {
   await ctx.close();
 }
 
+/** The table screen, opened from the DM's login: its DOM is scanned as if a player were reading it (a screen lying face up). */
+async function crawlTable(browser) {
+  const who = 'table';
+  const { ctx, page } = await signIn(browser, base, 'dungeon', 'dm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
+  let here = '';
+  page.on('pageerror', (e) => hits.set(`table ${here}: page error ${e.message}`, true));
+  page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) hits.set(`table ${here}: console ${m.text().slice(0, 160)}`, true); });
+  page.on('dialog', (d) => { void d.dismiss().catch(() => {}); });
+  here = '/screen/table';
+  await page.goto(`${W}/screen/table`);
+  await page.getByTestId('table-screen').waitFor({ timeout: 10000 });
+  await page.getByTestId('table-order').waitFor({ timeout: 10000 }).catch(() => hits.set('table: the initiative order never showed (combat is active in this world)', true));
+  await page.waitForTimeout(800);
+  await scanDom(page, who, here);
+  const order = await page.getByTestId('table-order').innerText().catch(() => '');
+  if (!/Goblin/.test(order) || !/Jessamine/.test(order)) hits.set(`table: the order should list the goblin and Jessamine, got "${order.slice(0, 120)}"`, true);
+  if (/Ambusher|\bAC\b|temp(orary)? HP/.test(order)) hits.set(`table: the order shows a hidden foe or DM-only stat: "${order.slice(0, 160)}"`, true);
+  // Every mark on the map, then the whiteboard, then each quarter turn.
+  for (const m of await page.locator('[data-testid=table-map] [data-mark]').all()) { await m.click({ timeout: 2000 }).catch(() => {}); await page.waitForTimeout(150); await scanDom(page, who, `${here} after a mark`); }
+  await page.getByRole('button', { name: 'Whiteboard' }).click();
+  await page.waitForTimeout(300);
+  await scanDom(page, who, `${here} whiteboard`);
+  for (let i = 0; i < 4; i++) { await page.getByTestId('table-rot-right').click(); await page.waitForTimeout(150); await scanDom(page, who, `${here} rotated ${(i + 1) * 90}`); }
+  await ctx.close();
+}
+
 const browser = await chromium.launch();
-try { await Promise.all(PEOPLE.map((p) => crawl(browser, p))); }
+try { await Promise.all([...PEOPLE.map((p) => crawl(browser, p)), crawlTable(browser)]); }
 catch (e) { hits.set('crawler crashed: ' + (e.stack || e), true); }
 finally { await browser.close(); srv.kill(); }
 

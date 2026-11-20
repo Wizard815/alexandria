@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { DockButton, useDockShift } from '../../ui/Dock.tsx';
+import { useMainPrefs } from '../screens/prefs.ts';
 import Chat from './Chat.tsx';
 import { SpokenNotice } from './aloud.tsx';
 import Statblock from './Statblock.tsx';
@@ -13,7 +14,9 @@ const wasOpen = () => { try { return localStorage.getItem(KEY) === '1'; } catch 
 
 export default function AgentPanel() {
   const { isDM } = useWorld();
-  return isDM ? <Panel /> : null;
+  const [main] = useMainPrefs();
+  // With the assistant on the side screen the main monitor keeps its full width.
+  return isDM && !main.hideAssistant ? <Panel /> : null;
 }
 
 function Panel() {
