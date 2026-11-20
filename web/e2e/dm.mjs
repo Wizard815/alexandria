@@ -54,7 +54,7 @@ async function signIn(user, viewport, mobile) {
 }
 const go = async (page, p) => { await page.goto(`${W}/dm/${p}`); await page.locator('main').waitFor(); await page.waitForTimeout(500); };
 
-const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect'];
+const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect'];
 
 /** The dock buttons must not overlap each other or the page's main controls, and each must be the top element where it is. */
 async function dockCheck(page, label) {

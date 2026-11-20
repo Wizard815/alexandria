@@ -1,0 +1,70 @@
+/* Pop-out panels, the side screen, the table screen and the Screens page. */
+
+/* A panel alone in its window. The dock is not here, so the page's bottom reserve shrinks. */
+.sc-window, .sc-side, .ts-root { --dock-reserve: 16px; }
+.sc-window { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); min-height: 0; }
+.sc-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line-strong); background: var(--side, var(--panel)); }
+.sc-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sc-scroll { overflow: auto; }
+.sc-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sc-body > .au-panel, .sc-pbody > .au-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.sc-body .page, .sc-pbody .page { max-width: none; padding-top: 12px; }
+
+/* The side screen: a column of panels. */
+.sc-side { min-height: 100vh; background: var(--bg); display: flex; flex-direction: column; }
+.sc-side > .sc-bar { position: sticky; top: 0; z-index: 20; }
+.sc-pick { margin: 10px; display: flex; flex-direction: column; gap: 8px; }
+.sc-panel { border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; min-width: 0; }
+.sc-phead { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--panel-2, var(--panel)); border-bottom: 1px solid var(--line); }
+.sc-fold { border: 0; background: transparent; color: inherit; cursor: pointer; min-width: 36px; min-height: 36px; }
+.sc-pbody { min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.sc-pbody.sc-scroll { overflow: auto; display: block; }
+.sc-grip { height: 14px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; background: var(--panel); touch-action: none; }
+.sc-grip span { width: 56px; height: 4px; border-radius: 4px; background: var(--line-strong); }
+.sc-grip:hover span, .sc-grip:focus-visible span { background: var(--accent); }
+.sc-pbody .au-body { max-height: none; }
+
+/* The Screens page. */
+.sc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.sc-assign { display: flex; flex-direction: column; gap: 2px; }
+.sc-monitors { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+
+/* The table screen: big, plain, readable from any side. */
+.ts-root { position: fixed; inset: 0; overflow: hidden; background: #0B0E14; color: var(--text); }
+.ts-stage { position: absolute; display: flex; flex-direction: column; background: var(--bg); container-type: size; }
+.ts-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 2px solid var(--line-strong); background: var(--side, var(--panel)); }
+.ts-title { font-family: var(--font-head, inherit); font-size: 26px; }
+.ts-round { font-size: 22px; padding: 4px 14px; border-radius: 999px; background: var(--accent-bg); border: 2px solid var(--accent); color: var(--accent-strong); font-weight: 700; }
+.ts-sp { flex: 1; }
+.ts-group { display: inline-flex; align-items: center; gap: 6px; }
+.ts-btn { min-width: 64px; min-height: 64px; padding: 0 18px; font: inherit; font-size: 22px; border-radius: 12px; border: 2px solid var(--line-strong); background: var(--panel, #1C222D); color: var(--text); cursor: pointer; touch-action: manipulation; }
+.ts-btn.on, .ts-btn:active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-strong); }
+.ts-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ts-zoom { min-width: 64px; text-align: center; font-size: 20px; }
+.ts-select { min-height: 64px; font-size: 20px; padding: 0 14px; border-radius: 12px; border: 2px solid var(--line-strong); background: var(--panel, #1C222D); color: var(--text); max-width: 40ch; }
+.ts-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; }
+.ts-main.fight { grid-template-columns: minmax(0, 1fr) minmax(320px, 28%); }
+.ts-canvas { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ts-scroll { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; align-items: flex-start; justify-content: center; touch-action: pan-x pan-y pinch-zoom; }
+.ts-map { position: relative; flex: none; aspect-ratio: 16 / 10; border-radius: 12px; border: 2px solid var(--line-strong); overflow: hidden; user-select: none; background: radial-gradient(ellipse 40% 32% at 30% 42%, #4B4632 0 60%, transparent 61%), #15212D; }
+.ts-board { width: 100%; max-width: 100%; aspect-ratio: 16 / 10; background: #171C26; border: 2px solid var(--line-strong); border-radius: 12px; }
+.ts-pickers { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 16px 12px; }
+.ts-card { position: absolute; left: 16px; bottom: 16px; max-width: min(520px, 70%); display: flex; flex-direction: column; gap: 6px; padding: 14px 18px; border-radius: 12px; background: var(--panel, #1C222D); border: 2px solid var(--accent); font-size: 22px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.ts-card p { margin: 0; white-space: pre-line; }
+.ts-order { min-height: 0; overflow: auto; padding: 12px 16px; border-left: 2px solid var(--line-strong); background: var(--side, var(--panel)); }
+.ts-order h2 { margin: 0 0 8px; font-size: 22px; }
+.ts-order ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ts-order li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 64px; border-radius: 10px; border: 2px solid var(--line); background: var(--bg); font-size: 26px; }
+.ts-order li.current { background: var(--accent-bg); border-color: var(--accent); font-size: 30px; }
+.ts-arrow { width: 24px; color: var(--accent-strong); font-weight: 700; }
+.ts-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ts-fx { font-size: 16px; color: var(--muted); }
+.ts-health { font-size: 18px; color: var(--muted); }
+.ts-bar-health { display: inline-block; width: 90px; height: 12px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.ts-bar-health > span { display: block; height: 100%; }
+/* A screen that is taller than wide (or turned a quarter way round) puts the order under the map. */
+@container (max-aspect-ratio: 1/1) {
+  .ts-main.fight { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(200px, 32%); }
+  .ts-order { border-left: 0; border-top: 2px solid var(--line-strong); }
+  .ts-order ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+}

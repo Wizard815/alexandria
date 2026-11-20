@@ -2,13 +2,21 @@
 import { cloneElement, isValidElement, useEffect, useId, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { useLocation } from 'react-router-dom';
 import { useNet, sinceText } from '../lib/net.ts';
+import { panelForPath, popOutPanel } from '../features/screens/names.ts';
 
 export function PageHead({ title, lead, children }: { title: ReactNode; lead?: ReactNode; children?: ReactNode }) {
+  // A DM page that has a panel gets a pop-out button, so it can move to another monitor.
+  const panel = panelForPath(useLocation().pathname);
+  const pop = panel && (
+    <button type="button" className="btn small ghost" data-testid="popout" title="Pop out into its own window (for another monitor)" aria-label={`Pop ${panel.name} out into its own window`}
+      onClick={() => void popOutPanel(panel.world, panel.name)}>↗</button>
+  );
   return (
     <header className="page-head">
       <div className="lead"><h1>{title}</h1>{lead && <p className="muted">{lead}</p>}</div>
-      {children && <div className="row">{children}</div>}
+      {(children || pop) && <div className="row">{children}{pop}</div>}
     </header>
   );
 }

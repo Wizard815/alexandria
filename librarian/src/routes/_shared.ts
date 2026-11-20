@@ -1,12 +1,24 @@
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { WorldCtx } from '../core/auth.ts';
 import { type DB, all } from '../core/db.ts';
-import { DEFAULT_SETTINGS, type WorldSettings } from '../core/policy.ts';
+import { DEFAULT_SETTINGS, type Viewer, type WorldSettings } from '../core/policy.ts';
 import { parseJson } from '../core/util.ts';
 
 export const ctx = (res: Response) => res.locals.w as WorldCtx;
 export const isDM = (res: Response) => ctx(res).viewer.role === 'dm';
 export const me = (res: Response) => ctx(res).viewer.accountId;
+
+/**
+ * Who a read is answered for. A DM who adds ?view=players gets exactly what a player gets: the screen lying on the table is
+ * seen by the players, so it asks for their copy instead of trusting the page to hide things. `keepAccount` keeps the DM's
+ * account id (for a signed picture address) while still dropping the role; otherwise the id goes too, so nothing the DM
+ * authored or owns ("only me" marks, the DM's own combatant) can match. Anyone else always gets their own view.
+ */
+export function readerFor(req: Request, res: Response, keepAccount = false): Viewer {
+  const v = ctx(res).viewer;
+  if (v.role !== 'dm' || req.query.view !== 'players') return v;
+  return { accountId: keepAccount ? v.accountId : '', role: 'player' };
+}
 
 export function settings(res: Response): WorldSettings {
   return { ...DEFAULT_SETTINGS, ...parseJson(ctx(res).world.settings, {}) };
