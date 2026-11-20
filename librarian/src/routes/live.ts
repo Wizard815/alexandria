@@ -134,7 +134,18 @@ export default function liveRoutes(d: Deps) {
     const b = req.body ?? {};
     const acc = b.accountId ? str(b.accountId, 'accountId', { max: 60 }) : null;
     if (acc && !memberIds(db, c.world.id).includes(acc)) throw new HttpError(400, 'Player not found');
-    const x = { id: id('cb_'), name: str(b.name, 'name', { max: 80 }), initiative: int(b.initiative, 'initiative', { min: -20, max: 60, optional: true }) ?? 0, hp: int(b.hp, 'hp', { min: -999, max: 99999, optional: true }), max_hp: int(b.maxHp, 'maxHp', { min: 0, max: 99999, optional: true }) };
+    // Two creatures with one name can't be told apart ("Wolf 2 takes 9"): number them, and the first one too.
+    let nm = str(b.name, 'name', { max: 80 }).trim();
+    if (!acc && !/\s\d+$/.test(nm)) {
+      const same = all<any>(db, 'SELECT id, name FROM combatants WHERE world_id = ? AND (name = ? COLLATE NOCASE OR name LIKE ? COLLATE NOCASE)', c.world.id, nm, `${nm.replace(/[\\%_]/g, (m) => '\\' + m)} %`).filter((r) => r.name.toLowerCase() === nm.toLowerCase() || /^\d+$/.test(r.name.slice(nm.length + 1)));
+      if (same.length) {
+        const plain = same.find((r) => r.name.toLowerCase() === nm.toLowerCase());
+        if (plain) run(db, 'UPDATE combatants SET name = ? WHERE id = ?', `${plain.name} 1`, plain.id);
+        const top = Math.max(1, ...same.map((r) => Number(r.name.slice(nm.length + 1)) || 1));
+        nm = `${nm} ${top + 1}`;
+      }
+    }
+    const x = { id: id('cb_'), name: nm, initiative: int(b.initiative, 'initiative', { min: -20, max: 60, optional: true }) ?? 0, hp: int(b.hp, 'hp', { min: -999, max: 99999, optional: true }), max_hp: int(b.maxHp, 'maxHp', { min: 0, max: 99999, optional: true }) };
     // Armor class and the statblock page are DM-only; the player view never sends them.
     const ac = int(b.ac, 'ac', { min: 0, max: 99, optional: true });
     const sbPage = b.statblockPage ? str(b.statblockPage, 'statblockPage', { max: 80 }) : null;

@@ -17,7 +17,7 @@ export async function matchText(w: WorldClient, key: string, text: string): Prom
   if (hit) return hit;
   if (Date.now() < offUntil) return [];
   try {
-    const r = await w.call<Match[] | { matches: Match[] }>('POST', '/modules/match', { text });
+    const r = await w.call<Match[] | { matches: Match[] }>('POST', '/modules/match', { text, spoken: true });
     const list = (Array.isArray(r) ? r : r?.matches ?? []).filter((m) => m && Number.isInteger(m.start) && Number.isInteger(m.end) && m.end > m.start && m.end <= text.length);
     cache.set(key, list);
     if (cache.size > 800) cache.delete(cache.keys().next().value!);

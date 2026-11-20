@@ -500,3 +500,11 @@ test('TestActive_MonstersAddedByVoiceGetStatblockHpAndUnknownHpIsNeverDefeatedBy
   assert.equal(r.defeated, false, 'damage to unknown HP does not defeat');
   assert.equal(r.hp, null);
 });
+
+test('TestCombat_CreaturesWithTheSameNameAreNumbered', async () => {
+  for (const cb of (await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants) await call('DELETE', `/api/worlds/${W}/live/combatants/${cb.id}`, T.dm);
+  for (let i = 0; i < 3; i++) await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Wolf', initiative: 10 + i });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Bandit Captain', initiative: 5 });
+  const names = (await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants.map((x: any) => x.name).sort();
+  assert.deepEqual(names, ['Bandit Captain', 'Wolf 1', 'Wolf 2', 'Wolf 3']);
+});

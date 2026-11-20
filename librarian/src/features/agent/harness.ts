@@ -17,7 +17,7 @@
 // model round. Only the tools that fit the message are offered. Replies
 // stream to the owner as 'agent' events. Obvious commands run with no model.
 import type { Deps } from '../../app.ts';
-import { chatStream, hasJob, rerankItems, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
+import { chatStream, hasJob, jobConfig, rerankItems, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly, only } from '../../core/events.ts';
 import type { Viewer, WorldSettings } from '../../core/policy.ts';
@@ -27,6 +27,7 @@ import type { McpTool } from '../types.ts';
 import { getClock } from '../clock/api.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { worldModules } from '../modules/store.ts';
+import { findMatches } from '../modules/match.ts';
 import { DM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
 import { agentOptions } from './options.ts';
 import { CONCISE } from './descriptions.ts';
@@ -202,6 +203,68 @@ export function realToday(now = new Date()): string {
   return `${p.weekday} ${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ${tz}`;
 }
 
+/** The rules terms said in recent transcript lines (the ones the transcript highlights), with each term's one-line summary. */
+export function rulesSaid(d: Deps, c: Pick<Caller, 'worldId' | 'viewer'>, text: string): string {
+  if (!text.trim()) return '';
+  let ms;
+  try { ms = findMatches(d.db, c.worldId, forModel(c.viewer), text, { spoken: true }).filter((m) => m.source === 'module'); } catch { return ''; }
+  if (!ms.length) return '';
+  const by = worldModules(d.db, c.worldId).byRef;
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const m of [...ms].reverse()) {
+    if (seen.has(m.term)) continue;
+    seen.add(m.term);
+    const sum = String((by.get(m.id) as any)?.summary ?? '').replace(/\s+/g, ' ').slice(0, 140);
+    parts.push(`- ${m.term} (${m.kind})${sum ? `: ${sum}` : ''}`);
+    if (parts.length >= 8) break;
+  }
+  return `Rules terms said at the table just now (lookup_rule gives the full text):\n${parts.join('\n')}`;
+}
+
+// ---- context budget --------------------------------------------------------
+
+/**
+ * How much the agent is given, from the chat model's context window (the job option `contextTokens`; unset means
+ * 32K, the sizes Alexandria always used). A small local model gets less history and transcript; a 200K or 1M model
+ * gets far more of the session, so it can follow the whole night instead of the last twenty lines.
+ */
+export interface Budget { tokens: number; history: number; liveLines: number; liveChars: number; toolChars: number }
+export const budgetFor = (d: Deps): Budget => budgetFrom(Number(jobConfig(d, 'chat')?.options?.contextTokens));
+export function budgetFrom(n?: number): Budget {
+  const tokens = Number.isFinite(n) && n! >= 2000 ? Math.round(n!) : 32_000;
+  if (tokens < 16_000) return { tokens, history: 4, liveLines: 10, liveChars: 2_000, toolChars: 4_000 };
+  if (tokens < 100_000) return { tokens, history: 8, liveLines: 20, liveChars: 4_000, toolChars: 12_000 };
+  if (tokens < 400_000) return { tokens, history: 16, liveLines: 300, liveChars: 60_000, toolChars: 24_000 };
+  // About a million tokens: the whole night's transcript (some 130K tokens for four hours) rides along.
+  return { tokens, history: 32, liveLines: 3_000, liveChars: 400_000, toolChars: 40_000 };
+}
+
+/**
+ * Keep a request inside the model's window (about 3 characters a token, 80% of it, the rest for the answer): the
+ * oldest tool results are cut down first, then the oldest history turns go. The system prompt and the newest
+ * message always stay.
+ */
+export function fitToBudget(messages: ChatMessage[], tokens: number): ChatMessage[] {
+  const limit = Math.floor(tokens * 3 * 0.8);
+  const size = (m: ChatMessage) => (typeof m.content === 'string' ? m.content.length : 0) + JSON.stringify((m as any).tool_calls ?? '').length;
+  let total = messages.reduce((n, m) => n + size(m), 0);
+  if (total <= limit) return messages;
+  const out = messages.map((m) => ({ ...m }));
+  for (const m of out) {
+    if (total <= limit) break;
+    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 600) { total -= m.content.length - 600; m.content = m.content.slice(0, 600) + ' …(cut to fit the context window)'; }
+  }
+  // Then whole history turns, oldest first (never the system prompt, the last message, or a tool reply without its call).
+  while (total > limit) {
+    const i = out.findIndex((m, k) => k > 0 && k < out.length - 1 && (m.role === 'user' || m.role === 'assistant') && !(m as any).tool_calls);
+    if (i < 0) break;
+    total -= size(out[i]);
+    out.splice(i, 1);
+  }
+  return out;
+}
+
 export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary = '', persona: Persona = {}, skills: 'full' | 'lite' | 'off' | boolean = 'full'): string {
   const dm = c.harness === 'dm';
   const mode = skills === true ? 'full' : skills === false ? 'off' : skills;
@@ -212,6 +275,7 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName'>, summary =
       'How to work:',
       '- The message starts with a context block: library matches, the page on screen, combat, the date. Use it first; most questions need no tool.',
       '- When the DM asks you to DO something, call the tool that does exactly that, right away: the write tools only propose, the DM approves. Do not look things up first unless you need an id, and do not ask what you could just do. When a look-up found the one thing meant, go on and call the write tool in the same turn: never stop to ask "shall I?", the DM approves the proposal anyway. Say what you proposed, never that it is done; say it only after a write tool call this turn.',
+      '- A DM statement that sets something up is an instruction too: "the broker may sell this fact: ...", "Marrow is an ally now", "the party found 30 gold". Make that change with its tool; do not offer to.',
       '- Pick the specific tool for the job (update_person, add_recall, add_quote, set_conditions, start_game_session, play_music ...). Use codex_upsert only to record long-term notes about someone the DM asks you to record.',
       '- When the DM asks a question about people, places or what is going on, use who_is or context_for and the library. Facts about this world come only from the context, the transcript and tools: never invent names, places, numbers or events; say what is unknown.',
       '- Cite pages inline as [Page title]. Answer rules questions with lookup_rule, never from memory.',
@@ -385,8 +449,15 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     L.push(`Library matches for this message (page id in parentheses; cite by [title]):\n${hits.map((h, i) => `- [${h.title}] (${h.id}): ${h.snippet}${top[i] && i < 2 ? `\n  Starts: ${top[i]}` : ''}`).join('\n')}`);
   } else L.push('Library matches for this message: none.');
   // While a session is recording the last lines ride along (the DM's: everything DM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
-  const live = liveLines(d, c.worldId, dm);
-  if (live.session?.active && live.lines.length) L.push(`Live transcript of "${live.session.name}" (recording now, last ${live.lines.length} lines):\n${live.lines.map(lineText).join('\n')}`.slice(0, 4000));
+  const budget = budgetFor(d);
+  const live = liveLines(d, c.worldId, dm, budget.liveLines);
+  if (live.session?.active && live.lines.length) {
+    // The newest lines matter most: a long session keeps its end, not its start.
+    const body = live.lines.map(lineText).join('\n');
+    L.push(`Live transcript of "${live.session.name}" (recording now, last ${live.lines.length} lines):\n${body.length > budget.liveChars ? '…' + body.slice(-budget.liveChars) : body}`);
+    const rules = rulesSaid(d, c, live.lines.map((l: any) => l.text ?? '').join('\n'));
+    if (rules) L.push(rules);
+  }
   else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
   if (!dm) {
     if (inv?.items?.length) L.push(`This player's items: ${inv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1500)}`);
@@ -506,7 +577,7 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     const t = await runTool(d, c, tool, args);
     if (c.harness === 'dm') audit(d, c.worldId, c.accountId, tool.write ? 'agent.action' : 'agent.read', `${name} ${JSON.stringify(args ?? {})}${tool.write ? ` auto-approved -> ${t.status}` : ''}`);
     if (c.harness === 'dm' && tool.write) logAgentCall(d, c.worldId, { tool: name, args, summary: describeCall(name, args), ok: t.ok, result: t.text, via: 'auto-approved' });
-    return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, 12_000), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
+    return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, budgetFor(d).toolChars), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
   } catch (e: any) {
     return { content: `The call failed: ${String(e?.message ?? e).slice(0, 200)}`, cites: [] };
   }
@@ -658,6 +729,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     let wrote = false;
     let retried = false;
     let cutRetried = false;
+    let mustCall = false;
     for (let round = 0; round < MAX_TOOL_ROUNDS + 1 && !done; round++) {
       const last = round === MAX_TOOL_ROUNDS || T.toolCalls >= MAX_TOOL_CALLS;
       if (last) messages.push({ role: 'user', content: 'You have used all your tool calls. Give your final answer now from what you have.' });
@@ -666,7 +738,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       const tm = performance.now();
       let r;
       try {
-        r = await chatStream(d, 'chat', { messages, tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
+        r = await chatStream(d, 'chat', { messages: fitToBudget(messages, budgetFor(d).tokens), tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true, toolChoice: mustCall && !last ? 'required' : undefined }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
+        mustCall = false;
       } finally { T.modelMs += ms(tm); }
       T.rounds++;
       // The stream stopped with no finish reason after a few words (the connection dropped mid-answer): ask once more.
@@ -683,7 +756,9 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
           retried = true;
           live.reset();
           for (const t of [...matchTools(tools, `${input.text} ${reply}`, true, 8), ...tools.filter((x) => selectTools(input.text, names, 99, true).includes(x.name))]) if (t.write) picked.add(t.name);
-          messages.push({ role: 'assistant', content: reply }, { role: 'user', content: 'You said something was proposed or changed, but you made no write tool call. Call the right write tool now (the matching write tools are offered), or say plainly that you could not.' });
+          // This time a tool call is required: asking alone let models answer "I did make the call" without one.
+          mustCall = true;
+          messages.push({ role: 'assistant', content: reply }, { role: 'user', content: 'You said something was proposed or changed, but you made no write tool call. Call the right write tool now (the matching write tools are offered).' });
           continue;
         }
         done = true;
@@ -715,6 +790,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     }
     reply = reply.trim() || 'I have nothing to add.';
     // Still claiming a change nobody made: say so instead.
+    // The history tags are for the model; a reply that copies one drops it.
+    if (/\[(?:tool calls this turn:|no write tool calls this turn)/.test(reply)) { reply = reply.replace(/\n?\[(?:tool calls this turn:[^\]]*|no write tool calls this turn)\]/g, '').trim(); live.replace(reply); }
     if (dmHarness && !wrote && claimsChange(reply, toolText(messages))) { reply = rewriteClaim(reply, toolText(messages)); live.replace(reply); }
     let blocked = false;
     if (check) {
@@ -758,11 +835,22 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
  * up to twice as many, while older ones are not in the summary yet), text only,
  * and the running summary of what came before.
  */
-export function historyFor(d: Deps, chatId: string): { messages: ChatMessage[]; summary: string } {
-  const rows = all<any>(d.db, `SELECT rowid AS rid, role, content FROM agent_messages WHERE chat_id = ? AND status = 'done' AND content <> '' ORDER BY rowid`, chatId);
+export function historyFor(d: Deps, chatId: string, window = HISTORY_WINDOW): { messages: ChatMessage[]; summary: string } {
+  const rows = all<any>(d.db, `SELECT rowid AS rid, role, content, created_at FROM agent_messages WHERE chat_id = ? AND status = 'done' AND content <> '' ORDER BY rowid`, chatId);
   const chat = one<any>(d.db, 'SELECT summary, summary_upto FROM agent_chats WHERE id = ?', chatId);
   const upto = chat?.summary_upto ?? 0;
   const firstNew = rows.findIndex((r) => r.rid > upto);
-  const start = Math.max(rows.length - HISTORY_WINDOW * 2, Math.min(rows.length - HISTORY_WINDOW, firstNew < 0 ? rows.length : firstNew), 0);
-  return { messages: rows.slice(start).map((r) => ({ role: r.role, content: r.content })), summary: chat?.summary ?? '' };
+  const start = Math.max(rows.length - window * 2, Math.min(rows.length - window, firstNew < 0 ? rows.length : firstNew), 0);
+  // History is text only, so a model sees earlier replies saying "Proposed: ..." but not the tool calls behind them, and
+  // starts replying like that without calling anything. Each earlier reply is tagged with the changes its turn really made.
+  const acts = all<any>(d.db, 'SELECT tool, status, created_at FROM agent_actions WHERE chat_id = ? ORDER BY created_at', chatId);
+  const tagged = rows.map((r, i) => {
+    if (r.role !== 'assistant') return { role: r.role, content: r.content };
+    const from = [...rows.slice(0, i)].reverse().find((x) => x.role === 'user')?.created_at ?? '';
+    const to = rows.slice(i + 1).find((x) => x.role === 'user')?.created_at ?? '\uffff';
+    const mine = acts.filter((a) => a.created_at >= from && a.created_at < to);
+    const note = mine.length ? `[tool calls this turn: ${mine.map((a) => `${a.tool} (${a.status})`).join(', ')}]` : '[no write tool calls this turn]';
+    return { role: r.role, content: `${r.content}\n${note}` };
+  });
+  return { messages: tagged.slice(start), summary: chat?.summary ?? '' };
 }
