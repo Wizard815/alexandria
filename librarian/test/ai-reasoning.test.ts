@@ -118,3 +118,10 @@ test('AiReasoning_AuditJobAsksOpenRouterNotToThinkByDefault', async () => {
   await chat(asked.d, 'audit', { messages: msgs, maxTokens: 50 });
   assert.deepEqual(asked.calls[0].body.reasoning, { enabled: false }, 'unless the job option asks for it');
 });
+
+test('AiReasoning_OpenRouterProviderErrorIsTriedOnceMore', async () => {
+  const f = fake({ baseUrl: 'https://openrouter.ai/api/v1' }, err(502, 'Provider returned error'), ok('second time'));
+  const r = await chat(f.d, 'chat', { messages: msgs, maxTokens: 50 });
+  assert.equal(r.content, 'second time');
+  assert.equal(f.calls.length, 2);
+});

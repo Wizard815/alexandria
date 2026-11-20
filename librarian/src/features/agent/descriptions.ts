@@ -40,7 +40,7 @@ export const CONCISE: Record<string, string> = {
   give_temp_hp: 'Use to give temporary hit points; they never stack. Example: "the cleric gives Tomas 8 temp HP".',
   set_concentration: 'Use when a creature starts or stops concentrating on a spell. Example: "the mage is concentrating on Hold Person".',
   concentration_save: 'Use to settle a concentration save a creature owes after damage. Example: "the mage fails the concentration save".',
-  death_save: 'Use for a death saving throw of a player character at 0 HP. Example: "Tomas rolls a 14 on his death save".',
+  death_save: 'Use for a death saving throw a player character at 0 HP rolled; never for damage ("drops to 0" is damage_combatant). Example: "Tomas rolls a 14 on his death save".',
   set_combatant_state: 'Use to correct a creature\'s exact HP, temp HP, concentration, death saves or conditions. Example: "fix Tomas to 7 HP with no temp HP".',
   remove_combatant:'Use when a creature dies, is killed or flees, to take it out of the tracker. Example: "the wolf drops, take it off the board".',
   set_initiative: 'Use to set the initiative of a creature already in the tracker. Example: "the ogre actually rolled a 17 on initiative".',
