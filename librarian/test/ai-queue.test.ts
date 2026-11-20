@@ -32,3 +32,22 @@ test('AiQueue_AtMostMaxConcurrentAtOnceAndTheMostUrgentGoFirst', async () => {
   } finally { setJobResolver(null); }
   void msgs;
 });
+
+test('AiQueue_AQueuedCallSaysHowManyAreAhead', async () => {
+  const release: (() => void)[] = [];
+  const d: any = { db: null, fetch: async () => { await new Promise<void>((r) => release.push(r)); return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }); } };
+  setJobResolver(() => ({ baseUrl: 'http://wait.test/v1', model: 'w', location: 'local', options: { maxConcurrent: 1 } }));
+  try {
+    const heard: number[] = [];
+    const first = withPriority(1, () => chat(d, 'chat', { messages: msgs }));
+    await new Promise((r) => setTimeout(r, 10));
+    const second = withPriority(1, () => chat(d, 'chat', { messages: msgs }), (ahead) => heard.push(ahead));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(heard, [1], 'one ahead of it (the one running)');
+    while (release.length || heard.length < 1) { release.shift()?.(); await new Promise((r) => setTimeout(r, 5)); }
+    release.shift()?.();
+    await new Promise((r) => setTimeout(r, 10));
+    release.shift()?.();
+    await Promise.all([first, second]);
+  } finally { setJobResolver(null); }
+});

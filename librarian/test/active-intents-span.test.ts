@@ -30,3 +30,13 @@ test('ActiveIntents_AFightAlreadyUnderWayIsOfferedNeverStarted', () => {
   ctx.combat.active = true;
   assert.equal(cue('It takes 12 damage, that hits.').length, 0, 'not while a fight is tracked');
 });
+
+test('ActiveIntents_ACritSaidWithTheHitMakesItACriticalHit', () => {
+  const ctx: any = { combat: { active: true, turn: 0, combatants: [{ id: 't', name: 'Tomas', effects: [], isPc: true, accountId: 'a' }, { id: 'o', name: 'Ogre', effects: [], isPc: false }] }, party: [{ accountId: 'a', name: 'Tom', character: 'Tomas' }], pages: [], sfx: [], initiativeOpen: false };
+  const dmg = (t: string) => allCues({ id: 'l', text: t, speaker: 'dm', role: 'dm', accountId: null, aside: false } as any, ctx).find((c: any) => c.kind === 'damage') as any;
+  assert.equal(dmg("It's a crit! Tomas takes 18 damage.")?.crit, true);
+  assert.equal(dmg('Natural 20, Tomas takes 22.')?.crit, true);
+  assert.equal(dmg('The ogre critically hits, Tomas takes 30 damage.')?.crit, true);
+  assert.equal(dmg('Not a crit. Tomas takes 5 damage.')?.crit, undefined, 'said as not a crit');
+  assert.equal(dmg('Tomas takes 7 damage.')?.crit, undefined);
+});

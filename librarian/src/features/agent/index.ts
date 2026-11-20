@@ -147,7 +147,12 @@ function routes(d: import('../../app.ts').Deps) {
     if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
     // The DM's questions go before players' when the model server is busy (core/ai.ts, the queue).
-    void withPriority(who.harness === 'dm' ? 2 : 1, () => runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast }));
+    void withPriority(
+      who.harness === 'dm' ? 2 : 1,
+      () => runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast }),
+      // Queued behind other requests to the same model: the asker sees "Waiting for the model (N ahead)".
+      (ahead) => d.hub.emit(who.worldId, 'agent', { chatId: chat.id, messageId: reply.id, kind: 'status', text: `Waiting for the model (${ahead} ahead)` }, only(who.accountId)),
+    );
     res.status(202).json(chatView(d.db, chat.id));
   });
 
