@@ -20,6 +20,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(own (codex )?page|keeps? coming up|promote (him|her|them|it)|give (him|her|them) (a |his |her |their )?(own )?(codex )?page)\b/i, tools: ['promote', 'who_is', 'codex_upsert', 'context_for'] },
   { re: /\blink\b.*\b(to|with)\b.*\b(page|item)\b|\b(item|dagger|sword|ring)\b.*\bown (library )?page\b/i, tools: ['link_item_page', 'get_inventory', 'get_item_card'] },
   { re: /\b(goals?|heat|ongoing|simmering)\b.*\b(goal|heat|ongoing|simmering|bump|raise|mark|update|cool)|\b(bump|raise|cool|mark)\b.*\bgoal\b/i, tools: ['goal_update', 'context_for', 'who_is'] },
+  { re: /\b(youtube|video|slideshow|slide show|(players'?|table) (tv|screen|display)|(on|to) the (tv|big screen))\b/i, tools: ['queue_media', 'show_media', 'show_on_stage'] },
   { re: /\b(show|put|bring up|display|throw)\b.*\b(whole table|to everyone|for everyone|(to|for) the (players|table|party)|on the (stage|screen))\b|\b(cards?|what('s| is)) (is )?on the (table )?(screen|stage|board)\b|\b(table|stage) screen\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card'] },
   { re: /\b(tell|message|post to|say to|announce to|let)\b.*\b(the table|the players|everyone|the party)\b.*\b(chat|know|that)\b|\bover (the )?(table )?chat\b/i, tools: ['send_table_chat', 'read_table_chat'] },
   { re: /\b(recap|summary)\b.*\b(draft|session)\b|\bdraft\b.*\b(recap|summary)\b/i, tools: ['draft_session_summary', 'list_session_log_drafts', 'list_session_log'] },

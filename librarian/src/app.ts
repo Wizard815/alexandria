@@ -156,11 +156,14 @@ export function createApp(opts: AppOptions = {}) {
   if (opts.webDir && fs.existsSync(path.join(opts.webDir, 'index.html'))) {
     const webDir = opts.webDir;
     const csp = "default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    // The players' screen alone may embed YouTube (privacy-enhanced domain, nothing else); every other page stays frame-free.
+    const screenCsp = csp.replace("frame-ancestors 'none'", "frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'");
+    const cspFor = (p: string) => (/^\/w\/[^/]+\/screen\/players\/?$/.test(p) ? screenCsp : csp);
     app.use(express.static(webDir, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (f.endsWith('index.html')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Content-Security-Policy', csp); } } }));
     // Any other GET that is not an API path is a page of the app.
-    app.get(/^\/(?!api\/|mcp|v1\/|dav\/|health).*/, (_req, res) => {
+    app.get(/^\/(?!api\/|mcp|v1\/|dav\/|health).*/, (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Content-Security-Policy', csp);
+      res.setHeader('Content-Security-Policy', cspFor(req.path));
       res.sendFile('index.html', { root: webDir }); // root: so a dot folder in webDir's own path is fine
     });
   }
