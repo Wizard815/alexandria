@@ -540,3 +540,23 @@ Switches: `ALX_AGENT_OPTS='{"tools":"keywords","desc":"current","skills":"full",
 The defaults are hybrid tools, concise descriptions, the lite prompt and hybrid
 retrieval; without an embeddings model the embedding parts act as keywords.
 `ALX_BIBLE=off` stops the background story bible build (one chat call per page).
+
+## Active mode: hy4-flash and deepseek-v4.1-flash compared (Nov 2026)
+
+Four scripted sessions (95 expected actions), scored by time window, with bge-m3 embeddings:
+
+| Model | Actions caught | Automatic actions right | Cost per call | Median latency |
+|---|---|---|---|---|
+| tencent/hy4-flash | 79% | 89% | $0.00012 | 3.3 s |
+| deepseek/deepseek-v4.1-flash | 82% | 87% | $0.00029 | 1.2 s |
+
+hy4-flash was thinking before every answer even though Active mode wants a quick yes or no.
+The `audit` job now sends OpenRouter `reasoning: {enabled: false}` by default; set the job
+option `reasoning: "on"` to let it think, or `reasoning: "off"` on the chat job to stop that too.
+The few-shot line examples (`ALX_ACTIVE_EXAMPLES=1`) did not help either model and stay off.
+
+Replaying three real hour-long sessions (one table recorder, crosstalk, rules chatter) showed no
+leaks; the misses were a fight already under way when the recording began (now offered as
+"start the combat tracker?") and item suggestions from table talk ("Plus Four", "Resistance"),
+which are now filtered by name.
+
