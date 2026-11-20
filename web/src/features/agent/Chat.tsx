@@ -45,7 +45,7 @@ const QUICK: Record<'dm' | 'player', Quick[]> = {
   ],
 };
 
-export default function Chat({ harness, page, placeholder }: { harness: 'dm' | 'player'; page?: string; placeholder?: string }) {
+export default function Chat({ harness, page, placeholder, mode }: { harness: 'dm' | 'player'; page?: string; placeholder?: string; /** A player's table helper instead of the broker. */ mode?: 'helper' }) {
   const { w, info, on, isDM } = useWorld();
   const { world = '' } = useParams();
   const navigate = useNavigate();
@@ -61,7 +61,7 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
   const end = useRef<HTMLDivElement>(null);
   const chatRef = useRef<ChatState | null>(null);
   chatRef.current = chat;
-  const key = KEY(info.id, harness);
+  const key = KEY(info.id, mode ? `${harness}-${mode}` : harness);
   const attachedPage = page && !dropPage ? page : undefined;
 
   const load = useCallback(async (id: string) => {
@@ -137,7 +137,7 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
     const body = (override ?? text).trim();
     if (!body) return;
     let id = chat?.id;
-    if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', {}); id = c.id; remember(key, id); }
+    if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); id = c.id; remember(key, id); }
     setText('');
     setLive({ text: '', status: '' });
     const sel = selection;
@@ -145,7 +145,7 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
     setChat(await w.call<ChatState>('POST', `/agent/chats/${id}/messages`, { text: body, page: attachedPage, selection: sel || undefined }));
   });
   const stop = () => { if (chat) void w.call('POST', `/agent/chats/${chat.id}/stop`, {}).catch((e: any) => setError(e.message)); };
-  const fresh = () => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', {}); remember(key, c.id); setChat(c); setLive(null); });
+  const fresh = () => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); remember(key, c.id); setChat(c); setLive(null); });
   const decide = (a: Act, decision: 'approve' | 'reject') => run(async () => {
     try { await w.call('POST', `/agent/actions/${a.id}`, { decision }); } catch (e: any) { setError(e.message); }
     if (chat) await load(chat.id);

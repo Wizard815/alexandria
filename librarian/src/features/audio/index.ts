@@ -14,6 +14,7 @@ import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, type LineRow, type MicRow } from './engine.ts';
 import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
+import { RULES_SCHEMA, ruleNotes, rulesPass } from './rulescheck.ts';
 
 // (app.ts cannot be imported by a feature: it is waiting on the registry.)
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
@@ -37,12 +38,14 @@ const sessionOut = (s: any) => ({ id: s.id, name: s.name, startedAt: s.started_a
 
 const feature: Feature = {
   id: 'audio',
-  schema: SCHEMA + SUMMARY_SCHEMA,
+  schema: SCHEMA + SUMMARY_SCHEMA + RULES_SCHEMA,
   settings: {
     recordingConsentText: { type: 'string', default: DEFAULT_CONSENT_TEXT, max: 2000 },
     audioRetentionDays: { type: 'int', default: 30, min: 1, max: 3650, nullable: true },
     // A short vocabulary prompt (names the players can read, dice words) sent with each chunk to the speech model.
     transcriptHint: { type: 'enum', values: ['on', 'off'], default: 'on' },
+    // Minerva's quiet rules checks while recording (features/audio/rulescheck.ts).
+    rulesCheck: { type: 'enum', values: ['on', 'off'], default: 'on' },
     // The words just before a chunk, sent as its prompt, for continuity across chunks.
     transcriptContext: { type: 'enum', values: ['on', 'off'], default: 'off' },
     // After a recording stops, listen again in 60 s windows with the audio job's `refineModel` (off unless the job names one).
@@ -258,6 +261,11 @@ const feature: Feature = {
       const s = sessionOf(res, String(req.params.sid));
       res.json(getSummary(d, s.id, isDM(res) ? 'dm' : 'party'));
     });
+    // Minerva's quiet rules checks for the DM: the calls that looked off (all=1 for every check made).
+    r.get('/sessions/:sid/rule-notes', requireDM, (req, res) => {
+      const s = sessionOf(res, String(req.params.sid));
+      res.json({ notes: ruleNotes(d, s.id, { onlyFlags: req.query.all !== '1' }) });
+    });
     r.post('/sessions/:sid/summary/refresh', requireDM, async (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
@@ -306,10 +314,12 @@ const feature: Feature = {
     const keep = setInterval(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } }, 60 * 60_000);
     // The running summaries of sessions recording now (each folds in new lines only when enough have come in).
     const summ = setInterval(() => { for (const x of recordingSessions(d)) void updateBoth(d, x.worldId, x.sessionId).catch((e) => console.error('audio: summary pass failed', e)); }, 30_000);
+    const rules = setInterval(() => { for (const x of recordingSessions(d)) void rulesPass(d, x.worldId, x.sessionId).catch((e) => console.error('audio: rules check failed', e)); }, 20_000);
+    rules.unref();
     summ.unref();
     const first = setTimeout(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } void eng.retryPending().catch(() => {}); }, 10_000);
     for (const t of [retry, keep, first]) t.unref();
-    return () => { clearInterval(retry); clearInterval(keep); clearInterval(summ); clearTimeout(first); eng.flushAll(); };
+    return () => { clearInterval(retry); clearInterval(keep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
   },
 };
 
