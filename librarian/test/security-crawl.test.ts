@@ -704,7 +704,7 @@ const PLAYER_ROUTES = [
   'POST /modules/match', 'POST /quick-events/:eid/respond', 'POST /requests/', 'POST /sessionchat/chat/:channel', 'POST /sessionchat/messages/:mid/react', 'POST /sessionchat/read',
   'POST /sessionchat/trades', 'POST /sessionchat/trades/:tid/accept', 'POST /sessionchat/trades/:tid/decline', 'POST /sessionchat/trades/:tid/cancel',
   'PUT /clock/prefs', 'PUT /itemcards/:itemId/page', 'PUT /live/presence', 'PUT /people/:pid/note', 'PUT /profiles/me/blocks', 'PUT /sound/me/switches', 'PUT /whiteboard/', 'POST /whiteboard/wipe',
-  'POST /stage/cards/:cid/buy',
+  'POST /stage/cards/:cid/buy', 'POST /screen/media/ended',
   'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
   'POST /minerva/me/journal', 'POST /minerva/me/capture', 'POST /minerva/me/goals', 'POST /minerva/me/share',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
