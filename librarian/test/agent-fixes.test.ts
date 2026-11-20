@@ -788,3 +788,33 @@ test('AgentFixes_QuotedToolOutputIsNotAClaimAndTheRealDateIsKnown', async () => 
   assert.equal(claimSentences('I proposed moving the dagger to Tomas.', draft).length, 1, 'its own claim still counts');
   assert.match(realToday(new Date('2026-11-20T14:05:00Z')), /^Friday 2026-11-20 \d\d:\d\d /);
 });
+
+test('AgentCards_SpokenRulesTermsMatchRunTogetherAndLowerCaseConditions', async () => {
+  const dm = { accountId: e.ID.dm, role: 'dm' } as any;
+  const terms = (text: string, spoken = false) => findMatches(e.deps.db, W, dm, text, { spoken }).filter((m) => m.source === 'module').map((m) => m.term);
+  assert.ok(terms('I cast counter spell on him!').includes('Counterspell'), 'two words for a one-word spell');
+  assert.ok(terms('She casts Misty-Step away').some((t) => /misty step/i.test(t)));
+  assert.ok(!terms('the mage is grappled now').some((t) => /grappled/i.test(t)), 'a page or a note: lower case stays plain');
+  assert.ok(terms('the mage is grappled now', true).some((t) => /grappled/i.test(t)), 'said at the table: the condition');
+  assert.ok(!terms('he lit a fire and felt cold', true).length, 'everyday words stay plain even when spoken');
+  const { rulesSaid } = await import('../src/features/agent/harness.ts');
+  const block = rulesSaid(e.deps, { worldId: W, viewer: dm } as any, 'Jessamine: I cast counter spell!\nDM: the mage is grappled');
+  assert.match(block, /Counterspell \(spell\)/);
+  assert.match(block, /Grappled \(condition\)/);
+});
+
+test('AgentBudget_ContextScalesWithTheModelWindowAndRequestsAreFitted', async () => {
+  const { budgetFrom, fitToBudget } = await import('../src/features/agent/harness.ts');
+  assert.equal(budgetFrom().liveLines, 20, 'unset: the sizes Alexandria always used');
+  assert.ok(budgetFrom(8_000).liveLines < 20 && budgetFrom(8_000).toolChars < 12_000, 'a small local model gets less');
+  assert.ok(budgetFrom(128_000).liveLines > 20);
+  assert.ok(budgetFrom(1_000_000).liveLines >= 3000, 'a 1M model gets the whole night');
+  const big = 'x'.repeat(20_000);
+  const msgs: any[] = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'old question' }, { role: 'assistant', content: 'old answer' }, { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'read_page', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'a', content: big }, { role: 'user', content: 'now' }];
+  const fit = fitToBudget(msgs, 4000);
+  assert.equal(fit[0].content, 'sys');
+  assert.equal(fit.at(-1).content, 'now');
+  assert.ok(JSON.stringify(fit).length < 4000 * 3, 'inside the window');
+  assert.ok(fit.some((m: any) => m.role === 'tool'), 'a tool reply keeps its place next to its call');
+  assert.deepEqual(fitToBudget(msgs, 1_000_000), msgs, 'nothing changes when it fits');
+});

@@ -91,7 +91,9 @@ function ArgosPreset({ jobs, onDone }: { jobs: JobView[]; onDone: () => void }) 
         // Keep a job's own settings when it already has a provider: only fill the empty ones.
         const cur = jobs.find((j) => j.job === job);
         if (cur?.providerId) continue;
-        set[job] = { providerId: made.provider.id, model: s.model, enabled: true };
+        // The chat model's context window sizes what the assistant is given (history, transcript, tool results).
+        const ctx = found.models.find((m) => m.id === s.model)?.contextLength;
+        set[job] = { providerId: made.provider.id, model: s.model, enabled: true, ...(job === 'chat' && ctx ? { options: { contextTokens: ctx } } : {}) };
       }
       if (Object.keys(set).length) await client.request('PUT', '/api/admin/models', { jobs: set });
     }

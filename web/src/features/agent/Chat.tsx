@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ErrorBox, Markdown, useAction } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
+import { useAuth } from '../../lib/auth.tsx';
 
 interface Citation { kind: string; id: string; title: string; path?: string; snippet?: string }
 interface Timings { totalMs: number; firstTokenMs?: number; modelMs: number; toolMs: number; gatewayMs: number; rounds: number; toolCalls: number; fast?: boolean }
@@ -226,10 +227,56 @@ export default function Chat({ harness, page, placeholder }: { harness: 'dm' | '
         <label className="grow" style={{ flex: 1 }}><span className="sr-only">Message</span>
           <textarea data-ag-input rows={2} style={{ width: '100%' }} value={text} placeholder={placeholder ?? 'Ask…'} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!working) void send(); } }} />
         </label>
+        {isDM && <MicButton disabled={busy || working} onText={(t) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); input()?.focus(); }} />}
         {working
           ? <button type="button" className="btn small danger" onClick={stop} aria-label="Stop the answer"><i className="fa-solid fa-stop" aria-hidden="true" /> Stop</button>
           : <button type="submit" className="btn primary small" disabled={busy || !text.trim()}>Send</button>}
       </form>
     </div>
+  );
+}
+
+/**
+ * Talk instead of type: hold or tap to record, tap again to stop. The recording is turned into text by the world's own
+ * speech model (the audio job on the server, never a browser dictation service) and put in the box to check and send.
+ */
+function MicButton({ onText, disabled }: { onText: (t: string) => void; disabled?: boolean }) {
+  const { world } = useParams();
+  const { client } = useAuth();
+  const [state, setState] = useState<'idle' | 'rec' | 'busy'>('idle');
+  const [err, setErr] = useState('');
+  const rec = useRef<MediaRecorder | null>(null);
+  const can = typeof window !== 'undefined' && typeof (window as any).MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+  if (!can) return null;
+  const start = async () => {
+    setErr('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      const parts: Blob[] = [];
+      mr.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setState('busy');
+        try {
+          const blob = new Blob(parts, { type: mr.mimeType || 'audio/webm' });
+          const r = await fetch(`${window.location.origin}/api/worlds/${encodeURIComponent(world ?? '')}/agent/dictate`, { method: 'POST', headers: { Authorization: `Bearer ${client.token ?? ''}`, 'Content-Type': blob.type }, body: blob });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error ?? `Dictation failed (${r.status})`);
+          if (j.text) onText(j.text);
+        } catch (e: any) { setErr(e.message ?? 'Dictation failed'); } finally { setState('idle'); }
+      };
+      rec.current = mr;
+      mr.start();
+      setState('rec');
+      // A minute at most: this is for a request, not a monologue.
+      setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 60_000);
+    } catch { setErr('No microphone (or permission refused)'); setState('idle'); }
+  };
+  const stopRec = () => { if (rec.current?.state === 'recording') rec.current.stop(); };
+  return (
+    <button type="button" className={`btn small${state === 'rec' ? ' danger' : ''}`} disabled={disabled || state === 'busy'} title={err || (state === 'rec' ? 'Stop and turn it into text' : 'Talk to the assistant')} aria-label={state === 'rec' ? 'Stop recording' : 'Talk to the assistant'} onClick={() => (state === 'rec' ? stopRec() : void start())} data-testid="ag-mic">
+      <i className={`fa-solid ${state === 'busy' ? 'fa-spinner fa-spin' : state === 'rec' ? 'fa-stop' : 'fa-microphone'}`} aria-hidden="true" />
+    </button>
   );
 }

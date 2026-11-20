@@ -68,7 +68,7 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   jsonMode        'auto' | 'schema' | 'object' | 'off' (how structured output is asked for)
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens'] as const;
 /**
  * `reasoning: 'on' | 'off'`: whether an OpenRouter model may think before it answers. The audit job (yes/no checks,
  * routing, Active mode) defaults to off: thinking made hy4-flash about three times slower there for no better answer.

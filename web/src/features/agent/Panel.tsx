@@ -1,6 +1,6 @@
 // The DM's assistant: docked to the right edge on every DM page, collapsible.
 import { useCallback, useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { DockButton, useDockShift } from '../../ui/Dock.tsx';
 import Chat from './Chat.tsx';
@@ -19,6 +19,7 @@ function Panel() {
   const [open, setOpen] = useState(wasOpen);
   const [tab, setTab] = useState<'chat' | 'statblock'>('chat');
   const loc = useLocation();
+  const { world } = useParams();
   const page = new URLSearchParams(loc.search).get('page') ?? undefined;
   const set = useCallback((v: boolean) => { setOpen(v); try { localStorage.setItem(KEY, v ? '1' : '0'); } catch { /* private mode */ } }, []);
   const focusInput = () => setTimeout(() => document.querySelector<HTMLTextAreaElement>('[data-ag-input]')?.focus(), 30);
@@ -47,6 +48,7 @@ function Panel() {
         <strong style={{ flex: 1 }}><i className="fa-solid fa-comments" aria-hidden="true" /> Assistant</strong>
         <button type="button" className={`btn small${tab === 'chat' ? ' on' : ''}`} onClick={() => setTab('chat')}>Chat</button>
         <button type="button" className={`btn small${tab === 'statblock' ? ' on' : ''}`} onClick={() => setTab('statblock')}>Statblock</button>
+        <button type="button" className="btn small ghost" aria-label="Pop the assistant out into its own window" title="Pop out (its own window: a second screen, beside other apps)" data-testid="ag-popout" onClick={() => { window.open(`/w/${encodeURIComponent(world ?? '')}/assistant-window`, 'alx-assistant', 'popup,width=460,height=800'); set(false); }}><i className="fa-solid fa-up-right-from-square" aria-hidden="true" /></button>
         <button type="button" className="btn small ghost" aria-label="Collapse the assistant" onClick={() => set(false)}><i className="fa-solid fa-chevron-right" aria-hidden="true" /></button>
       </header>
       <div className="ag-body">
