@@ -12,7 +12,7 @@ import { featureSetting, type Viewer, type WorldSettings } from '../core/policy.
 import { HttpError, id, int, now, parseJson, str } from '../core/util.ts';
 import { applyDamage, applyHeal, gainTempHp, isDying, rollDeathSave, syncDeathTags, tickEffects, type Concentration, type DeathSaves, type Effect, type Fighter } from '../core/combatRules.ts';
 import { rollMonsterInitiative } from '../features/modules/search.ts';
-import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
+import { ctx, isDM, me, memberIds, readerFor, settings } from './_shared.ts';
 
 export default function liveRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -112,7 +112,7 @@ export default function liveRoutes(d: Deps) {
   }
 
   // Combat (DM)
-  r.get('/combat', (_req, res) => res.json(combatView(ctx(res).world.id, ctx(res).viewer, settings(res))));
+  r.get('/combat', (req, res) => res.json(combatView(ctx(res).world.id, readerFor(req, res), settings(res))));
   r.put('/combat', requireDM, (req, res) => {
     const c = ctx(res);
     const cur = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', c.world.id) ?? { active: 0, round: 1, turn: 0 };
