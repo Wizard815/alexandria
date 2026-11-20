@@ -48,11 +48,11 @@ const tools: McpTool[] = [
   {
     name: 'update_person', write: true,
     description: 'DM: change an NPC on the People list: attitude, role, kind, where they were met, or who can see them.',
-    props: { personId: S('Person id'), name: S('Name'), role: S('Role'), attitude: S('Attitude'), kind: { type: 'string', enum: ['ally', 'neutral', 'rival'] }, met: S('When met, e.g. Session 14'), visibility: VIS },
+    props: { personId: S('Person id, or their name'), name: S('Name'), role: S('Role'), attitude: S('Attitude'), kind: { type: 'string', enum: ['ally', 'neutral', 'rival'] }, met: S('When met, e.g. Session 14'), visibility: VIS },
     required: ['personId'],
     call: (a) => ({ method: 'PATCH', path: `/people/${enc(a.personId)}`, body: { name: a.name, role: a.role, attitude: a.attitude, kind: a.kind, met: a.met, visibility: a.visibility } }),
   },
-  { name: 'add_recall', write: true, description: 'DM: record what a player character recalled (or failed to) about an NPC.', props: { personId: S('Person id'), accountId: S("The player's account id"), text: S('What they remembered'), success: { type: 'boolean' } }, required: ['personId', 'accountId', 'text', 'success'], call: (a) => ({ method: 'POST', path: `/people/${enc(a.personId)}/recalls`, body: { accountId: a.accountId, text: a.text, success: a.success } }) },
+  { name: 'add_recall', write: true, description: 'DM: record what a player character recalled (or failed to) about an NPC.', props: { personId: S('Person id, or their name'), accountId: S("The player's account id"), text: S('What they remembered'), success: { type: 'boolean' } }, required: ['personId', 'accountId', 'text', 'success'], call: (a) => ({ method: 'POST', path: `/people/${enc(a.personId)}/recalls`, body: { accountId: a.accountId, text: a.text, success: a.success } }) },
 
   // ---- quick events ----
   { name: 'list_quick_events', description: 'Quick events (checks, votes, choices...) and how they stand as you may see them: who answered, results.', props: {}, call: () => ({ method: 'GET', path: '/quick-events' }) },
