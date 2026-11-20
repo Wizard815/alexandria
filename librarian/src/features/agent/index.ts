@@ -5,7 +5,7 @@
 // approves them (POST /actions/:id). Combat tools and statblocks live here.
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
-import { hasJob, transcribe, ModelUnavailable } from '../../core/ai.ts';
+import { hasJob, transcribe, speak, ModelUnavailable } from '../../core/ai.ts';
 import { buildHint } from '../audio/hint.ts';
 import { all, one, run } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
@@ -16,6 +16,7 @@ import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
 import { budgetFor, describeCall, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
 import { fastPlan } from './intent.ts';
+import { speakable } from './speakable.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
 import { tryChatCommand } from '../active/commands.ts';
 import { addMessage, actionView, chatView, newChat, ownChat, SCHEMA } from './store.ts';
@@ -47,7 +48,10 @@ function routes(d: import('../../app.ts').Deps) {
   // ---- chats ----
   r.get('/chats', (req, res) => {
     caller(req, res);
-    const rows = all<any>(d.db, 'SELECT id, harness, title, created_at, updated_at FROM agent_chats WHERE world_id = ? AND account_id = ? ORDER BY updated_at DESC LIMIT 100', W(res), me(res));
+    // Only the chats of the role asking: a DM who was once a player (or the reverse) is not shown the other role's chats.
+    // And only the chats of the voice asked for: the broker's ('') or the table helper's (?mode=helper).
+    const mode = req.query.mode === 'helper' ? 'helper' : '';
+    const rows = all<any>(d.db, 'SELECT id, harness, title, created_at, updated_at FROM agent_chats WHERE world_id = ? AND account_id = ? AND harness = ? AND mode = ? ORDER BY updated_at DESC LIMIT 100', W(res), me(res), caller(req, res).harness, mode);
     res.json({ chats: rows.map((c) => ({ id: c.id, harness: c.harness, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at })) });
   });
   r.post('/chats', (req, res) => {
@@ -63,6 +67,16 @@ function routes(d: import('../../app.ts').Deps) {
     caller(req, res);
     const c = ownChat(d.db, W(res), me(res), String(req.params.id));
     if (!c) throw new HttpError(404, 'Chat not found');
+    res.json(chatView(d.db, c.id));
+  });
+  r.patch('/chats/:id', (req, res) => {
+    caller(req, res);
+    const c = ownChat(d.db, W(res), me(res), String(req.params.id));
+    if (!c) throw new HttpError(404, 'Chat not found');
+    const title = str(req.body?.title, 'title', { max: 120 }).trim();
+    if (!title) throw new HttpError(400, 'title is required');
+    // Renaming is not new activity, so the chat keeps its place in the list.
+    run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', title, c.id);
     res.json(chatView(d.db, c.id));
   });
   r.delete('/chats/:id', (req, res) => {
@@ -83,6 +97,22 @@ function routes(d: import('../../app.ts').Deps) {
       res.json({ text: (t.text ?? t.segments.map((s) => s.text).join(' ')).replace(/\s+/g, ' ').trim() });
     } catch (e) {
       if (e instanceof ModelUnavailable) throw new HttpError(503, 'The speech model is not available right now');
+      throw e;
+    }
+  });
+
+  // Read a reply aloud on the DM's own device: the text goes to the world's own text-to-speech model (the voice job) and the
+  // audio comes back to the caller only. It is never played to the table; the DM-only text of a reply stays on the DM's device.
+  r.post('/speak', requireDM, async (req, res) => {
+    const text = speakable(str(req.body?.text, 'text', { max: 20000 }));
+    if (!text) throw new HttpError(400, 'There is nothing to read aloud');
+    if (!hasJob(d, 'voice')) throw new HttpError(503, 'No voice model is set (Admin, Models: the voice job)');
+    try {
+      const out = await speak(d, text, { format: 'mp3' });
+      res.setHeader('Cache-Control', 'no-store');
+      res.type(out.mime).send(Buffer.from(out.audio));
+    } catch (e) {
+      if (e instanceof ModelUnavailable) throw new HttpError(503, 'The voice model is not available right now');
       throw e;
     }
   });

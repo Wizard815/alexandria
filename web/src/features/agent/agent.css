@@ -16,3 +16,7 @@
 .ag-x { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; line-height: 1; }
 .ag-sources { margin: 0; padding-left: 16px; }
 @media (prefers-reduced-motion: reduce) { .ag-cursor { animation: none; } }
+.ag-chats { gap: 6px; flex-wrap: nowrap; align-items: center; }
+.ag-toast { display: flex; gap: 6px; align-items: flex-start; z-index: 900; }
+.ag-toast-open { display: flex; flex-direction: column; gap: 2px; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 0; }
+.ag-quick-btn.on { border-color: var(--accent); color: var(--accent-strong); }

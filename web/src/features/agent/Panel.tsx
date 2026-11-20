@@ -4,6 +4,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { DockButton, useDockShift } from '../../ui/Dock.tsx';
 import Chat from './Chat.tsx';
+import { SpokenNotice } from './aloud.tsx';
 import Statblock from './Statblock.tsx';
 import './agent.css';
 
@@ -41,9 +42,11 @@ function Panel() {
   }, [set]);
 
   useDockShift(open);
-  if (!open) return <DockButton order={20} icon="fa-wand-magic-sparkles" label="Open the assistant (Ctrl+K)" title="Assistant (Ctrl+K)" text="Assistant" onClick={() => { set(true); focusInput(); }} testId="dock-agent" />;
+  // Heard even with the panel folded away; clicking it unfolds the panel on the chat it names.
+  const notice = <SpokenNotice onOpen={() => { setTab('chat'); set(true); }} />;
+  if (!open) return <>{notice}<DockButton order={20} icon="fa-wand-magic-sparkles" label="Open the assistant (Ctrl+K)" title="Assistant (Ctrl+K)" text="Assistant" onClick={() => { set(true); focusInput(); }} testId="dock-agent" /></>;
   return (
-    <aside className="ag-panel" aria-label="Assistant">
+    <>{notice}<aside className="ag-panel" aria-label="Assistant">
       <header className="ag-head">
         <strong style={{ flex: 1 }}><i className="fa-solid fa-comments" aria-hidden="true" /> Assistant</strong>
         <button type="button" className={`btn small${tab === 'chat' ? ' on' : ''}`} onClick={() => setTab('chat')}>Chat</button>
@@ -55,6 +58,6 @@ function Panel() {
         <div style={{ display: tab === 'chat' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><Chat harness="dm" page={page} placeholder="Ask, or tell it what to do…" /></div>
         {tab === 'statblock' && <Statblock page={page} />}
       </div>
-    </aside>
+    </aside></>
   );
 }
