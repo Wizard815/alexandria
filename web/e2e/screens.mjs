@@ -47,7 +47,7 @@ try {
   check(!!info?.id, 'world info is readable');
 
   // ---- 1. every pop-out panel is its own chrome-less window ------------------------------------------
-  const PANEL_IDS = ['assistant', 'transcript', 'combat', 'approvals', 'sound', 'chat', 'clock', 'quick', 'party'];
+  const PANEL_IDS = ['assistant', 'transcript', 'combat', 'approvals', 'sound', 'fog', 'chat', 'clock', 'quick', 'party'];
   for (const id of PANEL_IDS) {
     await page.goto(`${W}/panel/${id}`);
     await page.getByTestId(`panel-${id}`).waitFor({ timeout: 8000 }).catch(() => problems.push(`panel ${id}: did not render`));
