@@ -192,6 +192,7 @@ const quickEvent = (n: string) => once(`qe-${n}`, async () => (await dm('POST', 
 const lorePage = (n: string) => once(`lore-${n}`, async () => (await dm('POST', '/worldlore/pages', { path: `Test/${n}`, title: n, markdown: `# ${n}\nA page for the test.\n`, level: 'party', by: 'the DM' })).id as string);
 const card = () => once('card', async () => (await dm('POST', '/stage/cards', { kind: 'text', title: 'Shown card', text: 'On the stage.', show: true })).id as string);
 const mark = (n: string) => once(`mark-${n}`, async () => (await dm('POST', '/map/world/marks', { kind: 'pin', x: 20, y: 30, label: n })).id as string);
+const scene = () => once('scene', async () => (await dm('POST', '/scenes', { name: 'Coverage scene', parts: { table: { mapId: 'world', pic: 'none' }, sound: { stopOthers: true } } })).name as string);
 const pendingCoin = () => once('coin', async () => (await dm('GET', '/approvals')).coin[0].id as string);
 const request = () => once('request', async () => (await as('jess')('POST', '/requests', { kind: 'question', title: 'Can I recall the keeper?', body: 'Jessamine grew up here.' })).id as string);
 const movableItem = () => once('movable', async () => (await dm('POST', '/inventory', { owner: ID.tom, name: 'Rope', qty: 3, reason: 'Bought' })).id as string);
@@ -255,6 +256,7 @@ const ARGS: Record<string, Maker> = {
   decide_session_date: async () => ({ draftId: await draft(), accept: false }),
   publish_session_log: async () => ({ draftId: await draft() }),
   draft_session_summary: () => ({ from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), title: 'Session 1' }),
+  activate_scene: async () => ({ scene: await scene() }),
   play_music: () => ({ mood: 'tense', area: 'dungeon' }),
   play_ambience: () => ({ scene: 'Rainy night' }),
   play_sfx: () => ({ name: 'creak' }),
