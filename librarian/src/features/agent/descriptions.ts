@@ -112,6 +112,8 @@ export const CONCISE: Record<string, string> = {
   show_on_stage: 'Use to show a page, image, person or the combat card to the table. Example: "throw the dungeon map up for everyone" or "display the Saltmarsh page for the players".',
   queue_media: 'Use to put a YouTube video or a shared picture on the players\' TV. Example: "queue this YouTube link for the players" or "play the tavern video on the big screen".',
   show_media: 'Use to control what the players\' TV plays: slideshow, next, pause, focus one item, or turn it off. Example: "start the slideshow" or "take the video off the TV".',
+  list_scenes: 'Use to see the saved scenes (one-button room presets). Example: "which scenes do I have saved".',
+  activate_scene: 'Use to activate a saved scene, which sets the players\' TV, sound, lights and table map at once. Example: "go to the tavern scene" or "run the boss fight scene".',
   hide_stage_card: 'Use to take a card off the table screen. Example: "clear the handout from the screen".',
   list_approvals: 'Use to see what waits for the DM\'s sign-off (coin requests, item changes, disputes). Example: "what needs my yes or no".',
   decide_approval: 'Use to approve, edit or reject a coin request or item change. Example: "go ahead and OK Ana\'s item change".',
