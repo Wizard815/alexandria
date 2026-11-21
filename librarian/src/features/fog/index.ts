@@ -12,7 +12,7 @@ import type { Deps } from '../../app.ts';
 import { one, run, tx } from '../../core/db.ts';
 import { requireDM } from '../../core/auth.ts';
 import { everyone } from '../../core/events.ts';
-import { compact, readFog, type FogOp, type FogState } from '../../core/fog.ts';
+import { compact, readFog, withoutLastStroke, type FogOp, type FogState } from '../../core/fog.ts';
 import { HttpError, now, str } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
 
@@ -45,13 +45,14 @@ const unit = (v: unknown, f: string, min = 0, max = 1) => {
 /** One stroke from a request, checked and rounded. */
 export function cleanOp(raw: any): FogOp {
   const v = raw?.v === 0 || raw?.v === false || raw?.reveal === false ? 0 : 1;
+  const g = raw?.g === undefined || raw?.g === null ? {} : { g: unit(raw.g, 'g', 0, 2_000_000_000) };
   switch (raw?.k) {
-    case 'c': return { k: 'c', x: unit(raw.x, 'x'), y: unit(raw.y, 'y'), r: unit(raw.r, 'r', 0.003, 1), v };
+    case 'c': return { k: 'c', x: unit(raw.x, 'x'), y: unit(raw.y, 'y'), r: unit(raw.r, 'r', 0.003, 1), v, ...g };
     case 'r': {
       const x = unit(raw.x, 'x'), y = unit(raw.y, 'y');
-      return { k: 'r', x, y, w: Math.min(unit(raw.w, 'w'), 1 - x), h: Math.min(unit(raw.h, 'h'), 1 - y), v };
+      return { k: 'r', x, y, w: Math.min(unit(raw.w, 'w'), 1 - x), h: Math.min(unit(raw.h, 'h'), 1 - y), v, ...g };
     }
-    case 'all': return { k: 'all', v };
+    case 'all': return { k: 'all', v, ...g };
     default: throw new HttpError(400, "op.k must be 'c' (circle), 'r' (rectangle) or 'all'");
   }
 }
@@ -134,7 +135,7 @@ const feature: Feature = {
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       if (!cur.enabled) throw new HttpError(409, 'Turn fog on for this map picture first');
       const list = Array.isArray(req.body?.ops) ? req.body.ops : [req.body?.op];
-      if (!list.length || list.length > 50) throw new HttpError(400, 'Send one op, or up to 50');
+      if (!list.length || list.length > 200) throw new HttpError(400, 'Send one op, or up to 200');
       const ops = list.map(cleanOp);
       saveFog(d, t.w, t.mapId, t.pic, { ...cur, ops: [...cur.ops, ...ops] });
       res.json(fogOf(d, t.w, t.mapId, t.pic));
@@ -144,7 +145,7 @@ const feature: Feature = {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       if (!cur.ops.length) throw new HttpError(409, 'Nothing to undo');
-      saveFog(d, t.w, t.mapId, t.pic, { ...cur, ops: cur.ops.slice(0, -1) });
+      saveFog(d, t.w, t.mapId, t.pic, { ...cur, ops: withoutLastStroke(cur.ops) });
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 

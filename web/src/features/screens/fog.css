@@ -1,0 +1,8 @@
+/* Fog of war over a map picture, and the DM's drawing layer. */
+.fog-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: block; }
+.fog-draw { position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none; user-select: none; }
+.fog-brush { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid var(--accent, #D9B26A); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); pointer-events: none; }
+.fog-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fog-map { position: relative; width: 100%; aspect-ratio: 16 / 10; border-radius: 10px; border: 1px solid var(--line-strong); overflow: hidden; user-select: none; background: #15212D; }
+.fog-panel { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; }
+.fog-panel select { min-height: 34px; max-width: 100%; }

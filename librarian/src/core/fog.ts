@@ -12,10 +12,11 @@ export const FOG_GRID = 96;
 const MAX_OPS = 240;
 const KEEP_OPS = 80;
 
+/** `g` ties the circles of one drag together, so "undo last stroke" takes the whole drag back. */
 export type FogOp =
-  | { k: 'c'; x: number; y: number; r: number; v: 0 | 1 }
-  | { k: 'r'; x: number; y: number; w: number; h: number; v: 0 | 1 }
-  | { k: 'all'; v: 0 | 1 };
+  | { k: 'c'; x: number; y: number; r: number; v: 0 | 1; g?: number }
+  | { k: 'r'; x: number; y: number; w: number; h: number; v: 0 | 1; g?: number }
+  | { k: 'all'; v: 0 | 1; g?: number };
 
 /** v: 1 uncovers the area, 0 covers it again. base: base64 bitmask (1 = fogged), or null for a fully fogged map. */
 export interface FogState { enabled: boolean; base: string | null; ops: FogOp[] }
@@ -45,6 +46,16 @@ const evalAt = (base: Buffer | null, ops: FogOp[], x: number, y: number): boolea
 export function isFogged(s: FogState, x: number, y: number): boolean {
   if (!s.enabled) return false;
   return evalAt(s.base ? Buffer.from(s.base, 'base64') : null, s.ops, x, y);
+}
+
+/** The strokes with the last stroke (every trailing op of the same group) taken off. */
+export function withoutLastStroke(ops: FogOp[]): FogOp[] {
+  if (!ops.length) return ops;
+  const g = ops[ops.length - 1].g;
+  if (g === undefined) return ops.slice(0, -1);
+  let n = ops.length;
+  while (n > 0 && ops[n - 1].g === g) n--;
+  return ops.slice(0, n);
 }
 
 /** Fold the oldest strokes into the bitmask so the list stays short; the newest KEEP_OPS stay undoable. */

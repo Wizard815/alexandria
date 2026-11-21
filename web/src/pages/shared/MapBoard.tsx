@@ -8,12 +8,13 @@ import { when } from '../../lib/format.ts';
 import { PageHead, ErrorBox, Field, VisChip, useAction, useToast } from '../../ui/index.tsx';
 import { ICONS, MarkLayer, RouteLayer, type Mark, type Pt } from '../player/mapParts.tsx';
 import { NO_DOCK } from '../../ui/Dock.tsx';
+import { FogCanvas, FogDraw, FogToolbar, pictureStyle, useFog, useFogEditor, useTableDisplay } from '../../features/screens/fog.tsx';
 
 interface ImportedMap { id: string; name: string; url: string; page: { id: string; title: string } | null }
-type Tool = 'select' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase';
+type Tool = 'select' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase' | 'fog';
 const TOOLS: [Tool, string, string][] = [
   ['select', '➤', 'Select'], ['pin', '📍', 'Pin'], ['note', '🗒', 'Note'], ['route', '✎', 'Route'],
-  ['stop', '①', 'Stop'], ['icon', '⛺', 'Icon'], ['erase', '⌫', 'Erase'],
+  ['stop', '①', 'Stop'], ['icon', '⛺', 'Icon'], ['erase', '⌫', 'Erase'], ['fog', '☁', 'Fog'],
 ];
 const HINT: Record<Tool, string> = {
   select: 'Click a mark to see it.',
@@ -23,6 +24,7 @@ const HINT: Record<Tool, string> = {
   stop: 'Click to place the next numbered stop.',
   icon: 'Pick an icon, then click the map.',
   erase: 'Click a mark to erase it.',
+  fog: 'Drag to uncover or cover the map. The fog is a tint for you and solid for players.',
 };
 
 function store<T>(key: string, fallback: T): [T, (v: T) => void] {
@@ -55,7 +57,12 @@ export default function MapBoard() {
   const chosenOption = options.find((o) => o.value === choice) ?? null;
   const bg = chosenOption?.url ?? (/^(https?:|\/)/.test(choice) ? choice : '');
   const setChoice = (v: string) => setBgs({ ...bgs, [mapId]: v });
-  const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed']);
+  const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed', 'fog']);
+  // Fog belongs to the map picture. Everyone reads it; the DM edits it (and sees it as a tint).
+  const picKey = chosenOption?.value ?? 'none';
+  const fog = useFog(mapId, picKey);
+  const table = useTableDisplay();
+  const fogEd = useFogEditor(mapId, picKey, fog);
   const [tool, setTool] = useState<Tool>('select');
   const [icon, setIcon] = useState(ICONS[0][0]);
   const [vis, setVis] = useState<'party' | 'me' | 'dm'>('party');
@@ -72,6 +79,7 @@ export default function MapBoard() {
 
   const allowed: Record<Tool, boolean> = {
     select: true, erase: true,
+    fog: isDM,
     pin: isDM || s.mapPins, note: isDM || s.mapPins, icon: isDM || s.mapPins,
     route: isDM || s.mapDraw, stop: isDM || s.mapStops,
   };
@@ -111,6 +119,7 @@ export default function MapBoard() {
   const onAreaClick = (e: MouseEvent) => {
     if ((e.target as HTMLElement).closest('[data-mark]')) return;
     if (tool === 'select' || tool === 'erase') { setSel(null); return; }
+    if (tool === 'fog') return;
     placeAt(point(e));
   };
   const onKey = (e: KeyboardEvent) => {
@@ -122,7 +131,7 @@ export default function MapBoard() {
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       if (tool === 'route' && e.key === 'Enter' && draft.length >= 2 && !e.shiftKey) finishRoute();
-      else if (tool !== 'select' && tool !== 'erase') placeAt(cursor);
+      else if (tool !== 'select' && tool !== 'erase' && tool !== 'fog') placeAt(cursor);
     } else if (e.key === 'Escape') { setDraft([]); setPending(null); }
   };
 
@@ -148,7 +157,7 @@ export default function MapBoard() {
       <ErrorBox error={marks.error ?? act.error} />
 
       <div className="row" role="toolbar" aria-label="Map tools" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--side)', border: '1px solid var(--line)' }}>
-        {TOOLS.map(([k, glyph, label]) => (
+        {TOOLS.filter(([k]) => k !== 'fog' || isDM).map(([k, glyph, label]) => (
           <button key={k} type="button" className={`btn small${tool === k ? ' on' : ''}`} aria-pressed={tool === k} disabled={!allowed[k]}
             title={allowed[k] ? HINT[k] : 'Turned off by the DM in World settings'} onClick={() => setTool(k)}>
             <span aria-hidden="true">{glyph}</span> {label}
@@ -178,10 +187,13 @@ export default function MapBoard() {
             style={{
               position: 'relative', width: '100%', aspectRatio: '16 / 10', borderRadius: 10, border: '1px solid var(--line-strong)', overflow: 'hidden',
               cursor: tool === 'select' ? 'default' : tool === 'erase' ? 'not-allowed' : 'crosshair', userSelect: 'none',
-              background: bg ? `center / 100% 100% no-repeat url("${bg.replace(/"/g, '%22')}"), #15212D` : 'radial-gradient(ellipse 40% 32% at 30% 42%, #4B4632 0 60%, transparent 61%), radial-gradient(ellipse 30% 40% at 64% 56%, #47432F 0 62%, transparent 63%), linear-gradient(160deg, #1A2A38, #15212D)',
+              // The picture waits for its fog state, so a fogged map is never seen uncovered first.
+              background: bg ? (fog.ready ? `center / 100% 100% no-repeat url("${bg.replace(/"/g, '%22')}"), #15212D` : '#15212D') : 'radial-gradient(ellipse 40% 32% at 30% 42%, #4B4632 0 60%, transparent 61%), radial-gradient(ellipse 30% 40% at 64% 56%, #47432F 0 62%, transparent 63%), linear-gradient(160deg, #1A2A38, #15212D)',
             }}>
+            {fog.ready && fog.state && <FogCanvas state={fog.state} extra={fogEd.pending} tint={isDM} />}
             <RouteLayer marks={shown} draft={draft} selected={sel} onPick={onMark} />
             <MarkLayer marks={shown} selected={sel} onPick={onMark} me={me} />
+            <FogDraw ed={fogEd} active={isDM && tool === 'fog' && fogEd.enabled} />
             {pending && <span aria-hidden="true" style={{ position: 'absolute', left: `${pending.x}%`, top: `${pending.y}%`, transform: 'translate(-50%,-50%)', width: 16, height: 16, borderRadius: '50%', border: '2px dashed var(--accent)' }} />}
             {focused && tool !== 'select' && <span aria-hidden="true" style={{ position: 'absolute', left: `${cursor.x}%`, top: `${cursor.y}%`, transform: 'translate(-50%,-50%)', width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--teal)', boxShadow: '0 0 0 3px rgba(0,0,0,0.4)' }} />}
             <span style={{ position: 'absolute', left: 10, bottom: 8, padding: '3px 9px', borderRadius: 6, background: 'rgba(18,22,31,0.85)', fontSize: 13, color: '#D8CFB9', pointerEvents: 'none' }}>{HINT[tool]}</span>
@@ -198,6 +210,20 @@ export default function MapBoard() {
               onSave={(patch) => act.run(async () => { await w.call('PATCH', `/map/${encodeURIComponent(mapId)}/marks/${selected.id}`, patch); await marks.reload(); toast('Saved'); })}
               onErase={() => act.run(async () => { await w.removeMark(mapId, selected.id); setSel(null); await marks.reload(); })} />
           ) : null}
+
+          {isDM && (
+            <section className="card" aria-labelledby="fog-h" data-testid="map-fog">
+              <h3 id="fog-h">Fog of war</h3>
+              <p className="small muted">Per map picture. Off until you turn it on, then the whole map starts fogged. Pins and routes under fog are not sent to players.</p>
+              <FogToolbar ed={fogEd} />
+              <div className="row">
+                <button type="button" className="btn small" data-testid="show-on-table" disabled={table.display?.mapId === mapId && table.display?.pic === picKey}
+                  onClick={() => void table.set({ mapId, pic: picKey })}>
+                  {table.display?.mapId === mapId && table.display?.pic === picKey ? 'On the table screen' : 'Show on the table screen'}
+                </button>
+              </div>
+            </section>
+          )}
 
           <section className="card" aria-labelledby="layers-h">
             <h3 id="layers-h">Layers</h3>
