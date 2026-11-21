@@ -6,6 +6,7 @@ import type { Deps } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
 import { requirePlayerOrDM } from '../core/auth.ts';
 import { canSee } from '../core/policy.ts';
+import { fogLayers, markUnderFog } from '../core/fog.ts';
 import { HttpError, id, now, oneOf, str } from '../core/util.ts';
 import { ctx, isDM, me, readerFor, settings } from './_shared.ts';
 
@@ -25,9 +26,13 @@ export default function mapRoutes(d: Deps) {
     const c = ctx(res);
     const v = readerFor(req, res);
     const rows = all<any>(db, 'SELECT * FROM map_marks WHERE world_id = ? AND map_id = ? ORDER BY created_at', c.world.id, String(req.params.mapId));
+    // Fog is enforced here, not on the page: a mark under fog is never sent to anyone but the DM (and not to the DM's
+    // ?view=players table screen either), so a client that ignored the fog would still find nothing under it.
+    const fog = v.role === 'dm' ? [] : fogLayers(db, c.world.id, String(req.params.mapId));
     res.json(rows
       .filter((m) => canSee(v, m.visibility, m.author_id) && (v.role === 'dm' || !m.hidden_by_dm || m.author_id === v.accountId))
-      .map((m) => ({ ...m, data: JSON.parse(m.data), hidden_by_dm: !!m.hidden_by_dm })));
+      .map((m) => ({ ...m, data: JSON.parse(m.data), hidden_by_dm: !!m.hidden_by_dm }))
+      .filter((m) => !markUnderFog(fog, m)));
   });
 
   r.post('/:mapId/marks', requirePlayerOrDM, (req, res) => {
@@ -59,7 +64,10 @@ export default function mapRoutes(d: Deps) {
     }
     const m = { id: id('mk_'), world_id: c.world.id, map_id: str(String(req.params.mapId), 'mapId', { max: 60 }), author_id: me(res), kind, data, visibility, hidden_by_dm: false, created_at: now() };
     run(db, 'INSERT INTO map_marks (id, world_id, map_id, author_id, kind, data, visibility, hidden_by_dm, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)', m.id, m.world_id, m.map_id, m.author_id, m.kind, JSON.stringify(data), m.visibility, m.created_at);
-    d.hub.emit(c.world.id, 'map-mark', m, (v) => canSee(v, m.visibility, m.author_id));
+    // Looked up per event, so fog turned on a moment ago still counts; players get nothing for a mark under fog.
+    const fog = fogLayers(db, c.world.id, m.map_id);
+    const covered = markUnderFog(fog, m);
+    d.hub.emit(c.world.id, 'map-mark', m, (v) => canSee(v, m.visibility, m.author_id) && (v.role === 'dm' || !covered));
     res.status(201).json(m);
   });
 
