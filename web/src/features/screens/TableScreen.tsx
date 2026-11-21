@@ -4,10 +4,11 @@
 // THE PLAYERS SEE THIS, even when the DM's login opened it. So it never trusts itself to hide things: every read below asks
 // the server for the players' copy (?view=players), and nothing here branches on isDM. A DM-only pin, a hidden foe, a monster's
 // AC or a map picture only the DM may see is never in the page to begin with.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { MarkLayer, RouteLayer, ICONS, type Mark } from '../../pages/player/mapParts.tsx';
 import type { CombatView } from '../../pages/player/Live.tsx';
+import { FogCanvas, pickPicture, pictureStyle, useFog, useMapPictures, useTableDisplay } from './fog.tsx';
 import './screens.css';
 
 const PLAYERS = { view: 'players' };
@@ -15,15 +16,11 @@ type Rot = 0 | 90 | 180 | 270;
 type View = 'map' | 'board';
 const ZOOMS = [1, 1.5, 2, 3];
 const ROT_KEY = 'alx.screens.table.rot';
-const PIC_KEY = 'alx.screens.table.pic.';
-const MAP_KEY = 'alx.screens.table.map.';
 
 function stored<T>(key: string, fallback: T): T {
   try { const s = localStorage.getItem(key); return s ? (JSON.parse(s) as T) : fallback; } catch { return fallback; }
 }
 function keep(key: string, v: unknown) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private window */ } }
-
-interface Pic { value: string; label: string; url: string }
 
 export default function TableScreen() {
   const { w, isDM, info } = useWorld();
@@ -33,29 +30,23 @@ export default function TableScreen() {
   const [sel, setSel] = useState<string | null>(null);
   useEffect(() => { document.title = `Table · ${info?.name ?? 'Alexandria'}`; }, [info?.name]);
 
-  // Which map (the DM's own choice on the Map page to begin with) and which picture of it.
+  // Which map and which picture of it is the DM's choice (set from the DM's map page or the fog panel, followed live). Until the
+  // DM has chosen, the first map and picture the players may see.
+  const { display } = useTableDisplay();
   const maps = stored<string[]>(`alx.maps.${info.id}`, ['world']);
-  const [mapId, setMapId] = useState<string>(() => stored<string>(MAP_KEY + info.id, '') || stored<string>(`alx.map.${info.id}`, maps[0] ?? 'world'));
-  const [pics, setPics] = useState<Record<string, string>>(() => stored<Record<string, string>>(PIC_KEY + info.id, {}));
+  const mapId = display?.mapId ?? stored<string>(`alx.map.${info.id}`, maps[0] ?? 'world');
 
   const combat = useLoad<CombatView>(() => w.call('GET', '/live/combat', undefined, PLAYERS), [w], ['combat']);
-  const marks = useLoad<Mark[]>(() => w.call('GET', `/map/${encodeURIComponent(mapId)}/marks`, undefined, PLAYERS), [w, mapId], ['map-mark', 'map-mark-removed']);
-  const libMaps = useLoad<{ id: string; name: string; url: string }[]>(() => w.call<any[]>('GET', '/files/maps', undefined, PLAYERS).catch(() => []), [w], ['libfile']);
-  const imported = useLoad<{ id: string; name: string; url: string }[]>(() => w.call<any[]>('GET', '/intake/map-images', undefined, PLAYERS).catch(() => []), [w], ['page']);
+  const marks = useLoad<Mark[]>(() => w.call('GET', `/map/${encodeURIComponent(mapId)}/marks`, undefined, PLAYERS), [w, mapId], ['map-mark', 'map-mark-removed', 'fog']);
+  const { options } = useMapPictures('players');
   const board = useLoad<{ doc: { shapes?: any[] } }>(() => w.whiteboard() as Promise<any>, [w], ['whiteboard']);
 
-  const options = useMemo<Pic[]>(() => [
-    ...(imported.data ?? []).map((m) => ({ value: `imp:${m.id}`, label: m.name || 'Map', url: m.url })),
-    ...(libMaps.data ?? []).map((f) => ({ value: `lib:${f.id}`, label: f.name, url: f.url })),
-  ], [imported.data, libMaps.data]);
   // Only a picture the players may see is ever drawn: an address typed on the DM's Map page is not carried over.
-  const dmChoice = stored<Record<string, string>>(`alx.mapbg.${info.id}`, {})[mapId] ?? '';
-  const want = pics[mapId] ?? dmChoice;
-  const pic = want === 'none' ? null : options.find((o) => o.value === want) ?? options[0] ?? null;
+  const want = display?.pic ?? stored<Record<string, string>>(`alx.mapbg.${info.id}`, {})[mapId] ?? '';
+  const pic = pickPicture(options, want);
+  const fog = useFog(mapId, pic?.value ?? 'none', 'players');
 
   const rotate = (by: number) => { const r = ((((rot + by) % 360) + 360) % 360) as Rot; setRot(r); keep(ROT_KEY, r); };
-  const pickMap = (id: string) => { setMapId(id); setSel(null); keep(MAP_KEY + info.id, id); };
-  const pickPic = (v: string) => { const n = { ...pics, [mapId]: v }; setPics(n); keep(PIC_KEY + info.id, n); };
 
   const c = combat.data;
   const active = !!c?.active;
@@ -98,24 +89,12 @@ export default function TableScreen() {
             {view === 'map' ? (
               <>
                 <div className="ts-scroll">
-                  <div className="ts-map" data-testid="table-map" style={{ width: `${ZOOMS[zoom] * 100}%`, background: pic ? `center / 100% 100% no-repeat url("${pic.url.replace(/"/g, '%22')}"), #15212D` : undefined }}
+                  <div className="ts-map" data-testid="table-map" style={{ width: `${ZOOMS[zoom] * 100}%`, ...pictureStyle(pic, fog.ready) }}
                     onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-mark]')) setSel(null); }}>
+                    {fog.ready && fog.state && <FogCanvas state={fog.state} />}
                     <RouteLayer marks={marks.data ?? []} draft={[]} selected={sel} onPick={(m) => setSel(m.id)} />
                     <MarkLayer marks={marks.data ?? []} selected={sel} onPick={(m) => setSel(m.id)} />
                   </div>
-                </div>
-                <div className="ts-pickers">
-                  {maps.length > 1 && (
-                    <div className="ts-group" role="group" aria-label="Which map">
-                      {maps.map((m) => <button key={m} type="button" className={`ts-btn${m === mapId ? ' on' : ''}`} aria-pressed={m === mapId} onClick={() => pickMap(m)}>{m}</button>)}
-                    </div>
-                  )}
-                  {options.length > 0 && (
-                    <select className="ts-select" aria-label="Map picture" value={pic?.value ?? 'none'} onChange={(e) => pickPic(e.target.value)}>
-                      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      <option value="none">Blank map</option>
-                    </select>
-                  )}
                 </div>
                 {selected && <MarkCard m={selected} onClose={() => setSel(null)} />}
               </>
