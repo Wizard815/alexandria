@@ -28,5 +28,10 @@ const hid = await http.ok('POST', `${scr}/items`, S.T.dm, { kind: 'youtube', url
 await http.ok('PATCH', `${scr}/items/${hid.items[0].id}`, S.T.dm, { hidden: true });
 await http.ok('PUT', scr, S.T.dm, { mode: 'queue' });
 await http.ok('POST', `/api/worlds/${S.W}/stage/cards`, S.T.dm, { kind: 'text', title: 'Board for everyone', text: `The bridge is out. ${mark('stage_card_all', ['dm', 'jess', 'tom'], 'a stage card shown to everyone')}`, show: true });
+// A party pin under fog on the map the table screen shows: the table (and every player) must never get it, whatever the page does.
+const fogw = `/api/worlds/${S.W}`;
+await http.ok('PUT', `${fogw}/fog/map/fogmap/enabled`, S.T.dm, { pic: 'none', enabled: true });
+await http.ok('POST', `${fogw}/map/fogmap/marks`, S.T.dm, { kind: 'pin', x: 50, y: 50, label: mark('mark_fogged', ['dm'], 'a party pin under fog on the table map'), visibility: 'party' });
+await http.ok('PUT', `${fogw}/fog/table`, S.T.dm, { mapId: 'fogmap', pic: 'none' });
 const slug = all(made.deps.db, 'SELECT slug FROM worlds WHERE id = ?', S.W)[0].slug;
 console.log('LEAKWORLD ' + JSON.stringify({ slug, markers: Object.values(markers), pages: S.pages }));
