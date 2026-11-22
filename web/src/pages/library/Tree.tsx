@@ -111,7 +111,7 @@ export const TREE_CSS = `
 .lib-row.folder .lib-row-btn { color: var(--muted); font-weight: 600; }
 .lib-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 .lib-ico { color: var(--faint); width: 16px; text-align: center; font-size: 13px; }
-.lib-count { font-size: 11px; color: var(--faint); }
+.lib-count { font-size: 12px; color: var(--faint); }
 .lib-dm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
 .lib-saved-ico { color: var(--teal); font-size: 11px; }
 .lib-row-save { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 4px 6px; }

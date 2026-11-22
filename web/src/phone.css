@@ -1,0 +1,125 @@
+/* The player app on a phone (<= 760px wide). Everything here is scoped to .player
+   (the player layout), so the DM and admin screens keep their own look.
+   Rules of thumb: text >= 14px (body 16px), touch targets >= 44px, inputs 16px
+   (iOS zooms the page on anything smaller), nothing wider than the screen,
+   sheets for pop-ups, and the tab bar plus safe areas always accounted for. */
+:root { --nav-h: 58px; }
+
+/* The tab bar and More sheet (all widths: the bar itself only shows on phones). */
+.sheet.more { max-height: min(88dvh, calc(100dvh - 24px)); padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
+.sheet-handle { width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); align-self: center; flex: 0 0 auto; margin: 2px 0 4px; }
+.sheet-top { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.sheet-top .input { flex: 1 1 auto; min-width: 0; }
+.sheet-top .btn { flex: 0 0 auto; }
+.sheet-body { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px; min-height: 0; -webkit-overflow-scrolling: touch; }
+.more-group { font-family: var(--font); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); padding: 10px 4px 2px; }
+.more-list, .more-tablist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.more-list li { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.more-list li:last-child { border-bottom: 0; }
+.more-link { flex: 1 1 auto; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 8px; color: var(--text); text-decoration: none; font: inherit; font-size: 16px; background: none; border: 0; text-align: left; cursor: pointer; border-radius: 8px; }
+.more-link i { width: 22px; text-align: center; color: var(--accent); flex: 0 0 auto; }
+.more-link.active { background: var(--accent-bg); color: var(--accent-strong); }
+.pin-btn { flex: 0 0 auto; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; color: var(--faint); font-size: 16px; cursor: pointer; border-radius: 8px; }
+.pin-btn i { transform: rotate(35deg); }
+.pin-btn.on { color: var(--accent-strong); }
+.pin-btn.on i { transform: none; }
+.more-tabs { border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+.more-tabs h3 { font-size: 15px; }
+.more-tablist li { display: flex; align-items: center; gap: 6px; min-height: 48px; border-bottom: 1px solid var(--line); }
+.more-tablist .icon-btn { width: 44px; height: 44px; flex: 0 0 auto; }
+.more-tablist .icon-btn:disabled { opacity: 0.35; }
+.more-note { min-height: 20px; }
+.modal-grip { display: none; }
+
+@media (max-width: 760px) {
+  /* ---- shell ---- */
+  .player { overflow-x: clip; }
+  .player main { min-width: 0; }
+  .bottomnav { min-height: var(--nav-h); box-sizing: content-box; transition: transform 0.15s; }
+  .bottomnav.kb-open { transform: translateY(100%); }
+  .bottomnav a, .bottomnav button { min-height: var(--nav-h); justify-content: center; font-size: 12px; gap: 2px; padding: 4px 2px; }
+  .bottomnav .icon { font-size: 19px; line-height: 22px; }
+  html body:has(.bottomnav) .dock { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
+  html body:has(.bottomnav) .dock-panel { bottom: calc(var(--nav-h) + 66px + env(safe-area-inset-bottom, 0px)); }
+  :root { --dock-reserve: calc(var(--nav-h) + 76px + env(safe-area-inset-bottom, 0px)) !important; }
+  .player .toast { bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px)); left: 12px; right: 12px; max-width: none; }
+  .player .topbar { min-height: 44px; }
+  .player .page { padding: 12px 14px var(--dock-reserve); gap: 14px; }
+  .player .page h1 { font-size: 22px; }
+  .player .page-head { align-items: stretch; }
+
+  /* ---- text ---- */
+  .player .small { font-size: 14px; }
+  .player .tiny { font-size: 13px; }
+  .player .nav-badge, .bottomnav .icon .nav-badge { font-size: 12px; }
+  .player .chip { font-size: 13px; padding: 2px 10px; }
+  .player .mono { font-size: 14px; }
+  .player .field { font-size: 14px; }
+  .player .table { font-size: 15px; }
+  .player .md, .player .read { font-size: 16.5px; }
+  .player p, .player li { overflow-wrap: anywhere; }
+
+  /* ---- controls: 44px targets, 16px inputs ---- */
+  .player .btn, .player .btn.small { min-height: 44px; padding: 0 14px; font-size: 15px; }
+  .player .btn.ghost { min-width: 44px; }
+  /* Anything tappable is at least 44px each way (inline links in a sentence stay as they are). */
+  .player button:not(.pin-btn):not(.switch), .player [role=button], .player [role=tab], .player summary, .player select { min-height: 44px; min-width: 44px; }
+  .player a.brand, .player a.small, .player a.row, .player a.chip, .player a.nav-link, .player a.list-item, .player a.btn { display: inline-flex; align-items: center; min-height: 44px; }
+  .player a.row { display: flex; }
+  .player a.small, .player .inline-tap { min-width: 44px; justify-content: center; }
+  .player .inline-tap { display: inline-flex; align-items: center; min-height: 44px; }
+  .player summary, .player select, .player input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]) { min-height: 44px !important; }
+  /* Words in a sentence that open something: a bigger hit area that does not move the line. */
+  .player .ic-trigger { padding: 11px 2px; margin: -11px -2px; }
+  .player .input, .player input, .player select, .player textarea { font-size: 16px !important; }
+  .player .icon-btn { width: 44px; height: 44px; }
+  .player .input, .player .field input, .player .field select, .player .field textarea,
+  .player input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), .player select, .player textarea { font-size: 16px; min-height: 44px; }
+  .player textarea { min-height: 88px; }
+  .player input[type=checkbox], .player input[type=radio] { width: 22px; height: 22px; margin: 11px; flex: 0 0 auto; }
+  .player label:has(> input[type=checkbox]), .player label:has(> input[type=radio]) { min-height: 44px; display: flex; align-items: center; gap: 4px; }
+  .player .switch { width: 60px; height: 44px; min-width: 60px; }
+  .player .switch::after { top: 7px; left: 5px; width: 30px; height: 30px; }
+  .player .switch[aria-checked='true']::after { left: 25px; }
+  .player .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; margin-inline: -14px; padding-inline: 14px; }
+  .player .tabs .btn { flex: 0 0 auto; }
+  .player .list-item, .player button.list-item, .player a.list-item { min-height: 48px; padding: 8px 14px; }
+  .player summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+  .player .nav-link.small { min-height: 44px; }
+
+  /* ---- layout: columns stack, tables scroll or become cards, media fits ---- */
+  .player .cols > .col-1, .player .cols > .col-2, .player .cols > .col-3 { flex: 1 1 100%; }
+  .player .grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); }
+  .player .card { padding: 14px; }
+  .player .card.flush { padding: 0; }
+  .player table:not(.pack-table):not(.stg-table) { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .player img, .player video, .player canvas, .player svg { max-width: 100%; }
+  .player img, .player video { height: auto; }
+  .player pre { max-width: 100%; overflow-x: auto; }
+  .player .row { gap: 8px; }
+
+  /* ---- pop-ups become bottom sheets ---- */
+  .player .modal-back { align-items: flex-end; padding: 0; overflow: hidden; }
+  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
+  .player .modal-grip { display: block; width: 56px; height: 24px; margin: 0 auto -6px; touch-action: none; cursor: grab; position: sticky; top: 0; z-index: 1; background: transparent; }
+  .player .modal-grip::after { content: ''; display: block; width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); margin: 10px auto 0; }
+  @keyframes sheet-up { from { transform: translateY(40px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .player .modal { animation: none; } }
+
+  /* ---- sticky action bars sit above the tab bar ---- */
+  .player .sticky-actions { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 8px); z-index: 12; background: var(--side); border: 1px solid var(--line-strong); border-radius: 12px; padding: 8px; }
+}
+
+/* A phone held sideways: keep the bar slim. */
+@media (max-width: 900px) and (max-height: 480px) {
+  :root { --nav-h: 48px; }
+  .bottomnav a, .bottomnav button { flex-direction: row; justify-content: center; gap: 6px; }
+}
+
+/* Your own HP and conditions, big, at the top of the fight. */
+.cb-me { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 12px 14px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-strong); }
+.cb-me strong { font-size: 20px; }
+.cb-hp { font-size: 22px; font-weight: 700; color: var(--accent-strong); }
+.cb-cond { flex: 1 1 100%; font-size: 16px; color: var(--danger-text); }
+@media (max-width: 760px) { .player input[type=color] { width: 56px; height: 44px; min-height: 44px; padding: 2px; } }
+@media (max-width: 760px) { html body:has(.bottomnav):has(.sheet-backdrop, .modal-back) .dock { display: none; } }
