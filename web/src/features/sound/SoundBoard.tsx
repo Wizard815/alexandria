@@ -35,7 +35,7 @@ export default function SoundBoard() {
   const L = lib.data;
   return (
     <div className="page">
-      <PageHead title="Sound board" lead={`Music, ambience and effects for ${info.name}. Players hear them only if they switch it on.`} />
+      <PageHead title="Sound" lead="Music, ambience and effects. Players hear them only if they switch it on." />
       <ErrorBox error={lib.error} />
       <Tabs label="Sound sections" value={tab} onChange={setTab} items={[['music', 'Music'], ['ambience', 'Ambience'], ['pads', 'Effects'], ['listeners', 'Listeners'], ['spotify', 'Spotify'], ['speakers', 'Speakers']]} />
       {lib.loading && !L ? <Loading what="the sound library" /> : null}

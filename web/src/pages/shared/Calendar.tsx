@@ -28,7 +28,7 @@ export default function Calendar() {
   const upcoming = sessions.filter((s: any) => s.status === 'scheduled' && new Date(s.ends_at) > new Date());
   const cur = sessions.find((s: any) => s.id === sel) ?? upcoming[0] ?? null;
 
-  if (info.settings.calendar === 'off') return <div className="page"><PageHead title="Session calendar" lead="The session calendar is off for this world." /></div>;
+  if (info.settings.calendar === 'off') return <div className="page"><PageHead title={isDM ? 'Game nights' : 'Session calendar'} lead="The calendar is off for this world." /></div>;
 
   const first = new Date(month);
   first.setDate(1 - first.getDay());
@@ -37,7 +37,7 @@ export default function Calendar() {
 
   return (
     <div className="page">
-      <PageHead title="Session calendar" lead="Real-life game nights. RSVP, talk about a day, or ask to move it.">
+      <PageHead title={isDM ? 'Game nights' : 'Session calendar'} lead="Real-life sessions: RSVP, chat about a day, or ask to move it.">
         <button type="button" className="btn" onClick={() => setShowFeed(true)}>Add to my calendar app</button>
         {isDM && <button type="button" className="btn primary" onClick={() => setAdding(new Date())}>Set a session day</button>}
       </PageHead>

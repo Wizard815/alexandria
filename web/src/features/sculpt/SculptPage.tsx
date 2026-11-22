@@ -59,7 +59,7 @@ export default function SculptPage() {
   if (editing) return <TemplateEditor initial={editing === 'new' ? null : editing} onDone={(id) => { setEditing(null); if (id) open(id); void list.reload(); }} />;
   return (
     <div className="page wide">
-      <PageHead title="Sculpting" lead="Fill in a few blanks; the rest is filled to fit your world. Generators and world context need no model.">
+      <PageHead title="Sculpting" lead="Fill in a few blanks; the rest is made to fit your world.">
         {tpl ? <button type="button" className="btn small ghost" onClick={() => open(null)}>All templates</button> : (
           <>
             <button type="button" className="btn small ghost" onClick={() => setImporting(!importing)} aria-expanded={importing}>Import</button>

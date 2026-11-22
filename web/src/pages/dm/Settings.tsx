@@ -56,7 +56,7 @@ export default function DMSettings() {
   const [tab, setTab] = useState<'settings' | 'invites' | 'audit'>('settings');
   return (
     <div className="page">
-      <PageHead title="World settings" lead={`These apply to ${info.name} only. Nothing here can make DM-only content visible.`} />
+      <PageHead title="Settings" lead={`These apply to ${info.name} only. Nothing here exposes DM-only content.`} />
       <Tabs label="Settings section" value={tab} onChange={setTab} items={[['settings', 'Settings'], ['invites', 'Invite players'], ['audit', 'Audit log']]} />
       {tab === 'settings' ? <SettingsForm /> : tab === 'invites' ? <Invites /> : <Audit />}
     </div>

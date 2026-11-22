@@ -14,7 +14,7 @@ import { ItemHover } from '../../features/itemcards/index.tsx';
 import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
 import { type Item, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, TransfersList } from '../inventory/giving.tsx';
 
-/** "Why" for a DM change, when World settings ask for one. */
+/** "Why" for a DM change, when Settings ask for one. */
 function useReason() {
   const { info } = useWorld();
   const need = extra(info.settings).dmChangeReason;
@@ -22,7 +22,7 @@ function useReason() {
     if (!need) return '';
     const r = window.prompt(`Why? The owner sees this. (${what})`);
     if (r === null) return null;
-    if (!r.trim()) { window.alert('A reason is needed. Change World settings to turn this off.'); return null; }
+    if (!r.trim()) { window.alert('A reason is needed. Change Settings to turn this off.'); return null; }
     return r.trim();
   };
   return { need, ask };
@@ -40,7 +40,7 @@ export default function DMParty() {
 
   return (
     <div className="page wide">
-      <PageHead title="Party & inventory" lead={`Packs and coin for everyone in ${info.name}. ${info.settings.dmEditsInventory ? 'Your changes are logged and the player sees them.' : 'DM edits to player packs are off in World settings.'}`} />
+      <PageHead title="Party" lead={info.settings.dmEditsInventory ? 'Packs and coin. Your changes are logged and players see them.' : 'Packs and coin. DM edits to packs are off in Settings.'} />
       <div className="cols">
         <aside className="col-1 card flush" style={{ maxWidth: 320 }}>
           <div className="list" role="tablist" aria-label="Whose inventory">
@@ -55,14 +55,14 @@ export default function DMParty() {
                 {here.has(p.id) ? <span className="chip green" title={here.get(p.id).location}>here</span> : <span className="chip">away</span>}
               </button>
             ))}
-            {!players.length && <Empty>No players yet. Invite some in World settings.</Empty>}
+            {!players.length && <Empty>No players yet. Invite some in Settings.</Empty>}
           </div>
         </aside>
         <section className="col-3 stack">
           <h2>{ownerName}</h2>
           <div className="cols">
             <div className="col-2"><Items owner={owner} onDecided={queue.reload} /></div>
-            <div className="col-1">{owner === 'party' && !info.settings.partyPurse ? <div className="card"><Empty>The party pouch is off in World settings.</Empty></div> : <Coin key={owner} owner={owner} />}</div>
+            <div className="col-1">{owner === 'party' && !info.settings.partyPurse ? <div className="card"><Empty>The party pouch is off in Settings.</Empty></div> : <Coin key={owner} owner={owner} />}</div>
           </div>
           <TransfersList limit={30} title="Players' gives and moves" />
         </section>

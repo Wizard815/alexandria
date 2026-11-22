@@ -22,7 +22,7 @@ export default function DMCombat() {
 
   return (
     <div className="page wide">
-      <PageHead title="Combat" lead={`Players see the order and conditions. Monster health shows as ${info.settings.monsterHealth === 'none' ? 'nothing' : info.settings.monsterHealth}; the party's health is never shown. Hidden foes stay hidden.`}>
+      <PageHead title="Combat" lead={`Players see order and conditions. Monster health shows as ${info.settings.monsterHealth === 'none' ? 'nothing' : info.settings.monsterHealth}.`}>
         <SculptButton template="encounter" label="Encounter" autoSculpt onDone={() => void combat.reload()} /><SculptButton template="statblock" label="Quick statblock" onDone={() => void combat.reload()} />
       </PageHead>
       <div className="cb-bar">

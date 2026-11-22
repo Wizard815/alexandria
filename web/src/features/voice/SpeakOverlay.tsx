@@ -62,7 +62,7 @@ function SpeakMenu() {
         <div ref={box} role="menu" aria-label="Speak" className="card" style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 60, width: 220, padding: 8, gap: 2, boxShadow: '0 6px 24px rgba(0,0,0,.35)' }}>
           <span className="tiny faint" style={{ padding: '2px 8px' }}><i className="fa-solid fa-microphone-lines" aria-hidden="true" /> Speak</span>
           {presets === null && <span className="tiny muted" style={{ padding: '4px 8px' }}>Loading…</span>}
-          {presets?.length === 0 && <span className="tiny muted" style={{ padding: '4px 8px' }}>No voices yet. Add one in World settings → Voice.</span>}
+          {presets?.length === 0 && <span className="tiny muted" style={{ padding: '4px 8px' }}>No voices yet. Add one in Settings → Voice.</span>}
           {presets?.map((p) => (
             <button key={p.id} type="button" role="menuitem" className="btn small ghost" style={{ justifyContent: 'space-between' }} onClick={() => void speak(p, menu.text)}>
               <span>{p.name}</span><span className="tiny faint">{WHERE[p.target]}</span>
