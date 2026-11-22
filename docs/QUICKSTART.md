@@ -74,12 +74,13 @@ Open `https://YOUR.DOMAIN`. It asks for the admin account (the first account
 is always the admin). Then:
 
 1. **Library admin → Accounts → Add account** for the DM. You get a one-time
-   reset code; the DM opens `/reset`, enters it and chooses a password.
-   (If one person is both DM and admin, skip this: add `ALX_DM` nothing, just
-   make the world in step 2 with your admin account as DM and set
-   `ALX_ADMIN_TABLE_LOGIN=1`.)
+   reset code; the DM opens `/reset`, enters it with the username and
+   chooses a password. (If one person is both DM and admin, skip this: use
+   your admin account as the DM in the next step and set
+   `ALX_ADMIN_TABLE_LOGIN=1` in `librarian/.env`.)
 2. **Library admin → Worlds → New empty world:** a name and the DM.
-3. Admin sign-in is separate from the table sign-in: admins use `/admin/login`.
+3. Admin sign-in is separate from the table sign-in once there is a second
+   account: admins sign in at `https://YOUR.DOMAIN/admin/login`.
 
 ## 6. Add the DM and the players
 
@@ -103,16 +104,18 @@ stay DM-only until they are known to be safe for players.
 
 ## 8. Link Argos (your models)
 
-On the machine with [Argos](https://github.com/Wizard815/Argos) (default
-port 8080) make sure the Alexandria server can reach it. If Argos runs on
-the same machine as the Docker container, add to `librarian/.env`
-nothing, but start Alexandria with the host alias:
+[Argos](https://github.com/Wizard815/Argos) listens on port 8080 by
+default. The Alexandria container must be able to reach it. If Argos runs on
+the same machine as Docker, add the host alias with a compose override (it
+also sets the model variables; skip those lines if you use the Models page):
 
 ```bash
-docker compose -f docker-compose.yml -f deploy/examples/argos.override.yml up -d
+docker compose -f docker-compose.yml -f deploy/examples/nginx.override.yml \
+  -f deploy/examples/argos.override.yml up -d
 ```
 
-(Its address is then `http://host.docker.internal:8080`.) Then in Library
+The address to paste is then `http://host.docker.internal:8080`. On another
+machine use its address, e.g. `http://192.168.1.50:8080`. Then in Library
 admin → **Models**: paste the Argos address in the **Argos** card, press
 **Discover**, check the suggested model per job (chat, audit, speech to
 text, voice, embeddings) and press **Save provider**, then **Save** on each
