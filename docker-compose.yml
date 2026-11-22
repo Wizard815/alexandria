@@ -5,6 +5,8 @@ services:
       context: .
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+        ALX_VERSION: ${ALX_VERSION:-0.1.0-alpha.1}
+        ALX_RELEASE: ${ALX_RELEASE:-AlphaV1}
     ports:
       - "${LIBRARIAN_PORT:-8090}:8090"
     env_file:

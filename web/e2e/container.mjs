@@ -3,6 +3,7 @@
 // the PWA manifest, the microphone picker and the models page. Drives Chromium with fake devices.
 //
 //   BASE=http://127.0.0.1:18090 SHOTS=/tmp/shots node web/e2e/container.mjs
+//   IGNORE_CERT=1   (optional) accept a self-signed certificate (a local nginx test)
 //   HOST_MAP='dnd.example.com=127.0.0.1'   (optional) resolve that name to that address, e.g. BASE=http://dnd.example.com through nginx
 //
 // It creates accounts named admin / dm / ann / bo; run it against a throwaway data folder only.
@@ -20,9 +21,9 @@ if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const problems = [];
 const note = (m) => console.log('  ' + m);
 const check = (ok, msg) => { if (!ok) problems.push(msg); else note('ok: ' + msg); return ok; };
-const quiet = (t) => /Failed to load resource.*(40[1-4]|409|502)|fonts\.g|net::ERR_FAILED|net::ERR_INTERNET_DISCONNECTED|ResizeObserver/.test(t);
+const quiet = (t) => /Failed to load resource.*(40[1-4]|409|502)|fonts\.g|net::ERR_FAILED|net::ERR_INTERNET_DISCONNECTED|net::ERR_CERT_AUTHORITY_INVALID|ResizeObserver/.test(t);
 
-const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', ...(HOST_MAP ? [`--host-resolver-rules=MAP ${HOST_MAP.split('=')[0]} ${HOST_MAP.split('=')[1]}`] : [])] });
+const browser = await chromium.launch({ ...(HOST_MAP ? { proxy: { server: 'http://127.0.0.1:9', bypass: '*' } } : {}), args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', ...(process.env.IGNORE_CERT ? ['--ignore-certificate-errors'] : []), ...(HOST_MAP ? [`--host-resolver-rules=MAP ${HOST_MAP.split('=')[0]} ${HOST_MAP.split('=')[1]}`] : [])] });
 const watch = (page, who) => {
   page.on('pageerror', (e) => problems.push(`${who} page error on ${page.url()}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`${who} console on ${page.url()}: ${m.text()}`); });
@@ -239,7 +240,9 @@ try {
   check(mf.name && mf.start_url && mf.display === 'standalone' && mf.theme_color, 'manifest has name, start_url, display standalone, theme colour');
   check(mf.icons.some((i) => i.purpose === 'maskable') && mf.icons.some((i) => /512/.test(i.sizes)), 'manifest has 512px and maskable icons');
   for (const i of mf.icons) check(await bo.evaluate(async (u) => (await fetch(u)).ok, i.src), `icon ${i.src} is served`);
-  const sw = await bo.evaluate(async () => { const r = await navigator.serviceWorker?.ready; return r ? r.scope : null; }).catch(() => null);
+  const secure = await bo.evaluate(() => isSecureContext);
+  note(`secure context: ${secure}${secure ? '' : ' (plain http on a name other than localhost: no service worker, no microphone; phones need https)'}`);
+  const sw = !secure ? 'skipped (plain http)' : await bo.evaluate(async () => { const r = await navigator.serviceWorker?.ready; return r ? r.scope : null; }).catch(() => null);
   check(!!sw, `service worker registered (scope ${sw})`);
 
   // 9b. Wrong password gives a clear message.
@@ -252,6 +255,7 @@ try {
   check(true, 'a wrong password shows an error');
   await badCtx.close();
 
+  if (secure) {
   // 10. Microphones: the DM audio page lists the fake devices; the assistant mic picker remembers a choice.
   await dm.goto(BASE + '/w/saltreach/dm/audio');
   await dm.waitForTimeout(1500);
@@ -301,6 +305,7 @@ try {
   await shot(dm, '17-assistant-mic-picker');
   check(await dm.evaluate(() => !!localStorage.getItem('alx.dictation.mic')), 'the dictation microphone choice is saved on this browser');
 
+  }
   await dmCtx.close(); await annCtx.close(); await boCtx.close();
 } catch (e) {
   problems.push('script error: ' + (e.stack || e));
