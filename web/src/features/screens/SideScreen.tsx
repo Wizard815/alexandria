@@ -43,12 +43,12 @@ export default function SideScreen() {
       </header>
       {picking && (
         <section className="sc-pick card" aria-label="Choose panels">
-          <p className="small muted">Add a panel to the stack, or take one away. Move them with the arrows on each panel.</p>
+          <p className="small muted">Add or remove panels; reorder them with the arrows.</p>
           <div className="row" style={{ flexWrap: 'wrap' }}>
             {PANELS.map((p) => {
               const on = stack.some((s) => s.id === p.id);
               return (
-                <button key={p.id} type="button" className={`btn${on ? ' on' : ''}`} aria-pressed={on} data-testid={`side-toggle-${p.id}`}
+                <button key={p.id} type="button" className={`btn${on ? ' on' : ''}`} aria-pressed={on} title={p.desc} data-testid={`side-toggle-${p.id}`}
                   onClick={() => change(on ? stack.filter((s) => s.id !== p.id) : [...stack, { id: p.id, folded: false, h: p.page ? 520 : 420 }])}>
                   <i className={`fa-solid ${p.icon}`} aria-hidden="true" /> {p.title}
                 </button>
@@ -58,7 +58,7 @@ export default function SideScreen() {
           {!spare.length && <p className="tiny faint">Every panel is already on the stack.</p>}
         </section>
       )}
-      {!stack.length && <p className="muted" style={{ padding: 16 }}>Nothing on this screen yet. Press Panels to choose what lives here.</p>}
+      {!stack.length && <p className="muted" style={{ padding: 16 }}>Empty. Press Panels to choose what goes here.</p>}
       {stack.map((s, i) => {
         const def = panelById(s.id)!;
         return (

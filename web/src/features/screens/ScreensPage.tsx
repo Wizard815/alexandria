@@ -6,6 +6,7 @@ import { useWorld } from '../../lib/world.tsx';
 import { canManageWindows, detectMonitors, openDisplay, type Monitor } from './open.ts';
 import { panelUrl } from './names.ts';
 import { PANELS } from './panels.tsx';
+import { DM_NAMES } from '../../lib/dmnames.ts';
 import { useAssignments, useMainPrefs } from './prefs.ts';
 import './screens.css';
 
@@ -33,9 +34,9 @@ export default function ScreensPage() {
   const open = async (url: string, name: string, id: string) => { setBlocked(!(await openDisplay(url, name, id))); };
 
   const displays: { id: string; title: string; icon: string; url: string; name: string; about: string }[] = [
-    { id: 'side', title: 'DM side screen', icon: 'fa-table-columns', url: `${base}/screen/side`, name: 'alx-side', about: 'The tall screen beside your main one: stack the assistant, transcript, initiative and approvals, fold them away or make them taller.' },
-    { id: 'players', title: 'Players’ screen', icon: 'fa-tv', url: `${base}/screen/players`, name: 'alx-players', about: 'The TV facing the players: what you stage for them, handouts and scenes. Only what the players may see.' },
-    { id: 'table', title: 'Table screen', icon: 'fa-chess-board', url: `${base}/screen/table`, name: 'alx-table', about: 'The screen lying face up where the players gather: the battle map and the initiative order, big, with a rotate button. It shows the players’ view only, even from your login.' },
+    { id: 'side', title: 'Side screen', icon: 'fa-table-columns', url: `${base}/screen/side`, name: 'alx-side', about: 'A tall screen beside yours: stack the assistant, transcript, initiative and approvals.' },
+    { id: 'players', title: DM_NAMES['screen-players'].label, icon: DM_NAMES['screen-players'].icon, url: `${base}/screen/players`, name: 'alx-players', about: 'The TV facing the players: staged cards, handouts and scenes. Only what players may see.' },
+    { id: 'table', title: 'Table screen', icon: 'fa-chess-board', url: `${base}/screen/table`, name: 'alx-table', about: 'The screen lying face up on the table: battle map and initiative, big. Players’ view only, even from your login.' },
   ];
   const Pick = ({ id }: { id: string }) => monitors ? (
     <label className="sc-assign">
@@ -49,7 +50,7 @@ export default function ScreensPage() {
 
   return (
     <div className="page" data-testid="screens-page">
-      <PageHead title="Screens" lead="Run the table across several monitors: each display is its own window, and they all stay in step with the game." />
+      <PageHead title="Screens" lead="Each display is its own window; all stay in step with the game." />
       <section className="card stack">
         <h2>A four-monitor table</h2>
         <ol className="small" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
@@ -95,11 +96,11 @@ export default function ScreensPage() {
         ))}
         <section className="card stack" data-testid="screen-card-panels">
           <h3><i className="fa-solid fa-window-restore" aria-hidden="true" /> Pop-out panels</h3>
-          <p className="small muted">Any one panel in its own window, for a spare monitor or beside another app. The ↗ button on a page does the same.</p>
+          <p className="small muted">One panel in its own window. The ↗ button on a page does the same.</p>
           <Pick id="panels" />
           <div className="row" style={{ flexWrap: 'wrap' }}>
             {PANELS.map((p) => (
-              <button key={p.id} type="button" className="btn small" data-testid={`open-panel-${p.id}`} onClick={() => void open(panelUrl(info.slug, p.id), `alx-panel-${p.id}`, 'panels')}>
+              <button key={p.id} type="button" className="btn small" title={p.desc} data-testid={`open-panel-${p.id}`} onClick={() => void open(panelUrl(info.slug, p.id), `alx-panel-${p.id}`, 'panels')}>
                 <i className={`fa-solid ${p.icon}`} aria-hidden="true" /> {p.title}
               </button>
             ))}
@@ -109,7 +110,7 @@ export default function ScreensPage() {
 
       <section className="card stack" aria-label="This monitor">
         <h2>On this main monitor</h2>
-        <p className="small muted">When the assistant and transcript live on the side screen, take them off this one so the pages get the full width. This is a choice for this browser only.</p>
+        <p className="small muted">If the assistant and transcript live on the side screen, take them off this one. This browser only.</p>
         <label className="row small" style={{ gap: 8 }}><input type="checkbox" data-testid="hide-assistant" checked={main.hideAssistant} onChange={(e) => setMain({ hideAssistant: e.target.checked })} /> Hide the docked assistant here (it is on the side screen)</label>
         <label className="row small" style={{ gap: 8 }}><input type="checkbox" data-testid="hide-transcript" checked={main.hideTranscript} onChange={(e) => setMain({ hideTranscript: e.target.checked })} /> Hide the floating transcript here (it is on the side screen)</label>
       </section>

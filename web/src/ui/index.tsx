@@ -6,10 +6,10 @@ import { useLocation } from 'react-router-dom';
 import { useNet, sinceText } from '../lib/net.ts';
 import { panelForPath, popOutPanel } from '../features/screens/names.ts';
 
-export function PageHead({ title, lead, children }: { title: ReactNode; lead?: ReactNode; children?: ReactNode }) {
+export function PageHead({ title, lead, children, popout = true }: { title: ReactNode; lead?: ReactNode; children?: ReactNode; popout?: boolean }) {
   // A DM page that has a panel gets a pop-out button, so it can move to another monitor.
   const panel = panelForPath(useLocation().pathname);
-  const pop = panel && (
+  const pop = popout && panel && (
     <button type="button" className="btn small ghost" data-testid="popout" title="Pop out into its own window (for another monitor)" aria-label={`Pop ${panel.name} out into its own window`}
       onClick={() => void popOutPanel(panel.world, panel.name)}>↗</button>
   );

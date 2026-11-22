@@ -2,6 +2,7 @@
 // a WebFeature. They are picked up here, so adding one never means editing
 // App.tsx, the layouts, World settings or the home pages.
 import type { ComponentType, ReactNode } from 'react';
+import type { DMGroupId } from '../lib/dmnames.ts';
 
 export interface FeatureRoute { path: string; element: ReactNode }
 export interface WebFeature {
@@ -12,7 +13,8 @@ export interface WebFeature {
   playerRoutes?: FeatureRoute[];
   /** Under /admin/<path>. */
   adminRoutes?: FeatureRoute[];
-  dmNav?: { group: 'At the table' | 'The world' | 'Tools' | 'Setup'; to: string; label: string }[];
+  /** A page in the DM menu. Known routes take name, icon, description and group from lib/dmnames.ts; a new route gives its own. */
+  dmNav?: { to: string; group?: DMGroupId; label?: string; icon?: string; desc?: string }[];
   /** icon: a Font Awesome solid name, e.g. 'fa-scroll'. */
   playerNav?: { to: string; label: string; icon: string }[];
   adminNav?: { to: string; label: string }[];
