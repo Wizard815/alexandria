@@ -2,26 +2,23 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
+import { availableLinks, loadPinned, savePinned, tabsFor } from '../lib/playerNav.ts';
+import { useKeyboardInset } from '../lib/viewport.ts';
 import QuickPrompt from '../pages/player/QuickPrompt.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
+import { MoreSheet } from './MoreSheet.tsx';
 import * as F from '../features/registry.ts';
-
-// [path, label, Font Awesome icon]
-const CORE_LINKS: [string, string, string][] = [
-  ['', 'Home', 'fa-house'], ['live', 'Live', 'fa-tower-broadcast'], ['library', 'Library', 'fa-book'], ['broker', 'Broker', 'fa-scale-balanced'],
-  ['inventory', 'Inventory', 'fa-sack-dollar'], ['people', 'People', 'fa-users'], ['me', 'Me', 'fa-user'], ['map', 'Map', 'fa-map'],
-  ['messages', 'Messages', 'fa-envelope'], ['calendar', 'Calendar', 'fa-calendar'], ['ask', 'Ask the DM', 'fa-circle-question'], ['whiteboard', 'Whiteboard', 'fa-chalkboard'],
-];
-const LINKS: [string, string, string][] = [...CORE_LINKS, ...F.playerNav.map((n) => [n.to, n.label, n.icon] as [string, string, string])];
-// The phone's bottom bar; everything else is under "More".
-const MOBILE = ['', 'live', 'library', 'broker', 'inventory'];
 
 export function PlayerLayout() {
   const { info, isDM, connected, w } = useWorld();
   const { me, signOut } = useAuth();
   const [menu, setMenu] = useState(false);
+  const [pinned, setPinned] = useState<string[] | null>(() => loadPinned(info.slug));
   const loc = useLocation();
+  const kb = useKeyboardInset();
   useEffect(() => setMenu(false), [loc.pathname]);
+  useEffect(() => setPinned(loadPinned(info.slug)), [info.slug]);
+  const update = (next: string[] | null) => { setPinned(next); savePinned(info.slug, next); };
   // Broker offers waiting for this player: a badge on the Broker link.
   const brokerOn = !isDM && (info.settings as { brokerEnabled?: boolean }).brokerEnabled !== false;
   const offers = useLoad(() => (brokerOn ? w.call<{ status: string }[]>('GET', '/broker/offers') : Promise.resolve([])), [w, brokerOn], ['broker-offer']);
@@ -29,15 +26,19 @@ export function PlayerLayout() {
   const badge = (to: string) => (to === 'broker' && offerCount > 0 ? <span className="nav-badge" aria-label={`${offerCount} offer${offerCount === 1 ? '' : 's'} waiting`}>{offerCount}</span> : null);
   if (isDM) return <Navigate to={`/w/${info.slug}/dm`} replace />;
   const base = `/w/${info.slug}`;
-  const moreActive = !MOBILE.some((to) => (to === '' ? loc.pathname === base || loc.pathname === `${base}/` : loc.pathname.startsWith(`${base}/${to}`)));
+  const links = availableLinks(info.settings);
+  const tabIds = tabsFor(pinned, info.settings);
+  const tabs = tabIds.map((id) => links.find((l) => l.to === id)!).filter(Boolean);
+  const here = (to: string) => (to === '' ? loc.pathname === base || loc.pathname === `${base}/` : loc.pathname === `${base}/${to}` || loc.pathname.startsWith(`${base}/${to}/`));
+  const moreActive = !tabs.some((t) => here(t.to));
   return (
-    <div className="t-fantasy">
+    <div className="t-fantasy player">
       <header className="topbar">
         <Link to={base} className="brand">{info.name}</Link>
         {F.topbars.map((C, i) => <C key={i} />)}
-        <span className={`live-dot${connected ? '' : ' off'} phone-only`} title={connected ? 'Live updates on' : 'Reconnecting'} />
+        <span className={`live-dot${connected ? '' : ' off'} phone-only`} title={connected ? 'Live updates on' : 'Reconnecting'} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} />
         <nav className="topnav desktop" aria-label="Scribe">
-          {LINKS.map(([to, label]) => <NavLink key={to} to={`${base}/${to}`} end={to === ''} className="nav-link">{label}{badge(to)}</NavLink>)}
+          {links.map(({ to, label }) => <NavLink key={to} to={`${base}/${to}`} end={to === ''} className="nav-link">{label}{badge(to)}</NavLink>)}
         </nav>
         <span className="row topbar-end desktop-only">
           <span className="tiny faint" title={connected ? 'Live updates on' : 'Reconnecting'}><span className={`live-dot${connected ? '' : ' off'}`} /></span>
@@ -48,29 +49,19 @@ export function PlayerLayout() {
       </header>
       <OfflineBanner />
       <main><Outlet /></main>
-      <nav className="bottomnav" aria-label="Scribe (phone)">
-        {LINKS.filter(([to]) => MOBILE.includes(to)).map(([to, label, icon]) => (
-          <NavLink key={to} to={`${base}/${to}`} end={to === ''}>
-            <span className="icon" aria-hidden="true"><i className={`fa-solid ${icon}`} />{badge(to)}</span>{label}
+      <nav className={`bottomnav${kb > 120 ? ' kb-open' : ''}`} aria-label="Scribe (phone)" data-testid="tabbar">
+        {tabs.map(({ to, label, icon }) => (
+          <NavLink key={to} to={`${base}/${to}`} end={to === ''} data-tab={to}>
+            <span className="icon" aria-hidden="true"><i className={`fa-solid ${icon}`} />{badge(to)}</span>{label === 'Assistant' ? 'Ask' : label}
           </NavLink>
         ))}
-        <button type="button" className={moreActive ? 'active' : ''} aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
-          <span className="icon" aria-hidden="true"><i className="fa-solid fa-bars" /></span>More
+        <button type="button" className={moreActive ? 'active' : ''} aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu((m) => !m)} data-testid="more-btn">
+          <span className="icon" aria-hidden="true"><i className="fa-solid fa-bars" />{!tabs.some((t) => t.to === 'broker') && badge('broker')}</span>More
         </button>
       </nav>
       {menu && (
-        <div className="sheet-backdrop" onClick={() => setMenu(false)}>
-          <nav className="sheet" aria-label="More" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-grid">
-              {LINKS.filter(([to]) => !MOBILE.includes(to)).map(([to, label, icon]) => (
-                <NavLink key={to} to={`${base}/${to}`} className="sheet-link"><i className={`fa-solid ${icon}`} aria-hidden="true" />{label}</NavLink>
-              ))}
-              <NavLink to={`${base}/connect`} className="sheet-link"><i className="fa-solid fa-plug" aria-hidden="true" />Connect an AI</NavLink>
-              <NavLink to="/" className="sheet-link"><i className="fa-solid fa-earth-americas" aria-hidden="true" />Your worlds</NavLink>
-            </div>
-            <div className="sheet-foot"><span className="small muted">Signed in as {me?.account.display_name}</span><button type="button" className="btn small ghost" onClick={() => void signOut()}>Sign out</button></div>
-          </nav>
-        </div>
+        <MoreSheet base={base} links={links} tabIds={tabIds} isDefault={!pinned} badge={badge} name={me?.account.display_name ?? ''}
+          onPins={update} onClose={() => setMenu(false)} onSignOut={() => void signOut()} />
       )}
       <QuickPrompt />
       {F.overlays.map((C, i) => <C key={i} />)}
