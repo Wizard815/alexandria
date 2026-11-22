@@ -127,7 +127,7 @@ export default function DMTable() {
 
         {shown.includes('requests') && (
           <section className="card" aria-labelledby="b-req">
-            <div className="card-head"><h2 id="b-req">Requests</h2><DMLink to="requests" className="small">Review →</DMLink></div>
+            <div className="card-head"><h2 id="b-req">Requests</h2><DMLink to="inbox?tab=requests" className="small">Review →</DMLink></div>
             {openReq.length ? openReq.slice(0, 4).map((r: any) => (
               <div key={r.id} className="row between small"><span>{r.title}</span><span className="muted">{nameOf(r.author_id)}</span></div>
             )) : <Empty>No open requests.</Empty>}

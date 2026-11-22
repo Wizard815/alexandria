@@ -7,7 +7,7 @@ import MinervaPage from './MinervaPage.tsx';
 const feature: WebFeature = {
   id: 'minerva',
   dmRoutes: [{ path: 'minerva', element: <MinervaPage /> }],
-  dmNav: [{ group: 'The world', to: 'minerva', label: 'Minerva' }],
+  dmNav: [{ to: 'minerva' }],
   playerRoutes: [{ path: 'journal', element: <Journal /> }],
   playerNav: [{ to: 'journal', label: 'My journal', icon: 'fa-book-open' }],
 };

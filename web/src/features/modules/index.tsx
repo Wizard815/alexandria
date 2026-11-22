@@ -6,7 +6,7 @@ const feature: WebFeature = {
   id: 'modules',
   dmRoutes: [{ path: 'rules', element: <RulesPage /> }],
   playerRoutes: [{ path: 'rules', element: <RulesPage /> }],
-  dmNav: [{ group: 'The world', to: 'rules', label: 'Rules' }],
+  dmNav: [{ to: 'rules' }],
   playerNav: [{ to: 'rules', label: 'Rules', icon: 'fa-book' }],
   settings: { title: 'Game module', component: ModuleSettings },
 };

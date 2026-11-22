@@ -12,28 +12,35 @@ import { AssistantBody } from '../agent/AssistantWindow.tsx';
 import FogPanel from './FogPanel.tsx';
 import ScenePanel from '../scenes/ScenePanel.tsx';
 import { TranscriptPanel } from '../audio/TranscriptView.tsx';
+import { DM_NAMES } from '../../lib/dmnames.ts';
 import '../agent/agent.css';
 
 export interface PanelDef {
   id: string;
   title: string;
   icon: string;
+  /** One line, for the picker's tooltip. */
+  desc: string;
   /** A page (padded, scrolls) rather than something that fills its box itself. */
   page: boolean;
   render: () => ReactNode;
 }
 
+// Names, icons and descriptions are the menu's (lib/dmnames.ts); only the panels that are not a menu page name themselves.
+const named = (id: string, route: string, page: boolean, render: () => ReactNode, title = DM_NAMES[route].label): PanelDef =>
+  ({ id, title, icon: DM_NAMES[route].icon, desc: DM_NAMES[route].desc, page, render });
+
 export const PANELS: PanelDef[] = [
-  { id: 'assistant', title: 'Assistant', icon: 'fa-comments', page: false, render: () => <div className="sc-fill"><AssistantBody /></div> },
-  { id: 'transcript', title: 'Transcript', icon: 'fa-closed-captioning', page: false, render: () => <TranscriptPanel /> },
-  { id: 'combat', title: 'Combat', icon: 'fa-khanda', page: true, render: () => <DMCombat /> },
-  { id: 'approvals', title: 'Approvals', icon: 'fa-check-double', page: true, render: () => <DMApprovals /> },
-  { id: 'sound', title: 'Sound board', icon: 'fa-music', page: true, render: () => <SoundBoard /> },
-  { id: 'scenes', title: 'Scenes', icon: 'fa-clapperboard', page: true, render: () => <ScenePanel /> },
-  { id: 'fog', title: 'Map & fog', icon: 'fa-cloud', page: true, render: () => <FogPanel /> },
-  { id: 'chat', title: 'Session chat', icon: 'fa-comment-dots', page: true, render: () => <ChatPage /> },
-  { id: 'clock', title: 'World clock', icon: 'fa-moon', page: true, render: () => <ClockPage /> },
-  { id: 'quick', title: 'Quick events', icon: 'fa-bolt', page: true, render: () => <DMQuickEvents /> },
-  { id: 'party', title: 'Party & inventory', icon: 'fa-users', page: true, render: () => <DMParty /> },
+  { id: 'assistant', title: 'Assistant', icon: 'fa-robot', desc: 'Ask the AI about the table; it can act on your say-so.', page: false, render: () => <div className="sc-fill"><AssistantBody /></div> },
+  { id: 'transcript', title: 'Transcript', icon: 'fa-closed-captioning', desc: 'What the table is saying, live.', page: false, render: () => <TranscriptPanel /> },
+  named('combat', 'combat', true, () => <DMCombat />),
+  named('approvals', 'inbox', true, () => <DMApprovals />, 'Approvals'),
+  named('sound', 'sound', true, () => <SoundBoard />),
+  named('scenes', 'scenes', true, () => <ScenePanel />),
+  { id: 'fog', title: 'Map & fog', icon: 'fa-cloud', desc: 'Reveal or hide parts of the map for the players.', page: true, render: () => <FogPanel /> },
+  named('chat', 'chat', true, () => <ChatPage />),
+  named('clock', 'clock', true, () => <ClockPage />),
+  named('quick', 'quick', true, () => <DMQuickEvents />),
+  named('party', 'party', true, () => <DMParty />),
 ];
 export const panelById = (id: string) => PANELS.find((p) => p.id === id);

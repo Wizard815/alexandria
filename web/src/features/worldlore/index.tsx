@@ -5,7 +5,7 @@ import WorldLoreSettings from './WorldLoreSettings.tsx';
 const feature: WebFeature = {
   id: 'worldlore',
   dmRoutes: [{ path: 'worldlore', element: <WorldLorePage /> }],
-  dmNav: [{ group: 'The world', to: 'worldlore', label: 'WorldLore' }],
+  dmNav: [{ to: 'worldlore' }],
   settings: { title: 'WorldLore', component: WorldLoreSettings },
 };
 export default feature;

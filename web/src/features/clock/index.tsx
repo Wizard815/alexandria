@@ -7,7 +7,7 @@ import WorldDate from './WorldDate.tsx';
 const feature: WebFeature = {
   id: 'clock',
   dmRoutes: [{ path: 'clock', element: <ClockPage /> }],
-  dmNav: [{ group: 'At the table', to: 'clock', label: '☾ World clock' }],
+  dmNav: [{ to: 'clock' }],
   settings: { title: 'World clock', component: ClockSettings },
   dmHome: [TodayCard],
   playerHome: [TodayCard],

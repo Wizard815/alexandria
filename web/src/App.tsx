@@ -11,7 +11,7 @@ import AdminWorlds from './pages/admin/Worlds.tsx';
 import AdminSources from './pages/admin/Sources.tsx';
 import AdminAudit from './pages/admin/Audit.tsx';
 import DMTable from './pages/dm/Table.tsx';
-import DMRequests from './pages/dm/Requests.tsx';
+import DMInbox from './pages/dm/Inbox.tsx';
 import DMCombat from './pages/dm/Combat.tsx';
 import DMQuickEvents from './pages/dm/QuickEvents.tsx';
 import DMParty from './pages/dm/Party.tsx';
@@ -23,7 +23,6 @@ import PlayerLive from './pages/player/Live.tsx';
 import LibraryPage from './pages/library/LibraryPage.tsx';
 import PlayerBroker from './pages/broker/PlayerBroker.tsx';
 import DMBroker from './pages/broker/DMBroker.tsx';
-import DMApprovals from './pages/broker/DMApprovals.tsx';
 import PlayerPeople from './pages/player/People.tsx';
 import PlayerMe from './pages/player/Me.tsx';
 import PlayerInventory from './pages/player/Inventory.tsx';
@@ -69,8 +68,9 @@ export function App() {
           <Route index element={<DMTable />} />
           <Route path="library" element={<LibraryPage />} />
           <Route path="broker" element={<DMBroker />} />
-          <Route path="approvals" element={<DMApprovals />} />
-          <Route path="requests" element={<DMRequests />} />
+          <Route path="inbox" element={<DMInbox />} />
+          <Route path="approvals" element={<Navigate to="../inbox?tab=approvals" replace />} />
+          <Route path="requests" element={<Navigate to="../inbox?tab=requests" replace />} />
           <Route path="combat" element={<DMCombat />} />
           <Route path="quick" element={<DMQuickEvents />} />
           <Route path="party" element={<DMParty />} />
