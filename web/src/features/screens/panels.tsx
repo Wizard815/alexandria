@@ -10,6 +10,7 @@ import ClockPage from '../clock/ClockPage.tsx';
 import ChatPage from '../sessionchat/Page.tsx';
 import { AssistantBody } from '../agent/AssistantWindow.tsx';
 import FogPanel from './FogPanel.tsx';
+import ScenePanel from '../scenes/ScenePanel.tsx';
 import { TranscriptPanel } from '../audio/TranscriptView.tsx';
 import '../agent/agent.css';
 
@@ -28,6 +29,7 @@ export const PANELS: PanelDef[] = [
   { id: 'combat', title: 'Combat', icon: 'fa-khanda', page: true, render: () => <DMCombat /> },
   { id: 'approvals', title: 'Approvals', icon: 'fa-check-double', page: true, render: () => <DMApprovals /> },
   { id: 'sound', title: 'Sound board', icon: 'fa-music', page: true, render: () => <SoundBoard /> },
+  { id: 'scenes', title: 'Scenes', icon: 'fa-clapperboard', page: true, render: () => <ScenePanel /> },
   { id: 'fog', title: 'Map & fog', icon: 'fa-cloud', page: true, render: () => <FogPanel /> },
   { id: 'chat', title: 'Session chat', icon: 'fa-comment-dots', page: true, render: () => <ChatPage /> },
   { id: 'clock', title: 'World clock', icon: 'fa-moon', page: true, render: () => <ClockPage /> },
