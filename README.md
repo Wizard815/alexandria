@@ -17,6 +17,8 @@ alexandria/
 
 ## Run it
 
+**New server? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md):** Docker, nginx and a domain, first run, players, LegendKeeper, Argos, microphones, and the apps for every device.
+
 Needs Node 22.13 or newer.
 
 ```bash

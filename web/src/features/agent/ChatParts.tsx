@@ -159,6 +159,35 @@ interface Press { at: number; upAt: number }
  * text by the world's own speech model (the audio job on the server, never a browser dictation service) and put in the
  * box to check and send.
  */
+const MIC_KEY = 'alx.dictation.mic';
+const savedMic = (): string => { try { return localStorage.getItem(MIC_KEY) || ''; } catch { return ''; } };
+
+/** The microphones this browser lists, with the saved choice (kept on this browser only). */
+function MicPicker() {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<{ id: string; label: string }[]>([]);
+  const [pick, setPick] = useState(savedMic);
+  const load = async () => {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      setList(all.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications').map((d, i) => ({ id: d.deviceId, label: d.label || `Microphone ${i + 1}` })));
+    } catch { setList([]); }
+  };
+  return (
+    <>
+      <button type="button" className="btn small ghost" aria-label="Choose the microphone" aria-expanded={open} title="Choose the microphone" data-testid="ag-mic-pick"
+        onClick={() => { setOpen((o) => !o); void load(); }}><i className="fa-solid fa-sliders" aria-hidden="true" /></button>
+      {open && (
+        <select className="input" aria-label="Microphone for dictation" value={pick} style={{ width: 'auto', maxWidth: 220 }} data-testid="ag-mic-select"
+          onChange={(e) => { setPick(e.target.value); try { localStorage.setItem(MIC_KEY, e.target.value); } catch { /* ignore */ } }}>
+          <option value="">Default microphone</option>
+          {list.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+        </select>
+      )}
+    </>
+  );
+}
+
 export function MicButton({ onText, onError, disabled, hold }: { onText: (t: string) => void; onError?: (m: string) => void; disabled?: boolean; hold?: boolean }) {
   const { world } = useParams();
   const { client } = useAuth();
@@ -172,7 +201,9 @@ export function MicButton({ onText, onError, disabled, hold }: { onText: (t: str
   const start = async (press?: Press) => {
     setErr('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const want = savedMic();
+      // A saved microphone that was unplugged falls back to the default one.
+      const stream = await (want ? navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: want } } }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true })) : navigator.mediaDevices.getUserMedia({ audio: true }));
       const mr = new MediaRecorder(stream);
       const parts: Blob[] = [];
       mr.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
@@ -200,7 +231,12 @@ export function MicButton({ onText, onError, disabled, hold }: { onText: (t: str
   const icon = <i className={`fa-solid ${state === 'busy' ? 'fa-spinner fa-spin' : state === 'rec' ? 'fa-stop' : 'fa-microphone'}`} aria-hidden="true" />;
   const title = err || (state === 'rec' ? 'Stop and turn it into text' : hold ? 'Hold to talk, let go to send it to the box' : 'Talk to the assistant');
   if (!hold) {
-    return <button type="button" className={`btn small${state === 'rec' ? ' danger' : ''}`} disabled={disabled || state === 'busy'} title={title} aria-label={label} onClick={() => (state === 'rec' ? stopRec() : void start())} data-testid="ag-mic">{icon}</button>;
+    return (
+      <>
+        <button type="button" className={`btn small${state === 'rec' ? ' danger' : ''}`} disabled={disabled || state === 'busy'} title={title} aria-label={label} onClick={() => (state === 'rec' ? stopRec() : void start())} data-testid="ag-mic">{icon}</button>
+        <MicPicker />
+      </>
+    );
   }
   return (
     <button type="button" className={`b mic${state === 'rec' ? ' danger' : ''}`} disabled={disabled || state === 'busy'} title={title} aria-label={label} data-testid="ag-mic" data-state={state}
