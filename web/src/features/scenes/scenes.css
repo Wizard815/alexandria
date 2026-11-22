@@ -1,0 +1,22 @@
+/* Scenes: big buttons, the result of an activation, and the editor. */
+.scn-wrap { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px; }
+.scn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.scn-btn { --scn: var(--accent, #D9B26A); min-height: 84px; padding: 10px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; font: inherit; font-size: 18px; font-weight: 600; color: var(--text); background: var(--panel, #1C222D); border: 2px solid var(--scn); border-radius: 12px; cursor: pointer; touch-action: manipulation; }
+.scn-btn i, .scn-btn > span:first-child:not(:last-child) { color: var(--scn); font-size: 22px; }
+.scn-btn small { font-size: 12px; font-weight: 400; color: var(--muted, #9aa); }
+.scn-btn:hover:not(:disabled), .scn-btn:active:not(:disabled) { background: color-mix(in srgb, var(--scn) 22%, var(--panel, #1C222D)); }
+.scn-btn:disabled { opacity: 0.55; cursor: progress; }
+.scn-report { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--panel, #1C222D); }
+.scn-report.ok { border-color: var(--ok, #4caf7d); }
+.scn-report.bad { border-color: var(--danger, #d9534f); }
+.scn-report ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 14px; }
+.scn-report li.failed { color: var(--danger, #d9534f); }
+.scn-report li.skipped { color: var(--muted, #9aa); }
+.scn-report button { align-self: flex-start; }
+.scn-list { display: flex; flex-direction: column; gap: 10px; }
+.scn-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.scn-swatch { width: 14px; align-self: stretch; border-radius: 4px; background: var(--scn, var(--line-strong)); }
+.scn-edit { display: flex; flex-direction: column; gap: 14px; }
+.scn-part { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.scn-part > header { display: flex; align-items: center; gap: 8px; }
+.scn-part select, .scn-part input[type=text], .scn-part input[type=number] { max-width: 100%; }
