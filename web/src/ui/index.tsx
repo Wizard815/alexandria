@@ -1,5 +1,5 @@
 // Shared building blocks. Keep screens made of these so both looks match.
-import { cloneElement, isValidElement, useEffect, useId, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { useLocation } from 'react-router-dom';
@@ -64,14 +64,28 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
 }
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
+  // On a phone the modal is a bottom sheet: drag its handle down to close it.
+  const drag = useRef<number | null>(null);
+  const grip = {
+    onPointerDown: (e: React.PointerEvent) => { drag.current = e.clientY; (e.target as Element).setPointerCapture?.(e.pointerId); },
+    onPointerMove: (e: React.PointerEvent) => { if (drag.current !== null && box.current) box.current.style.transform = `translateY(${Math.max(0, e.clientY - drag.current)}px)`; },
+    onPointerUp: (e: React.PointerEvent) => {
+      const dy = drag.current === null ? 0 : e.clientY - drag.current;
+      drag.current = null;
+      if (box.current) box.current.style.transform = '';
+      if (dy > 90) onClose();
+    },
+  };
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={box}>
+        <div className="modal-grip" aria-hidden="true" {...grip} />
         <div className="row between"><h2>{title}</h2><button type="button" className="btn ghost small" onClick={onClose} aria-label="Close">✕</button></div>
         {children}
       </div>
