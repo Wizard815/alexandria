@@ -8,6 +8,8 @@ import { loadSpeakers, saveSpeakers } from '../sound/engine.ts';
 import { Err } from './Sheet.tsx';
 import { InstallHint } from '../../lib/install.tsx';
 import { buzz, useFlash } from './hooks.ts';
+import { useScenes } from '../scenes/useScenes.ts';
+import { OutcomeView } from '../scenes/ScenePanel.tsx';
 
 const safe = <T,>(p: Promise<T>, d: T): Promise<T> => p.catch(() => d);
 
@@ -33,6 +35,7 @@ export default function RemoteTab() {
   const presets = useLoad<any[]>(() => safe(w.call<any[]>('GET', '/voice/presets'), []), [w]);
   const stage = useLoad<any>(() => safe(w.call<any>('GET', '/stage'), { cards: [] }), [w], ['stage']);
 
+  const sc = useScenes();
   const go = (label: string, fn: () => Promise<unknown>) => act.run(async () => { buzz(15); await fn(); flash(label); });
   const pinned = (macros.data ?? []).filter((m: any) => m.pinned !== false).slice(0, 8);
   const cards: any[] = stage.data?.cards ?? [];
@@ -57,6 +60,21 @@ export default function RemoteTab() {
     <>
       <Err error={act.error} />
       {msg && <div className="pill green" role="status" style={{ alignSelf: 'center', minHeight: 32 }}>{msg}</div>}
+
+      <section className="c" aria-label="Scenes" data-testid="phone-scenes">
+        <h3>Scenes</h3>
+        {sc.scenes.length ? (
+          <div className="grid g2">
+            {sc.scenes.map((s) => (
+              <button key={s.id} type="button" className="b big" data-testid="phone-scene" disabled={sc.busy} style={s.color ? { borderColor: s.color } : undefined}
+                onClick={() => { buzz(15); void sc.activate(s); }}>{s.name}</button>
+            ))}
+          </div>
+        ) : <div className="empty">No scenes yet. Make them on the Scenes page on the desktop.</div>}
+        {sc.last?.canUndo && <button type="button" className="b full" data-testid="phone-scene-undo" disabled={sc.busy} onClick={() => void sc.undo(sc.last?.name ?? '')}>Undo scene ({sc.last.name})</button>}
+        {sc.error && <div className="error-box" role="alert">{sc.error}</div>}
+        {sc.outcome && <OutcomeView o={sc.outcome} onClose={sc.clearOutcome} />}
+      </section>
 
       {pinned.length > 0 && (
         <section className="c" aria-label="Macros">
