@@ -378,10 +378,17 @@ try {
     let stop = false;
     const poll = (async () => { while (!stop) { try { sample.push((await http(S.admin, 'GET', '/api/admin/models/queue')).models); } catch { /* ignore */ } await sleep(250); } })();
     samplerStop = () => { stop = true; };
-    // A player moves the floating transcript out of the way first: left open it sits on the chat's Send button (see report).
-    await pg('p1').getByRole('button', { name: /minimise the transcript/i }).click({ timeout: 2000 }).catch(() => {});
-    // Players go to their Ask pages.
+    // Players go to their Ask pages. p1 left the floating transcript open: typing into the chat box it covers must
+    // minimise it by itself, so the Send button is reachable.
     await Promise.all([['p1', 'ana'], ['p3', 'ana'], ['p2', 'tom']].map(([n]) => pg(n).goto(`${W}/assistant`)));
+    if (await pg('p1').locator('.au-island:not(.au-drawer)').count()) {
+      await pg('p1').locator('[data-ag-input]').first().focus().catch(() => {});
+      await sleep(300);
+      if (await pg('p1').locator('.au-island:not(.au-drawer)').count()) {
+        const over = await pg('p1').evaluate(() => { const a = document.querySelector('.au-island')?.getBoundingClientRect(); const f = document.querySelector('[data-ag-input]')?.closest('form')?.getBoundingClientRect(); return !!(a && f && a.left < f.right && a.right > f.left && a.top < f.bottom && a.bottom > f.top); });
+        if (over) fail('p1: the open transcript still covers the chat box after typing into it');
+      }
+    }
     await pg('p2').getByTestId('ask-helper').click({ timeout: 8000 }).catch(() => fail('p2: no Table helper tab'));
     await pg('phone').getByRole('tab', { name: /^Ask/ }).click();
     const sideAssistant = '[data-testid=side-panel-assistant]';

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PageHead, ErrorBox, Field, Switch, Loading, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
-import { engine, useEngine, type MicSetting, type Mode } from './engine.ts';
+import { engine, healMic, useEngine, type MicSetting, type Mode } from './engine.ts';
 import { KeyButton, Meter, MODE_LABELS, useAttach, useInputs } from './shared.tsx';
 
 const MODES: Mode[] = ['always', 'hold-to-talk', 'hold-to-mute', 'off'];
@@ -36,20 +36,20 @@ export default function AudioSetup() {
     if (!labelled || !inputs.length) return;
     let changed = false;
     const next = settings.map((s) => {
-      if (inputs.some((i) => i.deviceId === s.deviceId)) return s;
-      const same = inputs.filter((i) => i.label === s.label);
-      if (same.length !== 1) return s;
-      changed = true;
-      return { ...s, deviceId: same[0].deviceId };
+      const h = healMic(s, inputs);
+      if (h !== s) changed = true;
+      return h;
     });
     if (changed) { setSettings(next); engine.saveMics(next); }
   }, [inputs, labelled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recording = !!status.data?.recording;
-  const setFor = (deviceId: string): MicSetting => settings.find((s) => s.deviceId === deviceId) ?? { deviceId, label: inputs.find((i) => i.deviceId === deviceId)?.label ?? 'Microphone', enabled: false, mode: 'always', playersTranscript: true, aside: false, key: '' };
+  const setFor = (deviceId: string): MicSetting => settings.find((s) => s.deviceId === deviceId) ?? { deviceId, label: inputs.find((i) => i.deviceId === deviceId)?.label ?? 'Microphone', deviceLabel: inputs.find((i) => i.deviceId === deviceId)?.label, enabled: false, mode: 'always', playersTranscript: true, aside: false, key: '' };
 
   async function update(deviceId: string, patch: Partial<MicSetting>) {
     const next = { ...setFor(deviceId), ...patch };
+    // Settings saved before the device name was kept get it now, so a renamed mic can still be found again.
+    if (!next.deviceLabel) next.deviceLabel = inputs.find((i) => i.deviceId === deviceId)?.label;
     const list = [...settings.filter((s) => s.deviceId !== deviceId), next];
     setSettings(list);
     engine.saveMics(list);

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { PageHead, ErrorBox, Field, Switch, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
-import { engine, useEngine, type MicSetting, type Mode } from './engine.ts';
+import { engine, healMic, useEngine, type MicSetting, type Mode } from './engine.ts';
 import { KeyButton, Meter, MODE_LABELS, useAttach, useInputs } from './shared.tsx';
 
 const MODES: Mode[] = ['always', 'hold-to-talk', 'hold-to-mute', 'off'];
@@ -18,6 +18,12 @@ export default function PlayerAudio() {
   const { busy, error, run } = useAction();
 
   useEffect(() => { setMic(engine.loadMics()[0] ?? null); }, [info.id]);
+  // The browser may have renamed the device id since the mic was picked (Safari, a cleared profile): find it by name.
+  useEffect(() => {
+    if (!mic || !labelled) return;
+    const healed = healMic(mic, inputs);
+    if (healed !== mic) { setMic(healed); engine.saveMics([healed]); }
+  }, [mic, inputs, labelled]);
 
   const consent = status.data?.consent;
   const recording = !!status.data?.recording;
@@ -28,7 +34,7 @@ export default function PlayerAudio() {
   }
 
   async function save(patch: Partial<MicSetting>) {
-    const base: MicSetting = mic ?? { deviceId: inputs[0]?.deviceId ?? '', label: 'My microphone', enabled: false, mode: 'always', playersTranscript: true, aside: false, key: '' };
+    const base: MicSetting = mic ?? { deviceId: inputs[0]?.deviceId ?? '', label: inputs[0]?.label || 'My microphone', deviceLabel: inputs[0]?.label, enabled: false, mode: 'always', playersTranscript: true, aside: false, key: '' };
     const next = { ...base, ...patch };
     setMic(next);
     engine.saveMics([next]);
@@ -72,7 +78,7 @@ export default function PlayerAudio() {
           </div>
           <div className="au-grid">
             <Field label="Microphone">
-              <select value={mic?.deviceId ?? ''} onChange={(e) => void save({ deviceId: e.target.value, label: inputs.find((i) => i.deviceId === e.target.value)?.label ?? 'My microphone' })}>
+              <select value={mic?.deviceId ?? ''} onChange={(e) => { const l = inputs.find((i) => i.deviceId === e.target.value)?.label; void save({ deviceId: e.target.value, label: l ?? 'My microphone', deviceLabel: l }); }}>
                 {!mic?.deviceId && <option value="">Choose…</option>}
                 {inputs.map((i) => <option key={i.deviceId} value={i.deviceId}>{i.label}</option>)}
               </select>
