@@ -7,7 +7,7 @@ import { when } from '../../lib/format.ts';
 
 const KIND: Record<string, string> = { edit: 'Edit to a page', new: 'New page', question: 'Question' };
 
-export default function DMRequests() {
+export default function DMRequests({ embedded = false }: { embedded?: boolean } = {}) {
   const { w, nameOf } = useWorld();
   const all = useLoad<any[]>(() => w.requests(), [w], ['request']);
   const [tab, setTab] = useState<'open' | 'done'>('open');
@@ -16,8 +16,8 @@ export default function DMRequests() {
   const cur = (all.data ?? []).find((r) => r.id === sel) ?? rows[0];
 
   return (
-    <div className="page wide">
-      <PageHead title="Requests" lead="What players asked for or asked about. Accepting an edit can apply it to the page for you." />
+    <div className={embedded ? undefined : 'page wide'}>
+      {!embedded && <PageHead title="Requests" lead="What players asked for, or asked about." />}
       <ErrorBox error={all.error} />
       <div className="cols">
         <aside className="col-1 card flush" style={{ maxWidth: 420 }}>

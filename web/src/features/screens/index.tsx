@@ -5,6 +5,6 @@ import ScreensPage from './ScreensPage.tsx';
 const feature: WebFeature = {
   id: 'screens',
   dmRoutes: [{ path: 'screens', element: <ScreensPage /> }],
-  dmNav: [{ group: 'Setup', to: 'screens', label: '▭ Screens' }],
+  dmNav: [{ to: 'screens' }],
 };
 export default feature;
