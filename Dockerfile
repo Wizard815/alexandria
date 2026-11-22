@@ -42,6 +42,9 @@ COPY librarian/package.json librarian/tsconfig.json ./librarian/
 COPY librarian/src ./librarian/src
 COPY --from=web /src/web/dist ./web/dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ARG ALX_VERSION=0.1.0-alpha.1
+ARG ALX_RELEASE=AlphaV1
+ENV ALX_VERSION=${ALX_VERSION} ALX_RELEASE=${ALX_RELEASE}
 ENV NODE_ENV=production \
     ALX_DATA_DIR=/data \
     ALX_VAULTS_DIR=/vaults \
