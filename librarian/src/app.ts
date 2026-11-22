@@ -1,3 +1,4 @@
+import { RELEASE, VERSION } from './version.ts';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -119,7 +120,7 @@ export function createApp(opts: AppOptions = {}) {
   app.get('/health', (_req, res) => {
     let dbOk = true;
     try { db.prepare('SELECT 1').get(); } catch { dbOk = false; }
-    res.status(dbOk ? 200 : 503).json({ status: dbOk ? 'ok' : 'db-error', time: now(), uptimeSeconds: Math.round((Date.now() - started) / 1000), version: '0.4.0' });
+    res.status(dbOk ? 200 : 503).json({ status: dbOk ? 'ok' : 'db-error', time: now(), uptimeSeconds: Math.round((Date.now() - started) / 1000), version: VERSION, release: RELEASE });
   });
 
   // Calendar feed: calendar apps send Basic auth (username + scribe key).

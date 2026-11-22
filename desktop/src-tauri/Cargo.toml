@@ -1,6 +1,6 @@
 [package]
 name = "alexandria-desktop"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 description = "Alexandria desktop app"
 edition = "2021"
 rust-version = "1.77"

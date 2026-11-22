@@ -31,6 +31,20 @@ export default function AudioSetup() {
   // The aside key is read by the engine; load it once the world is attached.
   useEffect(() => { setSettings(engine.loadMics()); setAsideKey(engine.loadAsideKey()); }, [info.id]);
 
+  // A saved microphone whose id the browser has changed is matched again by its name.
+  useEffect(() => {
+    if (!labelled || !inputs.length) return;
+    let changed = false;
+    const next = settings.map((s) => {
+      if (inputs.some((i) => i.deviceId === s.deviceId)) return s;
+      const same = inputs.filter((i) => i.label === s.label);
+      if (same.length !== 1) return s;
+      changed = true;
+      return { ...s, deviceId: same[0].deviceId };
+    });
+    if (changed) { setSettings(next); engine.saveMics(next); }
+  }, [inputs, labelled]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const recording = !!status.data?.recording;
   const setFor = (deviceId: string): MicSetting => settings.find((s) => s.deviceId === deviceId) ?? { deviceId, label: inputs.find((i) => i.deviceId === deviceId)?.label ?? 'Microphone', enabled: false, mode: 'always', playersTranscript: true, aside: false, key: '' };
 

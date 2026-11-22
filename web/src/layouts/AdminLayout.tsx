@@ -33,6 +33,8 @@ export function AdminLayout() {
   const adminClient = useMemo(() => new AlexandriaClient({ baseUrl: window.location.origin, token }), [token]);
   const [mode, setMode] = useState<Mode | null | undefined>(undefined); // undefined: checking
   const [menu, setMenu] = useState(false); // the phone menu
+  const [release, setRelease] = useState('');
+  useEffect(() => { fetch('/health').then((r) => r.json()).then((h) => setRelease(h.release ? `${h.release} (${h.version})` : h.version ?? '')).catch(() => {}); }, []);
 
   const check = useCallback(async () => {
     const asMe = (r: any): Me => ({ account: { ...r.account, is_admin: true }, theme: null, worlds: [] });
@@ -83,6 +85,7 @@ export function AdminLayout() {
           ))}
           <div className="side-foot">
             <NavLink to="/" className="nav-link"><Icon name="back" />Your worlds</NavLink>
+            {release && <span className="tiny adm-who" data-testid="release">Alexandria {release}</span>}
             <span className="tiny adm-who">Signed in as {mode.me.account.username}{mode.kind === 'admin' ? ' (admin session)' : ''}</span>
             <button type="button" className="btn small" onClick={() => void (mode.kind === 'admin' ? signOutAdmin() : table.signOut())}>{mode.kind === 'admin' ? 'Sign out of admin' : 'Sign out'}</button>
           </div>

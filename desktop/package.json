@@ -1,6 +1,6 @@
 {
   "name": "alexandria-desktop",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "description": "Alexandria desktop app (Tauri 2): the web app in a native window, plus a pop-out assistant window.",
   "scripts": {
