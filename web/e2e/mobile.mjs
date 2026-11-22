@@ -38,6 +38,7 @@ const PROFILES = [
 
 const browser = await chromium.launch();
 
+let quickDone = false;
 async function open(profile, user = 'jess', pass = 'player pass 123') {
   const ctx = await browser.newContext({ viewport: profile.viewport, userAgent: profile.ua, isMobile: true, hasTouch: true, deviceScaleFactor: profile.dpr });
   const page = await ctx.newPage();
@@ -50,6 +51,7 @@ async function open(profile, user = 'jess', pass = 'player pass 123') {
   await page.getByRole('button', { name: /sign in|log in/i }).click();
   await page.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
   await page.waitForSelector('[data-testid=tabbar]');
+  if (quickDone) { const c = page.locator('.modal[role=dialog]').getByRole('button', { name: 'Close' }); if (await c.waitFor({ timeout: 1500 }).then(() => true, () => false)) await c.click(); }
   return { ctx, page, errors };
 }
 
@@ -157,6 +159,7 @@ for (const profile of PROFILES) {
     await page.getByRole('button', { name: 'Roll for me' }).click();
     await page.getByRole('button', { name: 'Close' }).click();
     check(await modal.count() === 0, 'quick event sheet did not close');
+    quickDone = true;
   }
   await ctx.close();
 }
@@ -213,7 +216,8 @@ for (const profile of PROFILES) {
   check(stored.length === 1 && stored[0] === 'alx.tabs.saltreach', `pins are kept under ${JSON.stringify(stored)}`);
   await page.getByTestId('tabbar').getByRole('link', { name: 'Map' }).click();
   await page.waitForURL(/\/map$/);
-  check(await page.locator('.bottomnav a.active', { hasText: 'Map' }).count() === 1, 'pinned tab is not marked active');
+  await sleep(500);
+  check(await page.locator('.bottomnav a.active', { hasText: 'Map' }).count() === 1, `pinned tab is not marked active (${await page.locator('.bottomnav').innerHTML()})`.slice(0, 600));
   await shot(page, p, '_pinned-map');
   await more();
   await page.getByRole('button', { name: 'Edit tabs' }).click();

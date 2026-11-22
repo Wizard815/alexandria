@@ -51,6 +51,7 @@
   /* ---- text ---- */
   .player .small { font-size: 14px; }
   .player .tiny { font-size: 13px; }
+  .player .nav-badge, .bottomnav .icon .nav-badge { font-size: 12px; }
   .player .chip { font-size: 13px; padding: 2px 10px; }
   .player .mono { font-size: 14px; }
   .player .field { font-size: 14px; }
