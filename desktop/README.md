@@ -44,10 +44,43 @@ npm run build      # installers in src-tauri/target/release/bundle/
 Icons in `src-tauri/icons/` are generated from `app-icon.png`
 (`npm run icons`); that image comes from `web/scripts/make-icons.mjs`.
 
-Not part of the root npm workspaces, and not built by the server's Docker
-image. Status: the Rust code was written against the Tauri 2.12 docs but has
-not been compiled or run yet (the authoring machine had no GTK/WebKit
-libraries), so expect to fix small compile errors on the first `npm run dev`.
+Linux packaging: `npx tauri build --no-bundle` then `../scripts/package-linux.sh`
+makes `Alexandria-<release>-linux-x86_64.tar.gz` (binary, icon, .desktop file and an
+`install.sh` that copies them under `~/.local`). Windows: `npx tauri build --bundles nsis`
+(the setup .exe). macOS: `npx tauri build --target universal-apple-darwin --bundles dmg`.
+
+## Android
+
+The same app as an APK (Tauri 2 mobile, project in `src-tauri/gen/android`, committed).
+Needs the Android SDK (platform 36, build-tools 36, NDK 26.1), Java 17 or newer and the
+Rust Android targets (`rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`).
+
+```bash
+export ANDROID_HOME=~/Android/Sdk NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125
+cd desktop && npx tauri android build --apk              # all phone ABIs
+npx tauri android build --apk --target aarch64           # arm64 only, faster
+# APK: src-tauri/gen/android/app/build/outputs/apk/universal/release/
+```
+
+- First run asks for the server address, exactly like the desktop app. The web app is a
+  remote page with no access to the app; links to other sites open in the browser.
+- **Microphone:** `RECORD_AUDIO` and `MODIFY_AUDIO_SETTINGS` are in the manifest, and
+  `permission_for` in `src/lib.rs` answers the web view's microphone request with "allow" only
+  for a page of the saved server address (camera, location and screen capture are refused).
+  Android shows its own permission prompt once.
+- The screen stays awake while the app is open; the back button goes back in the web app and
+  leaves the app at the first page. Plain `http://` servers are allowed (home network);
+  https is recommended.
+- **Signing:** `gen/android/keystore.properties` (never committed) names the key; without it
+  the release APK is signed with the debug key so it still installs. An update installs over
+  an earlier build only if it was signed with the same key. The release workflow reads the
+  key from the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` and
+  `ANDROID_STORE_PASSWORD` secrets.
+- To change the server address on Android, clear the app's data in system settings.
+
+Not part of the root npm workspaces, and not built by the server's Docker image. The
+Linux build and the Android arm64 build were compiled and checked for AlphaV1; the
+Windows and macOS builds are made by the release workflow.
 
 ## Layout
 

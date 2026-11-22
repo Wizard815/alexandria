@@ -33,7 +33,7 @@ LABEL org.opencontainers.image.title="Alexandria" \
       org.opencontainers.image.source="https://github.com/Wizard815/alexandria" \
       org.opencontainers.image.licenses="MIT"
 # git: for git sources (cloned read-only into /data). tini: clean shutdown.
-RUN apk add --no-cache git tini ffmpeg \
+RUN apk add --no-cache git tini ffmpeg su-exec \
  && mkdir -p /data /vaults \
  && chown node:node /data
 WORKDIR /app
@@ -41,6 +41,10 @@ COPY --from=deps /app/librarian/node_modules ./librarian/node_modules
 COPY librarian/package.json librarian/tsconfig.json ./librarian/
 COPY librarian/src ./librarian/src
 COPY --from=web /src/web/dist ./web/dist
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ARG ALX_VERSION=0.1.0-alpha.1
+ARG ALX_RELEASE=AlphaV1
+ENV ALX_VERSION=${ALX_VERSION} ALX_RELEASE=${ALX_RELEASE}
 ENV NODE_ENV=production \
     ALX_DATA_DIR=/data \
     ALX_VAULTS_DIR=/vaults \
@@ -50,9 +54,9 @@ VOLUME /data
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${LIBRARIAN_PORT}/health" >/dev/null || exit 1
-USER node
+# Starts as root to fix the ownership of /data, then drops to "node" (see the script).
 WORKDIR /app/librarian
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "src/index.ts"]
 
 # ---- Optional: with Python + uv + mcp-kanka (for ALX_MCP_STDIO) -------------
@@ -60,11 +64,9 @@ CMD ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarnin
 # mcp-kanka as a local stdio MCP server. See deploy/examples/kanka-stdio.
 FROM runtime AS with-kanka
 ARG MCP_KANKA_SPEC="git+https://github.com/Wizard815/mcp-kanka"
-USER root
 RUN apk add --no-cache python3 uv \
  && UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "${MCP_KANKA_SPEC}" \
  && test -x /usr/local/bin/mcp-kanka
-USER node
 
 # ---- Default: the standard image --------------------------------------------
 FROM runtime AS app

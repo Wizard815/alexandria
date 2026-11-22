@@ -43,6 +43,23 @@ const safe = <T,>(f: () => T, fallback: T): T => { try { return f(); } catch { r
 
 interface Cfg { baseUrl: string; token: string; worldId: string; isDM: boolean }
 
+/**
+ * Open the saved microphone. Some browsers hand out new device ids from one start to the next (WebKit in the desktop
+ * app on Linux, Safari, a cleared profile), so when the saved id is gone the microphone with the same name is used.
+ */
+export async function openMic(s: { deviceId: string; label: string }): Promise<MediaStream> {
+  const md = navigator.mediaDevices;
+  if (!s.deviceId) return md.getUserMedia({ audio: true });
+  try {
+    return await md.getUserMedia({ audio: { deviceId: { exact: s.deviceId } } });
+  } catch (e: any) {
+    if (e?.name !== 'OverconstrainedError' && e?.name !== 'NotFoundError') throw e;
+    const same = (await md.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.label && d.label === s.label);
+    if (same.length !== 1) throw e;
+    return md.getUserMedia({ audio: { deviceId: { exact: same[0].deviceId } } });
+  }
+}
+
 class Runner {
   e: Engine;
   s: MicSetting;
@@ -63,7 +80,7 @@ class Runner {
   constructor(e: Engine, s: MicSetting) { this.e = e; this.s = s; }
 
   async start() {
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: this.s.deviceId ? { deviceId: { exact: this.s.deviceId } } : true });
+    this.stream = await openMic(this.s);
     const AC = window.AudioContext ?? (window as any).webkitAudioContext;
     this.ctxA = new AC();
     const an = this.ctxA!.createAnalyser();

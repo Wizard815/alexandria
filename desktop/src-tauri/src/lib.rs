@@ -11,12 +11,17 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+#[cfg(desktop)]
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
+use tauri::webview::{NewWindowResponse, PermissionKind, PermissionResponse};
+use tauri::{AppHandle, Manager, Url, Webview, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+#[cfg(desktop)]
+use tauri::Wry;
+#[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Shows and focuses the Assistant window from anywhere (Cmd on macOS).
+#[cfg(desktop)]
 const SHORTCUT: &str = "CommandOrControl+Shift+Space";
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -33,6 +38,7 @@ struct State {
     path: PathBuf,
 }
 
+#[cfg(desktop)]
 struct OnTopItem(CheckMenuItem<Wry>);
 
 impl State {
@@ -61,6 +67,7 @@ impl State {
 }
 
 /// Where the bundled first-run screen lives, whatever the platform.
+#[cfg(desktop)]
 fn local_url(path: &str) -> Url {
     let base = if cfg!(any(windows, target_os = "android")) { "http://tauri.localhost/" } else { "tauri://localhost/" };
     Url::parse(base).and_then(|b| b.join(path)).expect("valid local url")
@@ -71,6 +78,7 @@ fn server_url(app: &AppHandle) -> Option<Url> {
 }
 
 /// "/w/<slug>/..." gives the slug.
+#[cfg(desktop)]
 fn world_of(url: &Url) -> Option<String> {
     let mut seg = url.path_segments()?;
     (seg.next()? == "w").then(|| seg.next().filter(|s| !s.is_empty()).map(str::to_string))?
@@ -95,16 +103,38 @@ fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
     false
 }
 
-fn window_opener(app: &AppHandle, url: Url) {
-    // The web app's "pop out" button calls window.open(.../assistant-window).
-    let ours = server_url(app).is_some_and(|s| s.origin() == url.origin());
-    if ours && url.path().ends_with("/assistant-window") {
-        spawn_assistant(app, world_of(&url), false);
-    } else if ours && url.path().ends_with("/screen/players") {
-        spawn_players_screen(app, world_of(&url));
-    } else {
-        open_external(&url);
+/// Microphone requests (dictation, recording, voice) are answered yes, but only for a page of the
+/// user's own server. Camera, location and everything else from any page is refused, and any
+/// other address gets no microphone. (Android also asks the person once, through the system.)
+fn permission_for(app: &AppHandle, webview: &Webview, kind: PermissionKind) -> PermissionResponse {
+    let ours = webview
+        .url()
+        .ok()
+        .zip(server_url(app))
+        .is_some_and(|(page, server)| page.origin() == server.origin());
+    match kind {
+        PermissionKind::Microphone if ours => PermissionResponse::Allow,
+        PermissionKind::Microphone | PermissionKind::Camera | PermissionKind::Geolocation | PermissionKind::DisplayCapture => {
+            PermissionResponse::Deny
+        }
+        _ => PermissionResponse::Default,
     }
+}
+
+fn window_opener(#[allow(unused_variables)] app: &AppHandle, url: Url) {
+    // The web app's "pop out" button calls window.open(.../assistant-window).
+    #[cfg(desktop)]
+    {
+        let ours = server_url(app).is_some_and(|s| s.origin() == url.origin());
+        if ours && url.path().ends_with("/assistant-window") {
+            spawn_assistant(app, world_of(&url), false);
+            return;
+        } else if ours && url.path().ends_with("/screen/players") {
+            spawn_players_screen(app, world_of(&url));
+            return;
+        }
+    }
+    open_external(&url);
 }
 
 fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
@@ -112,20 +142,22 @@ fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         Some(u) => WebviewUrl::External(u),
         None => WebviewUrl::App("index.html".into()),
     };
-    let (nav, new) = (app.clone(), app.clone());
-    WebviewWindowBuilder::new(app, "main", url)
+    let (nav, new, perm) = (app.clone(), app.clone(), app.clone());
+    let builder = WebviewWindowBuilder::new(app, "main", url)
         .title("Alexandria")
-        .inner_size(1280.0, 820.0)
-        .min_inner_size(480.0, 360.0)
         .on_navigation(move |u| allow_navigation(&nav, u))
+        .on_permission_request(move |wv, kind| permission_for(&perm, &wv, kind))
         .on_new_window(move |u, _features| {
             window_opener(&new, u);
             NewWindowResponse::Deny
-        })
-        .build()
+        });
+    #[cfg(desktop)]
+    let builder = builder.inner_size(1280.0, 820.0).min_inner_size(480.0, 360.0);
+    builder.build()
 }
 
 /// The world open in the main window, remembered for next time.
+#[cfg(desktop)]
 fn current_world(app: &AppHandle) -> Option<String> {
     let seen = app.get_webview_window("main").and_then(|w| w.url().ok()).and_then(|u| world_of(&u));
     let state = app.state::<State>();
@@ -141,6 +173,7 @@ fn current_world(app: &AppHandle) -> Option<String> {
 }
 
 /// Show (or create) the Assistant window. With `toggle`, a focused window hides instead.
+#[cfg(desktop)]
 fn show_assistant(app: &AppHandle, world: Option<String>, toggle: bool) -> Result<(), String> {
     let mut url = server_url(app).ok_or("No server address is set yet.")?;
     let world = world.or_else(|| current_world(app));
@@ -164,8 +197,9 @@ fn show_assistant(app: &AppHandle, world: Option<String>, toggle: bool) -> Resul
         return win.set_focus().map_err(|e| e.to_string());
     }
 
-    let nav = app.clone();
+    let (nav, perm) = (app.clone(), app.clone());
     WebviewWindowBuilder::new(app, "assistant", WebviewUrl::External(url))
+        .on_permission_request(move |wv, kind| permission_for(&perm, &wv, kind))
         .title("Assistant · Alexandria")
         .inner_size(460.0, 800.0)
         .min_inner_size(340.0, 400.0)
@@ -177,6 +211,7 @@ fn show_assistant(app: &AppHandle, world: Option<String>, toggle: bool) -> Resul
 }
 
 /// Windows are created off the event and menu threads, which would otherwise deadlock on Windows.
+#[cfg(desktop)]
 fn spawn_assistant(app: &AppHandle, world: Option<String>, toggle: bool) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -191,6 +226,7 @@ fn spawn_assistant(app: &AppHandle, world: Option<String>, toggle: bool) {
 /// browser argument, Linux WebKitGTK through the webview setting. macOS WKWebView only takes
 /// that choice when the webview is created and Tauri offers no hook for it, so there the
 /// screen's own "Click to start" overlay unlocks sound.
+#[cfg(desktop)]
 fn show_players_screen(app: &AppHandle, world: Option<String>) -> Result<(), String> {
     let mut url = server_url(app).ok_or("No server address is set yet.")?;
     let world = world.or_else(|| current_world(app)).ok_or("Open a world in the main window first.")?;
@@ -206,8 +242,9 @@ fn show_players_screen(app: &AppHandle, world: Option<String>) -> Result<(), Str
         return win.set_focus().map_err(|e| e.to_string());
     }
 
-    let nav = app.clone();
+    let (nav, perm) = (app.clone(), app.clone());
     let builder = WebviewWindowBuilder::new(app, "players-screen", WebviewUrl::External(url))
+        .on_permission_request(move |wv, kind| permission_for(&perm, &wv, kind))
         .title("Players' screen · Alexandria")
         .inner_size(1280.0, 720.0)
         .min_inner_size(480.0, 270.0)
@@ -231,6 +268,7 @@ fn show_players_screen(app: &AppHandle, world: Option<String>) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(desktop)]
 fn spawn_players_screen(app: &AppHandle, world: Option<String>) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -264,6 +302,7 @@ async fn set_server(app: AppHandle, url: String) -> Result<(), String> {
     main.navigate(target).map_err(|e| e.to_string())
 }
 
+#[cfg(desktop)]
 fn build_menu(app: &AppHandle, on_top: bool) -> tauri::Result<(Menu<Wry>, CheckMenuItem<Wry>)> {
     let show = MenuItem::with_id(app, "show_assistant", format!("Show Assistant ({SHORTCUT})"), true, None::<&str>)?;
     let top = CheckMenuItem::with_id(app, "assistant_on_top", "Assistant always on top", true, on_top, None::<&str>)?;
@@ -291,6 +330,7 @@ fn build_menu(app: &AppHandle, on_top: bool) -> tauri::Result<(Menu<Wry>, CheckM
     Ok((Menu::with_items(app, &[&main_menu, &edit])?, top))
 }
 
+#[cfg(desktop)]
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show_assistant" => spawn_assistant(app, None, false),
@@ -323,34 +363,43 @@ fn on_menu(app: &AppHandle, id: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .on_menu_event(|app, event| on_menu(app, event.id().as_ref()));
+    builder
         .invoke_handler(tauri::generate_handler![get_server, set_server])
-        .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .setup(|app| {
             let handle = app.handle().clone();
             let state = State::load(app.path().app_config_dir()?.join("settings.json"));
+            #[cfg(desktop)]
             let on_top = state.get().assistant_on_top;
             app.manage(state);
 
-            let (menu, top) = build_menu(&handle, on_top)?;
-            app.manage(OnTopItem(top));
-            handle.set_menu(menu)?;
+            #[cfg(desktop)]
+            {
+                let (menu, top) = build_menu(&handle, on_top)?;
+                app.manage(OnTopItem(top));
+                handle.set_menu(menu)?;
+            }
 
             create_main(&handle)?;
 
-            let for_shortcut = handle.clone();
-            if let Err(e) = app.global_shortcut().on_shortcut(SHORTCUT, move |_app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    spawn_assistant(&for_shortcut, None, true);
+            #[cfg(desktop)]
+            {
+                let for_shortcut = handle.clone();
+                if let Err(e) = app.global_shortcut().on_shortcut(SHORTCUT, move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        spawn_assistant(&for_shortcut, None, true);
+                    }
+                }) {
+                    // Another program may already own the shortcut; the menu still works.
+                    eprintln!("could not register {SHORTCUT}: {e}");
                 }
-            }) {
-                // Another program may already own the shortcut; the menu still works.
-                eprintln!("could not register {SHORTCUT}: {e}");
             }
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Alexandria desktop");
+        .expect("error while running Alexandria");
 }
