@@ -90,7 +90,7 @@ export default function ScenesPage() {
 
   return (
     <div className="page" data-testid="scenes-page">
-      <PageHead title="Scenes" lead="One button sets the whole room: the players' TV, sound, lights and the table map. Anything a scene does not set is left alone." />
+      <PageHead title="Scenes" lead="One button sets the TV, sound, lights and table map. What a scene leaves unset stays as it is." />
       <ErrorBox error={err ?? api.error ?? api.loadError} />
 
       <section className="card" aria-labelledby="scn-now">

@@ -18,18 +18,18 @@ export default function DMBroker() {
   const list = useLoad(() => (enabled ? w.call<{ requests: BrokerRequest[] }>('GET', '/broker') : Promise.resolve(null)), [w, enabled], ['broker', 'broker-clock']);
 
   if (!enabled) return (
-    <div className="page"><PageHead title="Information broker" />
-      <Empty>The broker is turned off. Turn it on in <Link to={`/w/${info.slug}/dm/settings`}>World settings</Link>.</Empty></div>
+    <div className="page"><PageHead title="Broker" />
+      <Empty>The broker is turned off. Turn it on in <Link to={`/w/${info.slug}/dm/settings`}>Settings</Link>.</Empty></div>
   );
   const open = (list.data?.requests ?? []).filter((q) => ['pricing', 'offered', 'waiting'].includes(q.status));
   const review = (list.data?.requests ?? []).filter((q) => q.needs_review).length;
   return (
     <div className="page">
-      <PageHead title="Information broker" lead="Players buy what their characters could learn. Prices come from your tiers; answers come only from pages the party can see, unless you write them." />
+      <PageHead title="Broker" lead="Players buy what their characters could learn, at your prices." />
       <ErrorBox error={cfg.error ?? list.error} />
       <div className="row between">
         <Tabs label="Broker" value={tab} onChange={setTab} items={[['queue', `Questions${open.length ? ` (${open.length})` : ''}${review ? ` · ${review} to review` : ''}`], ['offers', 'Special offers'], ['notes', 'Broker notes'], ['tune', 'Fine-tune'], ['setup', 'Persona and prices']]} />
-        {cfg.data && <span className="row" style={{ gap: 6 }}><span className="chip gold" title="Game time">Game time: {cfg.data.clock.label}</span><Link className="small" to={`/w/${info.slug}/dm/clock`}>World clock →</Link></span>}
+        {cfg.data && <span className="row" style={{ gap: 6 }}><span className="chip gold" title="Game time">Game time: {cfg.data.clock.label}</span><Link className="small" to={`/w/${info.slug}/dm/clock`}>Clock →</Link></span>}
       </div>
       {!cfg.data ? <Loading /> : tab === 'queue' ? <Queue list={list.data?.requests ?? null} reload={list.reload} />
         : tab === 'offers' ? <Offers /> : tab === 'notes' ? <Notes /> : tab === 'tune' ? <Tune cfg={cfg.data} /> : <Setup cfg={cfg.data} onSaved={cfg.reload} />}
@@ -207,7 +207,7 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
           </select>
         </Field>
         <p className="tiny faint">Rules and item questions are "Other": always free and answered at once. They are not a tier.</p>
-        <p className="tiny faint">Payer: {c.payer === 'party' && info.settings.partyPurse ? 'the party pouch' : "each player's own coin"} (World settings).</p>
+        <p className="tiny faint">Payer: {c.payer === 'party' && info.settings.partyPurse ? 'the party pouch' : "each player's own coin"} (Settings).</p>
         <ErrorBox error={act.error} />
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save prices and persona</button></div>
       </section>

@@ -19,8 +19,8 @@ import { ConfirmCards, UndoToasts } from '../active/Cards.tsx';
 import './dmphone.css';
 
 type Tab = 'now' | 'remote' | 'queue' | 'ask' | 'notes';
-const TABS: [Tab, string, string][] = [['now', 'Now', 'fa-shield-halved'], ['remote', 'Remote', 'fa-sliders'], ['queue', 'Queue', 'fa-inbox'], ['ask', 'Ask', 'fa-comments'], ['notes', 'Notes', 'fa-pen-to-square']];
-const LABELS: Record<Tab, string> = { now: 'Now', remote: 'Remote', queue: 'Queue', ask: 'Ask', notes: 'Notes' };
+const TABS: [Tab, string, string][] = [['now', 'Now', 'fa-shield-halved'], ['remote', 'Remote', 'fa-sliders'], ['queue', 'Inbox', 'fa-inbox'], ['ask', 'Ask', 'fa-comments'], ['notes', 'Notes', 'fa-pen-to-square']];
+const LABELS: Record<Tab, string> = { now: 'Now', remote: 'Remote', queue: 'Inbox', ask: 'Ask', notes: 'Notes' };
 
 export default function PhonePage() {
   const { w, info, connected } = useWorld();

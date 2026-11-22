@@ -37,7 +37,7 @@ export default function BiblePage() {
   }, [left]);
   return (
     <div className="page">
-      <PageHead title="Story bible" lead={isDM ? 'What the library says about the world, as facts. This is the DM view: everything but classified.' : 'What you know about the world, as facts, from the pages you can read.'} />
+      <PageHead title="Story bible" lead={isDM ? 'The world as facts, from every page but classified ones.' : 'What you know about the world, as facts, from the pages you can read.'} />
       <div className="bible-filters">
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search facts by words or meaning" aria-label="Search the story bible" />
         <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">

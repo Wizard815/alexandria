@@ -9,7 +9,7 @@ export default function ClockPage() {
   const [tab, setTab] = useState<'now' | 'events' | 'calendar'>('now');
   return (
     <div className="page wide">
-      <PageHead title="World clock" lead={clock.data ? `${clock.data.label} · ${clock.data.calendar.name}` : 'The in-world date and time.'} />
+      <PageHead title="Clock" lead={clock.data ? `${clock.data.label} · ${clock.data.calendar.name}` : 'The in-world date and time.'} />
       <ErrorBox error={clock.error} />
       <Tabs label="World clock section" value={tab} onChange={setTab} items={[['now', 'Date and log'], ['events', 'Events'], ['calendar', 'Calendar']]} />
       {!clock.data ? <Loading /> : tab === 'now' ? <Now c={clock.data} reload={clock.reload} /> : tab === 'events' ? <Events c={clock.data} /> : <CalendarEditor c={clock.data} reload={clock.reload} />}

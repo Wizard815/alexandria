@@ -32,7 +32,7 @@ export function SessionLogPlayer() {
   const cur = list.data?.find((e) => e.id === sel) ?? null;
   return (
     <div className="page">
-      <PageHead title="Session log" lead="What happened, session by session." />
+      <PageHead title="Recaps" lead="What happened, session by session." />
       <ErrorBox error={list.error} />
       {cur ? (
         <article className="card stack">
@@ -80,7 +80,7 @@ export function SessionLogDM() {
 
   return (
     <div className="page wide">
-      <PageHead title="Session log" lead="Draft a summary of a session, review it, then publish it to the players." />
+      <PageHead title="Recaps" lead="Draft a summary, review it, publish it to the players." />
       <ErrorBox error={drafts.error ?? entries.error ?? act.error} />
       <div className="cols">
         <aside className="col-1 stack" style={{ maxWidth: 420 }}>
@@ -201,7 +201,7 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
                 <button className="btn" disabled={act.busy} onClick={() => void date(false)}>Decline</button>
               </div>
             </>
-          ) : <p className="small muted">No date change proposed. Use the World clock page to move time.</p>}
+          ) : <p className="small muted">No date change proposed. Use the Clock page to move time.</p>}
       </div>
 
       <div className="card stack">
