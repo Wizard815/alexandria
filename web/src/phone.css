@@ -122,3 +122,4 @@
 .cb-hp { font-size: 22px; font-weight: 700; color: var(--accent-strong); }
 .cb-cond { flex: 1 1 100%; font-size: 16px; color: var(--danger-text); }
 @media (max-width: 760px) { .player input[type=color] { width: 56px; height: 44px; min-height: 44px; padding: 2px; } }
+@media (max-width: 760px) { html body:has(.bottomnav):has(.sheet-backdrop, .modal-back) .dock { display: none; } }
