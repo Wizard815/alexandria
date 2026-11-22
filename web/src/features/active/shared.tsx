@@ -25,8 +25,10 @@ export const CATEGORY_INFO: Record<string, { label: string; help: string }> = {
 };
 
 export function useActive() {
-  const { w } = useWorld();
-  return useLoad<ActiveState>(() => w.call('GET', '/active'), [w], ['active', 'recording']);
+  const { w, info } = useWorld();
+  // Active mode is the DM's: a player's page never asks (the server would answer 403 on every page load).
+  const dm = info?.role === 'dm';
+  return useLoad<ActiveState | null>(() => (dm ? w.call<ActiveState>('GET', '/active') : Promise.resolve(null)), [w, dm], ['active', 'recording']);
 }
 export function useActiveLog(limit = 100) {
   const { w } = useWorld();
