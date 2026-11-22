@@ -133,6 +133,22 @@ function Island() {
     return () => { ro.disconnect(); clearTimeout(tm); };
   }, [phone, prefs.min, prefs.w, prefs.h, patch]);
 
+  // The open island floats over the page, so it can sit on top of a chat box and its Send button (the assistant on a
+  // laptop). Typing into a field whose form the island covers minimises it to its dock button; one click brings it back.
+  useEffect(() => {
+    if (phone || prefs.min) return;
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      const isl = box.current;
+      if (!el || !isl || isl.contains(el) || !el.matches('input, textarea, [contenteditable="true"]')) return;
+      const a = (el.closest('form') ?? el).getBoundingClientRect();
+      const b = isl.getBoundingClientRect();
+      if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) patch({ min: true });
+    };
+    document.addEventListener('focusin', onFocus);
+    return () => document.removeEventListener('focusin', onFocus);
+  }, [phone, prefs.min, patch]);
+
   const last = lines[lines.length - 1];
   const style = useMemo<React.CSSProperties>(() => {
     const s: React.CSSProperties = { opacity: phone ? 1 : prefs.opacity / 100, ['--au-colour' as any]: COLOURS[prefs.colour] ?? COLOURS.gold, ['--au-size' as any]: `${prefs.size}px` };

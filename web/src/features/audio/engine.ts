@@ -17,6 +17,8 @@ export interface MicSetting {
   /** The browser's id for the input device. */
   deviceId: string;
   label: string;
+  /** The device's own name when it was picked: what finds it again if the browser hands out a new id. */
+  deviceLabel?: string;
   enabled: boolean;
   mode: Mode;
   playersTranscript: boolean;
@@ -47,17 +49,28 @@ interface Cfg { baseUrl: string; token: string; worldId: string; isDM: boolean }
  * Open the saved microphone. Some browsers hand out new device ids from one start to the next (WebKit in the desktop
  * app on Linux, Safari, a cleared profile), so when the saved id is gone the microphone with the same name is used.
  */
-export async function openMic(s: { deviceId: string; label: string }): Promise<MediaStream> {
+export async function openMic(s: { deviceId: string; label: string; deviceLabel?: string }): Promise<MediaStream> {
   const md = navigator.mediaDevices;
   if (!s.deviceId) return md.getUserMedia({ audio: true });
   try {
     return await md.getUserMedia({ audio: { deviceId: { exact: s.deviceId } } });
   } catch (e: any) {
     if (e?.name !== 'OverconstrainedError' && e?.name !== 'NotFoundError') throw e;
-    const same = (await md.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.label && d.label === s.label);
+    const same = (await md.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.label && d.label === (s.deviceLabel || s.label));
     if (same.length !== 1) throw e;
     return md.getUserMedia({ audio: { deviceId: { exact: same[0].deviceId } } });
   }
+}
+
+/**
+ * A saved mic whose id the browser no longer lists, moved to the one listed device with the same name; the setting
+ * itself when it is still there or the name matches nothing (or several). Device names only show once the
+ * microphone was allowed, so with no names listed nothing is changed.
+ */
+export function healMic<T extends { deviceId: string; label: string; deviceLabel?: string }>(s: T, inputs: { deviceId: string; label: string }[]): T {
+  if (!s.deviceId || inputs.some((i) => i.deviceId === s.deviceId)) return s;
+  const same = inputs.filter((i) => i.label && i.label === (s.deviceLabel || s.label));
+  return same.length === 1 ? { ...s, deviceId: same[0].deviceId, deviceLabel: same[0].label } : s;
 }
 
 class Runner {
