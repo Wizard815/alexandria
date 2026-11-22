@@ -54,6 +54,7 @@ let cur = null;
 const fail = (msg) => { if (cur) { cur.fails.push(msg); log(`  FAIL ${msg}`); } };
 const note = (msg) => { if (cur) cur.notes.push(msg); log(`  ${msg}`); };
 async function step(n, name, fn) {
+  if (process.env.TN_STEPS && n > 1 && !process.env.TN_STEPS.split(',').includes(String(n))) return;
   cur = { n, name, ok: true, ms: 0, fails: [], notes: [], appear: {}, console: [], http: [], model: [] };
   steps.push(cur);
   const s = cur, start = Date.now();
@@ -167,20 +168,24 @@ const png = (w, h, rgb) => {
 };
 
 // ---- the assistant UIs -----------------------------------------------------------------------------------------
-const lastReply = (page) => page.evaluate(() => { const m = [...document.querySelectorAll('[data-testid=ask-log] .msg:not(.me)')]; return m.length ? m[m.length - 1].textContent : ''; });
+const lastReply = (page) => page.evaluate(() => { const m = [...document.querySelectorAll('.ag-msg')].filter((m) => !m.classList.contains('me') && getComputedStyle(m.parentElement).alignItems !== 'flex-end'); return m.length ? m[m.length - 1].textContent : ''; });
 /** Type a question into whichever Ask box is on the page and wait for the answer. Returns { text, ms }. */
 async function askAssistant(name, question, { scope, timeout = 90000 } = {}) {
   const page = pg(name);
   const root = scope ? page.locator(scope) : page;
-  const box = root.getByPlaceholder(/^Ask/).first();
+  const box = root.locator('textarea[data-ag-input]').first();
   await box.waitFor({ timeout: 10000 });
-  const before = await page.evaluate(() => document.querySelectorAll('[data-testid=ask-log] .msg:not(.me)').length);
+  const before = await page.evaluate(() => [...document.querySelectorAll('.ag-msg')].filter((m) => !m.classList.contains('me') && getComputedStyle(m.parentElement).alignItems !== 'flex-end').length);
   const t = Date.now();
   await box.fill(question);
   await root.getByRole('button', { name: 'Send', exact: true }).first().click();
   try {
-    await page.waitForFunction((n) => { const m = [...document.querySelectorAll('[data-testid=ask-log] .msg:not(.me)')]; return m.length > n && m[m.length - 1].textContent.trim().length > 20 && !document.querySelector('[aria-label="Stop the answer"]'); }, before, { timeout, polling: 200 });
-  } catch { return { text: await lastReply(page), ms: Date.now() - t, timedOut: true }; }
+    await page.waitForFunction((n) => { const m = [...document.querySelectorAll('.ag-msg')].filter((m) => !m.classList.contains('me') && getComputedStyle(m.parentElement).alignItems !== 'flex-end'); return m.length > n && m[m.length - 1].textContent.trim().length > 20 && !document.querySelector('[aria-label="Stop the answer"]'); }, before, { timeout, polling: 200 });
+  } catch {
+    await page.screenshot({ path: path.join(OUT, `ask-timeout-${name}.png`) }).catch(() => {});
+    const dump = await page.evaluate(() => ([...document.querySelectorAll('.ag-msg')].map((m) => m.innerText).join(' || ') || 'no messages').slice(0, 300));
+    return { text: await lastReply(page), ms: Date.now() - t, timedOut: true, dump };
+  }
   return { text: await lastReply(page), ms: Date.now() - t };
 }
 
@@ -194,7 +199,7 @@ try {
   const prov = await http(admin, 'POST', '/api/admin/models/providers', { name: 'OpenRouter', kind: 'openai-compatible', baseUrl: OR, apiKey: KEY, location: 'cloud' });
   const pid = prov.provider?.id ?? prov.id;
   await http(admin, 'PUT', '/api/admin/models', { jobs: {
-    chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off' }, fallback: { providerId: pid, model: FALLBACK, allowCloud: true } },
+    chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 }, fallback: { providerId: pid, model: FALLBACK, allowCloud: true } },
     audit: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off' } },
     extra: { providerId: pid, model: EMBED, enabled: true },
   } });
@@ -283,6 +288,7 @@ try {
       ['dm', 'You can use your reaction for Counterspell but the Fireball needs concentration from the caster no more.'],
     ];
     // The first line shows on the DM's screens; the rules terms in it are highlighted.
+    await pg('dm').getByRole('button', { name: /open the transcript/i }).click({ timeout: 5000 }).catch(() => note('dm: transcript button not found (already open?)'));
     const from = Date.now();
     await S.say(...SCRIPT[0]);
     const first = 'ferry bumps against the harbour wall';
@@ -348,11 +354,13 @@ try {
     const poll = (async () => { while (!stop) { try { sample.push((await http(S.admin, 'GET', '/api/admin/models/queue')).models); } catch { /* ignore */ } await sleep(250); } })();
     samplerStop = () => { stop = true; };
     // Players go to their Ask pages.
-    await Promise.all([['p1', 'ana'], ['p3', 'ana'], ['p2', 'tom']].map(([n]) => pg(n).goto(`${W}/ask`)));
-    await pg('p2').getByTestId('ask-helper').click().catch(() => fail('p2: no Table helper tab'));
+    await Promise.all([['p1', 'ana'], ['p3', 'ana'], ['p2', 'tom']].map(([n]) => pg(n).goto(`${W}/assistant`)));
+    await pg('p2').getByTestId('ask-helper').click({ timeout: 8000 }).catch(() => fail('p2: no Table helper tab'));
     await pg('phone').getByRole('tab', { name: /^Ask/ }).click();
     const sideAssistant = '[data-testid=side-panel-assistant]';
-    await sleep(500);
+    // Two devices of one DM answer from two chats (a second question in a chat that is still answering is refused by design).
+    for (const [n, sc] of [['side', sideAssistant], ['phone', null]]) { const b = (sc ? pg(n).locator(sc) : pg(n)).getByRole('button', { name: 'New chat', exact: true }).first(); if (await b.count()) await b.click().catch(() => {}); }
+    await sleep(800);
     const jobs = [
       ['p1 broker', askAssistant('p1', 'Who rules Saltmarsh and what is the harbour like?')],
       ['p3 broker', askAssistant('p3', 'How much does the Greywater Ferry cost?')],
@@ -366,7 +374,7 @@ try {
     S.answers = res;
     for (const [n, r] of res) {
       cur.model.push(`${n}: ${r.ms} ms${r.timedOut ? ' TIMED OUT' : ''}`);
-      if (r.timedOut || !r.text || r.text.trim().length < 20) fail(`${n} got no answer (${(r.text || '').slice(0, 80)})`);
+      if (r.timedOut || !r.text || r.text.trim().length < 20) fail(`${n} got no answer (${(r.text || '').slice(0, 80)} | log: ${(r.dump || '').replace(/\s+/g, ' ').slice(0, 200)})`);
       else if (/something went wrong|model is not available|could not reach|no model/i.test(r.text)) fail(`${n} got an error answer: ${r.text.slice(0, 100)}`);
       else note(`${n} (${r.ms} ms): ${r.text.replace(/\s+/g, ' ').slice(0, 110)}`);
     }
@@ -374,7 +382,10 @@ try {
     const rows = sample.flat().filter(Boolean);
     const peakWait = Math.max(0, ...rows.map((m) => Number(m.waiting ?? m.queued ?? 0)));
     const peakRun = Math.max(0, ...rows.map((m) => Number(m.running ?? m.active ?? 0)));
-    note(`model queue seen: peak running ${peakRun}, peak waiting ${peakWait}; sample row ${JSON.stringify(rows.find((m) => Number(m.waiting ?? 0) > 0) ?? rows[0] ?? {})}`);
+    const dmChats = (await dmApi('GET', '/agent/chats').catch(() => ({ chats: [] }))).chats ?? [];
+    for (const c of dmChats.slice(0, 3)) { const v = await dmApi('GET', `/agent/chats/${c.id}`).catch(() => null); note(`DM chat "${c.title}": ${(v?.messages ?? []).map((m) => `${m.role[0]}:${String(m.text).replace(/\s+/g, ' ').slice(0, 40)}`).join(' | ')}`); }
+    note(`model queue seen: peak running ${peakRun}, peak waiting ${peakWait}; sample row ${JSON.stringify(rows.find((m) => Number(m.waiting ?? 0) > 0) ?? rows.find((m) => /openrouter/.test(m.server ?? '')) ?? rows[0] ?? {})}`);
+    if (peakWait < 1) fail('with the chat job limited to 2 at a time, five concurrent questions never queued');
     if (!rows.length) fail('the model queue endpoint gave nothing while the assistants ran');
     // No player may have read the DM-only marker, anywhere.
     await nowhere('DM-only marker', ['p1', 'p2', 'p3', 'p4a', 'p4w', 'tv', 'table'], MARKER);
@@ -421,10 +432,10 @@ try {
     if (!cleared) fail('p1 still says Your turn after the turn moved');
     // Damage, healing and a condition (from the desktop's API, as the desktop combat page does).
     from = Date.now();
-    await dmApi('PATCH', `/combatants/${mon['Harbour Thug']}`, { damage: 9 });
-    await dmApi('PATCH', `/combatants/${pcs.mira}`, { damage: 12 });
-    await dmApi('PATCH', `/combatants/${pcs.mira}`, { heal: 5 });
-    const cond = await dmApi('PATCH', `/combatants/${pcs.mira}`, { effects: [{ name: 'Poisoned', rounds: 3 }] }).catch((e) => e.message);
+    await dmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { damage: 9 });
+    await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { damage: 12 });
+    await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { heal: 5 });
+    const cond = await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { effects: [{ name: 'Poisoned', rounds: 3 }] }).catch((e) => e.message);
     if (typeof cond === 'string') fail(`condition: ${cond.slice(0, 120)}`);
     for (const n of ['table', 'tv']) { const m = await appears(n, 'Poisoned', from, 12000); if (m === null) fail(`${n} never showed the Poisoned condition`); else cur.appear[`condition @${n}`] = m; }
     const mm = await appears('p4a', 'Poisoned', from, 12000);
@@ -441,7 +452,7 @@ try {
   await step(7, 'quick event to one player', async () => {
     const TITLE = 'Dexterity save: falling crates';
     const from = Date.now();
-    const ev = await dmApi('POST', '/quick-events', { kind: 'check', title: TITLE, prompt: 'Crates tumble from the loft. Make a Dexterity saving throw.', skill: 'Dexterity', dc: 13, audience: [S.acc.tom], timerS: 120 });
+    const ev = await dmApi('POST', '/quick-events', { kind: 'save', title: TITLE, prompt: 'Crates tumble from the loft. Make a Dexterity saving throw.', skill: 'Dexterity', dc: 13, audience: [S.acc.tom], timerS: 120 });
     S.ev = ev.id;
     const ms = await appears('p2', TITLE, from, 12000);
     if (ms === null) fail('p2 (Tomas) never got the quick event sheet'); else cur.appear['quick event @p2'] = ms;
@@ -511,7 +522,7 @@ try {
     let draft = null;
     for (let i = 0; i < 90 && !draft; i++) {
       const r = await dmApi('GET', '/minerva/review').catch(() => ({ drafts: [] }));
-      draft = (r.drafts ?? []).find((x) => /last session/i.test(x.title ?? '')) ?? null;
+      draft = (r.drafts ?? []).find((x) => x.review === `handoff-${S.sid}`) ?? null;
       if (!draft) await sleep(1000);
     }
     cur.model.push(`hand-off draft after ${Date.now() - from} ms`);
