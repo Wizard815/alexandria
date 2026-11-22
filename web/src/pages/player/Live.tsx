@@ -95,7 +95,7 @@ export default function PlayerLive() {
                   </ul>
                 ) : <p className="muted small">No coin moved yet.</p>}
                 <hr />
-                <div className="row between small"><span className="muted">Your own coin</span><a href={`/w/${info.slug}/inventory`}>{coins(d.myCoin, mode)}</a></div>
+                <div className="row between small"><span className="muted">Your own coin</span><a className="inline-tap" href={`/w/${info.slug}/inventory`}>{coins(d.myCoin, mode)}</a></div>
               </section>
             )}
             {!d.purse && <section className="card"><div className="row between small"><span className="muted">Your coin</span><strong>{coins(d.myCoin, mode)}</strong></div></section>}
@@ -119,6 +119,13 @@ export function CombatPanel({ c, compact = false }: { c: CombatView; compact?: b
           <strong style={{ fontFamily: 'var(--font-head)', fontSize: 22, color: 'var(--accent-strong)' }}>Your turn</strong>
         </div>
       )}
+      {(() => { const m = c.combatants?.find((x) => x.mine); return m && (m.health || m.effects.length > 0) ? (
+        <div className="cb-me" aria-label="You in the fight">
+          <strong>{m.name}</strong>
+          {m.health && (/^\d+$/.test(m.health) ? <HealthBar pct={Number(m.health)} /> : <span className="cb-hp">{m.health}</span>)}
+          {m.effects.length > 0 && <span className="cb-cond">{m.effects.map((e) => e.rounds ? `${e.name} (${e.rounds})` : e.name).join(', ')}</span>}
+        </div>
+      ) : null; })()}
       {c.combatants ? (
         c.combatants.length ? (
           <ol className="cb-order">
