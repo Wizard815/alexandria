@@ -1,0 +1,11 @@
+# Alexandria behind your own nginx on the same machine: publish it on
+# 127.0.0.1 only (nginx is the only way in) and trust nginx's forwarded
+# headers. Use with deploy/nginx/alexandria.conf (see docs/QUICKSTART.md):
+#   docker compose -f docker-compose.yml -f deploy/examples/nginx.override.yml up -d
+# Put ALX_PUBLIC_URL=https://YOUR.DOMAIN in librarian/.env.
+services:
+  alexandria:
+    ports: !override
+      - "127.0.0.1:8090:8090"
+    environment:
+      ALX_TRUST_PROXY: "1"
