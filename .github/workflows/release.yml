@@ -1,0 +1,243 @@
+name: Release
+
+# Runs on a version tag (v*) and by hand. It builds the Docker image (pushed to GHCR),
+# the desktop apps (Windows, macOS, Linux) and the Android APK, and attaches them to a
+# GitHub Release named "Alexandria <RELEASE_NAME>". The name comes from the file
+# RELEASE_NAME at the repo root, the version from the file VERSION (a semver; one with a
+# "-" such as 0.1.0-alpha.1 is marked a pre-release and never tagged :latest).
+#
+# Nothing here needs a secret to finish. Optional secrets add signing:
+#   macOS:   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#            APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID (sign and notarise)
+#   Android: ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, ANDROID_STORE_PASSWORD
+#            (without them the APK is signed with a throwaway debug key: it installs, but an
+#            update only installs over it if it was signed with the same key)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Create the GitHub Release (otherwise only build and keep the files as workflow artifacts)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.m.outputs.name }}
+      lower: ${{ steps.m.outputs.lower }}
+      version: ${{ steps.m.outputs.version }}
+      prerelease: ${{ steps.m.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: |
+          name="$(tr -d '[:space:]' < RELEASE_NAME)"
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match VERSION v$version"; exit 1
+          fi
+          test -f "docs/releases/$name.md" || { echo "::error::docs/releases/$name.md (the release notes) is missing"; exit 1; }
+
+  docker:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tags
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/alexandria
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ needs.meta.outputs.lower }}
+            type=raw,value=${{ needs.meta.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.meta.outputs.prerelease == 'false' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.tags.outputs.labels }}
+          build-args: |
+            ALX_VERSION=${{ needs.meta.outputs.version }}
+            ALX_RELEASE=${{ needs.meta.outputs.name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  desktop:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            kind: linux
+          - os: windows-latest
+            kind: windows
+          - os: macos-latest
+            kind: macos
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE: ${{ needs.meta.outputs.name }}
+      # Signing is on only when the secrets exist; the build finishes unsigned otherwise.
+      HAS_APPLE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.kind == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Linux libraries
+        if: matrix.kind == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev patchelf
+      - name: Install
+        run: cd desktop && npm install --no-audit --no-fund
+      - name: Apple signing (only if the secrets exist)
+        if: matrix.kind == 'macos' && env.HAS_APPLE == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            printf '%s<<EOF\n%s\nEOF\n' "$v" "${!v}" >> "$GITHUB_ENV"
+          done
+      - name: Build (Linux)
+        if: matrix.kind == 'linux'
+        run: |
+          cd desktop && npx tauri build --no-bundle
+          cd .. && scripts/package-linux.sh dist
+      - name: Build (Windows, NSIS setup)
+        if: matrix.kind == 'windows'
+        shell: bash
+        run: |
+          cd desktop && npx tauri build --bundles nsis
+          mkdir -p ../dist
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe "../dist/Alexandria-$RELEASE-windows-x64-setup.exe"
+      - name: Build (macOS, universal dmg)
+        if: matrix.kind == 'macos'
+        run: |
+          cd desktop && npx tauri build --target universal-apple-darwin --bundles dmg
+          mkdir -p ../dist
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "../dist/Alexandria-$RELEASE-macos-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.kind }}
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      RELEASE: ${{ needs.meta.outputs.name }}
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Android platform, build tools and NDK
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Install
+        run: cd desktop && npm install --no-audit --no-fund
+      - name: Signing key (the real one if the secrets exist, otherwise a throwaway debug key)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          dir=desktop/src-tauri/gen/android
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$dir/release.keystore"
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$PWD/$dir/release.keystore" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > "$dir/keystore.properties"
+            echo "Signing with the release keystore"
+          else
+            keytool -genkeypair -keystore "$dir/release.keystore" -storepass alexandria-debug -keypass alexandria-debug \
+              -alias alexandria-debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Alexandria debug key"
+            printf 'storeFile=%s\nstorePassword=alexandria-debug\nkeyAlias=alexandria-debug\nkeyPassword=alexandria-debug\n' "$PWD/$dir/release.keystore" > "$dir/keystore.properties"
+            echo "::warning::No Android keystore secrets: the APK is signed with a throwaway key. Updates only install over it if signed with the same key."
+          fi
+      - name: Build the APK
+        run: |
+          cd desktop && npx tauri android build --apk
+          mkdir -p ../dist
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | head -n1)"
+          test -n "$apk"
+          cp "$apk" "../dist/Alexandria-$RELEASE-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [meta, docker, desktop, android]
+    if: github.ref_type == 'tag' || inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Alexandria ${{ needs.meta.outputs.name }}
+          body_path: docs/releases/${{ needs.meta.outputs.name }}.md
+          prerelease: ${{ needs.meta.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/Alexandria-${{ needs.meta.outputs.name }}-linux-x86_64.tar.gz
+            dist/Alexandria-${{ needs.meta.outputs.name }}-windows-x64-setup.exe
+            dist/Alexandria-${{ needs.meta.outputs.name }}-macos-universal.dmg
+            dist/Alexandria-${{ needs.meta.outputs.name }}-android.apk
