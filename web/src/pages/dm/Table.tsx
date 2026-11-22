@@ -40,7 +40,7 @@ export default function DMTable() {
 
   return (
     <div className="page wide">
-      <PageHead title="The table" lead={`Everything live in ${info.name}, in one place. Updates as it happens.`}>
+      <PageHead title="Table" lead={`Everything live in ${info.name}.`}>
         <button type="button" className={`btn small${picking ? ' on' : ''}`} aria-expanded={picking} onClick={() => setPicking(!picking)}>Choose blocks</button>
       </PageHead>
       {picking && (
@@ -89,7 +89,7 @@ export default function DMTable() {
                   {!L.purse.recent.length && <span className="faint">No coin moved yet.</span>}
                 </div>
               </>
-            ) : <Empty>The party pouch is off in World settings.</Empty>}
+            ) : <Empty>The party pouch is off in Settings.</Empty>}
           </section>
         )}
 

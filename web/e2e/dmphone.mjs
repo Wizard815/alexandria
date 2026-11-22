@@ -74,7 +74,7 @@ async function tour(page, label, wide) {
   await page.goto(R);
   await page.getByTestId('dmphone').waitFor({ timeout: 10000 });
   check((await page.getByTestId('dmphone').getAttribute('data-layout')) === (wide ? 'two-pane' : 'one-pane'), `${label}: wrong layout`);
-  const expect = { Now: /Next turn|Start combat/, Remote: /Stop all sound/, Queue: /coin requests|broker|player requests|nothing is waiting/i, Notes: /Transcript/ };
+  const expect = { Now: /Next turn|Start combat/, Remote: /Stop all sound/, Inbox: /coin requests|broker|player requests|nothing is waiting/i, Notes: /Transcript/ };
   for (const [name, re] of Object.entries(expect)) {
     await tab(page, name).click();
     await page.waitForTimeout(600);
@@ -97,7 +97,7 @@ async function tour(page, label, wide) {
 const box = (page) => page.getByPlaceholder(/^Ask/);
 const sendText = async (page, text) => { await box(page).fill(text); await page.getByRole('button', { name: 'Send', exact: true }).click(); };
 const replied = (page, re, what) => page.waitForFunction((src) => [...document.querySelectorAll('[data-testid=ask-log] .msg:not(.me)')].some((m) => new RegExp(src).test(m.textContent)), re.source, { timeout: 30000 }).then(() => true).catch(() => { problems.push(`${what}: no reply matching ${re}`); return false; });
-const queueCount = (page) => page.evaluate(() => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Queue/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0); });
+const queueCount = (page) => page.evaluate(() => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Inbox/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0); });
 const approvalCard = (page) => page.getByRole('group', { name: 'Waiting for your approval' }).first();
 
 async function askTour(page, label, wide) {
@@ -147,18 +147,18 @@ async function askTour(page, label, wide) {
   await card.waitFor({ timeout: 20000 }).catch(() => problems.push(`${label}: no approval card appeared`));
   const ab = await card.getByRole('button', { name: 'Approve' }).boundingBox();
   check(ab && ab.height >= 60 && ab.width >= 100, `${label}: the Approve button is small (${ab?.width}x${ab?.height})`);
-  await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Queue/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before + 1, { timeout: 8000 }).catch(() => problems.push(`${label}: the Queue badge did not count the proposal`));
+  await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Inbox/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before + 1, { timeout: 8000 }).catch(() => problems.push(`${label}: the Queue badge did not count the proposal`));
   await card.getByRole('button', { name: 'Approve' }).click();
   await card.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push(`${label}: the card stayed after approving`));
   check(((await dm('GET', '/agent/actions')).actions ?? []).length === 0, `${label}: approving in the chat left a pending action`);
-  await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Queue/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before, { timeout: 8000 }).catch(() => problems.push(`${label}: the badge did not drop after approving in the chat`));
+  await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Inbox/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before, { timeout: 8000 }).catch(() => problems.push(`${label}: the badge did not drop after approving in the chat`));
   await replied(page, /Done: /, `${label} approval result`);
   note(`${label}: approval card approved in the chat, badge followed`);
 
   // The other way round: approve in the Queue and the chat card goes (live, with both on screen on the Fold).
   await sendText(page, 'Next turn: call next_turn');
   await card.waitFor({ timeout: 20000 }).catch(() => problems.push(`${label}: no second approval card`));
-  await tab(page, 'Queue').click();
+  await tab(page, 'Inbox').click();
   await page.locator('[aria-label="The assistant wants to"] [role=group]').first().getByRole('button', { name: 'Approve' }).click();
   await tab(page, 'Ask').click();
   await card.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push(`${label}: the chat card stayed after approving in the Queue`));
@@ -272,7 +272,7 @@ try {
   note('undo and next turn work');
 
   // Queue: approve the coin request.
-  await tab(page, 'Queue').click();
+  await tab(page, 'Inbox').click();
   await page.getByRole('group', { name: /Sold a spare|Sera|Jess|party|gp|sp|cp/i }).first().waitFor({ timeout: 8000 }).catch(() => {});
   check(pendingBefore >= 1 && led.id, 'the demo gave no pending coin request to approve');
   const card = page.locator('[aria-label="Coin requests"] [role=group]').first();
@@ -306,7 +306,7 @@ try {
   await tour(f.page, 'fold 700x850', true);
   await askTour(f.page, 'fold 700x850', true);
   // The Queue tab in the left pane, Ask stays on the right.
-  await tab(f.page, 'Queue').click();
+  await tab(f.page, 'Inbox').click();
   await f.page.waitForTimeout(500);
   check((await f.page.locator('[role=tabpanel]:visible').count()) === 2, 'fold: should show two panes');
   await f.ctx.close();

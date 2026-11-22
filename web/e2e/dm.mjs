@@ -54,7 +54,9 @@ async function signIn(user, viewport, mobile) {
 }
 const go = async (page, p) => { await page.goto(`${W}/dm/${p}`); await page.locator('main').waitFor(); await page.waitForTimeout(500); };
 
-const ROUTES = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect'];
+// 'approvals' and 'requests' are old paths that redirect to 'inbox'; the rest are in the menu.
+const REDIRECTS = { approvals: 'inbox?tab=approvals', requests: 'inbox?tab=requests' };
+const ROUTES = ['', 'inbox', 'scenes', 'screen-players', 'active', 'macros', 'lights', 'phone', 'combat', 'quick', 'party', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect'];
 
 /** The dock buttons must not overlap each other or the page's main controls, and each must be the top element where it is. */
 async function dockCheck(page, label) {
@@ -95,15 +97,69 @@ try {
       check(!/something went wrong|cannot read prop|undefined is not/i.test(text), `${label}: /dm/${r} shows a crash message`);
       if (['', 'stage', 'sculpt', 'broker'].includes(r)) await dockCheck(page, `${label} /dm/${r}`);
     }
-    // The menu: every route is in it once.
-    if (mobile) await page.getByRole('button', { name: 'Menu' }).click();
-    const links = await page.locator('nav[aria-label="DM"] a.nav-link').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+    // The menu: every route is reachable from it, once per group, in a few clear groups.
+    const openMenu = async () => { if (mobile && !(await page.locator('nav[aria-label="DM"]').isVisible())) await page.getByRole('button', { name: 'Menu' }).click(); };
+    await go(page, '');
+    await openMenu();
+    const nav = page.locator('nav[aria-label="DM"]');
+    const groupNames = await nav.locator('.nav-group:not(.pinned) .nav-label').evaluateAll((e) => e.map((x) => x.textContent));
+    check(JSON.stringify(groupNames) === JSON.stringify(['Run the session', 'Players', 'World', 'Prep & tools', 'Setup']), `${label} menu: groups are ${groupNames.join(', ')}`);
+    check((await nav.locator('.nav-group[data-group=run] .nav-head').getAttribute('aria-expanded')) === 'true', `${label} menu: Run the session should start open`);
+    // Fold everything away, then open each group in turn: the badge shows while it is folded.
+    for (const g of ['run', 'players', 'world', 'prep', 'setup']) {
+      const head = nav.locator(`.nav-group[data-group=${g}] .nav-head`);
+      if ((await head.getAttribute('aria-expanded')) === 'true') await head.click();
+    }
+    check((await nav.locator('.nav-group a.nav-link').count()) === 0, `${label} menu: folded groups still list pages`);
+    const badge = nav.getByTestId('group-badge-players');
+    check(await badge.isVisible() && Number(await badge.innerText()) >= 1, `${label} menu: a folded Players group should show the inbox badge`);
+    check(/waiting/.test((await nav.locator('.nav-group[data-group=players] .nav-head').getAttribute('aria-label')) ?? ''), `${label} menu: the folded group header does not say something is waiting`);
+    for (const g of ['run', 'players', 'world', 'prep', 'setup']) await nav.locator(`.nav-group[data-group=${g}] .nav-head`).click();
+    check(!(await badge.count()), `${label} menu: the badge should move to the page once the group is open`);
+    const links = await nav.locator('.nav-group:not(.pinned) a.nav-link').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
     const dmLinks = links.filter((h) => h?.includes('/dm')).map((h) => h.replace(/\/$/, ''));
-    check(new Set(dmLinks).size === dmLinks.length, 'menu: a link appears twice: ' + dmLinks.filter((h, i) => dmLinks.indexOf(h) !== i).join(', '));
-    for (const r of ROUTES) check(dmLinks.includes(`/w/saltreach/dm${r ? '/' + r : ''}`), `menu: no link to /dm/${r}`);
-    const groups = await page.locator('nav[aria-label="DM"] .nav-label').allInnerTexts();
-    check(['At the table', 'The world', 'Tools', 'Setup'].every((g) => groups.map((x) => x.toLowerCase()).includes(g.toLowerCase())), `menu: groups are ${groups.join(', ')}`);
+    check(new Set(dmLinks).size === dmLinks.length, `${label} menu: a link appears twice: ` + dmLinks.filter((h, i) => dmLinks.indexOf(h) !== i).join(', '));
+    for (const r of ROUTES.filter((x) => !(x in REDIRECTS))) check(dmLinks.includes(`/w/saltreach/dm${r ? '/' + r : ''}`), `${label} menu: no link to /dm/${r}`);
     note(`${label}: ${ROUTES.length} screens, ${dmLinks.length} menu links`);
+    // Old paths still work.
+    for (const [old, now] of Object.entries(REDIRECTS)) {
+      await go(page, old);
+      check(page.url().endsWith(`/dm/${now}`), `${label}: /dm/${old} should redirect to /dm/${now}, is ${page.url()}`);
+    }
+    // The filter finds a page by what it does, not just by its name.
+    await go(page, 'combat');
+    await openMenu();
+    const find = page.getByTestId('menu-find');
+    await find.fill('rsvp');
+    const hit = page.getByTestId('menu-results').locator('a.nav-link');
+    check((await hit.count()) === 1 && (await hit.first().getAttribute('href'))?.endsWith('/dm/calendar'), `${label}: filtering "rsvp" should find only Game nights (by its description)`);
+    await find.fill('price tiers');
+    check((await hit.first().getAttribute('href').catch(() => ''))?.endsWith('/dm/broker'), `${label}: filtering "price tiers" should find the Broker`);
+    await find.fill('zzzzqq');
+    check((await hit.count()) === 0 && (await page.getByTestId('menu-results').innerText()).includes('No page matches'), `${label}: a filter with no match should say so`);
+    await find.fill('micro');
+    await find.press('Enter');
+    await page.waitForURL(/\/dm\/audio$/, { timeout: 5000 }).catch(() => problems.push(`${label}: Enter in the filter did not open the first match`));
+    // "/" focuses the filter unless typing; Ctrl+K is left to the assistant.
+    await page.locator('main').click({ position: { x: 5, y: 5 } }).catch(() => {});
+    await page.keyboard.press('/');
+    await page.waitForTimeout(200);
+    check(await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'menu-find'), `${label}: "/" should focus the page filter`);
+    // Pinning: starred pages show at the top and are still there after a reload.
+    await go(page, '');
+    await openMenu();
+    await nav.getByRole('button', { name: 'Pin Combat' }).click();
+    await nav.getByRole('button', { name: 'Pin Map' }).click();
+    check((await nav.locator('.nav-group.pinned a.nav-link').allInnerTexts()).map((t) => t.trim().split('\n')[0]).join(',') === 'Combat,Map', `${label} menu: the Pinned group should list Combat and Map`);
+    await page.reload(); await page.locator('main').waitFor(); await openMenu();
+    check((await nav.locator('.nav-group.pinned a.nav-link').count()) === 2, `${label} menu: pinned pages did not survive a reload`);
+    await nav.getByRole('button', { name: 'Unpin Map' }).first().click();
+    check((await nav.locator('.nav-group.pinned a.nav-link').count()) === 1, `${label} menu: Unpin did not remove the page`);
+    // At most eight.
+    for (const n of ['Quick events', 'Scenes', 'Stage', 'Sound', 'Clock', 'Active mode', 'Party', 'Broker']) await nav.getByRole('button', { name: `Pin ${n}` }).first().click({ timeout: 2000 }).catch(() => {});
+    check((await nav.locator('.nav-group.pinned a.nav-link').count()) === 8, `${label} menu: pins should stop at 8 (${await nav.locator('.nav-group.pinned a.nav-link').count()})`);
+    // The menu fits the screen: on a laptop it scrolls inside itself, never sideways.
+    check(await nav.evaluate((n) => n.scrollWidth <= n.clientWidth + 1), `${label} menu: scrolls sideways`);
     await ctx.close();
   }
 

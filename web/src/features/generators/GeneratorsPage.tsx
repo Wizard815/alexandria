@@ -81,7 +81,7 @@ export default function GeneratorsPage() {
 
   return (
     <div className="page wide gen">
-      <PageHead title="Generators" lead="NPCs, monsters, maps, taverns and names, made to fit this world. They work without a model; nothing reaches the players until you save it at party level or send it to the table.">
+      <PageHead title="Generators" lead="NPCs, monsters, maps, taverns and names that fit this world. Nothing reaches players until you save or send it.">
         {e && <button type="button" className="btn small ghost" onClick={() => go(cat)}>All {CATS.find(([k]) => k === cat)?.[1]}</button>}
       </PageHead>
       <Tabs value={cat} onChange={(c) => go(c)} label="Generator categories" items={CATS.map(([k, t]) => [k, t])} />

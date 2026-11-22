@@ -40,10 +40,10 @@ export default function ConnectAI() {
   return (
     <div className={w ? 'page' : 'stack loose'}>
       <PageHead
-        title={w ? 'Connect an AI' : 'Keys & AI'}
+        title={w ? 'Connect AI' : 'Keys & AI'}
         lead={w
           ? isDM
-            ? 'Give an AI app access to this world through MCP. A read key only looks things up. A write key can also change things as the DM: save pages, add people, schedule sessions, send quick events.'
+            ? 'Give an AI app access to this world through MCP. A read key only looks things up; a write key can also change things as the DM.'
             : 'Give an AI app access to this world through MCP. Your key is read-only: it sees only what you can see and cannot change anything. One was made for you when you joined; make another for each app.'
           : 'Admin keys work with the admin API (accounts, worlds, sources). For a world’s AI connection, open the world and use “Connect an AI”.'}
       />
