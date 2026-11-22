@@ -84,7 +84,7 @@ export default function RemoteTab() {
       )}
 
       <section className="c" aria-label="Sound pads">
-        <h3>Sound pads</h3>
+        <h3>Sound</h3>
         {pads.data?.length ? <div className="grid g3">{pads.data.map((p) => <button key={p.id} type="button" className="b" style={{ minHeight: 64 }} disabled={act.busy} onClick={() => void go(`Played ${p.label}`, () => w.call('POST', '/sound/sfx/play', p.sfx ? { id: p.id } : { padId: p.id }))}>{p.label}</button>)}</div>
           : <div className="empty">No sound effects yet. Add pads on the desktop sound board.</div>}
         <button type="button" className="b danger big full" disabled={act.busy} onClick={() => void go('Stopped all', async () => { await Promise.all([w.call('POST', '/sound/music/stop', {}), w.call('POST', '/sound/ambience/stop', {})]); })}><i className="fa-solid fa-stop" aria-hidden="true" /> Stop all sound</button>
@@ -111,7 +111,7 @@ export default function RemoteTab() {
       )}
 
       <section className="c" aria-label="Time">
-        <h3>Rests and days</h3>
+        <h3>Clock</h3>
         <div className="grid g3">
           {([['short-rest', 'Short rest'], ['long-rest', 'Long rest'], ['next-day', 'Next day']] as const).map(([p, l]) => (
             <button key={p} type="button" className="b big" style={{ fontSize: 16 }} disabled={act.busy} onClick={() => void go(l, async () => { await w.call('POST', '/clock/advance', { preset: p, reason: 'From the phone' }); })}>{l}</button>
@@ -131,7 +131,7 @@ export default function RemoteTab() {
       </section>
 
       <section className="c" aria-label="Show on stage">
-        <h3>Show on stage</h3>
+        <h3>Stage</h3>
         {cards.length ? (
           <div className="grid">{cards.map((c) => (
             <button key={c.id} type="button" className={`b${c.shownAt ? ' on' : ''}`} style={{ justifyContent: 'space-between' }} disabled={act.busy}

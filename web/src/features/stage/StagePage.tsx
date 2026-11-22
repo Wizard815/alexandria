@@ -175,7 +175,7 @@ export default function StagePage() {
   return (
     <div className="page">
       <style>{LIB_CSS + CSS}</style>
-      <PageHead title="Stage" lead="Prepare cards on the left, show them to the table on the right. Players only ever see what is on the board.">
+      <PageHead title="Stage" lead="Prepare cards on the left, show them on the right. Players see only the board.">
         <SculptPicker label="New card from template" entries={[{ key: 'handout', label: 'Letter or handout' }, { key: 'weather', label: 'Weather' }, { key: 'travel-event', label: 'Travel event' }, { key: 'puzzle', label: 'Puzzle or riddle' }, { key: 'rumours', label: 'Rumours' }]} preset={{ stage: true, page: false }} />
         <div className="row" role="group" aria-label="Layout" style={{ gap: 6 }}>
           {(['spotlight', 'grid', 'free'] as const).map((l) => <button key={l} type="button" className={`btn small${v?.layout === l ? ' on' : ''}`} aria-pressed={v?.layout === l} disabled={act.busy} onClick={() => void setLayout(l)}>{l[0].toUpperCase() + l.slice(1)}</button>)}

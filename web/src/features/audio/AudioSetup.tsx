@@ -94,7 +94,7 @@ export default function AudioSetup() {
 
   return (
     <div className="page">
-      <PageHead title="Audio setup" lead="Choose the microphones for this computer. Players join with their own phone or laptop. Hold keys work while this tab is open and focused." />
+      <PageHead title="Microphones" lead="Choose this computer’s mics. Hold keys work while this tab is focused." />
       <ErrorBox error={error ?? status.error ?? devError} />
 
       <section className="card gold">

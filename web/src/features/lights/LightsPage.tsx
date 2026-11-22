@@ -14,7 +14,7 @@ export default function LightsPage() {
   const [tab, setTab] = useState<'drivers' | 'groups' | 'scenes' | 'hooks'>('drivers');
   return (
     <div className="stack loose">
-      <PageHead title="Lights" lead="Lights on your network that follow the game. Everything is off until you turn it on, and a light that is down never slows the game." />
+      <PageHead title="Lights" lead="Lights that follow the game. All off until you turn them on." />
       <Tabs label="Lights" value={tab} onChange={setTab} items={[['drivers', 'Drivers'], ['groups', 'Groups'], ['scenes', 'Scenes'], ['hooks', 'Event hooks']]} />
       {tab === 'drivers' && <Drivers />}
       {tab === 'groups' && <Groups />}

@@ -10,7 +10,7 @@ export default function ActivePage() {
   const [tab, setTab] = useState<'settings' | 'log' | 'rules'>('settings');
   return (
     <div className="page wide stack loose">
-      <PageHead title="Active mode" lead="Assistant mode: I act only when you ask. Active mode: while a session records I listen to the table and act on what I hear. Players just see the table change." />
+      <PageHead title="Active mode" lead="Assistant mode acts when you ask. Active mode listens while a session records and acts on what it hears." />
       <Tabs label="Active mode" value={tab} onChange={setTab} items={[['settings', 'Settings'], ['log', 'Log'], ['rules', 'Never again']]} />
       {tab === 'settings' && <Settings />}
       {tab === 'log' && <Log />}

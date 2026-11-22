@@ -22,7 +22,7 @@ export default function DMPeople() {
 
   return (
     <div className="page wide">
-      <PageHead title="People" lead="Everyone the party has met. Hidden people and DM-only quotes never reach players.">
+      <PageHead title="People" lead="Everyone the party has met. Hidden ones stay DM-only.">
         <button type="button" className="btn primary" onClick={() => { setAdding(true); setSel(null); }}>＋ Add a person</button>
       </PageHead>
       <ErrorBox error={people.error} />

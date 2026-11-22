@@ -86,7 +86,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
     const c = await w.call<Check>('POST', '/sculpt/check', { templateId: tpl.id, values, context });
     if (!c.ok) throw new Error('Blocked: the text repeats DM-only notes.');
     const presets = await w.call<any[]>('GET', '/voice/presets');
-    if (!presets.length) throw new Error('No voice yet. Add one in World settings → Voice.');
+    if (!presets.length) throw new Error('No voice yet. Add one in Settings → Voice.');
     await w.call('POST', '/voice/speak', { text: c.text.slice(0, 2000), presetId: presets[0].id });
     toast('Reading aloud');
   });

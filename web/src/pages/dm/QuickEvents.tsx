@@ -14,7 +14,7 @@ export default function DMQuickEvents() {
   const past = (events.data ?? []).filter((e) => e.status !== 'open');
   return (
     <div className="page wide">
-      <PageHead title="Quick events" lead="A prompt pops up on the chosen players' screens with a timer. Their answers show here as they arrive." />
+      <PageHead title="Quick events" lead="Timed prompts on players' screens; answers appear here." />
       <ErrorBox error={events.error} />
       <div className="cols">
         <section className="col-1" style={{ maxWidth: 480 }}><Compose /></section>
