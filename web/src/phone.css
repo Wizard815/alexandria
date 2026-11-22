@@ -61,15 +61,25 @@
   /* ---- controls: 44px targets, 16px inputs ---- */
   .player .btn, .player .btn.small { min-height: 44px; padding: 0 14px; font-size: 15px; }
   .player .btn.ghost { min-width: 44px; }
+  /* Anything tappable is at least 44px each way (inline links in a sentence stay as they are). */
+  .player button:not(.pin-btn):not(.switch), .player [role=button], .player [role=tab], .player summary, .player select { min-height: 44px; min-width: 44px; }
+  .player a.brand, .player a.small, .player a.row, .player a.chip, .player a.nav-link, .player a.list-item, .player a.btn { display: inline-flex; align-items: center; min-height: 44px; }
+  .player a.row { display: flex; }
+  .player a.small, .player .inline-tap { min-width: 44px; justify-content: center; }
+  .player .inline-tap { display: inline-flex; align-items: center; min-height: 44px; }
+  .player summary, .player select, .player input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]) { min-height: 44px !important; }
+  /* Words in a sentence that open something: a bigger hit area that does not move the line. */
+  .player .ic-trigger { padding: 11px 2px; margin: -11px -2px; }
+  .player .input, .player input, .player select, .player textarea { font-size: 16px !important; }
   .player .icon-btn { width: 44px; height: 44px; }
   .player .input, .player .field input, .player .field select, .player .field textarea,
   .player input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), .player select, .player textarea { font-size: 16px; min-height: 44px; }
   .player textarea { min-height: 88px; }
   .player input[type=checkbox], .player input[type=radio] { width: 22px; height: 22px; margin: 11px; flex: 0 0 auto; }
   .player label:has(> input[type=checkbox]), .player label:has(> input[type=radio]) { min-height: 44px; display: flex; align-items: center; gap: 4px; }
-  .player .switch { width: 52px; height: 32px; }
-  .player .switch::after { width: 24px; height: 24px; }
-  .player .switch[aria-checked='true']::after { left: 23px; }
+  .player .switch { width: 60px; height: 44px; min-width: 60px; }
+  .player .switch::after { top: 7px; left: 5px; width: 30px; height: 30px; }
+  .player .switch[aria-checked='true']::after { left: 25px; }
   .player .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; margin-inline: -14px; padding-inline: 14px; }
   .player .tabs .btn { flex: 0 0 auto; }
   .player .list-item, .player button.list-item, .player a.list-item { min-height: 48px; padding: 8px 14px; }
@@ -104,3 +114,10 @@
   :root { --nav-h: 48px; }
   .bottomnav a, .bottomnav button { flex-direction: row; justify-content: center; gap: 6px; }
 }
+
+/* Your own HP and conditions, big, at the top of the fight. */
+.cb-me { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 12px 14px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-strong); }
+.cb-me strong { font-size: 20px; }
+.cb-hp { font-size: 22px; font-weight: 700; color: var(--accent-strong); }
+.cb-cond { flex: 1 1 100%; font-size: 16px; color: var(--danger-text); }
+@media (max-width: 760px) { .player input[type=color] { width: 56px; height: 44px; min-height: 44px; padding: 2px; } }
