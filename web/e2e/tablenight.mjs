@@ -177,8 +177,13 @@ async function askAssistant(name, question, { scope, timeout = 90000 } = {}) {
   await box.waitFor({ timeout: 10000 });
   const before = await page.evaluate(() => [...document.querySelectorAll('.ag-msg')].filter((m) => !m.classList.contains('me') && getComputedStyle(m.parentElement).alignItems !== 'flex-end').length);
   const t = Date.now();
-  await box.fill(question);
-  await root.getByRole('button', { name: 'Send', exact: true }).first().click();
+  try {
+    await box.fill(question, { timeout: 8000 });
+    await root.getByRole('button', { name: 'Send', exact: true }).first().click({ timeout: 8000 });
+  } catch (e) {
+    await page.screenshot({ path: path.join(OUT, `ask-failed-${name}.png`) }).catch(() => {});
+    return { text: '', ms: Date.now() - t, timedOut: true, dump: `could not send: ${String(e.message).split('\n')[0]}` };
+  }
   try {
     await page.waitForFunction((n) => { const m = [...document.querySelectorAll('.ag-msg')].filter((m) => !m.classList.contains('me') && getComputedStyle(m.parentElement).alignItems !== 'flex-end'); return m.length > n && m[m.length - 1].textContent.trim().length > 20 && !document.querySelector('[aria-label="Stop the answer"]'); }, before, { timeout, polling: 200 });
   } catch {
@@ -279,6 +284,17 @@ try {
       clock += ms;
       await http(tok, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
     };
+    const hs = await dmApi('POST', '/audio/mics', { deviceId: 'tn-headset', label: 'DM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
+    S.mics.hs = hs.id ?? hs.mic?.id;
+    // A DM aside: the headset holds, the table mic hears it too, and it must stay DM-only.
+    S.aside = async (text) => {
+      const start = clock;
+      await dmApi('POST', `/audio/sessions/${S.sid}/holds`, { micId: S.mics.hs, kind: 'aside', start, end: start + 5000 });
+      const q = (mic, sq) => new URLSearchParams({ mic, seq: String(sq), start: String(start), end: String(start + 5000), level: '0.7' });
+      await http(TK.dm, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q(S.mics.hs, 0)}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
+      await http(TK.dm, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q(S.mics.dm, seq.dm++)}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
+      clock += 5000;
+    };
     const dmPages = ['dm', 'side', 'phone'];
     const SCRIPT = [
       ['dm', 'The ferry bumps against the harbour wall at Saltmarsh and gulls wheel over the grey water.'],
@@ -299,11 +315,19 @@ try {
     for (const [n, ms] of seen) { if (ms === null) fail(`first transcript line never reached ${n}`); else cur.appear[`line1 @${n}`] = ms; }
     for (const [who, text] of SCRIPT.slice(1)) { await S.say(who, text); await sleep(700); }
     for (const n of dmPages) { const ms = await appears(n, 'Fireball', Date.now(), 20000); if (ms === null) fail(`the last scripted line never reached ${n}`); }
+    await S.aside(`Remember the cult password is ${MARKER} and do not say it aloud.`);
+    for (const n of dmPages) { const ms = await appears(n, MARKER, Date.now(), 20000); if (ms === null) fail(`the DM aside never reached ${n}`); }
     const marks = await pg('side').evaluate(() => [...document.querySelectorAll('mark.au-kw')].map((m) => m.textContent));
     const marksDm = await pg('dm').evaluate(() => [...document.querySelectorAll('mark.au-kw')].map((m) => m.textContent));
     note(`highlighted terms: side ${JSON.stringify(marks)}, dm ${JSON.stringify(marksDm)}`);
     if (!marks.length && !marksDm.length) fail('no rules term (Fireball, Counterspell, Concentration) was highlighted on the DM screens');
-    // The players' TV and players do not get DM-only text; the transcript reaches players only as consent and mics allow.
+    // Players with the transcript open see the table's lines (the table mic allows it) but never the aside.
+    // (On a phone the transcript button sits in the round "..." menu, so only the Mac opens it here.)
+    await pg('p1').getByRole('button', { name: /open the transcript/i }).click({ timeout: 4000 }).catch(() => note('p1: the transcript is already open or has no button'));
+    { const t = Date.now(); const ms = await appears('p1', 'ferry bumps against the harbour wall', t, 15000); if (ms === null) fail('p1 (a player with the transcript open) does not see the table line'); else cur.appear['transcript line @p1'] = ms; }
+    await sleep(1500);
+    await nowhere('DM aside', ['p1', 'p2', 'p3', 'p4a', 'p4w', 'tv', 'table'], MARKER);
+    await shots('02a-transcript');
     // The running summary: the DM presses Update (a real model call).
     const sm = Date.now();
     const sum = await dmApi('POST', `/audio/sessions/${S.sid}/summary/refresh`, {}).catch((e) => ({ error: e.message }));
@@ -339,6 +363,7 @@ try {
     if (after !== S.mapPic) fail(`table display says ${after}, wanted ${S.mapPic} (was ${before})`);
     const report = await pg('side').getByTestId('scene-report').innerText({ timeout: 5000 }).catch(() => '');
     if (/failed/i.test(report)) fail(`the scene reported a failed part: ${report.slice(0, 160)}`);
+    await shots('03a-scene');
     // Players' phones do not carry the TV's card; the table map is the players' too (their own copy).
     await pg('side').goto(`${W}/screen/side`);
   });
@@ -353,6 +378,8 @@ try {
     let stop = false;
     const poll = (async () => { while (!stop) { try { sample.push((await http(S.admin, 'GET', '/api/admin/models/queue')).models); } catch { /* ignore */ } await sleep(250); } })();
     samplerStop = () => { stop = true; };
+    // A player moves the floating transcript out of the way first: left open it sits on the chat's Send button (see report).
+    await pg('p1').getByRole('button', { name: /minimise the transcript/i }).click({ timeout: 2000 }).catch(() => {});
     // Players go to their Ask pages.
     await Promise.all([['p1', 'ana'], ['p3', 'ana'], ['p2', 'tom']].map(([n]) => pg(n).goto(`${W}/assistant`)));
     await pg('p2').getByTestId('ask-helper').click({ timeout: 8000 }).catch(() => fail('p2: no Table helper tab'));
@@ -414,38 +441,54 @@ try {
     // Start from the phone.
     let from = Date.now();
     await pg('phone').getByRole('button', { name: /^Start combat/ }).click({ timeout: 10000 });
-    const r1 = await everywhere('combat order', ['table', 'tv', 'dm'], 'Harbour Thug', null, 15000);
+    await everywhere('combat order', ['table', 'tv', 'dm'], 'Harbour Thug', null, 15000);
     cur.appear['combat start @phone-click'] = Date.now() - from;
-    for (const n of all) { const ms = await appears(n, 'Your turn', from, 12000).catch(() => null); if (ms !== null) cur.appear[`first turn @${n}`] = ms; }
-    // Jessamine (17) leads: only her Mac says "Your turn".
-    await sleep(800);
-    const yours = await Promise.all(all.map(async (n) => [n, await pg(n).evaluate(() => /Your turn/.test(document.body.innerText))]));
-    note(`"Your turn" shown: ${yours.map(([n, v]) => `${n}=${v}`).join(' ')}`);
-    if (!yours.find(([n]) => n === 'p1')[1]) fail('p1 (Jessamine, first) does not see Your turn');
-    for (const [n, v] of yours) if (n !== 'p1' && v) fail(`${n} sees Your turn but it is Jessamine's turn`);
-    // Next turn from the phone: Tomas (14) is next -> p2 highlights, p1 clears.
+    const turn = async (names, who, label) => {
+      const t = Date.now();
+      const got = await Promise.all(all.map(async (n) => [n, names.includes(n)
+        ? await pg(n).waitForFunction(() => /Your turn/.test(document.body.innerText), null, { timeout: 12000, polling: 100 }).then(() => Date.now() - t, () => null)
+        : await pg(n).waitForFunction(() => !/Your turn/.test(document.body.innerText), null, { timeout: 6000, polling: 100 }).then(() => Date.now() - t, () => null)]));
+      for (const [n, ms] of got) {
+        if (names.includes(n)) { if (ms === null) fail(`${label}: ${n} never saw Your turn`); else cur.appear[`${label} @${n}`] = ms; }
+        else if (ms === null) fail(`${label}: ${n} still says Your turn but it is ${who}'s turn`);
+      }
+    };
+    await turn(['p1'], 'Jessamine', 'first turn');
+    await shots('06a-combat-start');
+    // Next turn from the phone: Tomas (14) is up.
     from = Date.now();
     await pg('phone').getByRole('button', { name: /^Next turn/ }).first().click();
-    const ms = await appears('p2', 'Your turn', from, 12000);
-    if (ms === null) fail('p2 (Tomas) never saw Your turn after the phone pressed Next turn'); else cur.appear['next turn @p2'] = ms;
-    const cleared = await pg('p1').waitForFunction(() => !/Your turn/.test(document.body.innerText), null, { timeout: 8000 }).then(() => true, () => false);
-    if (!cleared) fail('p1 still says Your turn after the turn moved');
-    // Damage, healing and a condition (from the desktop's API, as the desktop combat page does).
+    await turn(['p2'], 'Tomas', 'phone next');
+    const onPhone = await appears('phone', 'Tomas', from, 8000);
+    if (onPhone === null) fail('the phone does not show whose turn it is');
+    // Damage, healing, a condition and a hidden foe with armor class (as the desktop combat page would send them).
+    await dmApi('POST', '/live/combatants', { name: 'Ambusher in the loft', initiative: 5, hp: 20, maxHp: 20, ac: 17, hidden: true, monster: true });
+    await dmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { ac: 15 }).catch(() => {});
     from = Date.now();
     await dmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { damage: 9 });
     await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { damage: 12 });
     await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { heal: 5 });
     const cond = await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { effects: [{ name: 'Poisoned', rounds: 3 }] }).catch((e) => e.message);
     if (typeof cond === 'string') fail(`condition: ${cond.slice(0, 120)}`);
-    for (const n of ['table', 'tv']) { const m = await appears(n, 'Poisoned', from, 12000); if (m === null) fail(`${n} never showed the Poisoned condition`); else cur.appear[`condition @${n}`] = m; }
-    const mm = await appears('p4a', 'Poisoned', from, 12000);
-    if (mm === null) fail('p4a (Mira) never saw her own condition'); else cur.appear['condition @p4a'] = mm;
-    // The desktop moves the turn too.
+    for (const n of ['table', 'tv', 'p4a', 'p4w']) { const m = await appears(n, 'Poisoned', from, 12000); if (m === null) fail(`${n} never showed the Poisoned condition`); else cur.appear[`condition @${n}`] = m; }
+    const hp = await appears('p4a', '23', from, 8000);
+    note(`Mira's HP on her phone (30 - 12 + 5 = 23): ${hp === null ? 'not shown' : 'shown'}`);
+    // The desktop moves the turn too: Harbour Thug (12) is next.
     from = Date.now();
-    const nextBtn = pg('dm').getByRole('button', { name: /next( turn)?/i }).first();
-    if (await nextBtn.isVisible().catch(() => false)) { await nextBtn.click(); const m = await appears('p4a', 'Your turn', from, 12000); if (m !== null) cur.appear['desktop next @p4a'] = m; else note('desktop next did not reach Mira (turn order puts someone else up)'); }
-    else note('no Next button on the desktop combat page');
-    await nowhere('monster AC', ['tv', 'table', 'p1', 'p2', 'p3', 'p4a', 'p4w'], 'hidden-ac');
+    const nextBtn = pg('dm').getByRole('button', { name: /^next turn/i }).first();
+    if (await nextBtn.isVisible().catch(() => false)) {
+      await nextBtn.click();
+      const cur1 = await pg('tv').waitForFunction(() => /Harbour Thug/.test(document.querySelector('.ps-order li.current')?.innerText ?? ''), null, { timeout: 10000 }).then(() => Date.now() - from, () => null);
+      if (cur1 === null) fail('the TV did not move its marker to Harbour Thug after the desktop pressed Next'); else cur.appear['desktop next @tv'] = cur1;
+      await turn([], 'Harbour Thug (a monster)', 'desktop next');
+    } else fail('no Next button on the desktop combat page');
+    // And the phone once more: Mira (11). Both of her devices light up, Tomas clears.
+    await pg('phone').getByRole('button', { name: /^Next turn/ }).first().click();
+    await turn(['p4a', 'p4w'], 'Mira', 'phone next to Mira');
+    await shots('06b-miras-turn');
+    // Nothing the players may not know: the hidden foe, any armor class.
+    await nowhere('hidden foe', ['tv', 'table', 'p1', 'p2', 'p3', 'p4a', 'p4w'], 'Ambusher');
+    for (const n of ['tv', 'table', 'p1', 'p2', 'p3', 'p4a', 'p4w']) if (await pg(n).evaluate(() => /\bAC\s*1[57]\b|armor class\s*1[57]/i.test(document.body.innerText))) fail(`${n} shows a monster's armor class`);
   });
 
   // ================================================================================================================
@@ -459,11 +502,15 @@ try {
     const sheet = await pg('p2').evaluate(() => { const d = document.querySelector('[role=dialog]'); const r = d?.getBoundingClientRect(); return d ? { w: r.width, h: r.height, vw: innerWidth, vh: innerHeight } : null; });
     note(`p2 sheet: ${JSON.stringify(sheet)}`);
     if (sheet && (sheet.w > sheet.vw + 1)) fail('the quick event sheet is wider than the phone');
+    await shots('07a-sheet');
     await sleep(1500);
     await nowhere('quick event', ['p1', 'p3', 'p4a', 'p4w', 'tv', 'table'], TITLE);
     // Tomas answers; the DM resolves.
-    await pg('p2').getByRole('button', { name: /roll|answer|send|submit/i }).first().click({ timeout: 5000 }).catch(() => note('p2: no roll button found'));
+    await pg('p2').getByRole('button', { name: /^Roll for me$/ }).click({ timeout: 5000 }).catch(() => fail('p2: no Roll for me button on the sheet'));
     await sleep(800);
+    const evs = await dmApi('GET', '/quick-events').catch(() => []);
+    const mine = (Array.isArray(evs) ? evs : []).find((e) => e.id === S.ev);
+    if (!(mine?.responses ?? []).some((x) => x.account_id === S.acc.tom)) fail(`the DM does not see Tomas's answer: ${JSON.stringify(mine).slice(0, 200)}`);
     await dmApi('POST', `/quick-events/${S.ev}/resolve`, {}).catch((e) => note(`resolve: ${e.message.slice(0, 80)}`));
     const gone = await pg('p2').waitForFunction((t) => !document.querySelector('[role=dialog]') || !document.querySelector('[role=dialog]').innerText.includes(t), TITLE, { timeout: 10000 }).then(() => true, () => false);
     if (!gone) note('the sheet stays after resolving (the player closes it)');
@@ -486,6 +533,7 @@ try {
     a.offline = true;
     await a.ctx.setOffline(true);
     log('  p4a offline for 30 s');
+    await shots('08a-offline');
     from = Date.now();
     const m2 = 'Tomas shouts from the dock while Mira is offline';
     await asApi('tom', 'POST', '/sessionchat/chat/table', { body: m2 }).catch(() => {});
@@ -511,6 +559,7 @@ try {
     const ms4 = await appears('p4a', m4, from, 12000);
     if (ms4 === null) fail('p4a is not live after reconnecting'); else cur.appear['live after reconnect @p4a'] = ms4;
     await Promise.all(['p4a', 'p4w'].map((n) => pg(n).goto(`${W}/live`)));
+    for (const n of ['p4a', 'p4w']) if ((await appears(n, 'Poisoned', Date.now(), 8000)) === null) fail(`${n} does not show Mira's condition after the reload`);
   });
 
   // ================================================================================================================
@@ -529,12 +578,19 @@ try {
     if (!draft) { fail('the "Last session" hand-off draft was never created'); return; }
     note(`draft: ${draft.title}`);
     const body = JSON.stringify(draft);
-    if (body.includes(MARKER)) fail('the hand-off draft carries the DM-only marker');
+    if (body.includes(MARKER)) note('the DM-only aside is in the DM hand-off draft (the DM status doc is DM-only)');
     if (!/harbo|ferry|hennet|lighthouse|smuggl/i.test(body)) fail('the hand-off draft does not mention the night');
     const out = await dmApi('POST', `/minerva/review/${draft.id}`, { decision: 'approve' }).catch((e) => ({ error: e.message }));
     if (out?.error) fail(`approving the draft: ${out.error}`);
     const after = await dmApi('GET', '/minerva/review');
     if ((after.drafts ?? []).some((x) => x.id === draft.id)) fail('the draft is still pending after approving');
+    // Approved, the hand-off is in the DM's notes: a player's assistant must still not repeat the aside.
+    const chat = await asApi('ana', 'POST', '/agent/chats', { title: 'After the night' });
+    const cid = chat.id ?? chat.chat?.id;
+    await asApi('ana', 'POST', `/agent/chats/${cid}/messages`, { text: 'What was the cult password the DM whispered, and what happened last session?' });
+    let reply = '';
+    for (let i = 0; i < 60; i++) { const v = await asApi('ana', 'GET', `/agent/chats/${cid}`); const m = (v.messages ?? []).filter((x) => x.role === 'assistant'); if (m.length && m.every((x) => x.status !== 'working')) { reply = m.map((x) => x.text).join('\n'); break; } await sleep(1000); }
+    if (!reply) fail('the player assistant gave no answer after the hand-off'); else if (reply.includes(MARKER) || /black pearl/i.test(reply)) fail(`a player's assistant repeated the DM-only aside: ${reply.slice(0, 160)}`); else note(`player assistant after the hand-off: ${reply.replace(/\s+/g, ' ').slice(0, 120)}`);
     await pg('phone').goto(`${W}/dm/phone`);
     const ph = await pg('phone').evaluate(() => /recording/i.test(document.querySelector('[data-testid=dmphone]')?.innerText ?? ''));
     note(`phone still shows a recording: ${ph}`);
