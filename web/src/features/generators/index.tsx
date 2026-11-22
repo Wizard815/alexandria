@@ -4,6 +4,6 @@ import GeneratorsPage from './GeneratorsPage.tsx';
 const feature: WebFeature = {
   id: 'generators',
   dmRoutes: [{ path: 'generators', element: <GeneratorsPage /> }],
-  dmNav: [{ group: 'Tools', to: 'generators', label: '✦ Generators' }],
+  dmNav: [{ to: 'generators' }],
 };
 export default feature;

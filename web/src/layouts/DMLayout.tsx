@@ -1,20 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
 import * as F from '../features/registry.ts';
-
-// The DM's menu, one place. Every route lives here exactly once; a route a
-// feature adds through dmNav that is not listed falls into the group it asked for.
-const NAV: [string, [string, string][]][] = [
-  ['At the table', [['', '✦ The table'], ['combat', '⚔ Combat'], ['quick', '⚡ Quick events'], ['party', '♟ Party & inventory'], ['approvals', '✓ Approvals'], ['broker', '⚖ Information broker'], ['stage', '▣ Stage'], ['sound', '♪ Sound board'], ['chat', '💬 Session chat'], ['clock', '☾ World clock']]],
-  ['The world', [['library', '❧ Library'], ['people', '☺ People'], ['relations', '⚭ Relations'], ['map', '✧ Map'], ['rules', '❖ Rules'], ['worldlore', '✺ WorldLore'], ['whiteboard', '▤ Whiteboard']]],
-  ['Tools', [['sculpt', '✍ Sculpting'], ['sessionlog', '❡ Session log'], ['requests', '✎ Requests'], ['messages', '✉ Messages'], ['calendar', '▦ Session calendar']]],
-  ['Setup', [['audio', '● Audio setup'], ['settings', '⚙ World settings'], ['connect', '⌁ Connect an AI']]],
-];
-const LISTED = new Set(NAV.flatMap(([, l]) => l.map(([to]) => to)));
-const GROUPS: [string, [string, string][]][] = NAV.map(([label, core]) => [label, [...core, ...F.dmNav.filter((n) => n.group === label && !LISTED.has(n.to)).map((n) => [n.to, n.label] as [string, string])]]);
+import { DMMenu } from './DMMenu.tsx';
 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
@@ -23,6 +13,7 @@ export function DMLayout() {
   const [drawer, setDrawer] = useState(false);
   const loc = useLocation();
   useEffect(() => setDrawer(false), [loc.pathname]);
+  const openDrawer = useCallback(() => setDrawer(true), []);
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isDM) return <Navigate to={`/w/${info.slug}`} replace />;
@@ -39,16 +30,7 @@ export function DMLayout() {
       {drawer && <div className="drawer-backdrop" onClick={() => setDrawer(false)} />}
       <nav className={`side${drawer ? ' open' : ''}`} aria-label="DM">
         <div className="stack tight"><span className="brand">Alexandria</span><span className="sub">Dungeon Master · {info.name}</span></div>
-        {GROUPS.map(([label, links]) => (
-          <div className="nav-group" key={label}>
-            <span className="nav-label">{label}</span>
-            {links.map(([to, text]) => (
-              <NavLink key={to} to={`/w/${info.slug}/dm/${to}`} end={to === ''} className="nav-link">
-                {text}{to === 'requests' && open > 0 && <span className="count">{open}</span>}{to === 'approvals' && pending > 0 && <span className="count">{pending}</span>}
-              </NavLink>
-            ))}
-          </div>
-        ))}
+        <DMMenu base={`/w/${info.slug}/dm`} badges={{ inbox: open + pending }} openDrawer={openDrawer} />
         <div className="side-foot">
           <span className="tiny faint"><span className={`live-dot${connected ? '' : ' off'}`} /> {connected ? 'Live' : 'Reconnecting…'}</span>
           <NavLink to="/" className="nav-link">← Your worlds</NavLink>

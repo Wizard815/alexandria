@@ -8,7 +8,7 @@ import ModeBadge from './ModeBadge.tsx';
 const feature: WebFeature = {
   id: 'active',
   dmRoutes: [{ path: 'active', element: <ActivePage /> }],
-  dmNav: [{ group: 'At the table', to: 'active', label: '◉ Active mode' }],
+  dmNav: [{ to: 'active' }],
   overlay: ActiveOverlay,
   topbar: ModeBadge,
 };

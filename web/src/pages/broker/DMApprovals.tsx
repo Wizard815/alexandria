@@ -9,7 +9,7 @@ import { type Change, type CoinReq, StatusChip, changeText } from './shared.tsx'
 
 interface Queue { coin: CoinReq[]; items: Change[]; disputes: Change[]; alerts: Change[]; recent: Change[]; counts: { coin: number; items: number; disputes: number } }
 
-export default function DMApprovals() {
+export default function DMApprovals({ embedded = false }: { embedded?: boolean } = {}) {
   const { w, info, nameOf } = useWorld();
   const q = useLoad(() => w.call<Queue>('GET', '/approvals'), [w], ['approval', 'item', 'coin']);
   const act = useAction();
@@ -26,8 +26,8 @@ export default function DMApprovals() {
   const total = d ? d.coin.length + d.items.length + d.disputes.length : 0;
 
   return (
-    <div className="page">
-      <PageHead title="Approvals" lead="Players' coin and item changes wait here for you. Your own changes to their things go through at once, and they can confirm or dispute them." />
+    <div className={embedded ? undefined : 'page'}>
+      {!embedded && <PageHead title="Approvals" lead="Coin and item changes players want, waiting for your yes." />}
       <ErrorBox error={q.error ?? act.error} />
       {!d ? <Loading /> : (
         <>
