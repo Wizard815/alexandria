@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One entry point for building and running Alexandria.
 #
-#   scripts/build.sh image      build the Docker image (alexandria:local)
+#   scripts/build.sh image      build the Docker image
 #   scripts/build.sh up         build if needed and start it (http://localhost:8090)
 #   scripts/build.sh up-nginx   same, but published on 127.0.0.1 only, for nginx in front
 #   scripts/build.sh down       stop it (the data folder is kept)
@@ -14,6 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+export ALX_VERSION="$(tr -d '[:space:]' < VERSION)" ALX_RELEASE="$(tr -d '[:space:]' < RELEASE_NAME)"
 COMPOSE=(docker compose)
 NGINX_OVERRIDE=(-f docker-compose.yml -f deploy/examples/nginx.override.yml)
 
