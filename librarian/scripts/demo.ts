@@ -7,6 +7,7 @@
 //
 // Then open http://127.0.0.1:8400 and sign in with the accounts it prints.
 // The data folder is wiped and refilled on every start.
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -210,9 +211,23 @@ await step('recording and live transcript', async () => {
   const sid = sess.id ?? sess.session?.id;
   audioSession = sid;
   const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01]);
-  const chunk = (text: string) => ({ data: Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), type: 'audio/webm' });
+  // With ffmpeg the chunks are real (a quiet tone per mic, the fake model's words carried in the file's title), so the
+  // recording can be built and played; without it they are the bare stand-ins and the build says ffmpeg is missing.
+  const haveFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
+  const pitch = new Map<string, number>();
+  const chunk = (text: string, mic: any, ms: number) => {
+    if (!haveFfmpeg) return { data: Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), type: 'audio/webm' };
+    const key = String(mic.id ?? mic.mic?.id);
+    if (!pitch.has(key)) pitch.set(key, 220 * (1 + pitch.size * 0.5));
+    const f = path.join(DATA, `.demo-chunk-${pitch.size}-${ms}-${Math.abs([...text].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7))}.webm`);
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${pitch.get(key)}:duration=${ms / 1000}`, '-af', 'volume=0.15', '-c:a', 'libopus', '-b:a', '24k', '-metadata', `title=FAKE:${text} ;;END`, f]);
+    if (r.status !== 0) return { data: Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), type: 'audio/webm' };
+    const data = fs.readFileSync(f);
+    fs.rmSync(f, { force: true });
+    return { data, type: 'audio/webm' };
+  };
   const up = (mic: any, token: string, seq: number, start: number, end: number, level: number, text: string) =>
-    call('POST', `${W}/audio/sessions/${sid}/chunks?mic=${mic.id ?? mic.mic?.id}&seq=${seq}&start=${start}&end=${end}&level=${level}`, token, undefined, chunk(text));
+    call('POST', `${W}/audio/sessions/${sid}/chunks?mic=${mic.id ?? mic.mic?.id}&seq=${seq}&start=${start}&end=${end}&level=${level}`, token, undefined, chunk(text, mic, end - start));
   // The table mic and Tomas's phone both hear Tomas: one merged line.
   await up(table, dm, 0, 0, 5000, 0.4, 'We should ask the harbour council about the lighthouse.');
   await up(tomMic, tom.token, 0, 0, 5000, 0.9, 'We should ask the harbour council about the lighthouse.');
