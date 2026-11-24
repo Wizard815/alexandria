@@ -56,7 +56,11 @@ async function build() {
   await new Promise((r) => server.once('listening', r));
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
   const call = async (method: string, p: string, token: string | null, body?: unknown) => {
-    const r = await fetch(url + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    // A pass of the server that blocks for seconds closes idle sockets: try again on a fresh one.
+    let r!: Response;
+    for (let attempt = 0; ; attempt++) {
+      try { r = await fetch(url + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }); break; } catch (e) { if (attempt >= 3) throw e; await sleep(200); }
+    }
     const text = await r.text();
     let j: any = text;
     try { j = JSON.parse(text); } catch { /* text */ }
@@ -263,10 +267,16 @@ async function bench() {
       const timedOut = !doneNow;
       if (timedOut) doneNow = true;
       await poll;
+      // A job that outlasts the cap is waited for (up to 20 minutes) so the next scenario starts from a quiet server.
+      let totalMs = 0;
+      if (timedOut) {
+        while (performance.now() - t0 < 1_200_000) { try { if (await done()) break; } catch { /* the server is busy */ } await sleep(2000); }
+        totalMs = Math.round(performance.now() - t0);
+      }
       const p = await perf();
-      scenarios[name] = { jobMs: timedOut ? -1 : Math.round(doneAt), timedOut, api: probed.all, calls: probed.lat, errors: probed.errors, loop: p.loop, mem: p.mem, mock: p.mock };
+      scenarios[name] = { jobMs: timedOut ? -1 : Math.round(doneAt), timedOut, totalMs, api: probed.all, calls: probed.lat, errors: probed.errors, loop: p.loop, mem: p.mem, mock: p.mock };
       const a = probed.all;
-      console.log(`  job ${timedOut ? 'NOT FINISHED in ' + Math.round(cap / 1000) + ' s' : Math.round(doneAt) + ' ms'} | api p50 ${a.p50} p95 ${a.p95} p99 ${a.p99} max ${a.max} ms | loop p99 ${p.loop.p99} max ${p.loop.max} gap ${p.loop.maxGap} ms | rss peak ${p.mem.peakRssMb} MB`);
+      console.log(`  job ${timedOut ? 'NOT FINISHED in ' + Math.round(cap / 1000) + ' s (took ' + Math.round(totalMs / 1000) + ' s)' : Math.round(doneAt) + ' ms'} | api p50 ${a.p50} p95 ${a.p95} p99 ${a.p99} max ${a.max} ms | loop p99 ${p.loop.p99} max ${p.loop.max} gap ${p.loop.maxGap} ms | rss peak ${p.mem.peakRssMb} MB`);
       void finished;
       await sleep(1500);
     };

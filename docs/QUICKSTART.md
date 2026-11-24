@@ -121,6 +121,13 @@ admin → **Models**: paste the Argos address in the **Argos** card, press
 text, voice, embeddings) and press **Save provider**, then **Save** on each
 job you changed.
 
+**Keep Argos (and Ollama, whisper, Kokoro) private.** Bind them to `127.0.0.1` or the Docker network, and never forward their ports on your
+router. A model server that can be reached from the internet can be used by anyone, and it bypasses Alexandria's sign-in and the guard that
+keeps classified text from models. Set Argos `apiKeys` and `ARGOS_API_KEY` (in `librarian/.env`) so the Models page and the container
+authenticate to it. The `/v1` gateway Alexandria itself offers is for the DM and the admin only (see `docs/SECURITY.md`).
+
+**RAM:** give the container 2 GB (4 GB for a big library with embeddings). See `docs/HOSTING.md`.
+
 ## 9. Choose the microphone and the speakers
 
 - **DM, Audio setup** (`/w/<world>/dm/audio`): the list of microphones

@@ -56,6 +56,8 @@ export function noteRefused(r: { id: string; scope: string; updated_at: string }
 }
 export const isBackedOff = (r: { id: string; scope: string; updated_at: string }, at = Date.now()): boolean => (refused.get(refusedKey(r))?.until ?? 0) > at;
 export const backedOffCount = (at = Date.now()): number => { let n = 0; for (const v of refused.values()) if (v.until > at) n++; return n; };
+/** Tests: forget what is held in memory (a restart), keeping what the database holds. */
+export const forgetBackoffMemory = () => refused.clear();
 export const forgetRefusals = () => { refused.clear(); try { backoffDb?.exec('DELETE FROM embed_backoff'); } catch { /* none */ } };
 
 export const hashOf = (s: string) => createHash('sha1').update(s).digest('hex');
