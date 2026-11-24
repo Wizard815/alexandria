@@ -13,7 +13,7 @@ import { ModelUnavailable } from '../../core/ai.ts';
 import { ctx, settings } from '../../routes/_shared.ts';
 import { getClock } from '../clock/api.ts';
 import { sessionLines } from '../audio/api.ts';
-import { warmSnapshot } from '../models/session.ts';
+import { warmSnapshot } from '../models/lifecycle.ts';
 
 const count = (d: Deps, sql: string, ...args: unknown[]): number => {
   try { return one<{ n: number }>(d.db, sql, ...args)?.n ?? 0; } catch { return 0; }
