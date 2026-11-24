@@ -20,7 +20,7 @@ import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
 import { one } from '../../core/db.ts';
 import { dmOnly, type EventHub } from '../../core/events.ts';
-import { JOBS, inferLocation, jobConfig, pinned, type Job, type JobConfig } from '../../core/ai.ts';
+import { activeJobs, inferLocation, jobConfig, pinned, type Job, type JobConfig } from '../../core/ai.ts';
 import { argosWebUrl } from './argos.ts';
 import { testJob } from './probe.ts';
 import { getProvider, metaGet, metaSet } from './providers.ts';
@@ -47,7 +47,7 @@ const locationOf = (c: JobConfig) => c.location ?? inferLocation(c.baseUrl);
 
 /** The jobs that have a model on a local provider right now (enabled, and not cloud). */
 export function localJobs(d: Deps): Job[] {
-  return JOBS.filter((j) => { const c = jobConfig(d, j); return !!c && locationOf(c) === 'local'; });
+  return activeJobs(d).filter((j) => { const c = jobConfig(d, j); return !!c && locationOf(c) === 'local'; });
 }
 
 /** A game session is running: a session chat session is open or an audio recording is on. */
@@ -103,7 +103,7 @@ interface Target { jobs: Job[]; model: string; providerId: string; baseUrl: stri
 /** The job models that sit on an Argos provider, once each: this is the only set unload ever touches. */
 export function argosJobModels(d: Deps): Target[] {
   const out = new Map<string, Target>();
-  for (const job of JOBS) {
+  for (const job of activeJobs(d)) {
     const c = jobConfig(d, job);
     const p = c?.providerId ? getProvider(d.db, c.providerId) : undefined;
     if (!c || !p || p.kind !== 'argos' || !c.model || c.model === 'default') continue;

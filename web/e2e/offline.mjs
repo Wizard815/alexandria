@@ -135,6 +135,8 @@ try {
   // Inventory.
   await page.goto(`${base}/w/bloodearth/inventory`);
   await page.getByText('Rope (50 ft)').first().waitFor({ timeout: 10_000 });
+  // A failed request is checked twice before the app calls itself offline.
+  await sleep(3000);
   note('inventory shows offline');
   const addBtns = page.locator('main button:not([disabled])', { hasText: /^(Add|Save|Send|Pay|Ask)/ });
   if (await addBtns.count()) problems.push(`${await addBtns.count()} write buttons are still enabled offline: ${(await addBtns.allInnerTexts()).join(', ')}`);

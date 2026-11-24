@@ -64,8 +64,9 @@ test('Models_NonAdminsGet403', async () => {
 
 test('Models_ListsSixJobsEmpty', async () => {
   const l = await ok('GET', '/api/admin/models', adminT);
-  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank']);
-  for (const j of l.jobs) { assert.equal(j.source, 'none'); assert.equal(j.enabled, true); }
+  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank', 'dm', 'player', 'bible']);
+  // The last three are parts of chat: with nothing set they follow it.
+  for (const j of l.jobs) { assert.equal(j.source, ['dm', 'player', 'bible'].includes(j.job) ? 'chat' : 'none'); assert.equal(j.enabled, true); }
   assert.equal(hasJob(deps, 'chat'), false);
   await assert.rejects(chat(deps, 'chat', { messages: [{ role: 'user', content: 'hi' }] }), ModelUnavailable);
   const t = await ok('POST', '/api/admin/models/chat/test', adminT);
@@ -273,4 +274,16 @@ test('FakeModels_EmbeddingsAreStable64', async () => {
   assert.notDeepEqual(j.data[0].embedding, j.data[1].embedding);
   const k: any = await (await post('/embeddings', { model: 'x', input: 'alpha' })).json();
   assert.deepEqual(k.data[0].embedding, j.data[0].embedding);
+});
+
+test('Models_PartsOfChatFollowItUntilGivenTheirOwn', async () => {
+  const { activeJobs, jobConfig, ownJobConfig } = await import('../src/core/ai.ts');
+  await ok('PUT', '/api/admin/models', adminT, { jobs: { chat: { baseUrl: 'http://127.0.0.1:9/v1', model: 'big', enabled: true }, bible: { baseUrl: '', model: '', enabled: true } } });
+  assert.equal(jobConfig(deps, 'bible')?.model, 'big');
+  assert.equal(ownJobConfig(deps, 'dm'), null);
+  assert.ok(!activeJobs(deps).includes('dm'), 'a part that follows chat is not warmed or unloaded twice');
+  await ok('PUT', '/api/admin/models', adminT, { jobs: { bible: { baseUrl: 'http://127.0.0.1:9/v1', model: 'small', enabled: true } } });
+  assert.equal(jobConfig(deps, 'bible')?.model, 'small');
+  assert.equal(jobConfig(deps, 'player')?.model, 'big');
+  assert.ok(activeJobs(deps).includes('bible'));
 });

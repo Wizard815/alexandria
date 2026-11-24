@@ -103,7 +103,7 @@ export function sniffImage(b: Uint8Array): string | null {
   if (b.length > 12 && Buffer.from(b.subarray(0, 4)).toString('latin1') === 'RIFF' && Buffer.from(b.subarray(8, 12)).toString('latin1') === 'WEBP') return 'image/webp';
   return null;
 }
-export const MAX_STORED_IMAGE = 8 * 1024 * 1024;
+export const MAX_STORED_IMAGE = 20 * 1024 * 1024;
 /** The most a stored map may be, whatever the settings say (the download cap, `ALX_MAP_MAX_BYTES`, is lower by default). */
 export const MAX_STORED_MAP = 64 * 1024 * 1024;
 

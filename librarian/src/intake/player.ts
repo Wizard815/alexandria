@@ -83,7 +83,7 @@ function filterBlock(b: Block, aud: Audience, hidden: IsHidden): Block | null {
       // A pin shows only when the source shows it and the page it points at may be seen.
       const pins = (Array.isArray(b.pins) ? b.pins : []).filter((p) => p && p.dm !== true && typeof p.name === 'string' && !(p.ref && hidden({ ref: p.ref, name: p.name })));
       const image = typeof b.image === 'string' && /^https?:/i.test(b.image) ? b.image : undefined;
-      return { kind: 'map', ...(b.title ? { title: b.title } : {}), ...(image ? { image } : {}), ...(b.width ? { width: b.width } : {}), ...(b.height ? { height: b.height } : {}), pins: pins.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng, ...(p.type ? { type: p.type } : {}), ...(p.ref ? { ref: p.ref } : {}) })) };
+      return { kind: 'map', ...(b.title ? { title: b.title } : {}), ...(image ? { image } : {}), ...(b.width ? { width: b.width } : {}), ...(b.height ? { height: b.height } : {}), ...(b.bounds ? { bounds: b.bounds } : {}), pins: pins.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng, ...(p.type ? { type: p.type } : {}), ...(p.color ? { color: p.color } : {}), ...(p.ref ? { ref: p.ref } : {}) })) };
     }
     case 'codeBlock':
     case 'divider':

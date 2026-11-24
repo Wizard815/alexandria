@@ -1,6 +1,7 @@
 // One template at work: fill a few blanks, Sculpt, preview, then choose what to
 // do with the result (save a page, show on the stage, add to combat, send to
 // players, make a broker note). Used by the Sculpting page and the side sheet.
+import { uploadPicture } from '../../lib/upload.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorBox, Empty, Loading, Field, Markdown, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -19,7 +20,6 @@ const OUT_HELP: Record<OutputKey, string> = {
   send: 'A message to every player',
   broker: 'The broker may sell the player-safe text',
 };
-const MAX_IMG = 4 * 1024 * 1024;
 
 export default function Workshop({ tpl, initial, context, autoSculpt, preset, onDone }: { tpl: Tpl; initial?: Values; context?: SculptContext; autoSculpt?: boolean; preset?: Partial<Record<OutputKey, boolean>>; onDone?: (what: string) => void }) {
   const { w } = useWorld();
@@ -91,10 +91,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
     toast('Reading aloud');
   });
   const upload = async (key: string, f: File) => act.run(async () => {
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) throw new Error('Pick a PNG, JPEG, GIF or WebP picture');
-    if (f.size > MAX_IMG) throw new Error('Pictures can be at most 4 MB');
-    const b64 = await new Promise<string>((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => bad(new Error('Could not read the file')); r.readAsDataURL(f); });
-    const r = await w.call<{ id: string }>('POST', '/stage/images', { dataBase64: b64 });
+    const r = await uploadPicture(w, '/stage/images', f);
     set(key, r.id);
   });
 

@@ -6,6 +6,7 @@ import { OfflineBanner } from '../ui/index.tsx';
 import * as F from '../features/registry.ts';
 import { OPEN_EVENT } from '../features/search/SearchBox.tsx';
 import { ShareHost, openShare } from '../features/sourcekeys/ShareButton.tsx';
+import { setWorkspaceHidden, workspaceHidden } from '../lib/workspace.ts';
 import { DMRail, DMTabs } from './DMMenu.tsx';
 import { SessionButton } from './SessionButton.tsx';
 
@@ -75,6 +76,7 @@ function AccountMenu({ connected }: { connected: boolean }) {
           <span className="tiny faint">{me?.account.display_name} · Dungeon Master · {connected ? 'live' : 'reconnecting…'}</span>
           <Link role="menuitem" to="/">Your worlds</Link>
           {me?.account.is_admin && <Link role="menuitem" to="/admin">Library admin</Link>}
+          <button type="button" role="menuitem" data-testid="ws-toggle" onClick={() => { setWorkspaceHidden(!workspaceHidden()); setOpen(false); }}>{workspaceHidden() ? 'Show workspaces' : 'Hide workspaces'}</button>
           <button type="button" role="menuitem" onClick={() => void signOut()}>Sign out</button>
         </div>
       )}

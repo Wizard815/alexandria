@@ -206,6 +206,16 @@ export function deleteLayout(id: string) {
   try { window.dispatchEvent(new Event(LAYOUTS_EVENT)); } catch { /* no window */ }
 }
 
+/** The DM can put the workspace away (this browser): its button leaves the strip until it is brought back from the world menu. */
+const HIDE_KEY = 'alx.ws.hidden';
+export const workspaceHidden = (): boolean => readJSON<boolean>(HIDE_KEY, false) === true;
+export function setWorkspaceHidden(v: boolean) { writeJSON(HIDE_KEY, v); try { window.dispatchEvent(new Event(LAYOUTS_EVENT)); } catch { /* no window */ } }
+/** Forget the panes that were open (and, if asked, every saved layout). */
+export function clearWorkspace(slug: string, saved = false) {
+  try { localStorage.removeItem(LAST_KEY + slug); if (saved) localStorage.removeItem(SAVED_KEY); } catch { /* storage blocked */ }
+  try { window.dispatchEvent(new Event(LAYOUTS_EVENT)); } catch { /* no window */ }
+}
+
 export const rememberLast = (slug: string, ws: Workspace) => writeJSON(LAST_KEY + slug, ws);
 export function recallLast(slug: string): Workspace | null {
   const raw = readJSON<Partial<Workspace> | null>(LAST_KEY + slug, null);

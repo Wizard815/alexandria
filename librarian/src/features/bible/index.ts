@@ -17,12 +17,17 @@ import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { requireDM } from '../../core/auth.ts';
 import { hasJob, withPriority } from '../../core/ai.ts';
-import { run } from '../../core/db.ts';
-import { int } from '../../core/util.ts';
+import { all, run } from '../../core/db.ts';
+import { HttpError, int } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
 import { assembleBible, bibleCoverage } from './assemble.ts';
-import { SCHEMA, syncBible } from './extract.ts';
+import { SCHEMA, bibleFailed, bibleLog, bibleNow, forgetFailures, syncBible } from './extract.ts';
+import { auditBible } from './audit.ts';
 import { BIBLE_RUNS, bibleRuns, mayRead, worldsToRead } from './when.ts';
+
+// A "read now" the DM started, by world, and the background reader's own stop button.
+const manual = new Map<string, AbortController>();
+let stopRunning: (worldId: string) => void = () => {};
 
 const feature: Feature = {
   id: 'bible',
@@ -33,6 +38,8 @@ const feature: Feature = {
     const r = Router({ mergeParams: true });
     const str = (v: unknown, n = 120) => (typeof v === 'string' ? v.slice(0, n) : undefined);
 
+    const embedded = (w: string) => { const r = all<any>(d.db, 'SELECT count(*) AS n, sum(vec IS NOT NULL) AS v FROM bible_facts WHERE world_id = ?', w)[0]; return { facts: Number(r?.n ?? 0), withVectors: Number(r?.v ?? 0) }; };
+
     r.get('/', async (req, res) => {
       const c = ctx(res);
       res.json(await assembleBible(d, c.world.id, c.viewer, { subject: str(req.query.subject), kind: str(req.query.kind, 20), q: str(req.query.q, 200), limit: int(req.query.limit, 'limit', { min: 1, max: 1000, optional: true }) ?? undefined }));
@@ -40,11 +47,38 @@ const feature: Feature = {
 
     r.get('/status', requireDM, (_req, res) => {
       const w = ctx(res).world.id;
-      res.json({ chat: hasJob(d, 'chat'), runs: bibleRuns(d.db, w), reading: mayRead(d.db, w), ...bibleCoverage(d, w) });
+      res.json({ chat: hasJob(d, 'bible'), runs: bibleRuns(d.db, w), reading: mayRead(d.db, w), now: bibleNow(w), log: bibleLog(w), failed: bibleFailed().length, embedded: embedded(w), ...bibleCoverage(d, w) });
     });
 
     r.post('/refresh', requireDM, async (_req, res) => {
       res.json(await syncBible(d, { maxPages: 50, worldId: ctx(res).world.id }));
+    });
+
+    // "Read a few now": started, not waited for (a page can take half a minute). The status says how it goes.
+    r.post('/read-now', requireDM, (_req, res) => {
+      if (!hasJob(d, 'bible')) throw new HttpError(503, 'No model is set for the story bible or chat (Admin → Models)');
+      const w = ctx(res).world.id;
+      const ctl = new AbortController();
+      manual.get(w)?.abort();
+      manual.set(w, ctl);
+      forgetFailures();
+      void withPriority(0, () => syncBible(d, { maxPages: 25, worldId: w, signal: ctl.signal })).catch(() => {}).finally(() => { if (manual.get(w) === ctl) manual.delete(w); });
+      res.status(202).json({ ok: true });
+    });
+    r.post('/stop', requireDM, (_req, res) => { manual.get(ctx(res).world.id)?.abort(); stopRunning(ctx(res).world.id); res.json({ ok: true }); });
+
+    // Checks that need no model: waiting, failed and empty pages, facts whose subject the page never names, the same page read several times.
+    r.get('/audit', requireDM, (_req, res) => { res.json(auditBible(d, ctx(res).world.id)); });
+    // Forget what was written from these pages, so they are read again.
+    r.post('/reread', requireDM, (req, res) => {
+      const w = ctx(res).world.id;
+      const ids: unknown = req.body?.pageIds;
+      if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'pageIds must be a list of up to 500 page ids');
+      const q = ids.map(() => '?').join(',');
+      run(d.db, `DELETE FROM bible_facts WHERE world_id = ? AND page_id IN (${q})`, w, ...ids);
+      const n = run(d.db, `DELETE FROM bible_state WHERE world_id = ? AND page_id IN (${q})`, w, ...ids);
+      forgetFailures(ids as string[]);
+      res.json({ ok: true, pages: n });
     });
 
     r.post('/rebuild', requireDM, (_req, res) => {
@@ -87,8 +121,9 @@ const feature: Feature = {
     const untap = d.hub.tap((worldId, type) => {
       if ((type === 'chat-session' || type === 'recording' || type === 'settings') && stop?.worldId === worldId && !mayRead(d.db, worldId)) stop.ctl.abort();
     });
+    stopRunning = (worldId) => { if (stop?.worldId === worldId) stop.ctl.abort(); };
     const tick = async () => {
-      if (busy || !hasJob(d, 'chat')) return;
+      if (busy || !hasJob(d, 'bible')) return;
       busy = true;
       try {
         const until = Date.now() + 45_000;

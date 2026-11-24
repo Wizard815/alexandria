@@ -28,8 +28,15 @@ import type { Deps } from '../app.ts';
 import { classifiedMatch } from './levels.ts';
 import { run, type DB } from './db.ts';
 
-export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank';
+export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible';
+/** Jobs that answer in text. */
+export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible';
 export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
+/** Parts of the chat job that may have a model of their own: the DM's assistant, what players ask, the story bible. Unset: the chat model. */
+export const CHAT_PARTS: Job[] = ['dm', 'player', 'bible'];
+export const ALL_JOBS: Job[] = [...JOBS, ...CHAT_PARTS];
+const isPart = (job: Job) => CHAT_PARTS.includes(job);
+const isText = (job: Job) => job === 'chat' || job === 'audit' || isPart(job);
 
 /** Where a provider runs: 'local' keeps world text on your machines, 'cloud' sends it to a third party. */
 export type Location = 'local' | 'cloud';
@@ -75,7 +82,7 @@ export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', '
  * routing, Active mode) defaults to off: thinking made hy4-flash about three times slower there for no better answer.
  * The chat job leaves it to the model unless set.
  */
-const reasoningFor = (job: 'chat' | 'audit', c: JobConfig, req: ChatRequest): ChatRequest => {
+const reasoningFor = (job: TextJob, c: JobConfig, req: ChatRequest): ChatRequest => {
   const o = opt(c, 'reasoning');
   return o === 'off' || (job === 'audit' && o !== 'on') ? { ...req, reasoningOff: true } : req;
 };
@@ -173,8 +180,8 @@ function envResolver(d: Deps, job: Job): JobConfig | null {
   const J = job.toUpperCase();
   const own = e[`ALX_MODEL_${J}_URL`];
   // Rerank is optional and not every server has it: only an explicit URL turns it on.
-  const base = own || (job === 'rerank' ? '' : e.MODEL_BASE_URL || e.OPENAI_BASE_URL || (e.LOCAL_LLM_URL ? `${e.LOCAL_LLM_URL.replace(/\/$/, '')}/v1` : ''));
-  const model = e[`ALX_MODEL_${J}_MODEL`] || (job === 'chat' || job === 'audit' ? e.MODEL_NAME || '' : '');
+  const base = own || (job === 'rerank' || isPart(job) ? '' : e.MODEL_BASE_URL || e.OPENAI_BASE_URL || (e.LOCAL_LLM_URL ? `${e.LOCAL_LLM_URL.replace(/\/$/, '')}/v1` : ''));
+  const model = e[`ALX_MODEL_${J}_MODEL`] || (isText(job) ? e.MODEL_NAME || '' : '');
   if (!base) return null;
   let options: Record<string, unknown> | undefined;
   try { const o = JSON.parse(e[`ALX_MODEL_${J}_OPTIONS`] || 'null'); if (o && typeof o === 'object' && !Array.isArray(o)) options = o; } catch { /* not JSON: ignored */ }
@@ -184,7 +191,11 @@ function envResolver(d: Deps, job: Job): JobConfig | null {
 let resolver: Resolver = envResolver;
 /** The models feature replaces the env resolver with saved settings. Pass null to go back to env only. */
 export function setJobResolver(r: Resolver | null) { resolver = r ?? envResolver; }
-export function jobConfig(d: Deps, job: Job): JobConfig | null { return resolver(d, job) ?? (resolver === envResolver ? null : envResolver(d, job)); }
+/** What is set for exactly this job. */
+export function ownJobConfig(d: Deps, job: Job): JobConfig | null { return resolver(d, job) ?? (resolver === envResolver ? null : envResolver(d, job)); }
+export function jobConfig(d: Deps, job: Job): JobConfig | null { return ownJobConfig(d, job) ?? (isPart(job) ? ownJobConfig(d, 'chat') : null); }
+/** Every job that has settings of its own: the six, and the parts of chat that were given another model. */
+export const activeJobs = (d: Deps): Job[] => [...JOBS, ...CHAT_PARTS.filter((j) => ownJobConfig(d, j))];
 export const hasJob = (d: Deps, job: Job) => !!jobConfig(d, job);
 
 const PIN = Symbol.for('alexandria.ai.pin');
@@ -309,7 +320,7 @@ export function tokenBudget(c: JobConfig, req: Pick<ChatRequest, 'maxTokens' | '
 }
 
 /** The output budget a job will really use for a request that wants `want` tokens (the job's floor applies). */
-export function jobBudget(d: Deps, job: 'chat' | 'audit', want: number): number {
+export function jobBudget(d: Deps, job: TextJob, want: number): number {
   const c = jobConfig(d, job);
   return (c ? tokenBudget(c, { maxTokens: want }) : undefined) ?? want;
 }
@@ -320,7 +331,7 @@ const emptyForLength = (r: ChatResult) => r.finishReason === 'length' && !r.cont
 const widerRequest = (c: JobConfig, req: ChatRequest): ChatRequest => ({ ...req, maxTokens: Math.min((tokenBudget(c, { maxTokens: req.maxTokens ?? DEFAULT_MIN_OUTPUT_TOKENS, noFloor: req.noFloor }) ?? DEFAULT_MIN_OUTPUT_TOKENS) * 2, 32_000), reasoningOff: true });
 const timeoutFor = (job: Job, c: JobConfig): number => {
   const t = Number(opt(c, 'timeoutMs'));
-  return Number.isFinite(t) && t > 0 ? t : job === 'chat' || job === 'audit' ? DEFAULT_CHAT_TIMEOUT_MS : DEFAULT_OTHER_TIMEOUT_MS;
+  return Number.isFinite(t) && t > 0 ? t : isText(job) ? DEFAULT_CHAT_TIMEOUT_MS : DEFAULT_OTHER_TIMEOUT_MS;
 };
 /** The job's options as request fields: everything except the keys Alexandria reads itself. */
 const bodyOptions = (c: JobConfig): Record<string, unknown> => {
@@ -568,7 +579,7 @@ function learnFrom400(text: string, body: Record<string, unknown>, c: JobConfig,
 }
 
 /** Send a chat request, adapting to what the server accepts. */
-async function chatSend(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, stream: boolean, signal?: AbortSignal): Promise<Sent & { jsonMode: ChatTimings['jsonMode'] }> {
+async function chatSend(d: Deps, job: TextJob, c: JobConfig, req: ChatRequest, stream: boolean, signal?: AbortSignal): Promise<Sent & { jsonMode: ChatTimings['jsonMode'] }> {
   const known = learnedFor(job, c);
   // Changes learned from a 400 only stick once a retry works (a 400 can be about something else).
   const l: Learned = { ...known };
@@ -601,18 +612,18 @@ function normalizeToolCalls(raw: unknown): ToolCall[] {
   return out;
 }
 
-export async function chat(d: Deps, job: 'chat' | 'audit', req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
+export async function chat(d: Deps, job: TextJob, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
   return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatOne(d, job, c, req, signal));
 }
 
-async function chatOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req0: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
+async function chatOne(d: Deps, job: TextJob, c: JobConfig, req0: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
   const req = reasoningFor(job, c, req0);
   const r = await chatOnce(d, job, c, req, signal);
   // A reasoning model that used the whole budget thinking: once more with twice the budget (and no thinking where that can be asked).
   return emptyForLength(r) ? chatOnce(d, job, c, widerRequest(c, req), signal) : r;
 }
 
-async function chatOnce(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
+async function chatOnce(d: Deps, job: TextJob, c: JobConfig, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, false, signal);
   let j: any;
@@ -715,20 +726,20 @@ export class ChunkAssembler {
  * Tool calls arrive in pieces and are assembled before returning. Pass a
  * signal to stop early (it throws AbortError; keep what onDelta gave you).
  */
-export async function chatStream(d: Deps, job: 'chat' | 'audit', req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
+export async function chatStream(d: Deps, job: TextJob, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   // Once text has reached the caller the answer cannot be started again somewhere else.
   let started = false;
   return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatStreamOne(d, job, c, req, (t) => { started = true; onDelta(t); }, signal), () => !started);
 }
 
-async function chatStreamOne(d: Deps, job: 'chat' | 'audit', c: JobConfig, req0: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
+async function chatStreamOne(d: Deps, job: TextJob, c: JobConfig, req0: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   const req = reasoningFor(job, c, req0);
   const r = await chatStreamOnce(d, job, c, req, onDelta, signal);
   // Nothing was streamed (the budget went on thinking): try again wider.
   return emptyForLength(r) ? chatStreamOnce(d, job, c, widerRequest(c, req), onDelta, signal) : r;
 }
 
-async function chatStreamOnce(d: Deps, job: 'chat' | 'audit', c: JobConfig, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
+async function chatStreamOnce(d: Deps, job: TextJob, c: JobConfig, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   const t0 = performance.now();
   const s = await chatSend(d, job, c, req, true, signal);
   let firstTokenMs: number | undefined;
@@ -778,7 +789,7 @@ async function chatStreamOnce(d: Deps, job: 'chat' | 'audit', c: JobConfig, req:
 }
 
 /** A JSON answer from a chat job, or null if the model is missing or its reply isn't JSON. Never throws for a model problem. */
-export async function chatJson<T = any>(d: Deps, job: 'chat' | 'audit', messages: ChatMessage[], signal?: AbortSignal, opts: { schema?: ChatRequest['jsonSchema']; maxTokens?: number } = {}): Promise<T | null> {
+export async function chatJson<T = any>(d: Deps, job: TextJob, messages: ChatMessage[], signal?: AbortSignal, opts: { schema?: ChatRequest['jsonSchema']; maxTokens?: number } = {}): Promise<T | null> {
   try {
     const r = await chat(d, job, { messages, json: true, jsonSchema: opts.schema, maxTokens: opts.maxTokens, temperature: 0 }, signal);
     const t = r.content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');

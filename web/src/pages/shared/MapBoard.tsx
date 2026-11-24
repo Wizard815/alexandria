@@ -7,17 +7,20 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { PageHead, ErrorBox, Field, VisChip, useAction, useToast } from '../../ui/index.tsx';
 import { ICONS, MarkLayer, RouteLayer, type Mark, type Pt } from '../player/mapParts.tsx';
+import { MAP_CSS, Ruler, SourcePins, distanceText, lengthOf, type Scale, type SourcePin } from './mapExtras.tsx';
+import { Link } from 'react-router-dom';
 import { NO_DOCK } from '../../ui/Dock.tsx';
 import { FogCanvas, FogDraw, FogToolbar, pictureStyle, useFog, useFogEditor, useTableDisplay } from '../../features/screens/fog.tsx';
 
 interface ImportedMap { id: string; name: string; url: string; page: { id: string; title: string } | null }
-type Tool = 'select' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase' | 'fog';
+type Tool = 'select' | 'ruler' | 'pin' | 'note' | 'route' | 'stop' | 'icon' | 'erase' | 'fog';
 const TOOLS: [Tool, string, string][] = [
-  ['select', '➤', 'Select'], ['pin', '📍', 'Pin'], ['note', '🗒', 'Note'], ['route', '✎', 'Route'],
+  ['select', '➤', 'Select'], ['ruler', '📏', 'Ruler'], ['pin', '📍', 'Pin'], ['note', '🗒', 'Note'], ['route', '✎', 'Route'],
   ['stop', '①', 'Stop'], ['icon', '⛺', 'Icon'], ['erase', '⌫', 'Erase'], ['fog', '☁', 'Fog'],
 ];
 const HINT: Record<Tool, string> = {
   select: 'Click a mark to see it.',
+  ruler: 'Click from place to place; pins snap. Press Esc to start again.',
   pin: 'Click the map to drop a pin.',
   note: 'Click the map to stick a note.',
   route: 'Click to add points. Double-click or press Enter to finish, Esc to cancel.',
@@ -50,6 +53,7 @@ export default function MapBoard() {
     ...(imported.data ?? []).map((m) => ({ value: `imp:${m.id}`, group: 'source', label: `${m.name || 'Map'}${m.page ? ` (${m.page.title})` : ''}`, url: m.url })),
     ...(libMaps.data ?? []).map((f) => ({ value: `lib:${f.id}`, group: 'library', label: `${f.name}${f.pageTitle ? ` (${f.pageTitle})` : ''}`, url: f.url })),
   ], [imported.data, libMaps.data]);
+  const sourceImage = (v: string) => (v.startsWith('imp:') ? v.slice(4) : null);
   const loadingPictures = imported.loading || libMaps.loading;
   // Nothing chosen yet: the first map there is. The blank placeholder is only for a world with no map pictures at all, or when "Blank" is chosen.
   const stored = bgs[mapId] ?? (picked[mapId] ? `imp:${picked[mapId]}` : '');
@@ -64,6 +68,35 @@ export default function MapBoard() {
   const table = useTableDisplay();
   const fogEd = useFogEditor(mapId, picKey, fog);
   const [tool, setTool] = useState<Tool>('select');
+  // The picture's own shape: the map is drawn in it, not stretched.
+  const [aspect, setAspect] = useState(16 / 10);
+  useEffect(() => {
+    if (!bg) { setAspect(16 / 10); return; }
+    const im = new Image();
+    let on = true;
+    im.onload = () => { if (on && im.naturalWidth && im.naturalHeight) setAspect(im.naturalWidth / im.naturalHeight); };
+    im.src = bg;
+    return () => { on = false; };
+  }, [bg]);
+  const [zoom, setZoom] = useState(1);
+  // The pins this picture has in its source, and the scale for the ruler.
+  const img = chosenOption ? sourceImage(chosenOption.value) : null;
+  const srcPins = useLoad<{ page: { id: string; title: string } | null; pins: SourcePin[] }>(() => (img ? w.call('GET', `/map/imported/${encodeURIComponent(img)}/pins`, undefined, { map: mapId }) : Promise.resolve({ page: null, pins: [] })), [w, img, mapId], ['page', 'fog']);
+  const scale = useLoad<Scale | null>(() => w.call('GET', '/map/scale', undefined, { pic: picKey }), [w, picKey], ['map-scale']);
+  const [spin, setSpin] = useState<SourcePin | null>(null);
+  const [labels, setLabels] = store<boolean>(`alx.map.labels.${info.id}`, false);
+  const [showSource, setShowSource] = useState(true);
+  const pins = showSource ? srcPins.data?.pins ?? [] : [];
+  const [ruler, setRuler] = useState<Pt[]>([]);
+  const [hover, setHover] = useState<Pt | null>(null);
+  useEffect(() => { setSpin(null); setRuler([]); }, [picKey]);
+  /** A press close to a pin measures from the pin. */
+  const snap = (p: Pt): Pt => {
+    let best: Pt | null = null, bd = 1.6;
+    for (const q of [...pins, ...shownRef.current.filter((m) => m.data.x !== undefined).map((m) => ({ x: m.data.x!, y: m.data.y! }))]) { const d = Math.hypot(q.x - p.x, (q.y - p.y) / aspect); if (d < bd) { bd = d; best = { x: q.x, y: q.y }; } }
+    return best ?? p;
+  };
+  const shownRef = useRef<Mark[]>([]);
   const [icon, setIcon] = useState(ICONS[0][0]);
   const [vis, setVis] = useState<'party' | 'me' | 'dm'>('party');
   const [plan, setPlan] = useState('route');
@@ -78,13 +111,13 @@ export default function MapBoard() {
   const area = useRef<HTMLDivElement>(null);
 
   const allowed: Record<Tool, boolean> = {
-    select: true, erase: true,
+    select: true, erase: true, ruler: true,
     fog: isDM,
     pin: isDM || s.mapPins, note: isDM || s.mapPins, icon: isDM || s.mapPins,
     route: isDM || s.mapDraw, stop: isDM || s.mapStops,
   };
   useEffect(() => { if (!allowed[tool]) setTool('select'); }, [allowed, tool]);
-  useEffect(() => { setDraft([]); setPending(null); }, [tool, mapId]);
+  useEffect(() => { setDraft([]); setPending(null); if (tool !== 'ruler') { setRuler([]); setHover(null); } }, [tool, mapId]);
 
   const shown = useMemo(() => (marks.data ?? []).filter((m) => {
     if (m.hidden_by_dm && !layers.hidden) return false;
@@ -92,6 +125,7 @@ export default function MapBoard() {
     if (m.visibility === 'dm') return layers.dm;
     return layers.party;
   }), [marks.data, layers]);
+  shownRef.current = shown;
   const selected = (marks.data ?? []).find((m) => m.id === sel) ?? null;
 
   const point = (e: { clientX: number; clientY: number }): Pt => {
@@ -107,6 +141,7 @@ export default function MapBoard() {
   });
 
   const placeAt = (p: Pt) => {
+    if (tool === 'ruler') { setRuler((r) => [...r, snap(p)]); return; }
     if (tool === 'pin' || tool === 'note' || tool === 'icon') setPending({ kind: tool, ...p });
     else if (tool === 'stop') void create({ kind: 'stop', x: p.x, y: p.y, plan });
     else if (tool === 'route') setDraft((d) => [...d, p]);
@@ -118,7 +153,7 @@ export default function MapBoard() {
 
   const onAreaClick = (e: MouseEvent) => {
     if ((e.target as HTMLElement).closest('[data-mark]')) return;
-    if (tool === 'select' || tool === 'erase') { setSel(null); return; }
+    if (tool === 'select' || tool === 'erase') { setSel(null); setSpin(null); return; }
     if (tool === 'fog') return;
     placeAt(point(e));
   };
@@ -132,7 +167,7 @@ export default function MapBoard() {
       e.preventDefault();
       if (tool === 'route' && e.key === 'Enter' && draft.length >= 2 && !e.shiftKey) finishRoute();
       else if (tool !== 'select' && tool !== 'erase' && tool !== 'fog') placeAt(cursor);
-    } else if (e.key === 'Escape') { setDraft([]); setPending(null); }
+    } else if (e.key === 'Escape') { setDraft([]); setPending(null); setRuler([]); }
   };
 
   const canErase = (m: Mark) => isDM || m.author_id === me;
@@ -153,6 +188,7 @@ export default function MapBoard() {
 
   return (
     <div className="page wide">
+      <style>{MAP_CSS}</style>
       <PageHead title="Map" lead={isDM ? 'Everyone\'s marks. Hide any mark from players, or erase it.' : 'Leave pins, notes and routes for the party, or private marks just for you.'} />
       <ErrorBox error={marks.error ?? act.error} />
 
@@ -181,22 +217,29 @@ export default function MapBoard() {
 
       <div className="cols">
         <div className="col-3 stack">
-          <div ref={area} {...NO_DOCK} role="application" aria-label={`Map ${mapId}. ${HINT[tool]} Arrow keys move the cursor, Enter places.`} tabIndex={0}
+          <div className="map-zoom"><div ref={area} {...NO_DOCK} onPointerMove={tool === 'ruler' && ruler.length ? (e) => setHover(snap(point(e))) : undefined} onPointerLeave={() => setHover(null)} role="application" aria-label={`Map ${mapId}. ${HINT[tool]} Arrow keys move the cursor, Enter places.`} tabIndex={0}
             onClick={onAreaClick} onDoubleClick={(e) => { if (tool === 'route') { e.preventDefault(); finishRoute(); } }} onKeyDown={onKey}
             onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
             style={{
-              position: 'relative', width: '100%', aspectRatio: '16 / 10', borderRadius: 10, border: '1px solid var(--line-strong)', overflow: 'hidden',
+              position: 'relative', width: `${zoom * 100}%`, aspectRatio: String(aspect), borderRadius: 10, border: '1px solid var(--line-strong)', overflow: 'hidden',
               cursor: tool === 'select' ? 'default' : tool === 'erase' ? 'not-allowed' : 'crosshair', userSelect: 'none',
               // The picture waits for its fog state, so a fogged map is never seen uncovered first.
               background: bg ? (fog.ready ? `center / 100% 100% no-repeat url("${bg.replace(/"/g, '%22')}"), #15212D` : '#15212D') : 'radial-gradient(ellipse 40% 32% at 30% 42%, #4B4632 0 60%, transparent 61%), radial-gradient(ellipse 30% 40% at 64% 56%, #47432F 0 62%, transparent 63%), linear-gradient(160deg, #1A2A38, #15212D)',
             }}>
             {fog.ready && fog.state && <FogCanvas state={fog.state} extra={fogEd.pending} tint={isDM} />}
             <RouteLayer marks={shown} draft={draft} selected={sel} onPick={onMark} />
+            <SourcePins pins={pins} selected={spin?.id ?? null} labels={labels} active={tool === 'select'} onPick={(p) => { setSel(null); setSpin(p); }} />
             <MarkLayer marks={shown} selected={sel} onPick={onMark} me={me} />
+            <Ruler points={ruler} cursor={hover} aspect={aspect} scale={scale.data} />
             <FogDraw ed={fogEd} active={isDM && tool === 'fog' && fogEd.enabled} />
             {pending && <span aria-hidden="true" style={{ position: 'absolute', left: `${pending.x}%`, top: `${pending.y}%`, transform: 'translate(-50%,-50%)', width: 16, height: 16, borderRadius: '50%', border: '2px dashed var(--accent)' }} />}
             {focused && tool !== 'select' && <span aria-hidden="true" style={{ position: 'absolute', left: `${cursor.x}%`, top: `${cursor.y}%`, transform: 'translate(-50%,-50%)', width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--teal)', boxShadow: '0 0 0 3px rgba(0,0,0,0.4)' }} />}
             <span style={{ position: 'absolute', left: 10, bottom: 8, padding: '3px 9px', borderRadius: 6, background: 'rgba(18,22,31,0.85)', fontSize: 13, color: '#D8CFB9', pointerEvents: 'none' }}>{HINT[tool]}</span>
+          </div></div>
+          <div className="row small map-tools-row">
+            <label className="row" style={{ gap: 6 }}>Zoom <input type="range" min={1} max={5} step={0.25} value={zoom} aria-label="Zoom" onChange={(e) => setZoom(Number(e.target.value))} /></label>
+            {(srcPins.data?.pins.length ?? 0) > 0 && <><label className="row" style={{ gap: 6 }}><input type="checkbox" checked={showSource} onChange={(e) => setShowSource(e.target.checked)} /> Places ({srcPins.data!.pins.length})</label><label className="row" style={{ gap: 6 }}><input type="checkbox" checked={labels} onChange={(e) => setLabels(e.target.checked)} /> Names</label></>}
+            {srcPins.data?.page && <Link to={`/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(srcPins.data.page.id)}`}>Open the map’s page →</Link>}
           </div>
           {!marks.loading && !(marks.data ?? []).length && <p className="muted small">No marks on this map yet.</p>}
         </div>
@@ -205,6 +248,18 @@ export default function MapBoard() {
           {pending && <PendingForm key={`${pending.x},${pending.y}`} p={pending} icon={icon} busy={act.busy} onCancel={() => setPending(null)}
             onPlace={async (label, text) => { const m = await create({ kind: pending.kind, x: pending.x, y: pending.y, label, ...(pending.kind === 'note' ? { text } : {}), ...(pending.kind === 'icon' ? { icon } : {}) }); if (m) setPending(null); }} />}
 
+          {spin && (
+            <section className="card gold" aria-label="Place">
+              <div className="card-head"><h3>{spin.name}</h3>{spin.dm && <span className="chip red">DM only</span>}</div>
+              <div className="row">
+                {spin.pageId && <Link className="btn small primary" to={`/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(spin.pageId)}`}>Open its page</Link>}
+                <button type="button" className="btn small" onClick={() => { setTool('ruler'); setTimeout(() => setRuler([{ x: spin.x, y: spin.y }]), 0); }}>Measure from here</button>
+                <button type="button" className="btn small ghost" onClick={() => setSpin(null)}>Close</button>
+              </div>
+            </section>
+          )}
+          {tool === 'ruler' && <RulerPanel key={picKey} points={ruler} aspect={aspect} scale={scale.data} canSet={isDM} onClear={() => setRuler([])}
+            onSet={(width, unit) => act.run(async () => { await w.call('PUT', '/map/scale', { pic: picKey, width, unit }); await scale.reload(); toast('Scale saved'); })} />}
           {selected ? (
             <MarkPanel m={selected} author={selected.author_id === me ? 'You' : nameOf(selected.author_id)} canEdit={selected.author_id === me} canErase={canErase(selected)} isDM={isDM}
               onSave={(patch) => act.run(async () => { await w.call('PATCH', `/map/${encodeURIComponent(mapId)}/marks/${selected.id}`, patch); await marks.reload(); toast('Saved'); })}
@@ -242,6 +297,7 @@ export default function MapBoard() {
               <input id="map-new" name="map" className="input grow" placeholder="Another map, e.g. old-kesh" style={{ minHeight: 32 }} />
               <button type="submit" className="btn small">Open</button>
             </form>
+            {isDM && <MapsFromSource onDone={() => void imported.reload()} />}
             <Field label="Map picture" help={options.length ? 'Maps from this world\'s sources and library, as far as your level allows. The marks are shared; which picture you look at is only your choice.' : undefined}>
               {options.length ? (
                 <select value={options.some((o) => o.value === choice) ? choice : choice === 'none' ? 'none' : ''} onChange={(e) => setChoice(e.target.value)} aria-label="Map picture">
@@ -259,6 +315,45 @@ export default function MapBoard() {
         </aside>
       </div>
       {toastNode}
+    </div>
+  );
+}
+
+/** Distance so far, and (DM) how big the map is: the whole width, or worked out from a distance you know. */
+function RulerPanel({ points, aspect, scale, canSet, onSet, onClear }: { points: Pt[]; aspect: number; scale: Scale | null; canSet: boolean; onSet: (width: number, unit: string) => void; onClear: () => void }) {
+  const [known, setKnown] = useState('');
+  const [unit, setUnit] = useState(scale?.unit ?? 'miles');
+  const [pace, setPace] = useState('24');
+  useEffect(() => { if (scale) setUnit(scale.unit); }, [scale]);
+  const part = points.length > 1 ? lengthPart(points, aspect) : 0;
+  const n = Number(known);
+  const days = scale && Number(pace) > 0 ? (part * scale.width) / Number(pace) : 0;
+  return (
+    <section className="card gold" aria-label="Ruler">
+      <div className="card-head"><h3>Ruler</h3><button type="button" className="btn small" disabled={!points.length} onClick={onClear}>Start again</button></div>
+      <b style={{ fontSize: 22, color: 'var(--accent-strong)' }}>{points.length > 1 ? distanceText(points, aspect, scale) : 'Click two places'}</b>
+      {scale && points.length > 1 && <label className="row small" style={{ gap: 6 }}>At <input className="input" style={{ width: 64, minHeight: 30 }} inputMode="decimal" aria-label="Distance a day" value={pace} onChange={(e) => setPace(e.target.value)} /> {scale.unit} a day: <b>{days < 10 ? days.toFixed(1) : Math.round(days)} days</b></label>}
+      {canSet && (
+        <form className="stack tight" onSubmit={(e) => { e.preventDefault(); if (n > 0 && part > 0) { onSet(n / part, unit.trim() || 'miles'); setKnown(''); } }}>
+          <span className="small muted">{scale ? `The whole map is ${Math.round(scale.width).toLocaleString()} ${scale.unit} wide.` : 'No scale yet.'} Measure something you know, type how far it really is:</span>
+          <div className="row"><input className="input" style={{ width: 90, minHeight: 32 }} inputMode="decimal" placeholder="300" aria-label="Real distance" value={known} onChange={(e) => setKnown(e.target.value)} /><input className="input" style={{ width: 90, minHeight: 32 }} aria-label="Unit" value={unit} maxLength={20} onChange={(e) => setUnit(e.target.value)} /><button type="submit" className="btn small primary" disabled={!(n > 0) || points.length < 2}>Set scale</button></div>
+        </form>
+      )}
+    </section>
+  );
+}
+const lengthPart = lengthOf;
+
+/** Maps in LegendKeeper (or another source) are only listed until they are read: one press reads them. */
+function MapsFromSource({ onDone }: { onDone: () => void }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const [note, setNote] = useState('');
+  return (
+    <div className="stack tight">
+      <button type="button" className="btn small" disabled={act.busy} data-testid="maps-read" onClick={() => void act.run(async () => { const r = await w.call<{ read: number; left: number }>('POST', '/map/imported/read'); setNote(r.read ? `Read ${r.read} map${r.read === 1 ? '' : 's'}.${r.left ? ` ${r.left} still to read.` : ''}` : r.left ? `${r.left} could not be read just now; try again in a minute.` : 'Every map has been read.'); onDone(); })}>{act.busy ? 'Reading…' : 'Get maps from your sources'}</button>
+      {note && <span className="tiny muted" role="status">{note}</span>}
+      <ErrorBox error={act.error} />
     </div>
   );
 }
