@@ -112,6 +112,7 @@ const feature: Feature = {
   start: (d: Deps) => {
     const every = Math.max(1000, Number(d.env.ALX_SEARCH_EMBED_MS ?? 20_000) || 20_000);
     let busy = false;
+    let pruned = 0;
     const tick = async () => {
       if (busy || !hasJob(d, 'extra')) return;
       busy = true;
@@ -119,7 +120,9 @@ const feature: Feature = {
         // While there is a backlog (a re-embed), keep going for a while instead of one small batch every tick.
         const until = Date.now() + 45_000;
         for (;;) {
-          const r = await syncEmbeddings(d);
+          const prune = Date.now() - pruned > 10 * 60_000;
+          if (prune) pruned = Date.now();
+          const r = await syncEmbeddings(d, { prune });
           if (!r.remaining || r.error || r.pages === 0 || Date.now() > until) break;
         }
       } catch { /* retried next time */ } finally { busy = false; }
