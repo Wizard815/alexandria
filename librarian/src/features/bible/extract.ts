@@ -114,6 +114,8 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
       for (const r of rows) {
         if (budget <= 0 || opts.signal?.aborted || bad >= 2) break;
         const facts = await extract(d, r, opts.signal);
+        // Stopped part way (the session ended): not the model's failure, and nothing half-read is stored.
+        if (opts.signal?.aborted) break;
         if (!facts) {
           // The model did not answer (or answered with something that is not JSON): try later, and stop this round after two in a row.
           bad++;

@@ -22,10 +22,12 @@ import { int } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
 import { assembleBible, bibleCoverage } from './assemble.ts';
 import { SCHEMA, syncBible } from './extract.ts';
+import { BIBLE_RUNS, bibleRuns, mayRead, worldsToRead } from './when.ts';
 
 const feature: Feature = {
   id: 'bible',
   schema: SCHEMA,
+  settings: { bibleRuns: { type: 'enum', default: 'session', values: BIBLE_RUNS } },
   worldMount: 'bible',
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
@@ -37,7 +39,8 @@ const feature: Feature = {
     });
 
     r.get('/status', requireDM, (_req, res) => {
-      res.json({ chat: hasJob(d, 'chat'), ...bibleCoverage(d, ctx(res).world.id) });
+      const w = ctx(res).world.id;
+      res.json({ chat: hasJob(d, 'chat'), runs: bibleRuns(d.db, w), reading: mayRead(d.db, w), ...bibleCoverage(d, w) });
     });
 
     r.post('/refresh', requireDM, async (_req, res) => {
@@ -79,23 +82,32 @@ const feature: Feature = {
     if (String(d.env.ALX_BIBLE ?? '').toLowerCase() === 'off') return;
     const every = Math.max(1000, Number(d.env.ALX_BIBLE_MS ?? 30_000) || 30_000);
     let busy = false;
+    // Ended at once when the session does, whatever page it is on.
+    let stop: { worldId: string; ctl: AbortController } | null = null;
+    const untap = d.hub.tap((worldId, type) => {
+      if ((type === 'chat-session' || type === 'recording' || type === 'settings') && stop?.worldId === worldId && !mayRead(d.db, worldId)) stop.ctl.abort();
+    });
     const tick = async () => {
       if (busy || !hasJob(d, 'chat')) return;
       busy = true;
       try {
         const until = Date.now() + 45_000;
-        for (;;) {
-          // Background work: the table's own requests go first.
-          const r = await withPriority(0, () => syncBible(d));
-          if (!r.remaining || r.skipped || r.pages === 0 || Date.now() > until) break;
+        for (const worldId of worldsToRead(d.db)) {
+          const ctl = new AbortController();
+          stop = { worldId, ctl };
+          while (mayRead(d.db, worldId) && Date.now() <= until) {
+            // Background work: the table's own requests go first.
+            const r = await withPriority(0, () => syncBible(d, { worldId, maxPages: 3, signal: ctl.signal }));
+            if (!r.remaining || r.skipped || r.pages === 0 || ctl.signal.aborted) break;
+          }
         }
-      } catch { /* retried next time */ } finally { busy = false; }
+      } catch { /* retried next time */ } finally { busy = false; stop = null; }
     };
     const first = setTimeout(() => void tick(), 8000);
     const t = setInterval(() => void tick(), every);
     first.unref?.();
     t.unref?.();
-    return () => { clearTimeout(first); clearInterval(t); };
+    return () => { clearTimeout(first); clearInterval(t); stop?.ctl.abort(); if (typeof untap === 'function') untap(); };
   },
 };
 export default feature;
