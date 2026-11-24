@@ -29,11 +29,26 @@ const NAMES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Au
 const JOB_ORDER = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
 const KIND_NAMES: Record<Kind, string> = { argos: 'Argos', openai: 'OpenAI', ollama: 'Ollama', lmstudio: 'LM Studio', 'openai-compatible': 'Other OpenAI-compatible' };
 const CLOUD_WARNING = 'World text will leave this server for this cloud provider whenever the main one cannot answer.';
-const STATUS_TEXT: Record<Seen, string> = { loaded: 'loaded', unloaded: 'unloaded', unknown: 'status unknown', missing: 'model not found there', unreachable: 'provider not reachable' };
+const STATUS_TEXT: Record<Seen, string> = { loaded: 'loaded', unloaded: 'unloaded (loads on request)', unknown: 'status unknown', missing: 'model not found there', unreachable: 'provider not reachable' };
 
 const StatusChip = ({ s }: { s?: Seen }) => (s ? <span className={`chip ${s === 'loaded' ? 'green' : s === 'unloaded' ? 'gold' : s === 'unknown' ? '' : 'red'}`} data-status={s}>{STATUS_TEXT[s]}</span> : null);
 const WhereChip = ({ l }: { l: Location }) => <span className={`chip ${l === 'cloud' ? 'red' : 'green'}`} data-where={l}>{l === 'cloud' ? 'Cloud' : 'Local'}</span>;
 const LocChip = ({ l }: { l: Location }) => <span className={`chip ${l === 'cloud' ? 'red' : 'green'}`}>{l === 'cloud' ? 'cloud' : 'local'}</span>;
+
+
+// A dropdown of the models the provider lists. Typed only when it listed none (not discovered or unreachable).
+// Argos loads an unloaded model on the first request, so "unloaded" is shown as a note, not a warning.
+function ModelPick({ value, onChange, found, label, argos }: { value: string; onChange: (v: string) => void; found: Found[]; label: string; argos: boolean }) {
+  if (!found.length) return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="e.g. qwen3-32b" aria-label={label} />;
+  const note = (st: Seen) => (st === 'loaded' ? 'loaded' : st === 'unloaded' ? (argos ? 'loads on request' : 'unloaded') : STATUS_TEXT[st]);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+      <option value="">(pick a model)</option>
+      {value && !found.some((m) => m.id === value) && <option value={value}>{value} (not listed by the provider)</option>}
+      {found.map((m) => <option key={m.id} value={m.id}>{m.id} · {note(m.status)}</option>)}
+    </select>
+  );
+}
 
 // ---- discovery table ---------------------------------------------------------------
 
@@ -229,8 +244,6 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   const main = providers.find((p) => p.id === providerId);
   const fb = providers.find((p) => p.id === fbProvider);
   const crossesToCloud = !!(hasFb && main && fb && main.location === 'local' && fb.location === 'cloud');
-  const listId = `models-${j.job}-main`;
-  const fbListId = `models-${j.job}-fb`;
 
   const save = () => a.run(async () => {
     const fallback = hasFb && fbProvider ? { providerId: fbProvider, model: fbModel, allowCloud: crossesToCloud && allowCloud } : null;
@@ -268,9 +281,8 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
         </select>
       </Field>
       <Field label="Model name" help={providerId && !(models[providerId]?.length) ? 'Press Discover on the provider to pick from its models.' : undefined}>
-        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. qwen3-32b" list={listId} />
+        <ModelPick value={model} onChange={setModel} found={models[providerId] ?? []} label={`${NAMES[j.job]} model`} argos={main?.kind === 'argos'} />
       </Field>
-      <datalist id={listId}>{(models[providerId] ?? []).map((m) => <option key={m.id} value={m.id}>{m.status}</option>)}</datalist>
       {status?.primary && <p className="small" style={{ margin: 0 }}>On {main?.name ?? 'the provider'}: <StatusChip s={status.primary} /></p>}
       <Field label="Extra options (JSON)" help={'Sent with every request, e.g. {"voice":"af_heart"}'}><input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="{}" /></Field>
 
@@ -285,8 +297,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
               </select>
             </Field>
             {fb && <p className="small row" style={{ margin: 0 }} data-testid={`fallback-where-${j.job}`}>The fallback runs <WhereChip l={fb.location} /></p>}
-            <Field label="Fallback model"><input value={fbModel} onChange={(e) => setFbModel(e.target.value)} list={fbListId} /></Field>
-            <datalist id={fbListId}>{(models[fbProvider] ?? []).map((m) => <option key={m.id} value={m.id}>{m.status}</option>)}</datalist>
+            <Field label="Fallback model"><ModelPick value={fbModel} onChange={setFbModel} found={models[fbProvider] ?? []} label={`${NAMES[j.job]} fallback model`} argos={fb?.kind === 'argos'} /></Field>
             {crossesToCloud && (
               <label className="row small" style={{ alignItems: 'flex-start' }}>
                 <input type="checkbox" checked={allowCloud} onChange={(e) => setAllowCloud(e.target.checked)} aria-label={`${NAMES[j.job]} allow cloud fallback`} />
@@ -337,6 +348,16 @@ export default function ModelsPage() {
 
   const reload = () => void data.reload();
   const remember = (id: string, d: Discovery) => setModels((m) => ({ ...m, [id]: d.models }));
+  // Fill every job's model dropdown on open: ask each saved provider for its models once.
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    for (const p of data.data?.providers ?? []) {
+      if (asked.current.has(p.id)) continue;
+      asked.current.add(p.id);
+      client.request<Discovery>('POST', '/api/admin/models/discover', { providerId: p.id })
+        .then((d) => { if (d.ok && d.models.length) remember(p.id, d); }).catch(() => {});
+    }
+  }, [data.data, client]);
 
   return (
     <div className="page">

@@ -22,6 +22,14 @@ body { background: #12161F; }
   --teal: #0E6B63; --teal-bg: #EEF8F6; --input: #FFFFFF;
   --font: 'IBM Plex Sans', system-ui, sans-serif; --font-head: 'IBM Plex Sans Condensed', sans-serif; --font-read: 'IBM Plex Sans', sans-serif; --font-mono: 'IBM Plex Mono', monospace;
 }
+/* The admin in dark mode: AdminLayout puts .adm-dark on <html> (sidebar: Theme). Same roles, darker values. */
+:root.adm-dark .t-admin {
+  color-scheme: dark;
+  --bg: #10171D; --panel: #172129; --panel-2: #1D2933; --side: #0C1318; --line: #2B3944; --line-strong: #3B4B58;
+  --text: #E2E9ED; --muted: #A0AEB7; --faint: #7F8E97; --accent: #4FB3A7; --accent-strong: #7FD1C7; --accent-bg: #143029;
+  --on-accent: #0B1512; --danger: #F07167; --danger-text: #F5A79F; --danger-bg: #2E1B1B; --ok: #4CAF6E; --ok-text: #93D6A8; --ok-bg: #15291D;
+  --teal: #7FD1C7; --teal-bg: #143029; --input: #121A21;
+}
 .t-fantasy, .t-admin { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 16px; min-height: 100vh; }
 .t-admin { font-size: 14px; }
 a { color: var(--teal); }
@@ -109,7 +117,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 
 /* controls */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 15px; cursor: pointer; text-decoration: none; white-space: nowrap; }
-.t-admin .btn { font-size: 14px; border-color: var(--line-strong); background: #FFFFFF; }
+.t-admin .btn { font-size: 14px; border-color: var(--line-strong); background: var(--panel); }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
