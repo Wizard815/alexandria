@@ -6,6 +6,7 @@
 // the labelling, not the world. Without an embeddings model nothing here runs.
 import type { Deps } from '../../app.ts';
 import { embed, hasJob, jobConfig } from '../../core/ai.ts';
+import { embedCached } from '../../core/embedcache.ts';
 import type { Intent, Scope } from './routing.ts';
 
 export interface Example { q: string; scope: Scope; intent: Intent }
@@ -99,7 +100,7 @@ async function bankVectors(d: Deps): Promise<Float32Array[] | null> {
   if (hit && hit.model === model) return hit.vecs;
   const vecs: Float32Array[] = [];
   for (let i = 0; i < EXAMPLES.length; i += 64) {
-    const got = await embed(d, EXAMPLES.slice(i, i + 64).map((e) => e.q));
+    const got = await embedCached(d, EXAMPLES.slice(i, i + 64).map((e) => e.q));
     if (got.length !== Math.min(64, EXAMPLES.length - i) || got.some((v) => !Array.isArray(v) || !v.length)) return null;
     for (const v of got) vecs.push(unit(v));
   }
