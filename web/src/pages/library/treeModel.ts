@@ -7,6 +7,39 @@ export interface PageRow {
   position?: number | null;
   /** A page opened through a share or a DM grant (not through a key of your own). */
   sharedWithMe?: boolean;
+  /** Set by mergeCopies: every copy of this page the viewer can open, this one first. */
+  copies?: { id: string; source: string | null; visibility?: string }[];
+  /** Set by mergeCopies (DM): some copy of this page is open to the whole party. */
+  playersSee?: boolean;
+}
+
+const plain = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * The same page can reach a world more than once: from two sources that read the same site, and from an import. One row per page:
+ * same title in the same folder, from different sources. The copy from the biggest source leads, the rest are listed on it.
+ * Two pages of one source are never merged. Nothing is hidden: `repOf` says which row a page is shown under.
+ */
+export function mergeCopies(rows: PageRow[]): { rows: PageRow[]; repOf: Map<string, string> } {
+  const size = new Map<string, number>();
+  for (const r of rows) size.set(r.source ?? '', (size.get(r.source ?? '') ?? 0) + (r.source ? 1 : 0));
+  const groups = new Map<string, PageRow[][]>();
+  for (const r of rows) {
+    const k = `${plain(r.title)}|${(r.folder ?? []).map(plain).join('/')}`;
+    const g = groups.get(k) ?? [];
+    const slot = g.find((x) => !x.some((y) => y.source === r.source));
+    if (slot) slot.push(r); else g.push([r]);
+    groups.set(k, g);
+  }
+  const repOf = new Map<string, string>();
+  const lead = new Map<string, PageRow>();
+  for (const g of groups.values()) for (const set of g) {
+    const order = [...set].sort((a, b) => (size.get(b.source ?? '') ?? 0) - (size.get(a.source ?? '') ?? 0));
+    for (const r of order) repOf.set(r.id, order[0].id);
+    lead.set(order[0].id, { ...order[0], playersSee: order.some((r) => r.visibility === 'party'), sharedWithMe: order.some((r) => r.sharedWithMe) || undefined, copies: order.map((r) => ({ id: r.id, source: r.source, visibility: r.visibility })) });
+  }
+  // Keep the order the rows came in; a child of a merged page hangs under the row its parent is shown as.
+  return { rows: rows.filter((r) => lead.has(r.id)).map((r) => { const m = lead.get(r.id)!; return m.parentId ? { ...m, parentId: repOf.get(m.parentId) ?? m.parentId } : m; }), repOf };
 }
 
 export interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number; pos: number | null }

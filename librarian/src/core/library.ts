@@ -631,13 +631,23 @@ export class Library {
     });
   }
 
+  /** Several pages, in the order asked; the ones this viewer may not open (or that are gone) are left out. The link resolver reads the whole world, so it is made once. */
+  getMany(worldId: string, pageIds: string[], viewer: Viewer) {
+    const R = pageIds.length ? this.resolver(worldId) : undefined;
+    const out: ReturnType<Library['get']>[] = [];
+    for (const id of pageIds) {
+      try { out.push(this.get(worldId, id, viewer, R)); } catch { /* not visible or gone */ }
+    }
+    return out;
+  }
+
   /**
    * One page, as the viewer's copy: players get the player copy of a shared
    * page, a model the AI copy (never classified), the broker the broker copy,
    * and the DM everything. `links` maps each mention to the page it opens
    * (only pages this viewer may open). Anything the viewer has no copy of is a 404.
    */
-  get(worldId: string, pageId: string, viewer: Viewer) {
+  get(worldId: string, pageId: string, viewer: Viewer, shared?: ReturnType<Library['resolver']>) {
     const pg = one<any>(this.db, 'SELECT p.*, s.name AS source_name, s.kind AS source_kind, s.config AS source_config, s.last_sync_at AS source_synced_at FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? AND (p.id = ? OR p.path = ?)', worldId, pageId, pageId);
     if (!pg) throw new HttpError(404, 'Page not found');
     const aud = audienceOf(viewer);
@@ -647,12 +657,12 @@ export class Library {
     let fromKey = false;
     let via = '';
     if (!copy && aud === 'player' && viewer.accountId && (via = this.liftedInfo(worldId, viewer.accountId, pg.id).get(pg.id) ?? '')) {
-      const built = this.buildCopy({ ...pg, visibility: 'party' }, JSON.parse(pg.frontmatter || '{}'), 'player', this.resolver(worldId), this.hiddenTitles(worldId, 'player'));
+      const built = this.buildCopy({ ...pg, visibility: 'party' }, JSON.parse(pg.frontmatter || '{}'), 'player', shared ?? this.resolver(worldId), this.hiddenTitles(worldId, 'player'));
       if (built) { copy = { audience: 'player', blocks: built.blocks, markdown: built.body, properties: built.properties, frontmatter: built.fm }; fromKey = true; }
     }
     if (!copy) throw new HttpError(404, 'Page not found');
     const { blocks, properties } = copy;
-    const R = this.resolver(worldId);
+    const R = shared ?? this.resolver(worldId);
     const links: Record<string, string> = {};
     // The current title of each linked page, for links the source gave no words for.
     const linkTitles: Record<string, string> = {};

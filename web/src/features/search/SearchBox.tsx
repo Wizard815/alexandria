@@ -7,14 +7,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { useNet } from '../../lib/net.ts';
+import { useLoad } from '../../lib/world.tsx';
+import { mergeCopies, type PageRow } from '../../pages/library/treeModel.ts';
+import { matches, menuEntries } from '../../layouts/DMMenu.tsx';
+import { availableLinks, groupOf } from '../../lib/playerNav.ts';
 import { escapeHtml, snippetOf, safeMarks } from './marks.ts';
 import './search.css';
 
 export const OPEN_EVENT = 'alx-search-open';
 
 interface Hit { kind: string; id: string; title: string; titleHtml?: string; snippet?: string; snippetHtml?: string; link: string; score: number }
-const LABEL: Record<string, string> = { page: 'Pages', person: 'People', term: 'Rules', transcript: 'Transcript', log: 'Session log', item: 'Items' };
-const ORDER = ['page', 'person', 'item', 'term', 'log', 'transcript'];
+const LABEL: Record<string, string> = { nav: 'Go to', page: 'Pages', person: 'People', term: 'Rules', transcript: 'Transcript', log: 'Session log', item: 'Items' };
+const ORDER = ['nav', 'page', 'person', 'item', 'term', 'log', 'transcript'];
 
 const typing = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
@@ -49,7 +53,7 @@ export default function SearchOverlay() {
 }
 
 function Box({ onClose }: { onClose: () => void }) {
-  const { w } = useWorld();
+  const { w, isDM, info } = useWorld();
   const { world = '' } = useParams();
   const nav = useNavigate();
   const online = useNet().online;
@@ -75,12 +79,28 @@ function Box({ onClose }: { onClose: () => void }) {
     return () => clearTimeout(t);
   }, [q, w, online]);
 
+  // The app's own pages: all of them before you type, then the ones that match.
+  const navHits: Hit[] = useMemo(() => {
+    const needle = q.trim();
+    const list = isDM
+      ? menuEntries().filter((e) => !needle || matches(e, needle)).map((e) => ({ to: `dm/${e.to}`, label: e.label, desc: e.desc }))
+      : availableLinks(info.settings).filter((l) => !needle || l.label.toLowerCase().includes(needle.toLowerCase())).map((l) => ({ to: l.to, label: l.label, desc: groupOf(l.to) }));
+    return list.slice(0, needle ? 6 : 99).map((e) => ({ kind: 'nav', id: e.to, title: e.label, snippet: e.desc, link: e.to, score: 0 }));
+  }, [q, isDM, info.settings]);
+  // One result per library page, however many copies of it there are.
+  const pages = useLoad<PageRow[]>(() => w.pages(), [w]);
+  const repOf = useMemo(() => mergeCopies(pages.data ?? []).repOf, [pages.data]);
+  const shown = useMemo(() => {
+    const seen = new Set<string>();
+    return [...navHits, ...(hits ?? []).filter((h) => { if (h.kind !== 'page') return true; const k = repOf.get(h.id) ?? h.id; return !seen.has(k) && !!seen.add(k); })];
+  }, [navHits, hits, repOf]);
+
   // Grouped in a fixed order; `flat` is the order the arrow keys walk.
   const groups = useMemo(() => {
     const by = new Map<string, Hit[]>();
-    for (const h of hits ?? []) by.set(h.kind, [...(by.get(h.kind) ?? []), h]);
+    for (const h of shown) by.set(h.kind, [...(by.get(h.kind) ?? []), h]);
     return ORDER.filter((k) => by.has(k)).concat([...by.keys()].filter((k) => !ORDER.includes(k))).map((k) => ({ kind: k, hits: by.get(k)! }));
-  }, [hits]);
+  }, [shown]);
   const flat = useMemo(() => groups.flatMap((g) => g.hits), [groups]);
 
   const go = useCallback((h: Hit) => { onClose(); nav(`/w/${world}/${h.link}`); }, [nav, onClose, world]);
@@ -106,9 +126,9 @@ function Box({ onClose }: { onClose: () => void }) {
         </div>
         <div className="sx-results" id="sx-results" role="listbox" ref={list} aria-busy={busy}>
           {!online && <div className="sx-hint">Search needs a connection.</div>}
-          {online && !q.trim() && <div className="sx-hint">Type to search. Use "quotes" for an exact phrase and -word to leave a word out.</div>}
+          {online && !q.trim() && <div className="sx-hint">Type to search everything, or pick a page. Use "quotes" for an exact phrase and -word to leave a word out.</div>}
           {err && <div className="sx-hint" role="alert">{err}</div>}
-          {online && q.trim() && hits && !hits.length && !busy && <div className="sx-hint">Nothing found for “{q.trim()}”.</div>}
+          {online && q.trim() && hits && !shown.length && !busy && <div className="sx-hint">Nothing found for “{q.trim()}”.</div>}
           {groups.map((g) => (
             <div key={g.kind} role="group" aria-label={LABEL[g.kind] ?? g.kind}>
               <div className="sx-group">{LABEL[g.kind] ?? g.kind}</div>

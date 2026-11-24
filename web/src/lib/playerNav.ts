@@ -14,7 +14,7 @@ const CORE: NavItem[] = ([
 ] as [string, string, string][]).map(([to, label, icon]) => ({ to, label, icon }));
 
 /** Every page, core first and then the features' (the desktop top bar shows this list as is). */
-export const ALL_LINKS: NavItem[] = [...CORE, ...F.playerNav];
+export const allLinks = (): NavItem[] => [...CORE, ...F.playerNav]; // a function: the search box (itself a feature) reads it, so the features may still be loading
 
 export const GROUPS = ['At the table', 'My character', 'World', 'Settings & account'] as const;
 export const FALLBACK_GROUP = 'More';
@@ -37,7 +37,7 @@ export function isOff(to: string, settings: unknown): boolean {
   if (to === 'my-keys') return s.sourceKeysPlayers === false;
   return false;
 }
-export const availableLinks = (settings: unknown): NavItem[] => ALL_LINKS.filter((l) => !isOff(l.to, settings));
+export const availableLinks = (settings: unknown): NavItem[] => allLinks().filter((l) => !isOff(l.to, settings));
 
 /**
  * The default tabs, in order of how much a player at the table needs them:

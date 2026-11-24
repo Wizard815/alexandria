@@ -8,6 +8,7 @@ import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
+import { copyText } from '../../lib/copy.tsx';
 
 interface ConfigField {
   key: string; label: string; type: 'text' | 'password' | 'url' | 'number' | 'boolean' | 'select' | 'textarea';
@@ -199,7 +200,7 @@ function PushKeys({ s, toast }: { s: Source; toast: (m: string) => void }) {
     await load();
   });
   const revoke = (k: PushKey) => a.run(async () => { await client.request('DELETE', `/api/admin/intake/keys/${k.id}`); toast(`Revoked ${k.label}`); await load(); });
-  const copy = (t: string) => { void navigator.clipboard?.writeText(t).then(() => toast('Copied'), () => toast('Select the text and copy it')); };
+  const copy = (t: string) => { void copyText(t).then((ok) => toast(ok ? 'Copied' : 'Select the text and copy it')); };
   const active = (keys ?? []).filter((k) => !k.revoked);
   return (
     <div className="stack tight">

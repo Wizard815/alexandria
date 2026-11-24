@@ -17,6 +17,7 @@ import DMQuickEvents from './pages/dm/QuickEvents.tsx';
 import DMParty from './pages/dm/Party.tsx';
 import DMPeople from './pages/dm/People.tsx';
 import DMRelations from './pages/dm/Relations.tsx';
+import DMSharing from './pages/dm/Sharing.tsx';
 import DMSettings from './pages/dm/Settings.tsx';
 import PlayerHome from './pages/player/Home.tsx';
 import PlayerLive from './pages/player/Live.tsx';
@@ -80,6 +81,7 @@ export function App() {
           <Route path="messages" element={<Messages />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="whiteboard" element={<Whiteboard />} />
+          <Route path="sharing" element={<DMSharing />} />
           <Route path="settings" element={<DMSettings />} />
           <Route path="connect" element={<ConnectAI />} />
           {F.dmRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}

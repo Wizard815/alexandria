@@ -4,11 +4,13 @@ import { useState } from 'react';
 import { PageHead, ErrorBox, Empty, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
+import { Link } from 'react-router-dom';
+import { mergeCopies, type PageRow } from '../library/treeModel.ts';
 import { DMLink, lsGet, lsSet, QUICK_KINDS } from './shared.tsx';
 
 const BLOCKS: [string, string][] = [
   ['here', 'Who is here'], ['purse', 'Party pouch'], ['combat', 'Combat'], ['quick', 'Quick events'],
-  ['requests', 'Requests'], ['calendar', 'Next session'], ['messages', 'Messages'],
+  ['requests', 'Requests'], ['calendar', 'Next session'], ['messages', 'Messages'], ['library', 'Library'],
 ];
 
 export default function DMTable() {
@@ -24,6 +26,11 @@ export default function DMTable() {
   const cal = useLoad(() => w.calendar(), [w], ['calendar', 'rsvp', 'reschedule']);
   const threads = useLoad(() => w.threads(), [w], ['thread', 'message']);
 
+  const pages = useLoad<PageRow[]>(() => w.pages(), [w], ['page']);
+  const lib = mergeCopies(pages.data ?? []).rows;
+  const kinds = [...lib.reduce((m, r) => m.set(r.kind, (m.get(r.kind) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const recent = [...lib].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 6);
+
   const toggle = (k: string) => {
     const next = shown.includes(k) ? shown.filter((x) => x !== k) : [...shown, k];
     setShown(next);
@@ -36,6 +43,13 @@ export default function DMTable() {
   const openQuick = (quick.data ?? []).filter((e: any) => e.status === 'open');
   const openReq = (requests.data ?? []).filter((r: any) => r.status === 'open');
   const next = (cal.data ?? []).find((s: any) => s.status === 'scheduled' && s.ends_at >= new Date().toISOString());
+  // A block with nothing in it is one link on the "All quiet" line, not an empty card.
+  const quietBlocks: Record<string, [boolean, string, string]> = {
+    combat: [!!L && !combat?.active, 'combat', 'Combat'], quick: [!!quick.data && !openQuick.length, 'quick', 'Quick events'], requests: [!!requests.data && !openReq.length, 'inbox?tab=requests', 'Requests'],
+    calendar: [!!cal.data && !next, 'calendar', 'Next session'], messages: [!!threads.data && !threads.data.length, 'messages', 'Messages'],
+  };
+  const quiet = Object.entries(quietBlocks).filter(([k, v]) => v[0] && shown.includes(k));
+  const full = (k: string) => shown.includes(k) && !quietBlocks[k]?.[0];
   const recentThreads = (threads.data ?? []).slice(0, 4);
 
   return (
@@ -54,8 +68,16 @@ export default function DMTable() {
         </div>
       )}
       <ErrorBox error={live.error || act.error} />
+      {quiet.length > 0 && <p className="small muted row" data-testid="quiet">All quiet: {quiet.map(([k, v]) => <DMLink key={k} to={v[1]} className="chip">{v[2]}</DMLink>)}</p>}
       {F.dmHome.length > 0 && <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>{F.dmHome.map((C, i) => <C key={i} />)}</div>}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+        {shown.includes('library') && lib.length > 0 && (
+          <section className="card" aria-labelledby="b-lib">
+            <div className="card-head"><h2 id="b-lib">Library</h2><DMLink to="library" className="small">{lib.length} pages →</DMLink></div>
+            <div className="kind-grid">{kinds.map(([k, n]) => <Link key={k} className="kind-tile" to={`/w/${info.slug}/dm/library?kind=${encodeURIComponent(k)}`}><b>{n}</b>{k}</Link>)}</div>
+            <div className="stack tight small">{recent.map((r) => <Link key={r.id} to={`/w/${info.slug}/dm/library?page=${encodeURIComponent(r.id)}`}>{r.title}</Link>)}</div>
+          </section>
+        )}
         {shown.includes('here') && (
           <section className="card" aria-labelledby="b-here">
             <div className="card-head"><h2 id="b-here">Who is here</h2><span className="chip">{L ? `${L.here.length} of ${L.members}` : '…'}</span></div>
@@ -93,7 +115,7 @@ export default function DMTable() {
           </section>
         )}
 
-        {shown.includes('combat') && (
+        {full('combat') && (
           <section className="card" aria-labelledby="b-combat">
             <div className="card-head"><h2 id="b-combat">Combat</h2><DMLink to="combat" className="small">Tracker →</DMLink></div>
             {combat?.active ? (
@@ -113,7 +135,7 @@ export default function DMTable() {
           </section>
         )}
 
-        {shown.includes('quick') && (
+        {full('quick') && (
           <section className="card" aria-labelledby="b-quick">
             <div className="card-head"><h2 id="b-quick">Quick events</h2><DMLink to="quick" className="small">Send one →</DMLink></div>
             {openQuick.length ? openQuick.slice(0, 4).map((e: any) => (
@@ -125,7 +147,7 @@ export default function DMTable() {
           </section>
         )}
 
-        {shown.includes('requests') && (
+        {full('requests') && (
           <section className="card" aria-labelledby="b-req">
             <div className="card-head"><h2 id="b-req">Requests</h2><DMLink to="inbox?tab=requests" className="small">Review →</DMLink></div>
             {openReq.length ? openReq.slice(0, 4).map((r: any) => (
@@ -135,7 +157,7 @@ export default function DMTable() {
           </section>
         )}
 
-        {shown.includes('calendar') && (
+        {full('calendar') && (
           <section className="card" aria-labelledby="b-cal">
             <div className="card-head"><h2 id="b-cal">Next session</h2><DMLink to="calendar" className="small">Calendar →</DMLink></div>
             {next ? (
@@ -153,7 +175,7 @@ export default function DMTable() {
           </section>
         )}
 
-        {shown.includes('messages') && (
+        {full('messages') && (
           <section className="card" aria-labelledby="b-msg">
             <div className="card-head"><h2 id="b-msg">Messages</h2><DMLink to="messages" className="small">Open →</DMLink></div>
             {recentThreads.length ? recentThreads.map((t: any) => (

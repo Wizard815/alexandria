@@ -15,6 +15,14 @@ import { normLevel } from '../../core/levels.ts';
 import { ctx, isDM, me, memberIds, names } from '../../routes/_shared.ts';
 import { auditKey } from './store.ts';
 
+/** DM: every page share in the world, for the Sharing page. Titles only, never page text. */
+export function allShares(d: Deps, worldId: string) {
+  const nm = names(d.db, worldId);
+  return all<any>(d.db, `SELECT s.page_id, s.from_id, s.to_id, s.kind, s.created_at, p.title, p.folder FROM sourcekeys_shares s
+    JOIN pages p ON p.id = s.page_id AND p.world_id = s.world_id WHERE s.world_id = ? ORDER BY s.created_at DESC LIMIT 1000`, worldId)
+    .map((x) => ({ pageId: x.page_id, title: x.title, from: x.from_id, fromName: nm[x.from_id] ?? 'Someone', to: x.to_id === '*' ? 'party' : x.to_id, toName: x.to_id === '*' ? 'Everyone' : nm[x.to_id] ?? 'Someone', kind: x.kind, createdAt: x.created_at }));
+}
+
 export function shareRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const W = (res: any): string => ctx(res).world.id;
@@ -28,11 +36,20 @@ export function shareRoutes(d: Deps) {
     } else if (normLevel(pg.visibility) === 'broker' || normLevel(pg.visibility) === 'classified') throw new HttpError(409, 'A broker or classified page cannot be shared with players');
     return pg;
   };
+  /** Why a DM's share of this page would not hold (library.ts liftedInfo skips it and pruneShares deletes it), so it is refused instead of vanishing. */
+  const refuseDead = (pg: any, res: any) => {
+    if (!isDM(res)) return;
+    if (normLevel(pg.visibility) === 'party') throw new HttpError(409, 'Everyone can already see this page');
+    if (pg.marker_level != null && pg.marker_level !== 'party') throw new HttpError(409, 'This page is marked DM-only in its own title, tags or text. Remove that mark to share it.');
+  };
   const rowsOf = (res: any, pageId: string) => {
     const nm = names(d.db, W(res));
     const rows = all<any>(d.db, 'SELECT from_id, to_id, kind, created_at FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? ORDER BY created_at', W(res), pageId)
       .filter((x) => isDM(res) || x.from_id === me(res) || x.to_id === me(res) || x.to_id === '*');
-    return { shares: rows.map((x) => ({ from: x.from_id, fromName: nm[x.from_id] ?? 'Someone', to: x.to_id === '*' ? 'party' : x.to_id, toName: x.to_id === '*' ? 'Everyone' : nm[x.to_id] ?? 'Someone', kind: x.kind, createdAt: x.created_at, mine: x.from_id === me(res) })) };
+    const pg = one<any>(d.db, 'SELECT visibility, marker_level FROM pages WHERE id = ?', pageId);
+    const everyone = pg ? normLevel(pg.visibility) === 'party' : false;
+    const locked = isDM(res) && !!pg && !everyone && pg.marker_level != null && pg.marker_level !== 'party';
+    return { everyone, locked, shares: rows.map((x) => ({ from: x.from_id, fromName: nm[x.from_id] ?? 'Someone', to: x.to_id === '*' ? 'party' : x.to_id, toName: x.to_id === '*' ? 'Everyone' : nm[x.to_id] ?? 'Someone', kind: x.kind, createdAt: x.created_at, mine: x.from_id === me(res) })) };
   };
 
   r.get('/', (req, res) => {
@@ -43,6 +60,7 @@ export function shareRoutes(d: Deps) {
 
   r.post('/', (req, res) => {
     const pg = pageOf(req, res);
+    refuseDead(pg, res);
     const w = W(res);
     const players = new Set(memberIds(d.db, w, ['player']));
     const to = req.body?.to;

@@ -3,6 +3,7 @@
 // the audience words ("DM only", "Shared with players", "Follows the source").
 import { useState } from 'react';
 import { Field, Switch } from '../../ui/index.tsx';
+import { CopyButton } from '../../lib/copy.tsx';
 
 export const SECRET = '••••';
 
@@ -164,11 +165,10 @@ export function ConnectorPicker({ connectors, kind, presetId, onPick, only }: {
 
 /** A mono block with a Copy button. */
 export function CopyBox({ text, rows = 8 }: { text: string; rows?: number }) {
-  const [done, setDone] = useState(false);
   return (
     <div className="stack tight">
       <textarea readOnly className="mono" rows={rows} value={text} onFocus={(e) => e.target.select()} aria-label="JSON" />
-      <div className="row end"><button type="button" className="btn small" onClick={() => { void navigator.clipboard?.writeText(text).then(() => setDone(true), () => setDone(false)); }}>{done ? 'Copied' : 'Copy'}</button></div>
+      <div className="row end"><CopyButton text={text} /></div>
     </div>
   );
 }
