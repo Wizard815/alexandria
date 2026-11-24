@@ -1,0 +1,67 @@
+/* The DM workspace: a toolbar and a grid of panes. The DM layout gives this page the whole window height (.main-ws). */
+.ws { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
+.ws-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 12px; border-bottom: 1px solid var(--line-strong); background: var(--side); flex: 0 0 auto; }
+.ws-tb-title { color: var(--accent); font-family: var(--font-head); letter-spacing: 0.04em; margin-right: 4px; }
+.ws-layouts-switch { display: inline-flex; gap: 4px; }
+.ws-tb-hint { margin-right: auto; }
+.ws-saved { position: relative; }
+.ws-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 80; width: min(340px, 92vw); display: flex; flex-direction: column; gap: 6px; padding: 10px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); }
+.ws-pop p { margin: 4px 0 0; }
+.ws-layout-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ws-layout-row { display: flex; align-items: center; gap: 4px; }
+.ws-layout-name { flex: 1; text-align: left; background: transparent; border: 0; color: var(--text); font: inherit; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.ws-layout-name:hover, .ws-layout-name:focus-visible { background: var(--accent-bg); }
+.ws-save { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.ws-save input[type=text] { flex: 1 1 140px; min-width: 0; }
+
+.ws-grid { flex: 1 1 auto; min-height: 0; display: grid; padding: 0; position: relative; }
+.ws-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); background: var(--bg); outline: 0; overflow: hidden; }
+.ws-pane.focused { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ws-pane.drop { box-shadow: inset 0 0 0 3px var(--accent); }
+.ws-phead { display: flex; align-items: center; gap: 6px; padding: 3px 6px; background: var(--panel-2, var(--panel)); border-bottom: 1px solid var(--line); flex: 0 0 auto; cursor: grab; }
+.ws-pane.focused .ws-phead { background: var(--accent-bg); }
+.ws-grab { color: var(--muted); }
+.ws-pick { max-width: 60%; min-width: 0; font: inherit; font-size: 14px; font-weight: 600; background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 6px; padding: 3px 4px; cursor: pointer; }
+.ws-pick:hover, .ws-pick:focus-visible { border-color: var(--line-strong); background: var(--panel); }
+.ws-sp { flex: 1; }
+.ws-act { min-width: 32px; min-height: 30px; padding: 0 6px; }
+/* Each pane scrolls on its own and keeps its own scroll position. */
+.ws-body { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; display: flex; flex-direction: column; --dock-reserve: 20px; }
+.ws-body > * { flex: 0 0 auto; }
+.ws-body.sc-body { overflow: hidden; }
+.ws-body.sc-body > * { flex: 1 1 auto; }
+.ws-empty { padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+/* A page inside a pane does not own the window: it fills the pane, with the padding of a pane. */
+.ws-body .page { max-width: none; padding: 12px 14px var(--dock-reserve); gap: 12px; }
+.ws-body .page h1 { font-size: 22px; }
+.ws-body .page-head .lead p { display: none; }
+.ws-body .lib-tree { height: min(70vh, 520px); }
+/* A page drawn as a full-screen overlay (the DM phone page) is held inside its pane. */
+.ws-body[data-page=phone] { transform: translateZ(0); }
+.ws-body[data-page=phone] .dmp { position: absolute; }
+.ws-body .ag-ask { height: auto; min-height: 300px; }
+
+.ws-divider { background: var(--side); display: flex; align-items: center; justify-content: center; touch-action: none; z-index: 5; }
+.ws-divider.v { cursor: col-resize; }
+.ws-divider.h { cursor: row-resize; }
+.ws-divider span { background: var(--line-strong); border-radius: 4px; }
+.ws-divider.v span { width: 3px; height: 44px; }
+.ws-divider.h span { height: 3px; width: 44px; }
+.ws-divider:hover span, .ws-divider:focus-visible span { background: var(--accent); }
+.ws-divider:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* The DM layout gives the workspace the whole window. */
+.main.main-ws { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.main.main-ws > .ws { flex: 1 1 auto; }
+.main.main-ws .feature-topbar { padding: 4px 12px 0; }
+
+/* On a phone the DM layout is one pane: the focused one, with no toolbar and no pane buttons. */
+@media (max-width: 760px) {
+  .ws-toolbar, .ws-divider, .ws-act { display: none; }
+  .main.main-ws { height: auto; min-height: 100vh; overflow: visible; }
+  .ws { height: auto; }
+  .ws-grid { display: block; }
+  .ws-pane { border: 0; }
+  .ws-body { overflow: visible; }
+  .ws-body .page { padding: 12px 14px var(--dock-reserve); }
+}

@@ -5,6 +5,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
 import './dmmenu.css';
 import { DM_GROUPS, DM_NAMES, type DMGroupId } from '../lib/dmnames.ts';
+import { LAYOUTS_EVENT, PAGE_MIME, PRESETS, layoutDef, loadSaved, normalize, openBeside, openIn, pageOfRoute, parse, recWorkspace, wsPath, type LayoutRec, type Workspace } from '../lib/workspace.ts';
 
 export interface MenuEntry { to: string; label: string; icon: string; desc: string; group: DMGroupId }
 
@@ -62,8 +63,23 @@ export function DMMenu({ base, badges, openDrawer }: { base: string; badges: Rec
   }, [openDrawer]);
 
   const here = loc.pathname.replace(/\/$/, '').slice(base.length + 1); // '' for the table, 'combat', ...
+  // In the workspace (ws?p=combat,sound...) a click opens the page in the focused pane instead of leaving; "beside" opens it in another.
+  const inWs = here === 'ws';
+  const ws = inWs ? parse(loc.search) : null;
+  const slug = base.split('/')[2] ?? '';
+  const [layouts, setLayouts] = useState<LayoutRec[]>(() => loadSaved(slug));
+  useEffect(() => {
+    const f = () => setLayouts(loadSaved(slug));
+    window.addEventListener(LAYOUTS_EVENT, f);
+    return () => window.removeEventListener(LAYOUTS_EVENT, f);
+  }, [slug]);
+  const openHere = (id: string) => { if (ws) nav(wsPath(base, openIn(ws, ws.f, id))); };
+  const openNext = (id: string) => {
+    const from: Workspace = ws ?? normalize({ l: 'one', p: [pageOfRoute(here)] });
+    nav(wsPath(base, openBeside(from, id)));
+  };
   const activeGroup = byTo.get(here)?.group;
-  const isOpen = (id: string) => fold[id] ?? (id === 'pinned' || id === 'run' || id === activeGroup);
+  const isOpen = (id: string) => fold[id] ?? (id === 'pinned' || id === 'run' || id === activeGroup || (id === 'layouts' && inWs));
   const toggle = (id: string) => { const next = { ...fold, [id]: !isOpen(id) }; setFold(next); write(OPEN_KEY, next); };
   const togglePin = (to: string) => {
     const next = pins.includes(to) ? pins.filter((p) => p !== to) : pins.length < MAX_PINS ? [...pins, to] : pins;
@@ -73,13 +89,20 @@ export function DMMenu({ base, badges, openDrawer }: { base: string; badges: Rec
   const link = (e: MenuEntry, opts: { pin?: boolean; desc?: boolean } = {}) => {
     const n = badges[e.to] ?? 0;
     const pinned = pins.includes(e.to);
+    const id = pageOfRoute(e.to);
+    const shown = !!ws && ws.p.includes(id);
     return (
-      <div className="nav-item" key={e.to}>
-        <NavLink to={`${base}/${e.to}`} end={e.to === ''} className="nav-link" title={e.desc} aria-label={n ? `${e.label}, ${n} waiting` : undefined}>
+      <div className={`nav-item${shown ? ' in-pane' : ''}`} key={e.to} draggable onDragStart={(ev) => { ev.dataTransfer.setData(PAGE_MIME, id); ev.dataTransfer.effectAllowed = 'copyMove'; }}>
+        <NavLink to={`${base}/${e.to}`} end={e.to === ''} className="nav-link" title={shown ? `${e.desc} (open in a pane)` : e.desc} aria-label={n ? `${e.label}, ${n} waiting` : undefined}
+          onClick={(ev) => { if (ws && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey) { ev.preventDefault(); openHere(id); } }}
+          onAuxClick={(ev) => { if (ev.button === 1) { ev.preventDefault(); openNext(id); } }}>
           <i className={`fa-solid ${e.icon} fa-fw nav-ico`} aria-hidden="true" />
           <span className="nav-text"><span>{e.label}</span>{opts.desc && e.desc && <span className="nav-desc">{e.desc}</span>}</span>
           {n > 0 && <span className="count">{n}</span>}
         </NavLink>
+        <button type="button" className="nav-beside" aria-label={`Open ${e.label} beside`} title={`Open ${e.label} beside the current page, in another pane (or middle-click)`} data-testid={`beside-${id}`} onClick={() => openNext(id)}>
+          <i className="fa-solid fa-table-columns" aria-hidden="true" />
+        </button>
         {opts.pin && (
           <button type="button" className="nav-pin" aria-pressed={pinned} aria-label={`${pinned ? 'Unpin' : 'Pin'} ${e.label}`}
             title={pinned ? `Unpin ${e.label}` : pins.length >= MAX_PINS ? `${MAX_PINS} pages are pinned; unpin one first` : `Pin ${e.label} to the top`}
@@ -125,6 +148,31 @@ export function DMMenu({ base, badges, openDrawer }: { base: string; badges: Rec
           }} />
         {!query && <kbd className="nav-kbd" aria-hidden="true">/</kbd>}
       </div>
+      {!query && (
+        <div className="nav-group nav-ws" data-group="workspace">
+          <NavLink to={`${base}/ws`} className="nav-link" title="Split the window into panes: Combat and Sound side by side, and more" data-testid="menu-workspace">
+            <i className="fa-solid fa-table-columns fa-fw nav-ico" aria-hidden="true" />
+            <span className="nav-text"><span>Workspace</span></span>
+          </NavLink>
+          <button type="button" className="nav-head nav-layouts" aria-expanded={isOpen('layouts')} aria-controls="navg-layouts" onClick={() => toggle('layouts')}>
+            <i className="fa-solid fa-bookmark fa-fw nav-ico" aria-hidden="true" />
+            <span className="nav-label">Layouts</span>
+            <i className={`fa-solid fa-chevron-${isOpen('layouts') ? 'down' : 'right'} nav-chev`} aria-hidden="true" />
+          </button>
+          {isOpen('layouts') && (
+            <div id="navg-layouts" className="nav-items">
+              {[...PRESETS, ...layouts].map((r) => (
+                <div className="nav-item" key={r.id}>
+                  <button type="button" className="nav-link nav-layout" title={`${layoutDef(r.l).label}: ${r.p.join(', ')}`} data-testid="menu-layout" onClick={() => nav(wsPath(base, recWorkspace(r)))}>
+                    <i className={`fa-solid ${layoutDef(r.l).icon} fa-fw nav-ico`} aria-hidden="true" />
+                    <span className="nav-text"><span>{r.name}</span></span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {query ? (
         <div className="nav-group nav-results" aria-label="Matching pages" data-testid="menu-results">
           {found.length ? found.map((e) => link(e, { desc: true })) : <p className="tiny faint nav-none" role="status">No page matches “{query}”.</p>}
