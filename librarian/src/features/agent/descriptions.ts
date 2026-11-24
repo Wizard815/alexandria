@@ -17,6 +17,7 @@ export const CONCISE: Record<string, string> = {
   get_inventory: 'Use to see what the party or one player carries. Example: "what is Jessamine holding".',
   ask_broker_quote: 'Use to price a question to the information broker without asking it. Example: "what would the broker charge for a rumour about the mayor".',
   list_broker_requests: 'Use to see what players asked the broker and which answers wait. Example: "which broker questions are still waiting for an answer".',
+  broker_pay_options: 'Use to see how a price can be paid: own coin or the party pouch, both balances, and whether the party pouch is allowed. Example: "can the party pouch pay the broker, and how much is in it".',
   list_broker_offers: 'Use to see the broker\'s special offers. Example: "what has the broker put up for sale".',
   library_sharing: 'Use to see what players can read in the library right now and who each page, file and folder is shared with. Example: "what have I shared with the players".',
   share_library_item: 'Use to share a library page, file or folder with everyone, chosen players or nobody, and optionally tell the players. Example: "send the harbour map to Jess and Tom".',
