@@ -26,7 +26,7 @@
 .ws-sp { flex: 1; }
 .ws-act { min-width: 32px; min-height: 30px; padding: 0 6px; }
 /* Each pane scrolls on its own and keeps its own scroll position. */
-.ws-body { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; display: flex; flex-direction: column; --dock-reserve: 20px; }
+.ws-body { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; display: flex; flex-direction: column; --dock-reserve: 68px; }
 .ws-body > * { flex: 0 0 auto; }
 .ws-body.sc-body { overflow: hidden; }
 .ws-body.sc-body > * { flex: 1 1 auto; }
