@@ -1,5 +1,5 @@
 // Admin → Models, round four: Local / Cloud per job (filtering data and remembering),
-// session mode for Argos (warm local jobs when a session starts, keep loaded, unload
+
 // when it ends, load/unload all), the VRAM view (pool math, config snippet) and the
 // fake Argos endpoints they run against. Nothing here may send world text to a model.
 import { test, before, after } from 'node:test';
@@ -10,9 +10,8 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { chainFor } from '../src/core/ai.ts';
-import { keepWarmTick } from '../src/features/models/index.ts';
+import { settled } from '../src/features/models/lifecycle.ts';
 import { argosSnippets, budgetFor, normalizePool, normalizeRunning, type PoolView } from '../src/features/models/pool.ts';
-import { argosJobModels, gameSessionRunning, getSessionSettings, localJobs, settled, warmSnapshot } from '../src/features/models/session.ts';
 import { startFakeModels, type FakeModels } from '../scripts/fake-models.ts';
 
 let base = '';
@@ -140,126 +139,6 @@ test('ModelsLocation_TheFallbackShowsItsLocationAndTheCloudRuleStays', async () 
 
 // ---- 2. Session mode -------------------------------------------------------------------
 
-test('ModelsSession_SettingsDefaultOffAndNeedBooleans', async () => {
-  const s = await ok('GET', `${A}/session`, T.admin);
-  assert.deepEqual(s.settings, { loadOnStart: false, keepLoaded: false, unloadOnEnd: false });
-  assert.equal((await call('PUT', `${A}/session`, T.admin, { unloadOnEnd: 'yes' })).status, 400);
-  assert.equal((await call('PUT', `${A}/session`, T.dm, { unloadOnEnd: true })).status, 403, 'admins only');
-});
-
-test('ModelsSession_StartingASessionWarmsEveryLocalJobInParallelAndSendsNoWorldText', async () => {
-  await allOnArgos();
-  await setJobs({ rerank: { providerId: cloudId, model: 'fake-rerank' } }); // a cloud job is never warmed by the session
-  assert.deepEqual(localJobs(deps), ['chat', 'audit', 'audio', 'voice', 'extra']);
-
-  // Off: a session start does nothing.
-  forget(fake); forget(other);
-  await startChat(); await settled(deps); await endChat();
-  assert.equal(modelCalls(fake).length + modelCalls(other).length, 0);
-
-  await setSession({ loadOnStart: true });
-  inflight = 0; peak = 0;
-  await startChat();
-  await settled(deps);
-  assert.ok(peak >= 5, `the five local jobs ran together (peak ${peak})`);
-  const paths = modelCalls(fake).map((r) => r.path).sort();
-  assert.deepEqual(paths, ['/v1/audio/speech', '/v1/audio/transcriptions', '/v1/chat/completions', '/v1/chat/completions', '/v1/embeddings']);
-  assert.equal(modelCalls(other).length, 0, 'the cloud job got nothing');
-  const snap = warmSnapshot(deps);
-  assert.deepEqual(Object.keys(snap).sort(), ['audio', 'audit', 'chat', 'extra', 'voice']);
-  for (const e of Object.values(snap)) assert.equal(e.state, 'ready');
-
-  // Nothing from the world went out: only the fixed warm-up strings.
-  const sent = JSON.stringify([...fake.requests, ...other.requests].map((r) => r.body));
-  assert.ok(!sent.includes(SECRET) && !sent.includes('Vault') && !sent.includes('Sessionland') && !sent.includes('Test night'), 'no world text in any model request');
-  await endChat();
-});
-
-test('ModelsSession_TheTablePageCardIsForTheDmOnly', async () => {
-  const dm = await ok('GET', `/api/worlds/${W}/models/ready`, T.dm);
-  assert.equal(dm.enabled, true);
-  assert.deepEqual(Object.keys(dm.jobs).sort(), ['audio', 'audit', 'chat', 'extra', 'voice']);
-  assert.equal(dm.jobs.chat.state, 'ready');
-  const asPlayer = await call('GET', `/api/worlds/${W}/models/ready`, T.player);
-  assert.ok([401, 403, 404].includes(asPlayer.status), `a player is refused (${asPlayer.status})`);
-  assert.ok(!asPlayer.text.includes('fake-chat'));
-});
-
-test('ModelsSession_AFailedWarmUpShowsAsFailedNotAsReady', async () => {
-  const dead = (await ok('POST', `${A}/providers`, T.admin, { name: 'Dead', kind: 'openai-compatible', baseUrl: 'http://127.0.0.1:1/v1', location: 'local' })).provider.id;
-  await setJobs({ extra: { providerId: dead, model: 'e' } });
-  const r = await ok('POST', `${A}/warm-all`, T.admin, {});
-  assert.equal(r.warm.extra.state, 'loading', 'answers at once, then progress is polled');
-  await settled(deps);
-  await new Promise((res) => setTimeout(res, 400));
-  const s = await ok('GET', `${A}/session`, T.admin);
-  assert.equal(s.warm.extra.state, 'failed');
-  assert.match(s.warm.extra.error, /./);
-  assert.equal(s.warm.chat.state, 'ready');
-  await setJobs({ extra: { providerId: argosId, model: 'fake-embed' } });
-  await ok('DELETE', `${A}/providers/${dead}`, T.admin);
-});
-
-test('ModelsSession_KeepLoadedPingsEveryLocalJobOnlyWhileASessionRuns', async () => {
-  await setSession({ loadOnStart: false, keepLoaded: false });
-  forget(fake);
-  await startChat();
-  assert.deepEqual(await keepWarmTick(deps), [], 'off: no job has its own keep-warm switch');
-  await setSession({ keepLoaded: true });
-  forget(fake);
-  assert.equal(gameSessionRunning(deps), true);
-  assert.deepEqual(await keepWarmTick(deps), ['chat', 'audit', 'audio', 'voice', 'extra']);
-  assert.equal(modelCalls(fake).length, 5);
-  await endChat();
-  forget(fake);
-  assert.deepEqual(await keepWarmTick(deps), [], 'no session: nothing is pinged');
-  await setSession({ keepLoaded: false });
-});
-
-// ---- unload ---------------------------------------------------------------------------------
-
-test('ModelsSession_UnloadOnEndOnlyWhenSwitchedOnAndOnlyForArgosJobModels', async () => {
-  // rerank runs on a local non-Argos provider; extra is switched off. Neither may be touched.
-  await setJobs({ rerank: { providerId: localOtherId, model: 'fake-rerank' }, extra: { enabled: false } });
-  assert.deepEqual(argosJobModels(deps).map((t) => t.model).sort(), ['fake-audit', 'fake-chat', 'fake-kokoro', 'fake-whisper']);
-
-  await setSession({ loadOnStart: false, unloadOnEnd: false });
-  forget(fake); forget(other);
-  await startChat(); await endChat(); await settled(deps);
-  assert.deepEqual(unloads(fake), [], 'switched off: nothing is unloaded');
-
-  await setSession({ unloadOnEnd: true });
-  await startChat();
-  await settled(deps);
-  assert.deepEqual(unloads(fake), [], 'a session start never unloads');
-  await endChat();
-  await settled(deps);
-  assert.deepEqual(unloads(fake).sort(), ['fake-audit', 'fake-chat', 'fake-kokoro', 'fake-whisper']);
-  assert.deepEqual(unloads(other), [], 'a non-Argos provider is never asked to unload');
-  assert.ok(fake.loaded().includes('fake-embed') && fake.loaded().includes('fake-rerank'), 'models no job uses stay loaded');
-  assert.ok(!fake.loaded().includes('fake-chat'));
-  // The unload call carries no body and no world text.
-  assert.ok(fake.requests.filter((r) => r.path.startsWith('/api/models/unload/')).every((r) => r.body === null));
-  await setSession({ unloadOnEnd: false });
-  await setJobs({ rerank: { providerId: argosId, model: 'fake-rerank' }, extra: { enabled: true } });
-});
-
-test('ModelsSession_LoadAllAndUnloadAllNowWork', async () => {
-  await allOnArgos();
-  forget(fake);
-  const u = await ok('POST', `${A}/unload-all`, T.admin, {});
-  assert.deepEqual(u.results.map((x: any) => x.model).sort(), Object.values(MODEL).sort());
-  assert.ok(u.results.every((x: any) => x.ok));
-  assert.deepEqual(fake.loaded(), []);
-  forget(fake);
-  await ok('POST', `${A}/warm-all`, T.admin, {});
-  await settled(deps);
-  await new Promise((r) => setTimeout(r, 500));
-  assert.deepEqual(fake.loaded().sort(), Object.values(MODEL).sort(), 'a request loads a model again, as Argos does');
-});
-
-// ---- 3. The VRAM view --------------------------------------------------------------------------
-
 const pool = (over: Partial<PoolView> = {}): PoolView => ({
   enabled: true, router: 'pool',
   cards: [{ id: '0', capGiB: 32, usedGiB: 24, freeGiB: 8, models: ['chat'] }, { id: '1', capGiB: 32, usedGiB: 0, freeGiB: 32, models: [] }],
@@ -329,7 +208,7 @@ test('ModelsPool_ReadsArgosShapesAndAnOffPoolIsSaidSo', () => {
 test('ModelsPool_VramEndpointReadsPoolAndRunningFromArgos', async () => {
   await allOnArgos();
   await ok('POST', `${A}/unload-all`, T.admin, {});
-  await ok('POST', `${A}/warm-all`, T.admin, {});
+  await ok('POST', `${A}/game-night/start`, T.admin, {});
   await settled(deps);
   await new Promise((r) => setTimeout(r, 500));
   const v = await ok('GET', `${A}/vram`, T.admin);
