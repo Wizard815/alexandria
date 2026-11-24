@@ -15,7 +15,7 @@ const SECRET = 'Velmira the smuggler queen keeps her treasury beneath the lighth
 const DM_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
 const OPEN_LINE = 'We arrive at the harbour of Saltmarsh as the evening bells ring';
 
-type Handler = (req: any) => any;
+type Handler = (req: any) => any | Promise<any>;
 interface Env { base: string; server: any; deps: any; T: Record<string, string>; ID: Record<string, string>; W: string; model: { queue: Handler[]; seen: any[]; hook?: (url: string) => Promise<void>; log: { url: string; start: number; end: number }[] }; call: (m: string, u: string, t?: string, b?: unknown) => Promise<{ status: number; body: any }>; ok: (m: string, u: string, t?: string, b?: unknown) => Promise<any>; }
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
@@ -30,7 +30,7 @@ async function boot(withModel: boolean): Promise<Env> {
       model.seen.push(body);
       const h = model.queue.shift();
       if (!h) return new Response('no scripted reply', { status: 500 });
-      const message = h(body);
+      const message = await h(body);
       if (message instanceof Response) return message;
       return new Response(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -840,4 +840,115 @@ test('Agent: a player\'s table helper is out of character, knows whose helper it
   assert.equal((await e.call('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' })).status, 403);
   assert.equal((await e.call('POST', `${A(e)}/chats/${h.id}/messages`, e.T.jess, { text: 'hi' })).status, 403, 'an old helper chat stops too');
   await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerHelper: true });
+});
+
+// ---- Auto mode and the approve path --------------------------------------------------------------------------------
+
+test('Agent: Auto mode is a DM-only world setting that applies to the very next action', async () => {
+  const e = env;
+  const S = `/api/worlds/${e.W}/settings`;
+  assert.equal((await e.call('PATCH', S, e.T.dm, { agentAuto: 'yes' })).status, 400, 'a non-boolean is refused');
+  assert.equal((await e.call('PATCH', S, e.T.jess, { agentAuto: true })).status, 403, 'a player cannot switch it');
+  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.dm)).auto, false);
+  const pend = async () => (await e.ok('GET', `${A(e)}/actions`, e.T.dm)).actions;
+
+  // Ask first: a card waits.
+  e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin A', hp: 7, initiative: 3 }), () => say('Proposed.'));
+  const first = await ask(e, e.T.dm, 'Add Auto Goblin A');
+  assert.deepEqual(first.chat.actions.map((a: any) => a.status), ['pending']);
+  await e.ok('POST', `${A(e)}/actions/${first.chat.actions[0].id}`, e.T.dm, { decision: 'approve' });
+
+  // Auto: the next change is applied with no card for it (a settled, automatic one is kept for the record), and the DM can read the mode.
+  await e.ok('PATCH', S, e.T.dm, { agentAuto: true });
+  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.dm)).auto, true);
+  assert.equal((await e.ok('GET', S, e.T.dm)).agentAuto, true);
+  assert.equal((await e.ok('GET', S, e.T.jess)).agentAuto, undefined, 'players never see the DM-only mode');
+  e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin B', hp: 7, initiative: 2 }), () => say('Added.'));
+  const second = await ask(e, e.T.dm, 'Add Auto Goblin B');
+  const auto = second.chat.actions.find((a: any) => a.args.name === 'Auto Goblin B');
+  assert.deepEqual([auto.status, auto.auto], ['done', true]);
+  assert.equal((await pend()).length, 0);
+  assert.ok((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.some((c: any) => c.name === 'Auto Goblin B'));
+
+  // A tool that always asks still waits, and says so.
+  e.model.queue.push(() => toolCall('delete_map_mark', { markId: 'nope' }), () => say('Proposed.'));
+  const del = await ask(e, e.T.dm, 'Remove the mark');
+  assert.deepEqual([del.chat.actions.at(-1).status, del.chat.actions.at(-1).alwaysAsk], ['pending', true]);
+  assert.ok((await e.ok('GET', `${A(e)}/status`, e.T.dm)).alwaysAsk.includes('delete_*'));
+  await e.ok('POST', `${A(e)}/actions/${del.chat.actions.at(-1).id}`, e.T.dm, { decision: 'reject' });
+
+  // Switched off again: the very next change is a card once more.
+  await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
+  e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin C', hp: 7, initiative: 1 }), () => say('Proposed.'));
+  const third = await ask(e, e.T.dm, 'Add Auto Goblin C');
+  assert.equal(third.chat.actions.at(-1).status, 'pending');
+  await e.ok('POST', `${A(e)}/actions/${third.chat.actions.at(-1).id}`, e.T.dm, { decision: 'reject' });
+});
+
+test('Agent: flipping Auto on during a reply applies to the next tool call of that same reply', async () => {
+  const e = env;
+  const S = `/api/worlds/${e.W}/settings`;
+  await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
+  // Round 1 proposes (a card); the DM switches Auto on while the model is still "thinking"; round 2 applies with no card.
+  e.model.queue.push(
+    () => toolCall('add_combatant', { name: 'Mid Goblin A', hp: 5, initiative: 4 }, 'c1'),
+    async () => { await e.ok('PATCH', S, e.T.dm, { agentAuto: true }); return toolCall('add_combatant', { name: 'Mid Goblin B', hp: 5, initiative: 3 }, 'c2'); },
+    () => say('Done.'),
+  );
+  const { chat } = await ask(e, e.T.dm, 'Add two goblins, one after the other');
+  assert.deepEqual(chat.actions.map((a: any) => [a.args.name, a.status]), [['Mid Goblin A', 'pending'], ['Mid Goblin B', 'done']]);
+  await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
+  await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.dm, { decision: 'reject' });
+});
+
+test('Agent: approving answers at once and never waits for a model turn', async () => {
+  const e = env;
+  // A change that needs no model: answered in well under a second, even while the model server is busy with a slow turn.
+  let release: () => void = () => {};
+  const slow = new Promise<void>((r) => { release = r; });
+  e.model.queue.push(() => toolCall('add_combatant', { name: 'Quick Goblin', hp: 5, initiative: 9 }), () => say('Proposed.'));
+  const { chat, id } = await ask(e, e.T.dm, 'Add Quick Goblin');
+  e.model.queue.push(async () => { await slow; return say('Finally.'); });
+  await e.ok('POST', `${A(e)}/chats/${id}/messages`, e.T.dm, { text: 'Tell me a long story' });
+  const t0 = performance.now();
+  const done = await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.dm, { decision: 'approve' });
+  const ms = performance.now() - t0;
+  assert.equal(done.status, 'done');
+  assert.ok(ms < 500, `approving took ${Math.round(ms)} ms while a model turn was running`);
+  release();
+});
+
+test('Agent: an approved change that needs the model answers "running" and finishes by itself', async () => {
+  const e = env;
+  const good = { name: 'Slow Troll', size: 'Large', type: 'giant', alignment: 'chaotic evil', cr: 5, ac: 15, hp: 84, hitDice: '8d10+40', speed: { walk: '30 ft.' }, abilities: { str: 18, dex: 8, con: 20, int: 7, wis: 9, cha: 7 }, actions: [{ name: 'Club', text: 'Melee Attack Roll: +7, reach 10 ft. Hit: 13 (2d8 + 4) Bludgeoning damage.' }] };
+  e.model.queue.push(() => toolCall('make_statblock', { prompt: 'a slow troll' }), () => say('Proposed.'));
+  const { chat, id } = await ask(e, e.T.dm, 'Make a statblock for a slow troll');
+  const act = chat.actions[0];
+  assert.equal(act.status, 'pending');
+  e.model.queue.push(async () => { await new Promise((r) => setTimeout(r, 2200)); return say(JSON.stringify(good)); });
+  const t0 = performance.now();
+  const r = await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' });
+  const ms = performance.now() - t0;
+  assert.equal(r.status, 202);
+  assert.equal(r.body.status, 'running');
+  assert.ok(ms < 2000, `the answer waited for the model (${Math.round(ms)} ms)`);
+  // A second click on the same card is refused, not run again.
+  assert.equal((await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' })).status, 409);
+  // It finishes by itself; the chat shows the card done.
+  let status = 'running';
+  for (let i = 0; i < 100 && status === 'running'; i++) {
+    await new Promise((x) => setTimeout(x, 100));
+    status = (await e.ok('GET', `${A(e)}/chats/${id}`, e.T.dm)).actions.find((a: any) => a.id === act.id).status;
+  }
+  assert.equal(status, 'done');
+});
+
+test('Agent: Stop closes a reply whose run is gone, so the chat unlocks', async () => {
+  const e = env;
+  const chat = await e.ok('POST', `${A(e)}/chats`, e.T.dm, {});
+  const { addMessage } = await import('../src/features/agent/store.ts');
+  addMessage(e.deps.db, chat.id, 'assistant', '', { status: 'working' });
+  assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.dm)).busy, true);
+  assert.equal((await e.ok('POST', `${A(e)}/chats/${chat.id}/stop`, e.T.dm, {})).stopped, false);
+  assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.dm)).busy, false);
 });
