@@ -14,6 +14,7 @@ const TOPBARS = F.FEATURES.filter((f) => f.topbar && f.id !== 'search').map((f) 
 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
+  const inWorkspace = /\/dm\/ws\/?$/.test(useLocation().pathname);
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isDM) return <Navigate to={`/w/${info.slug}`} replace />;
@@ -40,7 +41,7 @@ export function DMLayout() {
         <DMRail base={base} badges={badges} />
         <div className="dmx-col">
           <DMTabs base={base} badges={badges} />
-          <main className="main"><OfflineBanner /><Outlet /></main>
+          <main className={`main${inWorkspace ? ' main-ws' : ''}`}><OfflineBanner /><Outlet /></main>
         </div>
       </div>
       <ShareHost />

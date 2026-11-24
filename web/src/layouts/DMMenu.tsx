@@ -1,11 +1,12 @@
 // The DM's navigation: five areas on a rail that never moves, and every page of the area you are in as a strip of tabs above the page.
 // Nothing folds away. Up to eight starred pages show on the strip wherever you are. Names, icons and descriptions come from lib/dmnames.ts;
 // the search box (features/search) lists every page too.
-import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
 import './dmmenu.css';
 import { DM_GROUPS, DM_NAMES, type DMGroupId } from '../lib/dmnames.ts';
+import { LAYOUTS_EVENT, PAGE_MIME, PRESETS, layoutDef, loadSaved, normalize, openBeside, openIn, pageOfRoute, parse, recWorkspace, routeOfPage, wsPath, type LayoutRec, type Workspace } from '../lib/workspace.ts';
 
 export interface MenuEntry { to: string; label: string; icon: string; desc: string; group: DMGroupId }
 
@@ -42,14 +43,33 @@ export const matches = (e: MenuEntry, q: string): boolean => {
 export function useDMPlace(base: string) {
   const entries = useMemo(menuEntries, []);
   const loc = useLocation();
-  const route = loc.pathname.replace(/\/$/, '').slice(base.length + 1);
+  const here = loc.pathname.replace(/\/$/, '').slice(base.length + 1);
+  // In the workspace (ws?p=combat,sound...) the place is the page in the focused pane.
+  const ws = here === 'ws' ? parse(loc.search) : null;
+  const inWs = here === 'ws';
+  const route = inWs ? routeOfPage(ws?.p[ws.f] ?? 'table') : here;
   const entry = entries.find((e) => e.to === route) ?? entries.find((e) => e.to && route.startsWith(`${e.to}/`)) ?? entries[0];
-  return { entries, route, entry };
+  return { entries, route, entry, ws, inWs };
+}
+
+/** In the workspace the rail only turns the strip to another area (the panes stay); anywhere the place changes, that ends. */
+const AREA_EVENT = 'alx-dm-area';
+function useArea(entry: MenuEntry): DMGroupId {
+  const loc = useLocation();
+  const [picked, setPicked] = useState<DMGroupId | null>(null);
+  useEffect(() => setPicked(null), [loc.pathname, loc.search]);
+  useEffect(() => {
+    const f = (e: Event) => setPicked((e as CustomEvent).detail);
+    window.addEventListener(AREA_EVENT, f);
+    return () => window.removeEventListener(AREA_EVENT, f);
+  }, []);
+  return picked ?? entry.group;
 }
 
 /** The rail. Each area goes back to the page you last had open in it. On a phone it is the bottom bar. */
 export function DMRail({ base, badges }: { base: string; badges: Record<string, number> }) {
-  const { entries, entry } = useDMPlace(base);
+  const { entries, entry, inWs } = useDMPlace(base);
+  const area = useArea(entry);
   const [last, setLast] = useState<Record<string, string>>(() => read(LAST_KEY, {}));
   useEffect(() => { if (last[entry.group] !== entry.to) { const next = { ...last, [entry.group]: entry.to }; setLast(next); write(LAST_KEY, next); } }, [entry]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -60,8 +80,9 @@ export function DMRail({ base, badges }: { base: string; badges: Record<string, 
         const to = list.find((e) => e.to === last[g.id])?.to ?? list[0].to;
         const waiting = list.reduce((s, e) => s + (badges[e.to] ?? 0), 0);
         return (
-          <NavLink key={g.id} to={`${base}/${to}`} className={`dmx-area${entry.group === g.id ? ' on' : ''}`} data-group={g.id} aria-current={entry.group === g.id ? 'true' : undefined}
-            aria-label={waiting ? `${g.label}, ${waiting} waiting` : g.label} title={list.map((e) => e.label).join(' · ')}>
+          <NavLink key={g.id} to={`${base}/${to}`} className={`dmx-area${area === g.id ? ' on' : ''}`} data-group={g.id} aria-current={area === g.id ? 'true' : undefined}
+            aria-label={waiting ? `${g.label}, ${waiting} waiting` : g.label} title={list.map((e) => e.label).join(' · ')}
+            onClick={(ev) => { if (inWs && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey) { ev.preventDefault(); window.dispatchEvent(new CustomEvent(AREA_EVENT, { detail: g.id })); } }}>
             <i className={`fa-solid ${g.icon}`} aria-hidden="true" /><span>{g.label}</span>
             {waiting > 0 && <span className="nav-badge" data-testid={`group-badge-${g.id}`}>{waiting}</span>}
           </NavLink>
@@ -73,7 +94,14 @@ export function DMRail({ base, badges }: { base: string; badges: Record<string, 
 
 /** Every page of this area, and your starred pages. */
 export function DMTabs({ base, badges }: { base: string; badges: Record<string, number> }) {
-  const { entries, entry } = useDMPlace(base);
+  const { entries, entry, route, ws, inWs } = useDMPlace(base);
+  const area = useArea(entry);
+  const nav = useNavigate();
+  // In the workspace a click opens the page in the focused pane instead of leaving; "beside" (or a middle click) opens it in another.
+  const openNext = (id: string) => {
+    const from: Workspace = ws ?? normalize({ l: 'one', p: [pageOfRoute(route)] });
+    nav(wsPath(base, openBeside(from, id)));
+  };
   const [pins, setPins] = useState<string[]>(() => read<string[]>(PIN_KEY, []).filter((p) => typeof p === 'string').slice(0, MAX_PINS));
   const pinned = pins.includes(entry.to);
   const toggle = () => {
@@ -82,22 +110,66 @@ export function DMTabs({ base, badges }: { base: string; badges: Record<string, 
   };
   const tab = (e: MenuEntry, pin = false) => {
     const n = badges[e.to] ?? 0;
+    const id = pageOfRoute(e.to);
+    const inPane = !!ws && ws.p.includes(id);
     return (
-      <NavLink key={e.to} to={`${base}/${e.to}`} end={e.to === ''} className="dmx-tab" title={e.desc} aria-label={n ? `${e.label}, ${n} waiting` : undefined}>
-        <i className={`fa-solid ${pin ? 'fa-star' : e.icon}`} aria-hidden="true" /><span>{e.label}</span>{n > 0 && <span className="nav-badge">{n}</span>}
-      </NavLink>
+      <span className="dmx-tabwrap" key={e.to} draggable onDragStart={(ev) => { ev.dataTransfer.setData(PAGE_MIME, id); ev.dataTransfer.effectAllowed = 'copyMove'; }}>
+        <NavLink to={`${base}/${e.to}`} end={e.to === ''} className={({ isActive }) => `dmx-tab${isActive || inPane ? ' active' : ''}`} title={inPane ? `${e.desc} (open in a pane)` : e.desc} aria-label={n ? `${e.label}, ${n} waiting` : undefined} draggable={false}
+          onClick={(ev) => { if (ws && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey) { ev.preventDefault(); nav(wsPath(base, openIn(ws, ws.f, id))); } }}
+          onAuxClick={(ev) => { if (ev.button === 1) { ev.preventDefault(); openNext(id); } }}>
+          <i className={`fa-solid ${pin ? 'fa-star' : e.icon}`} aria-hidden="true" /><span>{e.label}</span>{n > 0 && <span className="nav-badge">{n}</span>}
+        </NavLink>
+        <button type="button" className="dmx-beside" aria-label={`Open ${e.label} beside`} title={`Open ${e.label} beside the current page, in another pane (or middle-click)`} data-testid={`beside-${id}`} onClick={() => openNext(id)}><i className="fa-solid fa-table-columns" aria-hidden="true" /></button>
+      </span>
     );
   };
   // A starred page of this area already has its tab.
-  const elsewhere = pins.map((p) => entries.find((e) => e.to === p)).filter((e): e is MenuEntry => !!e && e.group !== entry.group);
+  const elsewhere = pins.map((p) => entries.find((e) => e.to === p)).filter((e): e is MenuEntry => !!e && e.group !== area);
   return (
-    <nav className="dmx-tabs" aria-label={`${DM_GROUPS.find((g) => g.id === entry.group)?.label ?? ''} pages`} data-testid="dm-tabs">
-      {entries.filter((e) => e.group === entry.group).map((e) => tab(e))}
+    <nav className="dmx-tabs" aria-label={`${DM_GROUPS.find((g) => g.id === area)?.label ?? ''} pages`} data-testid="dm-tabs">
+      {entries.filter((e) => e.group === area).map((e) => tab(e))}
       {elsewhere.length > 0 && <span className="dmx-pins" data-testid="dm-pins">{elsewhere.map((e) => tab(e, true))}</span>}
+      <span className="dmx-tools">
+      <WorkspaceMenu base={base} inWs={inWs} />
       <button type="button" className="dmx-star" aria-pressed={pinned} aria-label={`${pinned ? 'Unpin' : 'Pin'} ${entry.label}`} disabled={!pinned && pins.length >= MAX_PINS}
         title={pinned ? `Unpin ${entry.label}` : pins.length >= MAX_PINS ? `${MAX_PINS} pages are pinned; unpin one first` : `Keep ${entry.label} on this strip wherever you are`} onClick={toggle}>
         <i className={`${pinned ? 'fa-solid' : 'fa-regular'} fa-star`} aria-hidden="true" />
       </button>
+      </span>
     </nav>
+  );
+}
+
+/** Split the window into panes: the workspace, and its preset and saved layouts. */
+function WorkspaceMenu({ base, inWs }: { base: string; inWs: boolean }) {
+  const nav = useNavigate();
+  const slug = base.split('/')[2] ?? '';
+  const [open, setOpen] = useState(false);
+  const [layouts, setLayouts] = useState<LayoutRec[]>(() => loadSaved(slug));
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const f = () => setLayouts(loadSaved(slug));
+    window.addEventListener(LAYOUTS_EVENT, f);
+    return () => window.removeEventListener(LAYOUTS_EVENT, f);
+  }, [slug]);
+  useEffect(() => {
+    if (!open) return;
+    const out = (e: Event) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  return (
+    <span className="dmx-pop-wrap dmx-ws" ref={box}>
+      <NavLink to={`${base}/ws`} className={`dmx-tab${inWs ? ' active' : ''}`} title="Split the window into panes: Combat and Sound side by side, and more" data-testid="menu-workspace"><i className="fa-solid fa-table-columns" aria-hidden="true" /><span>Workspace</span></NavLink>
+      <button type="button" className="dmx-star nav-layouts" aria-label="Layouts" title="Layouts" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><i className="fa-solid fa-chevron-down" aria-hidden="true" /></button>
+      {open && (
+        <div className="dmx-pop dmx-menu dmx-layouts" role="menu">
+          {[...PRESETS, ...layouts].map((r) => (
+            <button key={r.id} type="button" role="menuitem" title={`${layoutDef(r.l).label}: ${r.p.join(', ')}`} data-testid="menu-layout" onClick={() => { setOpen(false); nav(wsPath(base, recWorkspace(r))); }}><i className={`fa-solid ${layoutDef(r.l).icon}`} aria-hidden="true" /> {r.name}</button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }

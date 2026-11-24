@@ -28,7 +28,13 @@
 .dmx-tab:hover { background: var(--panel-2); color: var(--text); }
 .dmx-tab.active { background: var(--accent-bg); color: var(--accent-strong); } .dmx-tab.active i { color: var(--accent); }
 .dmx-pins { display: inline-flex; flex-wrap: wrap; gap: 2px; margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--line); }
-.dmx-star { margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
+.dmx-tools { margin-left: auto; display: inline-flex; align-items: center; } .dmx-layouts { left: auto; right: 0; }
+.dmx-tabwrap { position: relative; display: inline-flex; }
+.dmx-beside { position: absolute; right: 1px; top: 3px; width: 22px; height: 22px; border: 0; border-radius: 5px; background: var(--panel-2); color: var(--accent); font-size: 11px; cursor: pointer; opacity: 0; pointer-events: none; }
+.dmx-tabwrap:hover .dmx-beside, .dmx-beside:focus-visible { opacity: 1; pointer-events: auto; }
+/* The workspace fills what the bar and the strip leave. */
+.dmx .main.main-ws { height: calc(100vh - 48px - 40px); padding-bottom: 0; }
+.dmx-star { width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
 .dmx-star[aria-pressed="true"] { color: var(--accent); }
 /* Denser pages: the page's own heading is already on the tab, so it is small. */
 .dmx .page { padding: 12px 16px var(--dock-reserve); gap: 12px; }
@@ -54,7 +60,7 @@
 .player .topbar .topnav { flex: 1 1 100%; }
 @media (max-width: 1100px) { .dmx-search span, .dmx-search kbd { display: none; } .dmx-search { flex: 0 0 auto; } }
 @media (max-width: 760px) {
-  .dmx-top { height: auto; min-height: 48px; flex-wrap: nowrap; padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 6px; gap: 6px; }
+  .dmx-top { height: auto; min-height: calc(48px + var(--safe-top)); flex-wrap: nowrap; padding: calc(4px + var(--safe-top)) 10px 4px; gap: 6px; }
   .dmx-end [data-testid="world-date"], .dmx-end .act-badge-wrap { display: none; }
   .dmx-end [data-testid="share-open"] span { display: none; }
   .dmx-search, .dmx-session, .dmx-end .btn, .dmx-end .icon-btn { min-height: 40px; min-width: 40px; }
@@ -63,6 +69,7 @@
   .dmx-rail { position: fixed; left: 0; right: 0; bottom: 0; top: auto; height: auto; z-index: 30; flex-direction: row; padding: 2px 4px env(safe-area-inset-bottom, 0px); border-right: 0; border-top: 1px solid var(--line-strong); }
   .dmx-area { flex: 1; padding: 6px 2px; font-size: 11px; min-height: 48px; }
   .dmx-tabs { position: static; flex-wrap: nowrap; overflow-x: auto; } .dmx-tab { min-height: 40px; } .dmx-star { flex: 0 0 40px; height: 40px; }
+  .dmx-ws, .dmx-beside { display: none; } .dmx .main.main-ws { height: auto; min-height: 100vh; }
   .dmx-pop { position: fixed; left: 12px; right: 12px; top: 60px; width: auto; }
   body:has(.dmx-rail) { --dock-reserve: calc(132px + env(safe-area-inset-bottom, 0px)); }
   body:has(.dmx-rail) .dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
