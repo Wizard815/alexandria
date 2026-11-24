@@ -12,7 +12,8 @@ export function DMLayout() {
   // On a phone the side menu is a drawer behind the top bar's menu button.
   const [drawer, setDrawer] = useState(false);
   const loc = useLocation();
-  useEffect(() => setDrawer(false), [loc.pathname]);
+  useEffect(() => setDrawer(false), [loc.pathname, loc.search]);
+  const inWorkspace = /\/dm\/ws\/?$/.test(loc.pathname);
   const openDrawer = useCallback(() => setDrawer(true), []);
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
@@ -38,7 +39,7 @@ export function DMLayout() {
           <button type="button" className="btn small" onClick={() => void signOut()}>Sign out</button>
         </div>
       </nav>
-      <main className="main"><OfflineBanner />{F.topbars.length > 0 && <div className="feature-topbar">{F.topbars.map((C, i) => <C key={i} />)}</div>}<Outlet /></main>
+      <main className={`main${inWorkspace ? ' main-ws' : ''}`}><OfflineBanner />{F.topbars.length > 0 && <div className="feature-topbar">{F.topbars.map((C, i) => <C key={i} />)}</div>}<Outlet /></main>
       {F.overlays.map((C, i) => <C key={i} />)}
     </div>
   );
