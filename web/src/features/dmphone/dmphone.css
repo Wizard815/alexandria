@@ -4,7 +4,7 @@
 .dmp * { box-sizing: border-box; }
 .dmp-col { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; max-width: 560px; margin: 0 auto; width: 100%; }
 .dmp.wide .dmp-col { max-width: none; margin: 0; }
-.dmp-top { display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px; border-bottom: 1px solid var(--line); background: var(--side); min-height: 48px; }
+.dmp-top { display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--safe-top)) 14px 8px; border-bottom: 1px solid var(--line); background: var(--side); min-height: 48px; }
 .dmp-top .brand { font-family: var(--font-head); font-weight: 700; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dmp-top .date { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .dmp-body { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 12px 20px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; }
@@ -18,7 +18,7 @@
 .dmp-main { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .dmp-main.rail { flex-direction: row; }
 .dmp-tabs { display: flex; background: var(--side); border-top: 1px solid var(--line-strong); padding-bottom: env(safe-area-inset-bottom, 0px); flex: 0 0 auto; }
-.dmp-main.rail .dmp-tabs { order: -1; flex-direction: column; border-top: 0; border-right: 1px solid var(--line-strong); width: 84px; padding: env(safe-area-inset-top, 0px) 0 0; }
+.dmp-main.rail .dmp-tabs { order: -1; flex-direction: column; border-top: 0; border-right: 1px solid var(--line-strong); width: 84px; padding: var(--safe-top) 0 0; }
 .dmp-tab { position: relative; flex: 1 1 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 2px; }
 .dmp-main.rail .dmp-tab { flex: 0 0 auto; min-height: 72px; }
 .dmp-tab i { font-size: 19px; }
@@ -112,7 +112,7 @@
 .dmp .ag-sources { margin: 6px 0 0; padding-left: 16px; }
 .dmp .ag-sources a { display: inline-block; padding: 4px 0; }
 /* the notice for a spoken "Minerva, ..." request sits under the top bar, clear of the message box */
-.dmp .ag-toast { position: fixed; left: 12px; right: 12px; top: calc(64px + env(safe-area-inset-top, 0px)); bottom: auto; max-width: 536px; margin: 0 auto; z-index: 1030; align-items: center; }
+.dmp .ag-toast { position: fixed; left: 12px; right: 12px; top: calc(64px + var(--safe-top)); bottom: auto; max-width: 536px; margin: 0 auto; z-index: 1030; align-items: center; }
 .dmp .ag-toast-open { flex: 1 1 0; min-height: 48px; font-size: 15px; justify-content: center; }
 .dmp .ag-toast .ag-x { min-width: 48px; min-height: 48px; font-size: 22px; }
 .dmp .msg { max-width: 92%; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); overflow-wrap: anywhere; }
