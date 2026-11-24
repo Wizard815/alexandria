@@ -6,7 +6,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
 import './dmmenu.css';
 import { DM_GROUPS, DM_NAMES, type DMGroupId } from '../lib/dmnames.ts';
-import { LAYOUTS_EVENT, PAGE_MIME, PRESETS, layoutDef, loadSaved, normalize, openBeside, openIn, pageOfRoute, parse, recWorkspace, routeOfPage, wsPath, type LayoutRec, type Workspace } from '../lib/workspace.ts';
+import { LAYOUTS_EVENT, PAGE_MIME, PRESETS, layoutDef, loadSaved, normalize, openBeside, openIn, pageOfRoute, parse, recWorkspace, routeOfPage, workspaceHidden, wsPath, type LayoutRec, type Workspace } from '../lib/workspace.ts';
 
 export interface MenuEntry { to: string; label: string; icon: string; desc: string; group: DMGroupId }
 
@@ -146,9 +146,10 @@ function WorkspaceMenu({ base, inWs }: { base: string; inWs: boolean }) {
   const slug = base.split('/')[2] ?? '';
   const [open, setOpen] = useState(false);
   const [layouts, setLayouts] = useState<LayoutRec[]>(() => loadSaved(slug));
+  const [hidden, setHidden] = useState(workspaceHidden);
   const box = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    const f = () => setLayouts(loadSaved(slug));
+    const f = () => { setLayouts(loadSaved(slug)); setHidden(workspaceHidden()); };
     window.addEventListener(LAYOUTS_EVENT, f);
     return () => window.removeEventListener(LAYOUTS_EVENT, f);
   }, [slug]);
@@ -159,6 +160,8 @@ function WorkspaceMenu({ base, inWs }: { base: string; inWs: boolean }) {
     document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
   }, [open]);
+  useEffect(() => { document.body.classList.toggle('ws-hidden', hidden); }, [hidden]);
+  if (hidden && !inWs) return null;
   return (
     <span className="dmx-pop-wrap dmx-ws" ref={box}>
       <NavLink to={`${base}/ws`} className={`dmx-tab${inWs ? ' active' : ''}`} title="Split the window into panes: Combat and Sound side by side, and more" data-testid="menu-workspace"><i className="fa-solid fa-table-columns" aria-hidden="true" /><span>Workspace</span></NavLink>

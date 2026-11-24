@@ -151,7 +151,7 @@ function Island() {
 
   const last = lines[lines.length - 1];
   const style = useMemo<React.CSSProperties>(() => {
-    const s: React.CSSProperties = { opacity: phone ? 1 : prefs.opacity / 100, ['--au-colour' as any]: COLOURS[prefs.colour] ?? COLOURS.gold, ['--au-size' as any]: `${prefs.size}px` };
+    const s: React.CSSProperties = { ['--au-bg' as any]: `${prefs.opacity}%`, ['--au-colour' as any]: COLOURS[prefs.colour] ?? COLOURS.gold, ['--au-size' as any]: `${prefs.size}px` };
     if (phone) return s;
     if (prefs.min) { if (prefs.corner) Object.assign(s, corner(prefs.corner)); else Object.assign(s, { left: prefs.x, top: prefs.y }); return s; }
     Object.assign(s, { width: prefs.w, height: prefs.h });
@@ -186,6 +186,7 @@ function Island() {
         <div className="au-head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
           <strong>Transcript</strong>{st.recording && <span className="au-rec-dot" />}<span className="au-sp" />
           {viewBtn}<Controls p={prefs} patch={patch} />
+          <button type="button" className="au-btn" aria-pressed={prefs.opacity < 100} title={prefs.opacity < 100 ? 'Make the background solid' : 'Make the background see-through'} aria-label="See-through transcript" onClick={() => patch({ opacity: prefs.opacity < 100 ? 100 : 15 })}><i className="fa-solid fa-circle-half-stroke" aria-hidden="true" /></button>
           <button type="button" className="au-btn" onClick={() => patch({ min: true })} aria-label="Minimise the transcript">—</button>
         </div>
       )} />
@@ -205,7 +206,7 @@ function Controls({ p, patch, phone }: { p: Prefs; patch: (x: Partial<Prefs>) =>
       <button type="button" className="au-btn" aria-expanded={open} aria-label="Look and feel" onClick={() => setOpen((o) => !o)}>Aa</button>
       {open && (
         <div className="au-menu" onPointerDown={(e) => e.stopPropagation()}>
-          <label>Opacity <input type="range" min={20} max={100} value={p.opacity} onChange={(e) => patch({ opacity: Number(e.target.value) })} /></label>
+          <label>Background: {p.opacity === 0 ? 'clear' : p.opacity === 100 ? 'solid' : `${p.opacity}%`} <input type="range" min={0} max={100} value={p.opacity} aria-label="Transcript background" onChange={(e) => patch({ opacity: Number(e.target.value) })} /></label>
           <label>Text size <input type="range" min={11} max={26} value={p.size} onChange={(e) => patch({ size: Number(e.target.value) })} /></label>
           <label><input type="checkbox" checked={p.autoCards} onChange={(e) => patch({ autoCards: e.target.checked })} /> Show rule cards when a rule is said</label>
           <div className="au-swatches" role="group" aria-label="Bubble colour">

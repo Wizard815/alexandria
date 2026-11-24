@@ -15,7 +15,7 @@ import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelFo
 import { createHash } from 'node:crypto';
 import { reconcile } from '../features/search/scopes.ts';
 import { HttpError, id, now } from './util.ts';
-import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
+import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, indexedPages, unindexPage, unindexRow, type IndexRow } from './pagesearch.ts';
 
 const CLEAR_COPIES = ['player', 'broker', 'ai'].flatMap((p) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${p}_${c} = NULL`)).join(', ');
 const ALL_SCOPES: Scope[] = ['dm', 'party', 'broker', 'ai'];
@@ -499,9 +499,20 @@ export class Library {
     const hiddenBy: Record<CopyAud, Set<string>> = { player: this.hiddenTitles(worldId, 'player'), broker: this.hiddenTitles(worldId, 'broker'), ai: this.hiddenTitles(worldId, 'ai') };
     const R = this.resolver(worldId);
     const sel = only?.length ? `AND id IN (${only.map(() => '?').join(',')})` : '';
-    const pages = all<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, properties, source_id, aliases, ai_body FROM pages WHERE world_id = ? ${sel}`, worldId, ...(only ?? []));
+    const copyCols = COPY_AUDS.flatMap((a) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${COPY_PREFIX[a]}${c}`)).join(', ');
+    const pages = all<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, properties, source_id, aliases, ${copyCols} FROM pages WHERE world_id = ? ${sel}`, worldId, ...(only ?? []));
+    this.db.exec('CREATE TABLE IF NOT EXISTS mirror_state (page_id TEXT PRIMARY KEY, hash TEXT NOT NULL)');
+    // A missing folder (a restored database, a new data folder) is filled again from scratch.
+    const dir = this.worldDir(worldId);
+    const filesThere = !dir || fs.existsSync(path.join(dir, 'vault'));
+    const whole = !only?.length;
+    const mirrored = new Map<string, string>((only?.length || !filesThere ? [] : all<any>(this.db, 'SELECT page_id, hash FROM mirror_state')).map((r) => [r.page_id, r.hash]));
     tx(this.db, () => {
-      if (!only?.length) for (const a of COPY_AUDS) unindexWorld(this.db, COPY_SCOPE[a], worldId);
+      // A whole world: one look at each index, then only what really changed is written. A page that comes out as it already is costs nothing.
+      const held = {} as Record<CopyAud, Map<string, IndexRow> | null>;
+      for (const a of COPY_AUDS) held[a] = !whole && only!.length < 40 ? null : indexedPages(this.db, COPY_SCOPE[a], worldId);
+      const here = new Set(pages.map((p) => p.id));
+      if (whole) for (const a of COPY_AUDS) for (const [pid, row] of held[a]!) if (!here.has(pid)) unindexRow(this.db, COPY_SCOPE[a], pid, row.rowid);
       for (const pg of pages) {
         const fm = JSON.parse(pg.frontmatter || '{}');
         const sets: string[] = [];
@@ -509,16 +520,24 @@ export class Library {
         let playerBuilt: BuiltCopy | null = null;
         let aiBody: string | null = null;
         for (const aud of COPY_AUDS) {
-          if (only?.length) unindexPage(this.db, COPY_SCOPE[aud], pg.id);
           const c = this.buildCopy(pg, fm, aud, R, hiddenBy[aud]);
           const pre = COPY_PREFIX[aud];
-          sets.push(`${pre}frontmatter = ?`, `${pre}body = ?`, `${pre}blocks = ?`, `${pre}properties = ?`);
-          vals.push(c ? JSON.stringify(c.fm) : null, c ? c.body : null, c ? JSON.stringify(c.blocks) : null, c ? JSON.stringify(c.properties) : null);
-          if (c) indexPage(this.db, COPY_SCOPE[aud], pg.id, worldId, pg.title, playerAliases(pg.origin, c.fm, JSON.parse(pg.aliases || '[]'), hiddenBy[aud]), c.body, factsText(c.properties));
+          const next = [c ? JSON.stringify(c.fm) : null, c ? c.body : null, c ? JSON.stringify(c.blocks) : null, c ? JSON.stringify(c.properties) : null];
+          const same = ['frontmatter', 'body', 'blocks', 'properties'].every((k, i) => (pg[`${pre}${k}`] ?? null) === next[i]);
+          if (!same) {
+            sets.push(`${pre}frontmatter = ?`, `${pre}body = ?`, `${pre}blocks = ?`, `${pre}properties = ?`);
+            vals.push(...next);
+          }
+          const row = held[aud] ? held[aud]!.get(pg.id) ?? null : undefined;
+          if (c) {
+            const aliases = playerAliases(pg.origin, c.fm, JSON.parse(pg.aliases || '[]'), hiddenBy[aud]);
+            if (!(same && row && row.title === pg.title && row.aliases === aliases.join('\n'))) indexPage(this.db, COPY_SCOPE[aud], pg.id, worldId, pg.title, aliases, c.body, factsText(c.properties), row);
+          } else if (row === undefined) unindexPage(this.db, COPY_SCOPE[aud], pg.id);
+          else if (row) unindexRow(this.db, COPY_SCOPE[aud], pg.id, row.rowid);
           if (aud === 'player') playerBuilt = c;
           if (aud === 'ai') aiBody = c ? c.body : null;
         }
-        run(this.db, `UPDATE pages SET ${sets.join(', ')} WHERE id = ?`, ...vals, pg.id);
+        if (sets.length) run(this.db, `UPDATE pages SET ${sets.join(', ')} WHERE id = ?`, ...vals, pg.id);
         // The semantic index of the DM scope is cut from the AI copy: when that changes, its chunks go and are made again.
         // A page with no AI copy (classified) or no player copy (no longer shared) keeps no chunks of either: they were cut from text those readers may no longer have.
         if (aiBody !== pg.ai_body || aiBody === null) {
@@ -534,11 +553,41 @@ export class Library {
           } catch { /* no search tables yet */ }
         }
         const pc: BuiltCopy | null = playerBuilt;
-        this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc ? { fm: pc.fm, body: pc.body, blocks: pc.blocks, properties: pc.properties } : null);
+        // The files on disk are written again only when what they hold changed (or one is missing).
+        const hash = createHash('sha1').update(JSON.stringify([pg.path, pg.visibility, fm, pg.body, pc ? [pc.fm, pc.body, pc.blocks, pc.properties] : null])).digest('hex');
+        if (mirrored.get(pg.id) !== hash) {
+          this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc ? { fm: pc.fm, body: pc.body, blocks: pc.blocks, properties: pc.properties } : null);
+          run(this.db, 'INSERT OR REPLACE INTO mirror_state (page_id, hash) VALUES (?, ?)', pg.id, hash);
+        }
       }
     });
     this.changed(worldId, only?.length ? only : undefined);
     this.touchClassified();
+  }
+
+  /**
+   * Some pages became MORE shared (a page read in full for the first time, say): rebuild them and every page that names them, so links to them
+   * come back. Over-approximates (any mention of a title, alias, file name or id). Never for a page that became less shared: that takes the whole world.
+   */
+  rebuildAround(worldId: string, ids: string[], also: string[] = []) {
+    if (!ids.length) return;
+    const marks = ids.map(() => '?').join(',');
+    const terms = new Set<string>();
+    for (const p of all<any>(this.db, `SELECT title, aliases, path, external_id FROM pages WHERE world_id = ? AND id IN (${marks})`, worldId, ...ids)) {
+      const noExt = String(p.path).replace(/\.md$/i, '');
+      for (const t of [p.title, ...JSON.parse(p.aliases || '[]'), noExt, noExt.split('/').pop(), p.external_id, String(p.external_id ?? '').split('#')[0]]) {
+        const k = String(t ?? '').trim().toLowerCase();
+        if (k.length > 1) { terms.add(k); terms.add(JSON.stringify(k).slice(1, -1)); }
+      }
+    }
+    const list = [...terms];
+    const near = new Set([...ids, ...also]);
+    for (const r of all<any>(this.db, 'SELECT id, title, body, blocks, properties, frontmatter, aliases FROM pages WHERE world_id = ?', worldId)) {
+      if (near.has(r.id)) continue;
+      const hay = `${r.title}\n${r.body}\n${r.blocks}\n${r.properties}\n${r.frontmatter}\n${r.aliases}`.toLowerCase();
+      if (list.some((t) => hay.includes(t))) near.add(r.id);
+    }
+    this.rebuildPlayerCopies(worldId, [...near]);
   }
 
   /**

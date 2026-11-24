@@ -26,7 +26,7 @@ import type { Deps } from '../../app.ts'; // type only: a runtime import would d
 import { all, one, run } from '../../core/db.ts';
 import { requireDM, type Auth } from '../../core/auth.ts';
 import { HttpError, now } from '../../core/util.ts';
-import { JOBS, chat, chainFor, gateStats, embed, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
+import { ALL_JOBS, CHAT_PARTS, JOBS, activeJobs, ownJobConfig, chat, chainFor, gateStats, embed, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
 import { argosWebUrl, discover, fetchVoices, listModels, type ModelStatus } from './argos.ts';
 import { testJob } from './probe.ts';
 import { argosSnippets, budgetFor, readArgos } from './pool.ts';
@@ -48,6 +48,9 @@ const USES: Record<Job, string> = {
   voice: 'Text to speech',
   extra: 'Embeddings for search and matching',
   rerank: 'Optional: reorders the top search results (stays out of the way when slow)',
+  dm: 'The DM’s assistant. Not set: the Chat model',
+  player: 'What players ask: the broker and their helper. Not set: the Chat model',
+  bible: 'Reading pages for the story bible. Not set: the Chat model',
 };
 
 const saved = (d: Deps, job: Job) => one<Row>(d.db, 'SELECT * FROM models_jobs WHERE job = ?', job);
@@ -112,7 +115,7 @@ function view(d: Deps, job: Job) {
   const r = saved(d, job);
   const effective = jobConfig(d, job);
   const p = r ? getProvider(d.db, r.provider_id) : undefined;
-  const source = r && r.enabled && (p || r.base_url) ? 'saved' : effective ? 'env' : 'none';
+  const source = r && r.enabled && (p || r.base_url) ? 'saved' : CHAT_PARTS.includes(job) && !ownJobConfig(d, job) ? 'chat' : effective ? 'env' : 'none';
   const fp = r ? getProvider(d.db, r.fallback_provider_id) : undefined;
   const chain = chainFor(d, job);
   // A cloud fallback behind a local provider stays unused until the admin allows text to leave this server.
@@ -200,7 +203,7 @@ export async function keepWarmTick(d: Deps): Promise<Job[]> {
   if (sessionIsLive(d)) for (const r of all<Row>(d.db, 'SELECT job FROM models_jobs WHERE keep_warm = 1 AND enabled = 1')) want.add(r.job as Job);
   if (getSessionSettings(d.db).keepLoaded && gameSessionRunning(d)) for (const j of localJobs(d)) want.add(j);
   const warmed: Job[] = [];
-  for (const job of JOBS) {
+  for (const job of activeJobs(d)) {
     if (!want.has(job) || !jobConfig(d, job)) continue;
     await testJob(pinned(d, 'primary'), job, 20_000);
     warmed.push(job);
@@ -266,7 +269,7 @@ const feature: Feature = {
   adminMount: 'models',
   adminRoutes: (d) => {
     const r = Router();
-    const all6 = () => ({ jobs: JOBS.map((j) => view(d, j)), providers: listProviders(d.db).map((p) => providerView(d, p)) });
+    const all6 = () => ({ jobs: ALL_JOBS.map((j) => view(d, j)), providers: listProviders(d.db).map((p) => providerView(d, p)) });
     r.get('/', (_req, res) => res.json(all6()));
 
     r.get('/status', async (_req, res) => res.json(await statusOf(d)));
@@ -349,7 +352,7 @@ const feature: Feature = {
       const entries: [string, any][] = Array.isArray(body) ? body.map((b: any) => [String(b?.job), b]) : Object.entries(body);
       const plan: { job: Job; row: Row; setKeyOn?: { id: string; key: string }; cloudOn?: boolean }[] = [];
       for (const [name, b] of entries) {
-        if (!(JOBS as string[]).includes(name)) throw new HttpError(400, `Unknown job "${name.slice(0, 20)}"`);
+        if (!(ALL_JOBS as string[]).includes(name)) throw new HttpError(400, `Unknown job "${name.slice(0, 20)}"`);
         const job = name as Job;
         if (!b || typeof b !== 'object') throw new HttpError(400, `Settings for ${job} must be an object`);
         const cur = saved(d, job);
@@ -450,7 +453,7 @@ const feature: Feature = {
     });
     r.get('/vram', async (_req, res) => {
       const byProvider = new Map<string, { job: string; model: string }[]>();
-      for (const j of JOBS) {
+      for (const j of activeJobs(d)) {
         const c = jobConfig(d, j);
         const p = c?.providerId ? getProvider(d.db, c.providerId) : undefined;
         if (!c || !p || p.kind !== 'argos') continue;
@@ -475,7 +478,7 @@ const feature: Feature = {
 
     const jobParam = (req: any): Job => {
       const job = String(req.params.job) as Job;
-      if (!JOBS.includes(job)) throw new HttpError(404, 'No such job');
+      if (!ALL_JOBS.includes(job)) throw new HttpError(404, 'No such job');
       return job;
     };
     const pin = (req: any): 'primary' | 'fallback' => (req.query.which === 'fallback' ? 'fallback' : 'primary');

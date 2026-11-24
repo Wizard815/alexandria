@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS bible_facts (
 );
 CREATE INDEX IF NOT EXISTS bible_facts_world ON bible_facts (world_id, scope);
 CREATE INDEX IF NOT EXISTS bible_facts_page ON bible_facts (page_id, scope);
+CREATE INDEX IF NOT EXISTS bible_facts_wsp ON bible_facts (world_id, scope, page_id);
 CREATE TABLE IF NOT EXISTS bible_state (
   page_id TEXT NOT NULL,
   scope TEXT NOT NULL CHECK (scope IN ('dm', 'party', 'broker', 'lifted')),
@@ -86,6 +87,17 @@ export interface BibleSync { pages: number; facts: number; remaining: boolean; s
 
 const failures = new Map<string, number>();
 
+// ---- what it is doing, for the bible page (this process only) ----
+export interface BibleLogRow { at: string; worldId: string; pageId: string; title: string; scope: VecScope; ok: boolean; facts: number; ms: number }
+const log: BibleLogRow[] = [];
+const now = new Map<string, { pageId: string; title: string; scope: VecScope; since: string }>();
+export const bibleLog = (worldId: string, n = 40) => log.filter((r) => r.worldId === worldId).slice(-n).reverse();
+export const bibleNow = (worldId: string) => now.get(worldId) ?? null;
+export const bibleFailed = (): { pageId: string; scope: string; tries: number }[] => [...failures].map(([k, tries]) => { const [pageId, scope] = k.split('|'); return { pageId, scope, tries }; });
+export const forgetFailures = (pageIds?: string[]) => { for (const k of failures.keys()) if (!pageIds || pageIds.includes(k.split('|')[0])) failures.delete(k); };
+function noteLog(r: BibleLogRow) { log.push(r); if (log.length > 400) log.splice(0, 100); }
+
+
 /** Extract facts for pages whose copy changed. Budgeted; quietly stops when the chat model is missing or fails. */
 const runningBy = new WeakMap<object, Set<string>>();
 export async function syncBible(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal } = {}): Promise<BibleSync> {
@@ -99,7 +111,7 @@ export async function syncBible(d: Deps, opts: { maxPages?: number; worldId?: st
 }
 
 async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal }, res: BibleSync): Promise<BibleSync> {
-  const cfg = jobConfig(d, 'chat');
+  const cfg = jobConfig(d, 'bible');
   if (!cfg) { res.skipped = 'no chat model'; return res; }
   const model = `${cfg.model}|${PROMPT_VERSION}`;
   let budget = opts.maxPages ?? 10;
@@ -113,7 +125,11 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
       more = true;
       for (const r of rows) {
         if (budget <= 0 || opts.signal?.aborted || bad >= 2) break;
-        const facts = await extract(d, r, opts.signal);
+        const t0 = Date.now();
+        now.set(r.world_id, { pageId: r.id, title: r.title, scope, since: new Date().toISOString() });
+        let facts: Fact[] | null;
+        try { facts = await extract(d, r, opts.signal); } finally { now.delete(r.world_id); }
+        if (!opts.signal?.aborted) noteLog({ at: new Date().toISOString(), worldId: r.world_id, pageId: r.id, title: r.title, scope, ok: !!facts, facts: facts?.length ?? 0, ms: Date.now() - t0 });
         // Stopped part way (the session ended): not the model's failure, and nothing half-read is stored.
         if (opts.signal?.aborted) break;
         if (!facts) {
@@ -148,7 +164,7 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
 async function extract(d: Deps, r: Pending, signal?: AbortSignal): Promise<Fact[] | null> {
   if (!r.full.trim()) return [];
   const text = r.full.length > MAX_TEXT ? r.full.slice(0, MAX_TEXT) : r.full;
-  const j = await chatJson<any>(d, 'chat', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Page: ${r.title}\n\n${text}` }], signal, { maxTokens: jobBudget(d, 'chat', 900) });
+  const j = await chatJson<any>(d, 'bible', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Page: ${r.title}\n\n${text}` }], signal, { maxTokens: jobBudget(d, 'bible', 900) });
   if (!j || !Array.isArray(j.facts)) return null;
   return cleanFacts(j);
 }

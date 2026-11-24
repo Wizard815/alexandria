@@ -272,7 +272,7 @@ test('TestItemImages_UploadSniffAndVisibility', async () => {
   const up = await ok('POST', `${I()}/images`, T.jess, { dataBase64: png.toString('base64') });
   assert.equal(up.mime, 'image/png');
   assert.equal((await call('POST', `${I()}/images`, T.jess, { dataBase64: Buffer.from('<svg onload=alert(1)>').toString('base64') })).status, 400);
-  assert.equal((await call('POST', `${I()}/images`, T.jess, { dataBase64: Buffer.alloc(2 * 1024 * 1024 + 10, 0xff).toString('base64') })).status, 413);
+  assert.equal((await call('POST', `${I()}/images`, T.jess, { dataBase64: Buffer.alloc(4 * 1024 * 1024 + 10, 0xff).toString('base64') })).status, 413);
   // Raw bytes work too.
   const raw = await fetch(`${base}${I()}/images`, { method: 'POST', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${T.jess}` }, body: png });
   assert.equal(raw.status, 201);

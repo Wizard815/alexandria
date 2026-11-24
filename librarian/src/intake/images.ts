@@ -81,7 +81,7 @@ const downloadedBy = new WeakMap<object, number>();
  * too big, not reachable); a version already held is returned without a file so it is only linked again.
  */
 export async function pictureRecord(ctx: ConnectorContext, a: { externalId: string; pageRef: string; name: string; url: string; updated?: string | null; visible: boolean; map: boolean; origin: string; headers?: Record<string, string> }): Promise<SyncRecord | null> {
-  const lim = ctx.imageLimits ?? { maxBytes: 4 * 1024 * 1024, perRun: 20, maxHeld: 500, maxMapBytes: 25 * 1024 * 1024 };
+  const lim = ctx.imageLimits ?? { maxBytes: 20 * 1024 * 1024, perRun: 20, maxHeld: 500, maxMapBytes: 60 * 1024 * 1024 };
   const held = ctx.heldImages ?? new Map<string, string>();
   const marker = `${a.url}|${a.updated ?? ''}`;
   const rec: SyncRecord = { kind: 'image', externalId: a.externalId, pageRef: a.pageRef, name: a.name, marker, visibility: a.visible ? 'party' : 'dm', ...(a.map ? { map: true } : {}) };

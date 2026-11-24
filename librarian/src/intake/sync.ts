@@ -88,7 +88,7 @@ export function prepareImages(d: SyncDeps, ctx: ConnectorContext, c: { capabilit
   if (!c.capabilities.includes('images')) return;
   ctx.heldImages = heldImages(d.db, src.world_id, src.id);
   const num = (v: string | undefined, dflt: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== undefined && v !== '' ? Number(v) : dflt);
-  ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 4 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 500), maxMapBytes: num(d.env.ALX_MAP_MAX_BYTES, 25 * 1024 * 1024) };
+  ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 20 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 500), maxMapBytes: num(d.env.ALX_MAP_MAX_BYTES, 60 * 1024 * 1024) };
 }
 
 /** Sync one source. Resolves with the finished run. */

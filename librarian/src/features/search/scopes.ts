@@ -108,19 +108,20 @@ export function reconcile(lib: Library, worldId: string, ids?: string[]) {
   const db = lib.db;
   const only = ids?.length ? `AND x.page_id IN (${ids.map(() => '?').join(',')})` : '';
   const args = ids?.length ? ids : [];
+  // Each list of pages is worked out once (an uncorrelated subquery), not again for every one of thousands of rows.
   tx(db, () => {
     for (const store of STORES) {
       const st = 'x';
       const stateLike = store === 'search_chunk_state' || store === 'bible_state';
       try {
         // Gone pages.
-        run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? ${only} AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = x.page_id AND p.world_id = x.world_id)`, worldId, ...args);
+        run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? ${only} AND x.page_id NOT IN (SELECT p.id FROM pages p WHERE p.world_id = ?)`, worldId, ...args, worldId);
         for (const scope of ['dm', 'broker', 'party'] as const) {
           // A page without this scope's copy.
-          run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? AND x.scope = ? ${only} AND NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = x.page_id AND ${SCOPE_GUARD[scope]})`, worldId, scope, ...args);
+          run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? AND x.scope = ? ${only} AND x.page_id NOT IN (SELECT p.id FROM pages p WHERE ${SCOPE_GUARD[scope]})`, worldId, scope, ...args);
           // Rows cut from an older copy: the state row says which text they were made from; the chunk and fact rows follow their page's state.
           if (stateLike) run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? AND x.scope = ? ${only} AND EXISTS (SELECT 1 FROM pages p WHERE p.id = x.page_id AND ${staleSql(scope, st)})`, worldId, scope, ...args);
-          else run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? AND x.scope = ? ${only} AND NOT EXISTS (SELECT 1 FROM ${store.replace(/chunks$/, 'chunk_state').replace(/facts$/, 'state')} s JOIN pages p ON p.id = s.page_id WHERE s.page_id = x.page_id AND s.scope = x.scope AND NOT ${staleSql(scope, 's')})`, worldId, scope, ...args);
+          else run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? AND x.scope = ? ${only} AND x.page_id NOT IN (SELECT s.page_id FROM ${store.replace(/chunks$/, 'chunk_state').replace(/facts$/, 'state')} s JOIN pages p ON p.id = s.page_id WHERE s.scope = ? AND NOT ${staleSql(scope, 's')})`, worldId, scope, ...args, scope);
         }
       } catch { /* the store's feature is not installed */ }
     }

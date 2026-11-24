@@ -27,7 +27,7 @@ export interface Inline {
   mention?: Mention;
 }
 
-export interface MapPin { name: string; lat: number; lng: number; type?: string; /** Source id of the page this pin is for. */ ref?: string; dm?: boolean }
+export interface MapPin { name: string; lat: number; lng: number; type?: string; /** Source id of the page this pin is for. */ ref?: string; dm?: boolean; /** The pin's colour in its source, as #rrggbb. */ color?: string }
 export interface PropertyRow { key: string; value: Inline[] }
 /** `dm: true` is the older way to say level `dm`; `level` can also be broker or classified. */
 export interface PropertyGroup { title: string; rows: PropertyRow[]; dm?: boolean; level?: Level }
@@ -51,7 +51,7 @@ export type Block =
   | { kind: 'infobox'; layout?: string; width?: number; groups: PropertyGroup[] }
   | { kind: 'collection'; title?: string; filter?: unknown }
   /** A map with pins (LegendKeeper map documents). `dm` pins and pins that link to DM-only pages never reach players. */
-  | { kind: 'map'; title?: string; image?: string; width?: number; height?: number; pins: MapPin[] }
+  | { kind: 'map'; title?: string; image?: string; width?: number; height?: number; /** The coordinate frame pins are in: [[minLat, minLng], [maxLat, maxLng]]. */ bounds?: [[number, number], [number, number]]; pins: MapPin[] }
   | { kind: 'unsupported'; sourceKind: string };
 
 export interface Entry {

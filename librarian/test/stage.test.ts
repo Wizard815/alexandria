@@ -221,7 +221,7 @@ test('TestStage_BuyGoesThroughApprovals', async () => {
 test('TestStage_ImageUploadChecksAndPlayersCannotFetchUnshownImages', async () => {
   // Magic bytes, not the header, decide; SVG and junk are refused.
   assert.equal((await call('POST', `${S()}/images`, T.dm, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>'), { 'Content-Type': 'image/png' })).status, 400);
-  assert.equal((await call('POST', `${S()}/images`, T.dm, Buffer.alloc(4 * 1024 * 1024 + 10, 1), { 'Content-Type': 'image/png' })).status, 413);
+  assert.equal((await call('POST', `${S()}/images`, T.dm, Buffer.alloc(20 * 1024 * 1024 + 10, 1), { 'Content-Type': 'image/png' })).status, 413);
   assert.equal((await call('POST', `${S()}/images`, T.jess, PNG, { 'Content-Type': 'image/png' })).status, 403);
   assert.equal((await call('POST', `${S()}/cards`, T.dm, { kind: 'image', ref: 'http://insecure.example/x.png' })).status, 400);
   assert.equal((await call('POST', `${S()}/cards`, T.dm, { kind: 'image', ref: 'javascript:alert(1)' })).status, 400);

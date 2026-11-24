@@ -95,7 +95,7 @@ export async function assembleBible(d: Deps, worldId: string, viewer: Viewer, f:
 
 /** Per scope: pages with a copy, pages not yet read, facts stored. For the Models page. */
 export function bibleCoverage(d: Deps, worldId: string) {
-  const cfg = jobConfig(d, 'chat');
+  const cfg = jobConfig(d, 'bible');
   const model = cfg ? `${cfg.model}|bible1` : null;
   const facts = new Map(all<any>(d.db, 'SELECT scope, count(*) AS n FROM bible_facts WHERE world_id = ? GROUP BY scope', worldId).map((r) => [r.scope, Number(r.n)]));
   const scopes = {} as Record<VecScope, { eligible: number; pending: number; indexed: number; facts: number }>;

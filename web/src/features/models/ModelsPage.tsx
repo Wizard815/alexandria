@@ -17,7 +17,7 @@ interface JobView {
   job: string; uses: string; providerId: string; baseUrl: string; model: string; apiKey: string; options: Record<string, unknown>;
   enabled: boolean; keepWarm: boolean; fallback: FallbackView | null; fallbackBlocked: boolean;
   location: Location | null; lastChoice?: Record<Location, Choice | null>;
-  source: 'saved' | 'env' | 'none'; effective: { baseUrl: string; model: string; hasKey: boolean; provider: string | null; location: Location; hasFallback: boolean } | null;
+  source: 'saved' | 'env' | 'none' | 'chat'; effective: { baseUrl: string; model: string; hasKey: boolean; provider: string | null; location: Location; hasFallback: boolean } | null;
 }
 interface Found { id: string; name: string; description: string; status: Seen; inputModalities: string[]; outputModalities: string[]; vision: boolean; tools: boolean; reranker: boolean; contextLength: number | null; role: string }
 interface Discovery { ok: boolean; baseUrl: string; webUrl?: string; error?: string; models: Found[]; suggestions: Record<string, { model: string | null; reason: string }>; voices: string[] }
@@ -25,8 +25,8 @@ interface TestResult { ok: boolean; ms: number; sample?: string; error?: string 
 interface Status { providers: Record<string, { ok: boolean; error?: string }>; jobs: Record<string, { primary?: Seen; fallback?: Seen }> }
 interface All { jobs: JobView[]; providers: Provider[] }
 
-const NAMES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank (optional)' };
-const JOB_ORDER = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
+const NAMES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank (optional)', dm: 'DM assistant', player: 'Players', bible: 'Story bible' };
+const JOB_ORDER = ['chat', 'dm', 'player', 'bible', 'audit', 'audio', 'voice', 'extra', 'rerank'];
 const KIND_NAMES: Record<Kind, string> = { argos: 'Argos', openai: 'OpenAI', ollama: 'Ollama', lmstudio: 'LM Studio', 'openai-compatible': 'Other OpenAI-compatible' };
 const CLOUD_WARNING = 'World text will leave this server for this cloud provider whenever the main one cannot answer.';
 const STATUS_TEXT: Record<Seen, string> = { loaded: 'loaded', unloaded: 'unloaded (loads on request)', unknown: 'status unknown', missing: 'model not found there', unreachable: 'provider not reachable' };
@@ -265,6 +265,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
       <p className="tiny muted" style={{ margin: 0 }}>
         {j.source === 'saved' && 'Using these saved settings.'}
         {j.source === 'env' && `Using the server's environment settings (${j.effective?.baseUrl}).`}
+        {j.source === 'chat' && `Using the Chat model${j.effective ? ` (${j.effective.model})` : ''}. Pick a provider and a model here to give this its own.`}
         {j.source === 'none' && (j.job === 'rerank' ? 'Not set. Search keeps its keyword order.' : 'No model set. Features that need it fall back or stay off.')}
       </p>
 
