@@ -165,7 +165,10 @@ function routes(d: import('../../app.ts').Deps) {
     caller(req, res);
     const chat = ownChat(d.db, W(res), me(res), String(req.params.id));
     if (!chat) throw new HttpError(404, 'Chat not found');
-    res.json({ stopped: stopRun(chat.id) });
+    const stopped = stopRun(chat.id);
+    // No run is alive for it (the server restarted since): the unfinished reply is closed here so the input is not locked for ten minutes.
+    if (!stopped) run(d.db, `UPDATE agent_messages SET status = 'done', content = CASE WHEN content = '' THEN '_Stopped._' ELSE content END WHERE chat_id = ? AND status = 'working'`, chat.id);
+    res.json({ stopped });
   });
 
   // ---- pending actions (DM) ----
