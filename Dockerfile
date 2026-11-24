@@ -45,14 +45,20 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ARG ALX_VERSION=0.1.0-alpha.1
 ARG ALX_RELEASE=AlphaV1
 ENV ALX_VERSION=${ALX_VERSION} ALX_RELEASE=${ALX_RELEASE}
-ENV NODE_ENV=production \
+# The memory V8 may use for the JavaScript heap. A home server with 2 GB of RAM shares it with the database cache, the page cache and
+# the models' clients: 1.5 GB leaves room, and the memory guard (core/memguard.ts) drops caches and stops big jobs before it is reached
+# instead of being killed. On a machine with more RAM raise it (NODE_OPTIONS=--max-old-space-size=3072 in librarian/.env).
+ENV NODE_OPTIONS=--max-old-space-size=1536 \
+    NODE_ENV=production \
     ALX_DATA_DIR=/data \
     ALX_VAULTS_DIR=/vaults \
     ALX_WEB_DIR=/app/web/dist \
     LIBRARIAN_PORT=8090
 VOLUME /data
 EXPOSE 8090
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+# /health answers at once, also while a crawl runs or the server is still warming up ("status": "warming", still 200), so a busy server
+# is never marked unhealthy. The start period covers a slow first start (an upgrade that rebuilds the search index of a big library).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
   CMD wget -qO- "http://127.0.0.1:${LIBRARIAN_PORT}/health" >/dev/null || exit 1
 # Starts as root to fix the ownership of /data, then drops to "node" (see the script).
 WORKDIR /app/librarian

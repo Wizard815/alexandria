@@ -15,6 +15,7 @@ import { startMemoryGuard } from './core/memguard.ts';
 import { now } from './core/util.ts';
 import { tick } from './core/yield.ts';
 import { startCrawl } from './features/connections/crawl.ts';
+import { closeStaleSessions } from './features/audio/summary.ts';
 import { vectorStore } from './features/search/vectorstore.ts';
 import { runSync } from './intake/sync.ts';
 import { VEC_SCOPES } from './features/search/scopes.ts';
@@ -57,6 +58,7 @@ export async function warmUp(d: Deps) {
     await d.library.finishMigrations();
     for (const [worldId, ids] of d.library.pagesWithoutCopies()) await d.library.rebuildPlayerCopiesAsync(worldId, { only: ids.length > 500 ? undefined : ids });
     phase('jobs');
+    try { closeStaleSessions(d); } catch { /* the audio feature's tables are not there */ }
     await resumeJobs(d);
     phase('caches');
     // The classified-text index and the vector rows are built on first use; building them now, between requests, keeps the first search quick.

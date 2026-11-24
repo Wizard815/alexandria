@@ -91,7 +91,10 @@ Needs Node 22.13 or newer. Data goes to `librarian/data` unless
 | `ALX_RATE_LIMIT` | Requests per minute per IP for the API and MCP (default 900; 0 turns it off) |
 | `ALX_VAULTS_DIR` | Folders under this path can be added as Markdown-folder sources |
 | `ALX_MCP_STDIO` | Local MCP servers the librarian may start, as JSON: `{"kanka": {"command": ["uvx", "mcp-kanka"], "env": {"KANKA_TOKEN": "…", "KANKA_CAMPAIGN_ID": "…"}}}`. Only these commands can ever be started. |
-| `ALX_CORS_ORIGINS` | Other origins allowed to call the API (e.g. a dev server) |
+| `ALX_CORS_ORIGINS` | Other origins allowed to call the API (e.g. a dev server). Empty (the default) means none. |
+| `ALX_MEMORY_MB` | The heap size the memory guard measures against (default: V8's limit, `NODE_OPTIONS=--max-old-space-size`) |
+| `ALX_AUDIO_STALE_MIN` | Minutes without a line or audio after which a recording session is closed (default 30; 0 turns it off) |
+| `ALX_V1_RATE_PER_MIN`, `ALX_V1_DAILY_REQUESTS`, `ALX_V1_DAILY_TOKENS` | Limits of a listed (non-DM) account or key on the `/v1` model gateway (20 a minute, 200 requests and 100 000 tokens a day). The DM and admin: `…_DM` (120, 5 000, 2 000 000). |
 | `MODEL_BASE_URL`, `MODEL_API_KEY`, `LOCAL_LLM_URL` | Model endpoint for AI features (OpenAI, Ollama, LM Studio, Argos…) |
 
 Notes on local MCP servers:
@@ -99,6 +102,29 @@ Notes on local MCP servers:
   standard image has Node only. For Kanka, the **Kanka (API token)**
   connector needs no MCP server at all.
 - To run mcp-kanka over stdio, build an image that adds Python and `uv`.
+
+## Memory, a busy server and starting up
+
+Recommended: **2 GB of RAM** for Alexandria on a home server (4 GB with a library of several thousand pages and an
+embeddings model, since the vectors are held in memory for search). The container sets `NODE_OPTIONS=--max-old-space-size=1536`;
+raise it in `librarian/.env` if you have the RAM. Alexandria's own models run elsewhere (Argos), not in this container.
+
+- **Heavy admin work does not stop the table.** A crawl, a sync, a re-index, a module import and the rebuilding of the player copies
+  work in short steps with the server answering requests in between. Admin > Jobs (`GET /api/admin/jobs`) lists what is running, how far
+  it is, and stops it. `/health` says `busyJobs`.
+- **Starting is quick.** The server listens as soon as the database is open. `/health` answers `200` with `"status": "warming"` while
+  it finishes in the background (rebuilding the copies after an upgrade, starting again the jobs a restart interrupted, warming the
+  search caches); it is `"ok"` afterwards. Docker's health check allows for both.
+- **A job survives a restart.** A crawl, a source sync or a rebuild that was running when the server stopped is started again where it
+  left off (what was saved stays saved; embeddings carry on with the pages not yet read).
+- **A memory guard** watches the heap. Over 80% of the limit it drops the caches (they are made again when needed) and holds background
+  work back; over 92% it stops the running jobs, so the server is not killed and restarted from nothing. `ALX_MEMORY_MB` sets the
+  limit it measures against (default: V8's heap limit).
+- **Nothing to do means no work.** With no new or changed content the embeddings, the story bible and the transcript passes make no model
+  calls. A recording session nobody has touched for 30 minutes (`ALX_AUDIO_STALE_MIN`) is closed.
+- **Measuring.** `node --experimental-strip-types librarian/scripts/bigworld.ts all --data /tmp/bigworld` builds a large world (3000
+  pages, 700 LegendKeeper resources, 20 000 transcript lines, 50 MB of uploads) and measures start-up time, call latency and event
+  loop delay while each heavy job runs. `PERF=1 npm test` runs the guard in `test/perf.test.ts`.
 
 ## Backups
 
