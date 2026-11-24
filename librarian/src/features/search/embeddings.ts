@@ -134,11 +134,12 @@ export interface SyncResult { embedded: number; pages: number; remaining: boolea
  * Embed pages whose chunks are missing or out of date. Safe to call again at
  * any time; stops quietly when no embeddings model answers.
  */
-export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number; id: string; scope: VecScope }) => void } = {}): Promise<SyncResult> {
+export async function syncEmbeddings(d: Deps, opts: { prune?: boolean; maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number; id: string; scope: VecScope }) => void } = {}): Promise<SyncResult> {
   const res: SyncResult = { embedded: 0, pages: 0, remaining: false };
   const cfg = jobConfig(d, 'extra');
   if (!cfg) return res;
-  pruneChunks(d.db);
+  // Every permission change prunes at once (Library.changed); this second look is for safety, so the background tick does it now and then.
+  if (opts.prune !== false) pruneChunks(d.db);
   const store = vectorStore(d.db);
   const model = tagged(cfg.model);
   let budget = opts.maxPages ?? 25;
