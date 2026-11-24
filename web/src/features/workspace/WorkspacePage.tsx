@@ -141,6 +141,9 @@ export default function WorkspacePage() {
 function Divider({ d, sizes, grid, onLive, onCommit }: { d: Geo['divs'][number]; sizes: number[]; grid: React.RefObject<HTMLDivElement | null>; onLive: (s: number[] | null) => void; onCommit: (s: number[]) => void }) {
   const start = useRef<{ x: number; y: number; s: number[]; size: number; last: number[] } | null>(null);
   const v = d.orient === 'v';
+  // Keys can repeat faster than the URL (and so `sizes`) updates: build on the last size asked for until the new one arrives.
+  const pending = useRef<number[] | null>(null);
+  useEffect(() => { pending.current = null; }, [sizes]);
   const value = sizes[d.a];
   const move = (e: React.PointerEvent) => {
     const st = start.current;
@@ -167,7 +170,9 @@ function Divider({ d, sizes, grid, onLive, onCommit }: { d: Geo['divs'][number];
         if (e.key !== dec && e.key !== inc) return;
         e.preventDefault();
         const step = e.shiftKey ? 10 : 2;
-        onCommit(resizeSizes(sizes, d.a, d.b, e.key === inc ? step : -step));
+        const next = resizeSizes(pending.current ?? sizes, d.a, d.b, e.key === inc ? step : -step);
+        pending.current = next;
+        onCommit(next);
       }}>
       <span aria-hidden="true" />
     </div>
