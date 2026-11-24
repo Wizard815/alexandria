@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { PageHead, ErrorBox, Empty, Loading } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { progressText, type Progress } from './EmbeddingsCard.tsx';
+import { BibleControls } from './BibleControls.tsx';
 import './bible.css';
 
 interface Fact { text: string; kind: string; pages: { id: string; title: string; path: string }[] }
@@ -48,7 +49,7 @@ export default function BiblePage() {
           {KINDS.map((k) => <option key={k} value={k}>{k}{b?.kinds[k] ? ` (${b.kinds[k]})` : ''}</option>)}
         </select>
       </div>
-      {left && <p className="small muted" role="status" data-testid="bible-progress">{left}. {status.data?.reading === false ? (status.data.runs === 'off' ? 'Reading is off (Settings, Story bible).' : 'Paused until the next session (Settings, Story bible).') : 'Facts appear as pages are read.'}</p>}
+      {isDM && <BibleControls left={left} onChanged={() => { void status.reload(); void data.reload(); }} />}
       <ErrorBox error={data.error} />
       {!b ? <Loading /> : !b.subjects.length ? (
         <Empty>{debounced || kind ? 'No facts match.' : 'Nothing has been written into the bible yet. It fills in the background once a chat model is set and the library has been read.'}</Empty>

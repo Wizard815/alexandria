@@ -33,9 +33,9 @@ function set(patch: Partial<NetState>) {
   for (const s of subs) s();
 }
 
-async function healthy(): Promise<boolean> {
+async function healthy(ms = 8000): Promise<boolean> {
   try {
-    const r = await fetch('/health', { cache: 'no-store' });
+    const r = await fetch('/health', { cache: 'no-store', signal: AbortSignal.timeout(ms) });
     return r.ok;
   } catch {
     return false;
@@ -52,6 +52,23 @@ function goOffline() {
   startProbe();
 }
 
+/**
+ * A request failed. One dropped or slow answer is not an outage: ask the server twice, a moment apart, and only then call it offline.
+ * The browser saying it has no network is believed at once.
+ */
+let suspecting = false;
+async function suspect() {
+  if (!state.online || suspecting) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) { goOffline(); return; }
+  suspecting = true;
+  try {
+    if (await healthy()) return;
+    await new Promise((r) => setTimeout(r, 1500));
+    if (await healthy()) return;
+    goOffline();
+  } finally { suspecting = false; }
+}
+
 function goOnline() {
   const was = state.online;
   const now = new Date().toISOString();
@@ -62,20 +79,22 @@ function goOnline() {
   }
   if (!was || Date.now() - Date.parse(state.lastOnline ?? '0') > 10_000) set({ online: true, lastOnline: now, servedSince: was ? state.servedSince : null });
   if (probe) { clearInterval(probe); probe = undefined; }
-  if (!was) for (const f of reconnectSubs) f();
+  // Spread out, so every screen does not ask for everything in the same instant.
+  if (!was) for (const f of reconnectSubs) setTimeout(f, Math.random() * 1500);
 }
 
 /** Ask the server now; flips the state either way. */
 export async function check(): Promise<boolean> {
   const ok = await healthy();
-  if (ok) goOnline(); else goOffline();
+  if (ok) goOnline(); else if (state.online) await suspect(); else goOffline();
   return ok;
 }
 
 export const netHooks: NetHooks = {
   offline: () => !state.online,
-  failed: goOffline,
+  failed: () => { void suspect(); },
   ok: goOnline,
+  recheck: async () => { const ok = await healthy(4000); if (ok) goOnline(); return ok; },
   served: (savedAt) => {
     if (!state.servedSince || savedAt < state.servedSince) set({ servedSince: savedAt });
   },

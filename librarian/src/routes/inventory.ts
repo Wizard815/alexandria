@@ -160,7 +160,7 @@ export default function inventoryRoutes(d: Deps) {
     if (b.length > 12 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
     return null;
   };
-  const MAX_IMAGE = 2 * 1024 * 1024;
+  const MAX_IMAGE = 20 * 1024 * 1024;
   // Raw bytes (Content-Type: image/*) or JSON {dataBase64}.
   r.post('/images', requirePlayerOrDM, express.raw({ type: 'image/*', limit: MAX_IMAGE + 1 }), (req, res) => {
     const c = ctx(res);
@@ -171,7 +171,7 @@ export default function inventoryRoutes(d: Deps) {
       buf = Buffer.from(b64, 'base64');
     }
     if (!buf.length) throw new HttpError(400, 'No picture sent');
-    if (buf.length > MAX_IMAGE) throw new HttpError(413, 'Pictures can be at most 2 MB');
+    if (buf.length > MAX_IMAGE) throw new HttpError(413, 'Pictures can be at most 20 MB');
     const mime = sniff(buf);
     if (!mime) throw new HttpError(400, 'Send a PNG, JPEG, GIF or WebP picture');
     const uid = id('upl_');

@@ -249,7 +249,7 @@ interface BadImages { prev: Record<string, string>; next: Record<string, string>
  * detail calls. A picture belongs to the page named by `pageField`.
  */
 async function* apiImages(cfg: any, ep: ApiEndpoint, ctx: ConnectorContext, bad: BadImages): AsyncIterable<SyncRecord> {
-  const lim = ctx.imageLimits ?? { maxBytes: 4 * 1024 * 1024, perRun: 20, maxHeld: 500, maxMapBytes: 25 * 1024 * 1024 };
+  const lim = ctx.imageLimits ?? { maxBytes: 20 * 1024 * 1024, perRun: 20, maxHeld: 500, maxMapBytes: 60 * 1024 * 1024 };
   const held = ctx.heldImages ?? new Map<string, string>();
   const listUrl = endpointUrl(cfg.baseUrl, ep.path);
   const apiOrigin = new URL(listUrl).origin;

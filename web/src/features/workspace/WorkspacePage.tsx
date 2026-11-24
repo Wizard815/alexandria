@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { DM_GROUPS } from '../../lib/dmnames.ts';
 import {
-  LAYOUTS, MAX_PANES, PAGE_MIME, PANE_MIME, PRESETS, closePane, deleteLayout, layoutDef, loadSaved, LAYOUTS_EVENT, openIn, parse, recWorkspace, recallLast, rememberLast, resizeSizes,
+  LAYOUTS, MAX_PANES, PAGE_MIME, PANE_MIME, PRESETS, closePane, deleteLayout, layoutDef, loadSaved, LAYOUTS_EVENT, openIn, parse, recWorkspace, recallLast, rememberLast, clearWorkspace, setWorkspaceHidden, resizeSizes,
   routeOfPage, saveLayout, serialize, setLayout, swapPanes, toggleMax, withFocus, withSizes, type LayoutRec, type Workspace,
 } from '../../lib/workspace.ts';
 import PaneRouter from './PaneRouter.tsx';
@@ -84,7 +84,10 @@ export default function WorkspacePage() {
 
   // Open with no workspace in the URL: the last one for this world, else the default.
   useEffect(() => { if (!parsed) nav({ search: serialize(recallLast(slug) ?? DEFAULT) }, { replace: true }); }, [parsed, slug, nav]);
-  useEffect(() => { if (parsed) rememberLast(slug, parsed); }, [parsed, slug]);
+  // Leaving through Close or Hide must not be remembered as the last workspace again.
+  const leaving = useRef(false);
+  useEffect(() => { if (parsed && !leaving.current) rememberLast(slug, parsed); }, [parsed, slug]);
+  const leave = useCallback((hide: boolean) => { leaving.current = true; clearWorkspace(slug); if (hide) setWorkspaceHidden(true); nav(`${base}/${routeOfPage(ws.p[ws.f] ?? 'table')}`); }, [slug, nav, base, ws]);
   useEffect(() => { document.title = `Workspace · ${info.name}`; }, [info.name]);
 
   const commit = useCallback((next: Workspace, push = true) => { nav({ search: serialize(next) }, { replace: !push }); }, [nav]);
@@ -113,7 +116,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="ws" data-testid="workspace" data-layout={ws.l} data-panes={ws.p.length}>
-      <Toolbar ws={ws} slug={slug} commit={commit} />
+      <Toolbar ws={ws} slug={slug} commit={commit} onLeave={leave} />
       <div className="ws-grid" ref={grid} style={{ gridTemplateColumns: geo.cols, gridTemplateRows: geo.rows }}>
         {ws.p.map((id, i) => {
           const n = (seen.get(id) ?? 0) + 1; seen.set(id, n);
@@ -188,7 +191,7 @@ function resetPair(sizes: number[], d: { a: number; b: number | null }): number[
   return s;
 }
 
-function Toolbar({ ws, slug, commit }: { ws: Workspace; slug: string; commit: (w: Workspace, push?: boolean) => void }) {
+function Toolbar({ ws, slug, commit, onLeave }: { ws: Workspace; slug: string; commit: (w: Workspace, push?: boolean) => void; onLeave: (hide: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [thisWorld, setThisWorld] = useState(false);
@@ -236,7 +239,7 @@ function Toolbar({ ws, slug, commit }: { ws: Workspace; slug: string; commit: (w
           <div className="ws-pop card" role="dialog" aria-label="Saved layouts">
             <p className="tiny faint">Presets</p>
             <ul className="ws-layout-list">{PRESETS.map(row)}</ul>
-            <p className="tiny faint">Yours</p>
+            <p className="tiny faint row between">Yours {saved.length > 0 && <button type="button" className="btn small ghost" onClick={() => { if (window.confirm('Delete every layout you saved?')) clearWorkspace(slug, true); }}>Delete all</button>}</p>
             <ul className="ws-layout-list">{saved.length ? saved.map(row) : <li className="tiny faint">None yet. Arrange the panes, name it below.</li>}</ul>
             <form className="ws-save" onSubmit={(e) => {
               e.preventDefault();
@@ -253,6 +256,8 @@ function Toolbar({ ws, slug, commit }: { ws: Workspace; slug: string; commit: (w
           </div>
         )}
       </div>
+      <button type="button" className="btn small" data-testid="ws-close-all" title="Close the panes and go back to one page" onClick={() => onLeave(false)}><i className="fa-solid fa-xmark" aria-hidden="true" /> Close</button>
+      <button type="button" className="btn small ghost" data-testid="ws-hide" title="Put the workspace away. Bring it back from the world menu (top left)." onClick={() => onLeave(true)}>Hide workspaces</button>
     </div>
   );
 }

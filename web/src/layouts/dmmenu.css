@@ -77,3 +77,5 @@
   .set-shell { grid-template-columns: minmax(0, 1fr); } .set-nav { position: static; } .set-list { flex-direction: row; flex-wrap: wrap; } .set-link { min-height: 40px; }
   .dmx .lib-tree { height: calc(100vh - 340px); }
 }
+
+body.ws-hidden .dmx-beside { display: none; }
