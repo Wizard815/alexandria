@@ -206,7 +206,7 @@ export type Stored = 'saved' | 'kept' | 'demote';
  * new time (so it counts as stale), and is flagged for demotion when the list
  * says it is hidden. Everything else is saved and its depth recorded.
  */
-export function storeEntry(d: { db: DB; library: Library }, worldId: string, sourceId: string, prefix: string | null, e: Entry, by: string | null): { how: Stored; id?: string } {
+export function storeEntry(d: { db: DB; library: Library }, worldId: string, sourceId: string, prefix: string | null, e: Entry, by: string | null): { how: Stored; id?: string; changed?: boolean; linksChanged?: boolean } {
   ensureTierSchema(d.db);
   if (e.depth === 'index') {
     const ex = one<any>(d.db, 'SELECT id, depth, source_updated_at, source_level, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, sourceId, e.externalId);
@@ -222,7 +222,7 @@ export function storeEntry(d: { db: DB; library: Library }, worldId: string, sou
   markDepth(d.db, r.id, e);
   // A page read in full may link to pages that are now worth reading.
   if (e.depth !== 'index') inboundCache.delete(sourceId);
-  return { how: 'saved', id: r.id };
+  return { how: 'saved', id: r.id, changed: r.changed, linksChanged: r.linksChanged };
 }
 
 /** Counts of a source's pages by depth, and how many of the read ones have changed at the source since. */
