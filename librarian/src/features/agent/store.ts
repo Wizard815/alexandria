@@ -3,6 +3,7 @@
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
 import { id, now, parseJson } from '../../core/util.ts';
+import { alwaysAsk } from './auto.ts';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_chats (
@@ -128,5 +129,5 @@ export function chatView(db: DB, chatId: string) {
 
 export const actionView = (a: any) => ({
   id: a.id, chatId: a.chat_id, tool: a.tool, args: parseJson(a.args, {}), summary: a.summary, call: parseJson(a.call, {}),
-  status: a.status, result: a.result ? String(a.result).slice(0, 2000) : null, auto: !!a.auto, createdAt: a.created_at, decidedAt: a.decided_at,
+  status: a.status, result: a.result ? String(a.result).slice(0, 2000) : null, auto: !!a.auto, alwaysAsk: alwaysAsk(a.tool), createdAt: a.created_at, decidedAt: a.decided_at,
 });

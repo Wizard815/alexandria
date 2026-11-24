@@ -20,3 +20,10 @@
 .ag-toast { display: flex; gap: 6px; align-items: flex-start; z-index: 900; }
 .ag-toast-open { display: flex; flex-direction: column; gap: 2px; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 0; }
 .ag-quick-btn.on { border-color: var(--accent); color: var(--accent-strong); }
+
+.ag-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ag-mode > .on, .ag-mode.on > button { border-color: var(--accent); color: var(--accent-strong); }
+.ag-mode details { flex-basis: 100%; }
+.ag-result { margin: 4px 0 0; max-height: 140px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; }
+.ag-jump { align-self: center; position: sticky; bottom: 4px; }
+.ag-stamp { opacity: 0.8; }
