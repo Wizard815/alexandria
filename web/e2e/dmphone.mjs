@@ -152,7 +152,7 @@ async function askTour(page, label, wide) {
   await card.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push(`${label}: the card stayed after approving`));
   check(((await dm('GET', '/agent/actions')).actions ?? []).length === 0, `${label}: approving in the chat left a pending action`);
   await page.waitForFunction((n) => { const t = [...document.querySelectorAll('.dmp-tab')].find((x) => /^Inbox/.test(x.getAttribute('aria-label') || '')); return Number(/(\d+) waiting/.exec(t?.getAttribute('aria-label') || '')?.[1] ?? 0) === n; }, before, { timeout: 8000 }).catch(() => problems.push(`${label}: the badge did not drop after approving in the chat`));
-  await replied(page, /Done: /, `${label} approval result`);
+  await page.locator('[data-testid=ask-log] [data-testid=action-card][data-status=done]').first().waitFor({ timeout: 10000 }).catch(() => problems.push(`${label} approval result: the card did not show Done`));
   note(`${label}: approval card approved in the chat, badge followed`);
 
   // The other way round: approve in the Queue and the chat card goes (live, with both on screen on the Fold).
