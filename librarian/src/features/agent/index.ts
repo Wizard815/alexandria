@@ -14,7 +14,8 @@ import { featureSetting } from '../../core/policy.ts';
 import { HttpError, int, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
-import { budgetFor, describeCall, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
+import { budgetFor, describeCall, emitAction, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
+import { ALWAYS_ASK } from './auto.ts';
 import { fastPlan } from './intent.ts';
 import { speakable } from './speakable.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
@@ -25,6 +26,9 @@ import { buildStatblock, mod, normalizeStatblock, rollInitiative, saveStatblockP
 const audit = (db: any, worldId: string, accountId: string | null, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
 const enc = encodeURIComponent;
 const S = (description: string) => ({ type: 'string', description });
+
+/** How long an approval waits for the change to be applied before answering "running" (the card finishes on its own). */
+export const APPROVE_WAIT_MS = 1500;
 
 const bearer = (req: any): string => String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
 
@@ -42,7 +46,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   r.get('/status', (_req, res) => {
     const s = settings(res);
-    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isDM(res) ? 'dm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isDM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [] });
+    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isDM(res) ? 'dm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isDM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [], auto: isDM(res) && featureSetting<boolean>(s, 'agentAuto') === true, alwaysAsk: isDM(res) ? ALWAYS_ASK : [] });
   });
 
   // ---- chats ----
@@ -151,7 +155,7 @@ function routes(d: import('../../app.ts').Deps) {
       who.harness === 'dm' ? 2 : 1,
       () => runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast }),
       // Queued behind other requests to the same model: the asker sees "Waiting for the model (N ahead)".
-      (ahead) => d.hub.emit(who.worldId, 'agent', { chatId: chat.id, messageId: reply.id, kind: 'status', text: `Waiting for the model (${ahead} ahead)` }, only(who.accountId)),
+      (ahead) => d.hub.emit(who.worldId, 'agent', { chatId: chat.id, messageId: reply.id, kind: 'queue', ahead, text: `Waiting for the model (${ahead} ahead)` }, only(who.accountId)),
     );
     res.status(202).json(chatView(d.db, chat.id));
   });
@@ -173,31 +177,51 @@ function routes(d: import('../../app.ts').Deps) {
 
   r.post('/actions/:id', requireDM, async (req, res) => {
     const decision = oneOf(req.body?.decision, 'decision', ['approve', 'reject'] as const);
-    const a = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ? AND world_id = ?', String(req.params.id), W(res));
+    const worldId = W(res);
+    const accountId = me(res);
+    const a = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ? AND world_id = ?', String(req.params.id), worldId);
     if (!a) throw new HttpError(404, 'Action not found');
     // Claim it first, so two clicks (or two DMs) never run it twice.
-    if (!run(d.db, `UPDATE agent_actions SET status = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'`, decision === 'reject' ? 'rejected' : 'running', now(), me(res), a.id)) throw new HttpError(409, 'That action was already decided');
-    const note = (text: string) => { addMessage(d.db, a.chat_id, 'assistant', text); d.hub.emit(W(res), 'agent', { kind: 'message', chatId: a.chat_id }, only(a.account_id)); };
+    if (!run(d.db, `UPDATE agent_actions SET status = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'`, decision === 'reject' ? 'rejected' : 'running', now(), accountId, a.id)) throw new HttpError(409, 'That action was already decided');
+    const note = (text: string) => { addMessage(d.db, a.chat_id, 'assistant', text); d.hub.emit(worldId, 'agent', { kind: 'message', chatId: a.chat_id }, only(a.account_id)); };
+    const view = () => actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id));
+    // Every screen (the other chat windows, the phone's Queue) hears about the decision at once, before any work starts.
+    emitAction(d, worldId, a.account_id, a.id);
     if (decision === 'reject') {
-      audit(d.db, W(res), me(res), 'agent.reject', `${a.tool} ${a.args}`);
-      logAgentCall(d, W(res), { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok: false, result: 'rejected by the DM', via: 'rejected', actionId: a.id, rejected: true });
+      audit(d.db, worldId, accountId, 'agent.reject', `${a.tool} ${a.args}`);
+      logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok: false, result: 'rejected by the DM', via: 'rejected', actionId: a.id, rejected: true });
       note(`Rejected: ${a.summary}.`);
-      return res.json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
+      return res.json(view());
     }
-    const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
-    let ok = false;
-    let out = '';
-    if (!tool) out = 'That tool is no longer available.';
-    else {
-      const t = await runTool(d, { worldId: W(res), token: bearer(req), port: req.socket.localPort ?? 0 }, tool, JSON.parse(a.args));
-      ok = t.ok;
-      out = t.text;
-    }
-    run(d.db, 'UPDATE agent_actions SET status = ?, result = ? WHERE id = ?', ok ? 'done' : 'failed', out.slice(0, 8000), a.id);
-    logAgentCall(d, W(res), { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok, result: out, via: 'approved', actionId: a.id });
-    audit(d.db, W(res), me(res), 'agent.action', `${a.tool} ${a.args} -> ${ok ? 'done' : 'failed'}`);
-    note(ok ? `Done: ${a.summary}.` : `That did not work: ${a.summary}. ${out.slice(0, 200)}`);
-    res.status(ok ? 200 : 502).json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
+    const token = bearer(req);
+    const port = req.socket.localPort ?? 0;
+    // The work never blocks the answer for long: a tool that needs a model (a statblock, a generator) can wait behind other model
+    // work, so after a moment the DM gets "running" and the card finishes by itself when the event arrives. The DM's approval jumps
+    // the model queue (priority 3) so it is not held behind chat turns.
+    const work = withPriority(3, async () => {
+      const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
+      let ok = false;
+      let out = '';
+      if (!tool) out = 'That tool is no longer available.';
+      else {
+        try {
+          const t = await runTool(d, { worldId, token, port }, tool, JSON.parse(a.args));
+          ok = t.ok;
+          out = t.text;
+        } catch (e: any) { out = `The call failed: ${String(e?.message ?? e).slice(0, 200)}`; }
+      }
+      run(d.db, 'UPDATE agent_actions SET status = ?, result = ? WHERE id = ?', ok ? 'done' : 'failed', out.slice(0, 8000), a.id);
+      logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok, result: out, via: 'approved', actionId: a.id });
+      audit(d.db, worldId, accountId, 'agent.action', `${a.tool} ${a.args} -> ${ok ? 'done' : 'failed'}`);
+      note(ok ? `Done: ${a.summary}.` : `That did not work: ${a.summary}. ${out.slice(0, 200)}`);
+      emitAction(d, worldId, a.account_id, a.id);
+      return ok;
+    }).catch((e) => { console.error('agent: approved action failed', e); return false; });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const first = await Promise.race([work, new Promise<'later'>((r) => { timer = setTimeout(() => r('later'), APPROVE_WAIT_MS); })]);
+    clearTimeout(timer);
+    if (first === 'later') return res.status(202).json(view());
+    res.status(first ? 200 : 502).json(view());
   });
 
   r.get('/leaks', requireDM, (_req, res) => {
@@ -277,6 +301,8 @@ const feature: Feature = {
       type: 'json', default: [],
       validate: (v) => { if (!Array.isArray(v) || v.length > 60 || v.some((x) => typeof x !== 'string' || x.length > 60)) throw new Error('agentAutoApprove must be a list of tool names'); },
     },
+    // Auto mode: the DM's assistant applies its changes without a card, except the tools that always ask (auto.ts).
+    agentAuto: { type: 'boolean', default: false },
     agentPlayerChat: { type: 'boolean', default: true },
     // A player's own out-of-character helper (their character, items, rules, what the party learned), beside the broker.
     agentPlayerHelper: { type: 'boolean', default: true },
