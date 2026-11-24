@@ -12,13 +12,17 @@ import { useWorld } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
 import { buzz } from '../dmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
-import { ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
+import { AutoSwitch, ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
+import './agent.css';
 
 export { linkCitations } from './ChatParts.tsx';
 
 /** Told to every chat and to the phone's Queue when an agent action is decided, so none waits for the server's event. */
 export const ACTIONS_CHANGED = 'alx-agent-actions-changed';
 export const announceActions = () => { try { window.dispatchEvent(new Event(ACTIONS_CHANGED)); } catch { /* no window */ } };
+
+/** Put an action in the chat's list (a new card, or a newer state of one it has). */
+const upsert = (list: Act[], a: Act): Act[] => (list.some((x) => x.id === a.id) ? list.map((x) => (x.id === a.id ? { ...x, ...a } : x)) : [...list, a]);
 
 const KEY = chatKey;
 const remembered = rememberedChat;
@@ -70,6 +74,17 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const [combat, setCombat] = useState<{ active: boolean; round?: number } | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [model, setModel] = useState<boolean | null>(null);
+  const [alwaysAsk, setAlwaysAsk] = useState<string[]>([]);
+  // Auto mode: the world's setting (kept live by the settings event). `autoNow` shows a tap at once, until the server's answer arrives.
+  const [autoNow, setAutoNow] = useState<boolean | null>(null);
+  const [savingAuto, setSavingAuto] = useState(false);
+  const autoServer = (info.settings as any)?.agentAuto === true;
+  const autoOn = autoNow ?? autoServer;
+  const sticky = useRef(true);
+  const [away, setAway] = useState(false);
+  const log = useRef<HTMLDivElement>(null);
+  const loadSeq = useRef(0);
+  const lastSent = useRef('');
   const { busy, error, setError, run } = useAction();
   const { client } = useAuth();
   const [aloud] = useReadAloud();
@@ -86,8 +101,13 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const key = KEY(info.id, mode ? `${harness}-${mode}` : harness);
   const attachedPage = page && !dropPage ? page : undefined;
 
+  // An older answer never replaces a newer one (the chat is re-read from several places at once).
   const load = useCallback(async (id: string) => {
-    try { setChat(await w.call<ChatState>('GET', `/agent/chats/${id}`)); } catch (e: any) { setError(e.message); }
+    const n = ++loadSeq.current;
+    try {
+      const c = await w.call<ChatState>('GET', `/agent/chats/${id}`);
+      if (n === loadSeq.current) setChat(c);
+    } catch (e: any) { if (n === loadSeq.current) setError(e.message); }
   }, [w, setError]);
 
   useEffect(() => {
@@ -95,7 +115,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     (async () => {
       try {
         const st = await w.call<any>('GET', '/agent/status');
-        if (alive) setModel(!!st.model);
+        if (alive) { setModel(!!st.model); setAlwaysAsk(Array.isArray(st.alwaysAsk) ? st.alwaysAsk : []); }
         const id = remembered(key);
         if (id) { try { const c = await w.call<ChatState>('GET', `/agent/chats/${id}`); if (alive) setChat(c); return; } catch { /* a deleted chat: start fresh */ } }
         const list = await w.call<{ chats: { id: string }[] }>('GET', `/agent/chats${mode ? `?mode=${mode}` : ''}`);
@@ -170,7 +190,11 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     else if (d.kind === 'reset') setLive({ text: '', status: '' });
     else if (d.kind === 'replace') setLive({ text: d.text, status: '' });
     else if (d.kind === 'status') setLive((l) => ({ text: l?.text ?? '', status: String(d.status ?? d.text ?? '') }));
-    else if (d.kind === 'message' || d.kind === 'action') { if (d.kind === 'message') setLive(null); void load(cur.id); }
+    else if (d.kind === 'queue') setLive((l) => ({ text: l?.text ?? '', status: '', queue: String(d.text ?? '') }));
+    // A card arrives (or changes) with the event itself: no re-read, so it shows the moment it is proposed or decided anywhere.
+    else if (d.kind === 'action' && d.action) setChat((c) => (c && c.id === d.chatId ? { ...c, actions: upsert(c.actions, d.action as Act) } : c));
+    // The streaming text stays on screen: only the end of the turn (busy false) clears it.
+    else if (d.kind === 'message' || d.kind === 'action') void load(cur.id);
   }), [on, load]);
   // An action decided elsewhere on this device (the phone's Queue) leaves this chat at once.
   useEffect(() => {
@@ -186,7 +210,10 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     return () => clearInterval(t);
   }, [chat?.busy, chat?.id, load]);
   useEffect(() => { if (!chat?.busy) setLive(null); }, [chat?.busy]);
-  useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [chat?.messages.length, chat?.actions.length, live?.text.length]);
+  // Follow the reply while the DM is at the bottom; scrolled up to read, leave them there and offer a way back.
+  const onScroll = () => { const el = log.current; if (!el) return; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80; sticky.current = near; setAway(!near); };
+  const toEnd = () => { sticky.current = true; setAway(false); end.current?.scrollIntoView?.({ block: 'end' }); };
+  useEffect(() => { if (sticky.current) end.current?.scrollIntoView?.({ block: 'end' }); }, [chat?.messages.length, chat?.actions.length, chat?.actions.map((a) => a.status).join(), live?.text.length]);
 
   // A new proposal buzzes the phone: it is waiting for a thumb.
   const pending = (chat?.actions ?? []).filter((a) => a.status === 'pending').length;
@@ -204,6 +231,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const send = (override?: string) => run(async () => {
     const body = (override ?? text).trim();
     if (!body) return;
+    lastSent.current = body;
     if (phone) buzz(10);
     // What the phone attaches is read now, so a fight that moved on since it was picked is not described by old numbers.
     const extra = context ? await context.get().catch(() => undefined) : undefined;
@@ -211,11 +239,21 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); id = c.id; remember(key, id); seen.current = { chat: id, ids: new Set() }; }
     setText('');
     stopSpeaking();
+    toEnd();
     setLive({ text: '', status: '' });
     const sel = [selection, extra].filter(Boolean).join('\n\n').slice(0, 3000);
     setSelection('');
-    setChat(await w.call<ChatState>('POST', `/agent/chats/${id}/messages`, { text: body, page: attachedPage, selection: sel || undefined }));
+    try {
+      setChat(await w.call<ChatState>('POST', `/agent/chats/${id}/messages`, { text: body, page: attachedPage, selection: sel || undefined }));
+    } catch (e) {
+      // Nothing was sent: the words come back to the box, the input stays usable, and the error shows above it.
+      setLive(null);
+      setText((cur) => cur || body);
+      if (selection) setSelection(selection);
+      throw e;
+    }
   });
+  const retry = () => { if (lastSent.current) void send(lastSent.current); };
   const stop = () => { if (chat) void w.call('POST', `/agent/chats/${chat.id}/stop`, {}).catch((e: any) => setError(e.message)); };
   const fresh = () => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); remember(key, c.id); setChat(c); setLive(null); stopSpeaking(); });
   const rename = (id: string, title: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { title }); setRenaming(null); refreshList(); });
@@ -227,12 +265,30 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     if (rest[0]) await open(rest[0].id); else { remember(key, ''); setChat(null); setLive(null); }
     refreshList();
   });
-  const decide = (a: Act, decision: 'approve' | 'reject') => run(async () => {
+  // Deciding is instant on screen: the card flips to its outcome at once and the server's answer (or its event) settles it. Each card
+  // is independent, so several can be approved back to back without waiting for one another.
+  const decide = (a: Act, decision: 'approve' | 'reject') => {
     if (phone) buzz(decision === 'approve' ? 15 : [20, 40, 20]);
-    try { await w.call('POST', `/agent/actions/${a.id}`, { decision }); } catch (e: any) { setError(e.message); }
-    if (chat) await load(chat.id);
-    announceActions();
-  });
+    const prev = a.status;
+    setChat((c) => (c ? { ...c, actions: upsert(c.actions, { ...a, status: decision === 'approve' ? 'done' : 'rejected' }) } : c));
+    w.call<Act>('POST', `/agent/actions/${a.id}`, { decision })
+      .then((got) => setChat((c) => (c ? { ...c, actions: upsert(c.actions, got) } : c)))
+      .catch((e: any) => {
+        // A 502 still carries the card (the change did not work); a 409 means someone decided it first: read the truth from the server.
+        setError(e.message);
+        setChat((c) => (c ? { ...c, actions: upsert(c.actions, { ...a, status: e?.status ? 'running' : prev }) } : c));
+        if (chatRef.current) void load(chatRef.current.id);
+      })
+      .finally(() => announceActions());
+  };
+
+  const toggleAuto = async () => {
+    const next = !autoOn;
+    setAutoNow(next); setSavingAuto(true); setError(null);
+    try { await w.call('PATCH', '/settings', { agentAuto: next }); }
+    catch (e: any) { setError(`Could not switch Auto mode: ${e.message}`); }
+    finally { setSavingAuto(false); setAutoNow(null); }
+  };
 
   const libraryHref = useCallback((id: string) => `/w/${world}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(id)}`, [world, isDM]);
   const goLink = (e: React.MouseEvent) => {
@@ -242,8 +298,10 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   };
 
   const items = useMemo(() => {
-    const out: Item[] = (chat?.messages ?? []).map((m) => ({ t: 'msg' as const, m }));
-    for (const a of chat?.actions ?? []) if (a.status === 'pending' || a.status === 'running') out.push({ t: 'act' as const, a });
+    // The reply "Done: ..." the server files after a decision repeats what the card now says: the card is shown, not the line.
+    const said = new Set((chat?.actions ?? []).flatMap((a) => [`Done: ${a.summary}.`, `Rejected: ${a.summary}.`]));
+    const out: Item[] = (chat?.messages ?? []).filter((m) => !(m.role === 'assistant' && (said.has(m.text) || (m.text.startsWith('That did not work: ') && (chat?.actions ?? []).some((a) => m.text.startsWith(`That did not work: ${a.summary}.`)))))).map((m) => ({ t: 'msg' as const, m }));
+    for (const a of chat?.actions ?? []) out.push({ t: 'act' as const, a });
     return out.sort((x, y) => (x.t === 'msg' ? x.m.at : x.a.createdAt).localeCompare(y.t === 'msg' ? y.m.at : y.a.createdAt));
   }, [chat?.messages, chat?.actions]);
 
@@ -251,7 +309,9 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const focusInput = () => (box.current ?? document.querySelector<HTMLTextAreaElement>('[data-ag-input]'))?.focus();
   const addText = (t: string) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); focusInput(); };
   const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh() };
-  const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} busy={busy} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={(a, d) => void decide(a, d)} />;
+  const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} />;
+  const modeSwitch = harness === 'dm' && isDM && <AutoSwitch phone={phone} on={autoOn} saving={savingAuto} onToggle={() => void toggleAuto()} alwaysAsk={alwaysAsk} />;
+  const jump = away && <button type="button" className={phone ? 'b chip ag-jump' : 'btn small ag-jump'} onClick={toEnd} data-testid="ag-jump"><i className="fa-solid fa-arrow-down" aria-hidden="true" /> Latest</button>;
   const noModel = model === false && <p className="tiny muted">No chat model is set yet (Admin → Models). Dice, the date and simple combat commands still work.</p>;
   const hello = harness === 'dm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.';
 
@@ -261,13 +321,15 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
         {header}
         <div className="ask-top">
           {model === false && <div className="sub">No chat model is set (Admin, Models). Dice, the date and simple combat commands still work.</div>}
+          {modeSwitch}
           <ChatSwitcher phone s={switcher} />
         </div>
-        <div className="ask-log" aria-live="polite" data-testid="ask-log">
+        <div className="ask-log" aria-live="polite" data-testid="ask-log" ref={log} onScroll={onScroll}>
           {!chat?.messages.length && <div className="empty">{hello}</div>}
           {messages}
           <div ref={end} />
         </div>
+        {jump}
         <div className="ask-bar">
           {error && <div className="err" role="alert">{error}</div>}
           {aloud && aloudNote && <div className="sub" role="status">{aloudNote}</div>}
@@ -296,12 +358,14 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   return (
     <div className="stack" style={{ minHeight: 0, flex: 1 }}>
       {noModel}
+      {modeSwitch}
       <ChatSwitcher s={switcher} />
-      <div className="stack" style={{ overflowY: 'auto', flex: 1, minHeight: 120 }} aria-live="polite">
+      <div className="stack" style={{ overflowY: 'auto', flex: 1, minHeight: 120, position: 'relative' }} aria-live="polite" ref={log} onScroll={onScroll} data-testid="ag-log">
         {!chat?.messages.length && <p className="tiny muted">{hello}</p>}
         {messages}
         <div ref={end} />
       </div>
+      {jump}
       <ErrorBox error={error} />
       {aloud && aloudNote && <p className="tiny muted" role="status">{aloudNote}</p>}
       <div className="row ag-chips" aria-label="Attached to your message">
