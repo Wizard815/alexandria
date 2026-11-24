@@ -8,6 +8,7 @@ import { requirePlayerOrDM } from '../core/auth.ts';
 import { canSee } from '../core/policy.ts';
 import { fogLayers, markUnderFog } from '../core/fog.ts';
 import { HttpError, id, now, oneOf, str } from '../core/util.ts';
+import { readOnOpen } from '../features/connections/ondemand.ts';
 import { ctx, isDM, me, readerFor, settings } from './_shared.ts';
 
 const ICONS = ['camp', 'fight', 'danger', 'skull', 'anchor', 'question', 'rest', 'treasure', 'door', 'eye'];
@@ -21,6 +22,57 @@ function point(v: any, f: string) {
 export default function mapRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
+
+  db.exec('CREATE TABLE IF NOT EXISTS map_scales (world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, pic TEXT NOT NULL, width REAL NOT NULL, unit TEXT NOT NULL, PRIMARY KEY (world_id, pic))');
+
+  // How wide the whole picture is in the world ("400 miles"), for the ruler. One per map picture, set by the DM, read by everyone.
+  r.get('/scale', (req, res) => {
+    res.json(one<any>(db, 'SELECT width, unit FROM map_scales WHERE world_id = ? AND pic = ?', ctx(res).world.id, str(req.query.pic, 'pic', { max: 200 })) ?? null);
+  });
+  r.put('/scale', requirePlayerOrDM, (req, res) => {
+    if (!isDM(res)) throw new HttpError(403, 'Only the DM sets the scale');
+    const w = ctx(res).world.id;
+    const pic = str(req.body?.pic, 'pic', { max: 200 });
+    const width = Number(req.body?.width);
+    if (req.body?.width === null) run(db, 'DELETE FROM map_scales WHERE world_id = ? AND pic = ?', w, pic);
+    else {
+      if (!Number.isFinite(width) || width <= 0 || width > 1e9) throw new HttpError(400, 'width must be a number above 0');
+      run(db, 'INSERT OR REPLACE INTO map_scales (world_id, pic, width, unit) VALUES (?, ?, ?, ?)', w, pic, width, str(req.body?.unit, 'unit', { max: 20 }) || 'miles');
+    }
+    d.hub.emit(w, 'map-scale', { pic }, () => true);
+    res.json({ ok: true });
+  });
+
+  // The pins a map picture has in its own source (LegendKeeper), placed on the picture. The page is read as this viewer's copy, so a pin or a page
+  // they may not see is not in it; under fog they get none. `map` is the Alexandria map whose fog counts.
+  r.get('/imported/:image/pins', (req, res) => {
+    const c = ctx(res);
+    const v = readerFor(req, res);
+    const img = one<any>(db, 'SELECT source_id, page_external FROM intake_images WHERE id = ? AND world_id = ?', String(req.params.image), c.world.id);
+    const pg = img?.page_external ? one<any>(db, 'SELECT id FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', c.world.id, img.source_id, img.page_external) : null;
+    if (!pg) { res.json({ page: null, pins: [] }); return; }
+    let page: any;
+    try { page = d.library.get(c.world.id, pg.id, v as any); } catch { res.json({ page: null, pins: [] }); return; }
+    const block = (page.blocks ?? []).find((b: any) => b.kind === 'map');
+    const b = block?.bounds;
+    const fog = v.role === 'dm' ? [] : fogLayers(db, c.world.id, str(req.query.map, 'map', { max: 60, optional: true }) || 'world');
+    const pins = !b ? [] : (block.pins ?? []).map((p: any, i: number) => ({
+      id: `p${i}`, name: p.name, icon: p.type ?? null, color: p.color ?? null, dm: p.dm === true, pageId: p.ref ? page.links[`ref:${p.ref}`] ?? null : null,
+      x: ((p.lng - b[0][1]) / (b[1][1] - b[0][1])) * 100, y: ((b[1][0] - p.lat) / (b[1][0] - b[0][0])) * 100,
+    })).filter((p: any) => p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 100 && !markUnderFog(fog, { kind: 'pin', data: p }));
+    res.json({ page: { id: page.id, title: page.title }, pins });
+  });
+
+  // DM: read the world's map pages from their source now (they are only listed until someone opens them), a few at a time.
+  r.post('/imported/read', requirePlayerOrDM, async (req, res) => {
+    if (!isDM(res)) throw new HttpError(403, 'Only the DM can read maps from the source');
+    const w = ctx(res).world.id;
+    const todo = all<any>(db, "SELECT p.id FROM pages p JOIN sources s ON s.id = p.source_id AND s.enabled = 1 WHERE p.world_id = ? AND p.kind = 'map' AND p.depth = 'index' ORDER BY p.title LIMIT 12", w);
+    let read = 0;
+    for (const p of todo) if ((await readOnOpen(d, w, p.id, ctx(res).viewer)) === 'fetched') read++;
+    const left = one<any>(db, "SELECT count(*) AS n FROM pages p JOIN sources s ON s.id = p.source_id AND s.enabled = 1 WHERE p.world_id = ? AND p.kind = 'map' AND p.depth = 'index'", w)!.n;
+    res.json({ read, left: Number(left) });
+  });
 
   r.get('/:mapId/marks', (req, res) => {
     const c = ctx(res);

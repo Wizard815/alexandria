@@ -52,8 +52,8 @@ export function pendingCopies(d: Deps, scope: VecScope, stateTable: 'search_chun
   const rows = all<any>(d.db, `SELECT p.id, p.world_id, p.title, p.updated_at, ${c.body} AS text, ${c.props} AS props, length(${c.body}) + length(coalesce(${c.props}, '')) AS sig FROM pages p
     LEFT JOIN ${stateTable} s ON s.page_id = p.id AND s.scope = ?
     WHERE ${SCOPE_GUARD[scope]} ${worldId ? 'AND p.world_id = ?' : ''}
-      AND (s.page_id IS NULL OR s.updated_at <> p.updated_at OR s.model <> ? OR s.sig <> length(${c.body}) + length(coalesce(${c.props}, '')))
-    ORDER BY p.updated_at DESC LIMIT ?`, scope, ...(worldId ? [worldId] : []), model, limit);
+      AND (s.page_id IS NULL OR s.updated_at <> p.updated_at OR ${stateTable === 'bible_state' ? "substr(s.model, instr(s.model, '|') + 1) <> substr(?, instr(?, '|') + 1)" : 's.model <> ?'} OR s.sig <> length(${c.body}) + length(coalesce(${c.props}, '')))
+    ORDER BY p.updated_at DESC LIMIT ?`, scope, ...(worldId ? [worldId] : []), ...(stateTable === 'bible_state' ? [model, model] : [model]), limit);
   return rows.map((r) => ({ id: r.id, world_id: r.world_id, scope, title: r.title, updated_at: r.updated_at, full: fullText(r.text, r.props), sig: Number(r.sig), hash: null }));
 }
 
@@ -69,7 +69,7 @@ function pendingLifted(d: Deps, stateTable: string, model: string, limit: number
       const full = fullText(c.body, c.props);
       const hash = hashOf(full);
       const st = all<any>(d.db, `SELECT hash, model FROM ${stateTable} WHERE page_id = ? AND scope = 'lifted'`, id)[0];
-      if (st && st.hash === hash && st.model === model) continue;
+      if (st && st.hash === hash && (st.model === model || (stateTable === 'bible_state' && String(st.model).split('|').pop() === model.split('|').pop()))) continue;
       out.push({ id, world_id: w, scope: 'lifted', title: c.title, updated_at: c.updatedAt, full, sig: full.length, hash });
     }
   }

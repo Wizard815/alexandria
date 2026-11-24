@@ -1,6 +1,7 @@
 // Giving between players and the party (no DM approval), asking each other
 // for coin, and item pictures. Used by the player Inventory, the DM's Party
 // page and the broker.
+import { uploadPicture } from '../../lib/upload.ts';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -58,17 +59,13 @@ export function ImageViewer({ item, onClose }: { item: Item; onClose: () => void
   );
 }
 
-const MAX = 2 * 1024 * 1024;
-/** Choose a picture: upload one (PNG, JPEG, GIF, WebP up to 2 MB) or paste a link. Optional. */
+/** Choose a picture: upload one (PNG, JPEG, GIF, WebP up to 20 MB) or paste a link. Optional. */
 export function ImageField({ value, name, onChange }: { value: string | null | undefined; name: string; onChange: (v: string | null) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [url, setUrl] = useState(value && /^https?:/.test(value) ? value : '');
   const upload = (f: File) => act.run(async () => {
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) throw new Error('Pick a PNG, JPEG, GIF or WebP picture');
-    if (f.size > MAX) throw new Error('Pictures can be at most 2 MB');
-    const b64 = await new Promise<string>((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => bad(new Error('Could not read the file')); r.readAsDataURL(f); });
-    const res = await w.call<{ id: string }>('POST', '/inventory/images', { dataBase64: b64 });
+    const res = await uploadPicture(w, '/inventory/images', f);
     onChange(res.id);
     setUrl('');
   });

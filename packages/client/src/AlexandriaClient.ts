@@ -37,6 +37,8 @@ export interface NetHooks {
   ok(): void;
   /** A cached copy saved at this time was served instead of a live answer. */
   served?(savedAt: string): void;
+  /** Ask the server right now whether it is there (before refusing a write as offline). */
+  recheck?(): Promise<boolean>;
 }
 
 export const OFFLINE_WRITE = 'You are offline, so Alexandria is read-only. Changes can be made once the server is back.';
@@ -78,7 +80,7 @@ export class AlexandriaClient {
 
   async request<T = any>(method: string, path: string, body?: unknown, query?: Q): Promise<T> {
     const get = method === 'GET';
-    if (!get && this.net?.offline()) throw new AlexandriaError(0, OFFLINE_WRITE);
+    if (!get && this.net?.offline() && !(await this.net.recheck?.())) throw new AlexandriaError(0, OFFLINE_WRITE);
     const key = get ? this.cacheKey(path, query) : null;
     const scope = this.cacheScope;
     const fallback = async (): Promise<T> => {

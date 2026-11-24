@@ -240,7 +240,7 @@ export function rulesSaid(d: Deps, c: Pick<Caller, 'worldId' | 'viewer'>, text: 
  * gets far more of the session, so it can follow the whole night instead of the last twenty lines.
  */
 export interface Budget { tokens: number; history: number; liveLines: number; liveChars: number; toolChars: number }
-export const budgetFor = (d: Deps): Budget => budgetFrom(Number(jobConfig(d, 'chat')?.options?.contextTokens));
+export const budgetFor = (d: Deps, harness?: string): Budget => budgetFrom(Number(jobConfig(d, harness === 'dm' ? 'dm' : harness ? 'player' : 'chat')?.options?.contextTokens));
 export function budgetFrom(n?: number): Budget {
   const tokens = Number.isFinite(n) && n! >= 2000 ? Math.round(n!) : 32_000;
   if (tokens < 16_000) return { tokens, history: 4, liveLines: 10, liveChars: 2_000, toolChars: 4_000 };
@@ -475,7 +475,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     const me_ = one<any>(d.db, 'SELECT a.display_name AS d, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', c.worldId, c.accountId);
     if (me_) L.push(`You are helping ${me_.d}${me_.ch ? `, who plays ${me_.ch}` : ''}.`);
   }
-  const budget = budgetFor(d);
+  const budget = budgetFor(d, c.harness);
   // The running summary of tonight's session (the DM's, or the players' for a player): the whole night in a few
   // hundred words, so a model that only gets the last lines still knows what came before.
   const sum = latestSummary(d, c.worldId, dm ? 'dm' : 'party');
@@ -627,7 +627,7 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
       run(d.db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, call, status, result, created_at, decided_at, auto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)', aid, c.worldId, chatId, c.accountId, name, JSON.stringify(args ?? {}), describeCall(name, args), JSON.stringify(tool.call(args ?? {})), t.ok ? 'done' : 'failed', t.text.slice(0, 8000), now(), now());
       emitAction(d, c.worldId, c.accountId, aid);
     }
-    return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, budgetFor(d).toolChars), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
+    return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, budgetFor(d, c.harness).toolChars), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
   } catch (e: any) {
     return { content: `The call failed: ${String(e?.message ?? e).slice(0, 200)}`, cites: [] };
   }
@@ -746,7 +746,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         tell();
         return;
       }
-      if (!hasJob(d, 'chat')) {
+      if (!hasJob(d, c.harness === 'dm' ? 'dm' : 'player')) {
         finish("I could not match that to anything in the fight, and no chat model is set to work it out.", 'done');
         tell();
         return;
@@ -790,7 +790,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       const tm = performance.now();
       let r;
       try {
-        r = await chatStream(d, 'chat', { messages: fitToBudget(messages, budgetFor(d).tokens), tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true, toolChoice: mustCall && !last ? 'required' : undefined }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
+        r = await chatStream(d, c.harness === 'dm' ? 'dm' : 'player', { messages: fitToBudget(messages, budgetFor(d, c.harness).tokens), tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true, toolChoice: mustCall && !last ? 'required' : undefined }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
         mustCall = false;
       } finally { T.modelMs += ms(tm); }
       T.rounds++;

@@ -61,7 +61,7 @@ CREATE INDEX IF NOT EXISTS stage_history_world ON stage_history (world_id, id);
 `;
 
 const LAYOUTS = ['spotlight', 'grid', 'free'] as const;
-const MAX_IMAGE = 4 * 1024 * 1024;
+const MAX_IMAGE = 20 * 1024 * 1024;
 const MAX_IMAGES = 200;
 const MAX_CARDS = 120;
 
@@ -175,7 +175,7 @@ const feature: Feature = {
         buf = Buffer.from(b64, 'base64');
       }
       if (!buf.length) throw new HttpError(400, 'No picture sent');
-      if (buf.length > MAX_IMAGE) throw new HttpError(413, 'Pictures can be at most 4 MB');
+      if (buf.length > MAX_IMAGE) throw new HttpError(413, 'Pictures can be at most 20 MB');
       const mime = sniff(buf);
       if (!mime) throw new HttpError(400, 'Send a PNG, JPEG, GIF or WebP picture');
       if (one<any>(db, 'SELECT COUNT(*) AS n FROM stage_images WHERE world_id = ?', w)!.n >= MAX_IMAGES) throw new HttpError(409, 'This world has too many stage pictures; delete some cards first');

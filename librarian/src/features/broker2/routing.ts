@@ -169,9 +169,9 @@ export async function answersQuestion(d: Deps, question: string, snippet: string
  * Null when there is no chat model (the question then goes the usual way).
  */
 export async function realWorldAnswer(d: Deps, persona: string, question: string, topic: string): Promise<string | null> {
-  if (!hasJob(d, 'chat')) return null;
+  if (!hasJob(d, 'player')) return null;
   try {
-    const r = await chat(d, 'chat', {
+    const r = await chat(d, 'player', {
       temperature: 0,
       maxTokens: 400,
       messages: [

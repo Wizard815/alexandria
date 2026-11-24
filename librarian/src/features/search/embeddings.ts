@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS search_chunks (
 );
 CREATE INDEX IF NOT EXISTS search_chunks_world ON search_chunks (world_id, scope);
 CREATE INDEX IF NOT EXISTS search_chunks_page ON search_chunks (page_id, scope);
+CREATE INDEX IF NOT EXISTS search_chunks_wsp ON search_chunks (world_id, scope, page_id);
 CREATE TABLE IF NOT EXISTS search_chunk_state (
   page_id TEXT NOT NULL,
   scope TEXT NOT NULL CHECK (scope IN ('dm', 'party', 'broker', 'lifted')),

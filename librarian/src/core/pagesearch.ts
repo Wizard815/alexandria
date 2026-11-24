@@ -307,8 +307,8 @@ const nameCache = new WeakMap<DB, { gen: number; rows: Map<string, { id: string;
 const bump = (db: DB) => gens.set(db, (gens.get(db) ?? 0) + 1);
 
 /** The page's index rows for one scope, replacing what was there. `facts` is factsText() of the same copy. */
-export function indexPage(db: DB, scope: Scope, pid: string, worldId: string, title: string, aliases: string[], body: string, facts = '') {
-  unindexPage(db, scope, pid);
+export function indexPage(db: DB, scope: Scope, pid: string, worldId: string, title: string, aliases: string[], body: string, facts = '', held?: IndexRow | null) {
+  if (held === undefined) unindexPage(db, scope, pid); else if (held) unindexRow(db, scope, pid, held.rowid);
   db.prepare(`INSERT INTO ${ftsTable(scope)} (page_id, world_id, title, aliases, headings, body) VALUES (?, ?, ?, ?, ?, ?)`)
     .run(pid, worldId, title, aliases.join('\n'), headingsOf(body), withFacts(body, facts));
   bump(db);
@@ -321,6 +321,26 @@ export function indexPage(db: DB, scope: Scope, pid: string, worldId: string, ti
 export function unindexPage(db: DB, scope: Scope, pid: string) {
   bump(db);
   db.prepare(`DELETE FROM ${ftsTable(scope)} WHERE page_id = ?`).run(pid);
+  db.prepare('DELETE FROM page_names WHERE page_id = ? AND scope = ?').run(pid, scope);
+}
+
+export interface IndexRow { rowid: number; title: string; aliases: string }
+/** What one scope's index holds of a world, by page. One scan; deleting by rowid afterwards does not scan (page_id is not indexed in an FTS table). */
+export function indexedPages(db: DB, scope: Scope, worldId: string): Map<string, IndexRow> {
+  const rows = db.prepare(`SELECT rowid, page_id, title, aliases FROM ${ftsTable(scope)} WHERE world_id = ?`).all(worldId) as any[];
+  const out = new Map<string, IndexRow>();
+  for (const r of rows) {
+    // Two rows of one page never should be: the older is dropped.
+    const dup = out.get(r.page_id);
+    if (dup) db.prepare(`DELETE FROM ${ftsTable(scope)} WHERE rowid = ?`).run(dup.rowid);
+    out.set(r.page_id, { rowid: Number(r.rowid), title: r.title, aliases: r.aliases });
+  }
+  return out;
+}
+
+export function unindexRow(db: DB, scope: Scope, pid: string, rowid: number) {
+  bump(db);
+  db.prepare(`DELETE FROM ${ftsTable(scope)} WHERE rowid = ?`).run(rowid);
   db.prepare('DELETE FROM page_names WHERE page_id = ? AND scope = ?').run(pid, scope);
 }
 

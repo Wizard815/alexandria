@@ -455,9 +455,12 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
       const idn = lkIdentity(r, pages, d);
       const isHidden = restricted || dd.isHidden !== false;
       let blocks: Block[];
+      let mapImage: any = null;
       if (d.type === 'map') {
         try {
-          blocks = [await lkMapBlock(t, ctx, r, dd, hidden)];
+          // The picture and its coordinate frame come only with the document itself, not with the resource.
+          if (!dd.mapImage) { const one = await t.get(`/resources/${r.id}/docs/${d.id}`).catch(() => null); const got = one?.data ?? one; if (got?.mapImage) mapImage = got.mapImage; } else mapImage = dd.mapImage;
+          blocks = [await lkMapBlock(t, ctx, r, { ...dd, mapImage }, hidden)];
         } catch (err: any) {
           ctx.log(`Skipped ${r.name} / ${d.name}: ${err.message}`);
           continue;
@@ -497,7 +500,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
         depth: 'full',
       };
       // A map document's image is kept as a map of its page (shared only with the page).
-      const mapUrl = d.type === 'map' ? (dd.mapImage?.url ?? d.mapImage?.url) : null;
+      const mapUrl = d.type === 'map' ? (mapImage?.url ?? d.mapImage?.url) : null;
       if (typeof mapUrl === 'string' && /^https?:\/\//i.test(mapUrl)) {
         const rec = await pictureRecord(ctx, { externalId: `${idn.externalId}#mapimg`, pageRef: idn.externalId, name: idn.title, url: mapUrl, updated: dd.updatedAt ?? r.updatedAt ?? null, visible: !isHidden && ctx.shareVisible, map: true, origin: LK_ORIGIN });
         if (rec) yield rec;
@@ -649,6 +652,12 @@ async function lkList(t: Transport, path: string, paged = true): Promise<any[]> 
 }
 
 /** A map document as one block: its image and its pins. Hidden pins, and pins under hidden folders or on hidden pages, are marked DM-only. */
+/** [[minLat, minLng], [maxLat, maxLng]] when it is four finite numbers that span something. */
+function lkBounds(b: any): [[number, number], [number, number]] | null {
+  const n = Array.isArray(b) ? b.flat().map(Number) : [];
+  return n.length === 4 && n.every(Number.isFinite) && n[2] > n[0] && n[3] > n[1] ? [[n[0], n[1]], [n[2], n[3]]] : null;
+}
+
 async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any, hiddenResource: (rid: string) => boolean): Promise<Block> {
   const features = (await t.get(`/resources/${r.id}/docs/${doc.id}/features`).then((j) => (Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []))) as any[];
   const byId = new Map<string, any>(features.map((f) => [String(f.id), f]));
@@ -657,7 +666,7 @@ async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any,
     const ref = lkRef(f.uri);
     return {
       name: String(f.name ?? ref ?? 'Pin'), lat: Number(f.pos[0]), lng: Number(f.pos[1]),
-      ...(f.iconGlyph ? { type: String(f.iconGlyph) } : {}), ...(ref ? { ref } : {}),
+      ...(f.iconGlyph ? { type: String(f.iconGlyph) } : {}), ...(/^#[0-9a-f]{6}$/i.test(String(f.iconColor ?? '')) ? { color: String(f.iconColor) } : {}), ...(ref ? { ref } : {}),
       // Hidden pin, or a pin for a page that is hidden: DM-only. Unknown stays DM-only.
       ...(hiddenFeature(f) || (ref && hiddenResource(ref)) ? { dm: true } : {}),
     };
@@ -665,7 +674,7 @@ async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any,
   const img = doc.mapImage;
   ctx.log(`Map ${r.name}: ${pins.length} pins`);
   return {
-    kind: 'map', ...(img?.url && /^https?:/i.test(img.url) ? { image: String(img.url) } : {}), ...(img?.width ? { width: Number(img.width) } : {}), ...(img?.height ? { height: Number(img.height) } : {}),
+    kind: 'map', ...(img?.url && /^https?:/i.test(img.url) ? { image: String(img.url) } : {}), ...(img?.width ? { width: Number(img.width) } : {}), ...(img?.height ? { height: Number(img.height) } : {}), ...(lkBounds(img?.bounds) ? { bounds: lkBounds(img.bounds)! } : {}),
     pins,
   };
 }

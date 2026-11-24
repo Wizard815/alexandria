@@ -1,5 +1,6 @@
 // The DM's stage: a staging column (prepared, not shown), the live board
 // (what the table sees) and an "add a card" panel.
+import { uploadPicture } from '../../lib/upload.ts';
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { PageHead, Field, ErrorBox, Loading, Empty, useAction } from '../../ui/index.tsx';
@@ -10,7 +11,6 @@ import SculptPicker from '../sculpt/SculptPicker.tsx';
 import { StageCards, useStage, CSS } from './StageBoard.tsx';
 import type { Kind, StageCard, StageView } from './types.ts';
 
-const MAX = 4 * 1024 * 1024;
 const KIND_LABEL: Record<Kind, string> = { image: 'Picture (handout or map)', combat: 'Combat', person: 'Person', shop: 'Shop', place: 'Place', event: 'Event', text: 'Text handout', drawing: 'Drawing board' };
 
 interface Pickers { pages: { id: string; title: string; path: string; visibility: string }[]; people: { id: string; name: string; role: string; visibility: string }[]; players: { id: string; name: string }[] }
@@ -32,10 +32,7 @@ function AddCard({ onDone }: { onDone: () => void }) {
   const needsPage = kind === 'shop' || kind === 'place';
 
   const upload = async (f: File) => {
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) throw new Error('Pick a PNG, JPEG, GIF or WebP picture');
-    if (f.size > MAX) throw new Error('Pictures can be at most 4 MB');
-    const b64 = await new Promise<string>((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => bad(new Error('Could not read the file')); r.readAsDataURL(f); });
-    return (await w.call<{ id: string }>('POST', '/stage/images', { dataBase64: b64 })).id;
+    return (await uploadPicture(w, '/stage/images', f)).id;
   };
   const submit = (file?: File) => act.run(async () => {
     let r = ref;
