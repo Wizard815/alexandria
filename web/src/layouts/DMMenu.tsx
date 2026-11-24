@@ -149,7 +149,7 @@ export function DMMenu({ base, badges, openDrawer }: { base: string; badges: Rec
         {!query && <kbd className="nav-kbd" aria-hidden="true">/</kbd>}
       </div>
       {!query && (
-        <div className="nav-group nav-ws" data-group="workspace">
+        <div className="nav-ws" data-group="workspace">
           <NavLink to={`${base}/ws`} className="nav-link" title="Split the window into panes: Combat and Sound side by side, and more" data-testid="menu-workspace">
             <i className="fa-solid fa-table-columns fa-fw nav-ico" aria-hidden="true" />
             <span className="nav-text"><span>Workspace</span></span>
