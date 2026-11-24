@@ -21,6 +21,7 @@ export default function PlayerInventory() {
   const [tab, setTab] = useState<'me' | 'party'>('me');
   const inv = useLoad(() => w.inventory(tab) as Promise<Inv>, [w, tab], ['item', 'item-moved', 'item-removed', 'settings', 'approval', 'transfer']);
   const mine = useMine();
+  const sum = useLoad<any>(() => w.call('GET', '/inventory/summary'), [w], ['coin', 'item', 'item-moved', 'item-removed', 'transfer', 'approval']);
   const coin = useLoad(() => w.coin(tab === 'party' && info.settings.partyPurse ? 'party' : 'me') as Promise<{ cp: number; entries: any[] }>, [w, tab], ['coin']);
   const [edit, setEdit] = useState<Partial<Item> | null>(null);
   const [moving, setMoving] = useState<Item | null>(null);
@@ -51,11 +52,24 @@ export default function PlayerInventory() {
 
   return (
     <div className="page">
-      <PageHead title="Inventory and coin" lead="Your pack and the party's shared stash. The DM can see both." />
+      <PageHead title="Inventory and coin" lead="Mine is your own pack and gold; Party is the shared stash and pouch. The DM can see both." />
       <div className="row between">
-        <Tabs label="Whose" value={tab} onChange={setTab} items={info.settings.partyPurse ? [['me', 'My pack'], ['party', 'Party stash']] : [['me', 'My pack'], ['party', 'Party stash']]} />
+        <span />
         <span className="row"><TradeButton /><button type="button" className="btn primary small" onClick={() => setEdit({ name: '', qty: 1, note: '' })}>＋ Add item</button></span>
       </div>
+      <div className="inv-sum" role="group" aria-label="Mine and the party">
+        <button type="button" className={`inv-sum-card${tab === 'me' ? ' on' : ''}`} aria-pressed={tab === 'me'} onClick={() => setTab('me')}>
+          <span className="inv-sum-t">Mine</span>
+          <b>{sum.data ? coins(sum.data.mine.cp, info.settings.coins) : '…'}</b>
+          <span className="small muted">{sum.data ? `${sum.data.mine.qty} item${sum.data.mine.qty === 1 ? '' : 's'} in my pack` : ''}</span>
+        </button>
+        <button type="button" className={`inv-sum-card party${tab === 'party' ? ' on' : ''}`} aria-pressed={tab === 'party'} onClick={() => setTab('party')}>
+          <span className="inv-sum-t">Party</span>
+          <b>{sum.data ? (sum.data.party.purse && sum.data.party.cp !== null ? coins(sum.data.party.cp, info.settings.coins) : 'No pouch') : '…'}</b>
+          <span className="small muted">{sum.data ? `${sum.data.party.qty} item${sum.data.party.qty === 1 ? '' : 's'} in the party stash` : ''}</span>
+        </button>
+      </div>
+      <style>{`.inv-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .inv-sum-card { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; padding: 12px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--panel); color: inherit; font: inherit; cursor: pointer; min-height: 44px; } .inv-sum-card b { font-size: 22px; color: var(--accent-strong); font-variant-numeric: tabular-nums; } .inv-sum-card.on { border-color: var(--accent); background: var(--accent-bg); } .inv-sum-t { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); } @media (max-width: 480px) { .inv-sum { gap: 8px; } .inv-sum-card { padding: 10px; } .inv-sum-card b { font-size: 18px; } }`}</style>
       <ErrorBox error={inv.error ?? act.error} />
       <AlertsCard mine={mine.data} reload={async () => { await Promise.all([mine.reload(), inv.reload()]); }} />
       <div className="cols">
