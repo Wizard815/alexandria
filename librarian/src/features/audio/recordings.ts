@@ -367,13 +367,29 @@ async function buildRecording(d: Deps, sessionId: string): Promise<void> {
 export function transcriptMarkdown(d: Deps, s: SessionRow, worldName: string): string {
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.display_name, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r.character_name || r.display_name]));
   const lines = all<any>(d.db, 'SELECT * FROM audio_lines WHERE session_id = ? ORDER BY start_ms, id', s.id);
+  const fin = one<{ status: string; finished_at: string | null; stats: string }>(d.db, 'SELECT status, finished_at, stats FROM audio_final WHERE session_id = ?', s.id);
   const out = [`# ${s.name}`, '', `${worldName} - ${localDate(s.started_at)}`, '', 'Lines marked **DM only** were not shown to the players.', ''];
+  const fs0 = parseJson<{ mics?: number; words?: number }>(fin?.stats, {});
+  if (fin?.status === 'done' && fs0.words) {
+    const n = fs0.mics;
+    out.push(`Final transcript: ${n ? `${n} microphone${n === 1 ? '' : 's'} synced onto one timeline` : 'synced onto one timeline'}, duplicates removed.`, '');
+  }
   for (const l of lines) {
     const who = l.speaker_account ? people.get(l.speaker_account) ?? 'Someone' : l.speaker_label;
     out.push(`- \`${fmtTime(l.start_ms)}\` **${who}**${l.audience === 'dm' ? ' (**DM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`);
   }
   out.push('');
   return out.join('\n');
+}
+
+/** Write Transcript.md again from the session's current lines (the final pass, or its undo). False when the session has no recording folder yet (the build writes it). */
+export function rewriteTranscript(d: Deps, sessionId: string): boolean {
+  const s = sessionRow(d.db, sessionId);
+  if (!s?.rec_dir || !d.dataDir) return false;
+  const dir = path.join(d.dataDir, s.rec_dir);
+  if (!fs.existsSync(dir)) return false;
+  writeTranscript(d, s, dir);
+  return true;
 }
 
 function writeTranscript(d: Deps, s: SessionRow, dir: string) {
