@@ -176,7 +176,7 @@ test('Agent: tool names set to auto-approve run at once, and are audited', async
   await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['next_turn'] });
   e.model.queue.push(() => toolCall('next_turn', {}), () => say('Next turn.'));
   const { chat } = await ask(e, e.T.dm, 'Move combat along to the following creature and tell me how it went');
-  assert.equal(chat.actions.length, 0);
+  assert.deepEqual(chat.actions.map((a: any) => [a.tool, a.status, a.auto]), [["next_turn", "done", true]], "applied at once, shown as a settled auto card");
   const now = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm);
   assert.ok(now.active);
   assert.ok(all<any>(e.deps.db, `SELECT detail FROM audit WHERE world_id = ? AND action = 'agent.action' AND detail LIKE 'next_turn%auto-approved%'`, e.W).length === 1);
@@ -614,7 +614,7 @@ test('Agent: a fast command that is set to auto-approve runs at once', async () 
   const e = bare;
   await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['add_combatant'] });
   const { chat, reply } = await ask(e, e.T.dm, 'add 3 orcs to combat');
-  assert.equal(chat.actions.length, 0);
+  assert.equal(chat.actions.filter((a: any) => a.status === "pending").length, 0);
   assert.match(reply.text, /Done: Add Orc 1 to combat/);
   const names = (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.map((c: any) => c.name);
   for (const n of ['Orc 1', 'Orc 2', 'Orc 3']) assert.ok(names.includes(n), names.join(','));
