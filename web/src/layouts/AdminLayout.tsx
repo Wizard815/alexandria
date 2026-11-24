@@ -12,6 +12,7 @@ import { setAdminToken, useAdminToken } from '../features/adminauth/session.ts';
 import AdminSearchBox from '../features/gateway/SearchBox.tsx';
 
 import '../admin.css';
+import { useAdminTheme, type AdminTheme } from './adminTheme.ts';
 import { Icon } from '../pages/admin/kit.tsx';
 
 // The sidebar's three groups. A feature that adds an admin page without a place here lands under Gateway.
@@ -33,6 +34,7 @@ export function AdminLayout() {
   const adminClient = useMemo(() => new AlexandriaClient({ baseUrl: window.location.origin, token }), [token]);
   const [mode, setMode] = useState<Mode | null | undefined>(undefined); // undefined: checking
   const [menu, setMenu] = useState(false); // the phone menu
+  const [theme, setTheme] = useAdminTheme();
   const [release, setRelease] = useState('');
   useEffect(() => { fetch('/health').then((r) => r.json()).then((h) => setRelease(h.release ? `${h.release} (${h.version})` : h.version ?? '')).catch(() => {}); }, []);
 
@@ -85,6 +87,9 @@ export function AdminLayout() {
           ))}
           <div className="side-foot">
             <NavLink to="/" className="nav-link"><Icon name="back" />Your worlds</NavLink>
+            <div className="adm-theme" role="group" aria-label="Theme">
+              {(['light', 'dark', 'system'] as AdminTheme[]).map((t) => <button key={t} type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
+            </div>
             {release && <span className="tiny adm-who" data-testid="release">Alexandria {release}</span>}
             <span className="tiny adm-who">Signed in as {mode.me.account.username}{mode.kind === 'admin' ? ' (admin session)' : ''}</span>
             <button type="button" className="btn small" onClick={() => void (mode.kind === 'admin' ? signOutAdmin() : table.signOut())}>{mode.kind === 'admin' ? 'Sign out of admin' : 'Sign out'}</button>
