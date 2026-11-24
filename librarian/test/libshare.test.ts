@@ -1,0 +1,310 @@
+// Library sharing for the DM: per-player shares of pages and files, folder rules, the classified block,
+// "send to players" (new from the DM) and that nothing reaches a player it was not meant for.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
+import { createApp } from '../src/app.ts';
+import { all, one, run } from '../src/core/db.ts';
+
+const PNG = (extra = 'x') => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(`pad ${extra} pad`)]);
+
+async function boot() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-ls-'));
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
+  const server = made.app.listen(0);
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const call = async (method: string, url: string, token?: string, body?: unknown) => {
+    const r = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const t = await r.text();
+    let j: any = t;
+    try { j = JSON.parse(t); } catch { /* text */ }
+    return { status: r.status, body: j };
+  };
+  const ok = async (method: string, url: string, token?: string, body?: unknown) => {
+    const r = await call(method, url, token, body);
+    assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${JSON.stringify(r.body)}`);
+    return r.body;
+  };
+  const T: Record<string, string> = {};
+  const ID: Record<string, string> = {};
+  T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
+  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
+  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Sharedland', dmAccountId: ID.dm })).id;
+  for (const [u, c] of [['jess', 'Jess'], ['tom', 'Tom'], ['ana', 'Ana']]) {
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: u, password: 'player pass 123', characterName: c });
+    T[u] = j.token; ID[u] = j.account.id;
+  }
+  const up = async (query: string, bytes: Buffer) => {
+    const r = await fetch(`${base}/api/worlds/${W}/files?${query}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${T.dm}` }, body: bytes as any });
+    return { status: r.status, body: await r.json().catch(() => ({})) as any };
+  };
+  const bytes = async (url: string) => { const r = await fetch(base + url); return { status: r.status }; };
+  const lib = `/api/worlds/${W}/library`;
+  const ls = `/api/worlds/${W}/libshare`;
+  const page = (p: string, visibility: string, body = 'Open text.') => ok('PUT', `${lib}/pages`, T.dm, { path: p, visibility, body });
+  const titles = async (who: string) => ((await ok('GET', `${lib}/pages`, T[who])) as any[]).map((x) => x.title).sort();
+  const share = (b: any) => call('PUT', `${ls}/share`, T.dm, b);
+  return { base, deps: made.deps, W, T, ID, call, ok, up, bytes, lib, ls, page, titles, share, close: () => { server.close(); server.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); } };
+}
+
+test('TestLibShare_PagePerPlayerAndEveryone', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('lore/Secret Cove.md', 'dm', 'The cove is hidden.\n\n> [!secret] DM\n> DMSECRET smugglers\n');
+    assert.deepEqual(await e.titles('jess'), []);
+    const r = await e.share({ kind: 'page', id: pg.id, mode: 'players', players: [e.ID.jess] });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(await e.titles('jess'), ['Secret Cove']);
+    assert.deepEqual(await e.titles('tom'), [], 'another player does not get a per-player share');
+    assert.equal((await e.call('GET', `${e.lib}/pages/${pg.id}`, e.T.tom)).status, 404);
+    const got = await e.ok('GET', `${e.lib}/pages/${pg.id}`, e.T.jess);
+    assert.ok(!JSON.stringify(got).includes('DMSECRET'), 'secret blocks never reach the player');
+    // Changing who: from jess to tom
+    await e.share({ kind: 'page', id: pg.id, mode: 'players', players: [e.ID.tom] });
+    assert.deepEqual(await e.titles('jess'), []);
+    assert.deepEqual(await e.titles('tom'), ['Secret Cove']);
+    // Everyone
+    await e.share({ kind: 'page', id: pg.id, mode: 'party' });
+    assert.deepEqual(await e.titles('ana'), ['Secret Cove']);
+    // DM only again
+    await e.share({ kind: 'page', id: pg.id, mode: 'dm' });
+    for (const p of ['jess', 'tom', 'ana']) assert.deepEqual(await e.titles(p), []);
+    assert.equal((await e.call('GET', `${e.lib}/pages/${pg.id}`, e.T.jess)).status, 404);
+  } finally { e.close(); }
+});
+
+test('TestLibShare_OnlyTheDmCanShareAndPlayersGetNoOverview', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('lore/A.md', 'dm');
+    for (const body of [{ kind: 'page', id: pg.id, mode: 'party' }]) {
+      assert.equal((await e.call('PUT', `${e.ls}/share`, e.T.jess, body)).status, 403);
+      assert.equal((await e.call('PUT', `${e.ls}/share`, undefined, body)).status, 401);
+    }
+    assert.equal((await e.call('GET', `${e.ls}/overview`, e.T.jess)).status, 403);
+    assert.equal((await e.call('GET', `${e.ls}/preview?kind=page&id=${pg.id}`, e.T.jess)).status, 403);
+    assert.deepEqual(await e.titles('jess'), []);
+  } finally { e.close(); }
+});
+
+test('TestLibShare_ClassifiedAndBrokerCanNeverBeShared', async () => {
+  const e = await boot();
+  try {
+    const cl = await e.page('lore/Cl.md', 'classified');
+    const br = await e.page('lore/Br.md', 'broker');
+    for (const pg of [cl, br]) for (const mode of ['party', 'players']) {
+      const r = await e.share({ kind: 'page', id: pg.id, mode, players: [e.ID.jess] });
+      assert.equal(r.status, 409, `${pg.path} ${mode}`);
+    }
+    assert.match((await e.share({ kind: 'page', id: cl.id, mode: 'party' })).body.error, /classified/i);
+    assert.deepEqual(await e.titles('jess'), []);
+    // A classified file, and a file on a classified page.
+    const open = await e.page('lore/Open.md', 'dm');
+    const f1 = await e.up(`page=${open.id}&name=a.png&level=classified`, PNG('a'));
+    assert.equal((await e.share({ kind: 'file', id: f1.body.id, mode: 'party' })).status, 409);
+    const f2 = await e.up(`page=${cl.id}&name=b.png&level=dm`, PNG('b'));
+    assert.equal((await e.share({ kind: 'file', id: f2.body.id, mode: 'party' })).status, 409, 'its page is classified');
+    // Folder: classified and broker pages are skipped even with a rule over them.
+    await e.page('Vault/Open Note.md', 'dm');
+    await e.page('Vault/Classified Note.md', 'classified');
+    await e.page('Vault/Broker Note.md', 'broker');
+    const dmClassifiedTag = await e.ok('PUT', `${e.lib}/pages`, e.T.dm, { path: 'Vault/Tagged.md', visibility: 'dm', body: 'x #classified' });
+    assert.equal(dmClassifiedTag.visibility, 'classified');
+    const rule = await e.share({ kind: 'folder', sourceId: '', path: 'Vault', mode: 'party', confirm: true });
+    assert.equal(rule.status, 200, JSON.stringify(rule.body));
+    assert.deepEqual(await e.titles('jess'), ['Open Note'], 'only the DM-only page is lifted');
+    const ids = new Map(all<any>(e.deps.db, 'SELECT id, title FROM pages').map((p) => [p.title, p.id]));
+    for (const t of ['Classified Note', 'Broker Note', 'Tagged']) assert.equal((await e.call('GET', `${e.lib}/pages/${ids.get(t)}`, e.T.jess)).status, 404, t);
+    // A page becoming classified later drops out of the rule at once.
+    await e.ok('PUT', `${e.lib}/pages/${ids.get('Open Note')}/level`, e.T.dm, { level: 'classified' });
+    assert.deepEqual(await e.titles('jess'), []);
+  } finally { e.close(); }
+});
+
+test('TestLibShare_ConfirmNeededForFoldersAndClassifiedText', async () => {
+  const e = await boot();
+  try {
+    await e.page('Notes/One.md', 'dm');
+    const noConfirm = await e.share({ kind: 'folder', sourceId: '', path: 'Notes', mode: 'party' });
+    assert.equal(noConfirm.status, 409);
+    assert.equal(noConfirm.body.needsConfirm, true);
+    assert.equal(all(e.deps.db, 'SELECT * FROM libshare_folders').length, 0);
+    const mixed = await e.page('Notes/Mixed.md', 'dm', 'Open words.\n\n> [!classified] Classified\n> CLASSIFIEDTEXT\n');
+    const first = await e.share({ kind: 'page', id: mixed.id, mode: 'party' });
+    assert.equal(first.status === 409 ? first.body.needsConfirm : 'no-classified-blocks', true, JSON.stringify(first.body));
+    const prev = await e.ok('GET', `${e.ls}/preview?kind=page&id=${mixed.id}`, e.T.dm);
+    assert.equal(prev.classifiedText, true);
+    assert.equal((await e.share({ kind: 'page', id: mixed.id, mode: 'party', confirm: true })).status, 200);
+    const got = await e.ok('GET', `${e.lib}/pages/${mixed.id}`, e.T.jess);
+    assert.ok(!JSON.stringify(got).includes('CLASSIFIEDTEXT'));
+    const fp = await e.ok('GET', `${e.ls}/preview?kind=folder&sourceId=&path=Notes`, e.T.dm);
+    assert.equal(fp.pages, 2);
+  } finally { e.close(); }
+});
+
+test('TestLibShare_FolderRuleCoversPagesAddedAndMovedLater', async () => {
+  const e = await boot();
+  try {
+    await e.page('Town/Inn.md', 'dm', 'The inn.');
+    await e.page('Elsewhere/Cave.md', 'dm', 'The cave.');
+    assert.equal((await e.share({ kind: 'folder', sourceId: '', path: 'Town', mode: 'players', players: [e.ID.tom], confirm: true })).status, 200);
+    assert.deepEqual(await e.titles('tom'), ['Inn']);
+    assert.deepEqual(await e.titles('jess'), []);
+    // Added later, and in a sub folder.
+    await e.page('Town/Market/Stall.md', 'dm', 'A stall.');
+    assert.deepEqual(await e.titles('tom'), ['Inn', 'Stall']);
+    // Moved in (saved at a new path) and out.
+    const cave = one<any>(e.deps.db, `SELECT id FROM pages WHERE title = 'Cave'`)!;
+    run(e.deps.db, `UPDATE pages SET folder = '["Town"]' WHERE id = ?`, cave.id);
+    assert.deepEqual(await e.titles('tom'), ['Cave', 'Inn', 'Stall']);
+    run(e.deps.db, `UPDATE pages SET folder = '["Elsewhere"]' WHERE id = ?`, cave.id);
+    assert.deepEqual(await e.titles('tom'), ['Inn', 'Stall']);
+    // Other players still cannot open it by id.
+    const inn = one<any>(e.deps.db, `SELECT id FROM pages WHERE title = 'Inn'`)!;
+    assert.equal((await e.call('GET', `${e.lib}/pages/${inn.id}`, e.T.jess)).status, 404);
+    assert.equal((await e.call('GET', `${e.lib}/pages/${inn.id}`, e.T.tom)).status, 200);
+    // The overview shows the rule and who it is for.
+    const ov = await e.ok('GET', `${e.ls}/overview`, e.T.dm);
+    assert.equal(ov.folders.length, 1);
+    assert.deepEqual(ov.folders[0].to, [e.ID.tom]);
+    assert.deepEqual(ov.pages[inn.id].to, [e.ID.tom]);
+    assert.ok(ov.pages[inn.id].via.includes('folder'));
+    // Search finds it for tom only.
+    assert.equal((await e.ok('GET', `${e.lib}/search?q=inn`, e.T.tom)).length, 1);
+    assert.equal((await e.ok('GET', `${e.lib}/search?q=inn`, e.T.jess)).length, 0);
+    // Turning the rule off ends it.
+    assert.equal((await e.share({ kind: 'folder', sourceId: '', path: 'Town', mode: 'off' })).status, 200);
+    assert.deepEqual(await e.titles('tom'), []);
+  } finally { e.close(); }
+});
+
+test('TestLibShare_FileSharedToOnePlayerAndItsPageStaysHidden', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('lore/DM Page.md', 'dm', 'DMPAGETEXT');
+    const f = await e.up(`page=${pg.id}&name=handout.png&level=dm`, PNG('h'));
+    assert.equal(f.status, 201);
+    const fileUrl = (who: string) => e.call('GET', `/api/worlds/${e.W}/files/${f.body.id}`, e.T[who]);
+    assert.equal((await fileUrl('jess')).status, 404);
+    assert.equal((await e.share({ kind: 'file', id: f.body.id, mode: 'players', players: [e.ID.jess] })).status, 200);
+    assert.equal((await fileUrl('jess')).status, 200);
+    assert.equal((await fileUrl('tom')).status, 404, 'a per-player file share stays with that player');
+    const list = await e.ok('GET', `/api/worlds/${e.W}/files`, e.T.jess);
+    assert.equal(list.files.length, 1);
+    assert.equal(list.files[0].pageId, null, 'the hidden page is not named');
+    assert.equal(list.files[0].pageTitle, undefined);
+    assert.equal((await e.call('GET', `${e.lib}/pages/${pg.id}`, e.T.jess)).status, 404, 'its page stays hidden');
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files`, e.T.tom)).files.length, 0);
+    // The ticket url works for jess's account only.
+    const url = list.files[0].url as string;
+    assert.equal((await e.bytes(url)).status, 200);
+    const tomList = await e.ok('GET', `/api/worlds/${e.W}/files/${f.body.id}/ticket`, e.T.dm);
+    assert.equal((await e.bytes(tomList.url)).status, 200, 'the DM reads it');
+    // Everyone, with the page.
+    assert.equal((await e.share({ kind: 'file', id: f.body.id, mode: 'party', withPage: true })).status, 200);
+    assert.equal((await fileUrl('tom')).status, 200);
+    assert.equal((await e.call('GET', `${e.lib}/pages/${pg.id}`, e.T.tom)).status, 200);
+    // Back to DM only: file and page close again.
+    assert.equal((await e.share({ kind: 'file', id: f.body.id, mode: 'dm' })).status, 200);
+    assert.equal((await fileUrl('jess')).status, 404);
+    assert.equal((await e.bytes(url)).status, 404, 'a ticket already handed out stops working');
+  } finally { e.close(); }
+});
+
+test('TestLibShare_FolderRuleCoversFilesAddedLaterButNotClassifiedOnes', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('Maps/Region.md', 'dm', 'Region.');
+    await e.share({ kind: 'folder', sourceId: '', path: 'Maps', mode: 'players', players: [e.ID.ana], confirm: true });
+    const later = await e.up(`page=${pg.id}&name=later.png&level=dm`, PNG('l'));
+    const secret = await e.up(`page=${pg.id}&name=secret.png&level=classified`, PNG('s'));
+    const brokered = await e.up(`page=${pg.id}&name=broker.png&level=broker`, PNG('b'));
+    const get = (who: string, id: string) => e.call('GET', `/api/worlds/${e.W}/files/${id}`, e.T[who]).then((r) => r.status);
+    assert.equal(await get('ana', later.body.id), 200);
+    assert.equal(await get('jess', later.body.id), 404);
+    assert.equal(await get('ana', secret.body.id), 404);
+    assert.equal(await get('ana', brokered.body.id), 404);
+    const ov = await e.ok('GET', `${e.ls}/overview`, e.T.dm);
+    assert.equal(ov.files[later.body.id].mode, 'players');
+    assert.equal(ov.files[secret.body.id].mode, 'classified');
+  } finally { e.close(); }
+});
+
+test('TestLibShare_SendToPlayersIsNewForThemOnly', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('lore/Letter.md', 'dm', 'A letter.');
+    const secret = await e.page('lore/Hidden.md', 'dm', 'Not sent.');
+    const r = await e.share({ kind: 'page', id: pg.id, mode: 'players', players: [e.ID.jess], notify: true });
+    assert.equal(r.status, 200);
+    const mine = await e.ok('GET', `${e.ls}/new`, e.T.jess);
+    assert.equal(mine.newCount, 1);
+    assert.equal(mine.items[0].title, 'Letter');
+    assert.equal(mine.items[0].pageId, pg.id);
+    assert.deepEqual((await e.ok('GET', `${e.ls}/new`, e.T.tom)).items, [], 'another player is not told');
+    await e.ok('POST', `${e.ls}/seen`, e.T.jess, {});
+    assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).newCount, 0);
+    assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).items.length, 1, 'it stays listed under From the DM');
+    // Quiet share: nothing is recorded.
+    await e.share({ kind: 'page', id: secret.id, mode: 'party' });
+    assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.ana)).items.length, 0);
+    // Unshared after sending: it disappears from the list (checked again on every read).
+    await e.share({ kind: 'page', id: pg.id, mode: 'dm' });
+    assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).items.length, 0);
+    // The DM sees the send log with who it went to.
+    const log = await e.ok('GET', `${e.ls}/new`, e.T.dm);
+    assert.equal(log.items[0].toNames[0], 'Jess');
+  } finally { e.close(); }
+});
+
+test('TestLibShare_NewEventReachesOnlyTheRecipients', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('lore/Scroll.md', 'dm');
+    const hub = e.deps.hub as any;
+    const sent: ((v: any) => boolean)[] = [];
+    const real = hub.emit.bind(hub);
+    hub.emit = (w: string, type: string, data: unknown, aud: (v: any) => boolean) => { if (type === 'libshare-new') sent.push(aud); return real(w, type, data, aud); };
+    const gets = (v: any) => sent.filter((a) => a(v)).length;
+    await e.share({ kind: 'page', id: pg.id, mode: 'players', players: [e.ID.jess], notify: true });
+    assert.equal(gets({ accountId: e.ID.jess, role: 'player' }), 1);
+    assert.equal(gets({ accountId: e.ID.tom, role: 'player' }), 0);
+    assert.equal(gets({ accountId: e.ID.dm, role: 'dm' }), 1);
+    assert.equal(gets({ accountId: '', role: 'guest' }), 0);
+  } finally { e.close(); }
+});
+
+test('TestLibShare_SharedViewListsWhatPlayersCanSee', async () => {
+  const e = await boot();
+  try {
+    await e.page('a/Party Page.md', 'party');
+    const dm = await e.page('a/Dm Page.md', 'dm');
+    const some = await e.page('a/Some.md', 'dm');
+    await e.share({ kind: 'page', id: some.id, mode: 'players', players: [e.ID.jess, e.ID.tom] });
+    const ov = await e.ok('GET', `${e.ls}/overview`, e.T.dm);
+    const byTitle = Object.fromEntries(ov.shared.map((s: any) => [s.title, s]));
+    assert.equal(byTitle['Party Page'].mode, 'party');
+    assert.equal(byTitle['Some'].mode, 'players');
+    assert.equal(byTitle['Some'].to.length, 2);
+    assert.equal(byTitle['Dm Page'], undefined);
+    void dm;
+  } finally { e.close(); }
+});
+
+test('TestLibShare_PlayerLeavingTheWorldLosesAFileShare', async () => {
+  const e = await boot();
+  try {
+    const pg = await e.page('lore/P.md', 'dm');
+    const f = await e.up(`page=${pg.id}&name=p.png&level=dm`, PNG('p'));
+    await e.share({ kind: 'file', id: f.body.id, mode: 'players', players: [e.ID.jess] });
+    run(e.deps.db, `DELETE FROM members WHERE world_id = ? AND account_id = ?`, e.W, e.ID.jess);
+    const ov = await e.ok('GET', `${e.ls}/overview`, e.T.dm);
+    assert.equal(ov.files[f.body.id].mode, 'dm');
+  } finally { e.close(); }
+});
