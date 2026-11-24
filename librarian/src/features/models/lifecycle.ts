@@ -55,7 +55,7 @@ export interface Live { live: boolean; reasons: ('manual' | 'recording' | 'chat'
 export function sessionLive(d: Deps, at = Date.now()): Live {
   const since = new Date(at - DAY).toISOString();
   const reasons: Live['reasons'] = [];
-  try { const m = JSON.parse(metaGet(d.db, 'gamenight') ?? 'null'); if (m?.on === true && at - Date.parse(m.at) < DAY) reasons.push('manual'); } catch { /* none */ }
+  try { const m = JSON.parse(metaGet(d.db, 'gamenight') ?? 'null'); if (m?.on === true && Date.now() - Date.parse(m.at) < DAY) reasons.push('manual'); } catch { /* none */ }
   try { if (one(d.db, 'SELECT 1 FROM audio_sessions WHERE stopped_at IS NULL AND started_at > ?', since)) reasons.push('recording'); } catch { /* no audio feature */ }
   try { if (one(d.db, 'SELECT 1 FROM sessionchat_sessions WHERE ended_at IS NULL AND started_at > ?', since)) reasons.push('chat'); } catch { /* no session chat */ }
   return { live: reasons.length > 0, reasons };
@@ -112,7 +112,7 @@ export type Phase = 'off' | 'warming' | 'ready' | 'releasing';
 export type HoldState = 'loading' | 'ready' | 'failed' | 'lost';
 export interface Hold {
   t: Target; backend: Backend; state: HoldState; ms?: number; error?: string;
-  /** ms epochs */ lastRequest: number; nextCheck: number; ttl?: number; unverified?: boolean;
+  /** ms epochs */ lastRequest: number; nextCheck: number; ttl?: number; unverified?: boolean; losses?: number[];
 }
 interface Mem { phase: Phase; holds: Map<string, Hold>; graceUntil?: number; busy: Promise<void> | null; again: boolean; resumed: boolean; worlds: Set<string>; lastRelease?: { at: string; results: { model: string; ok: boolean; note?: string; error?: string }[] }; pending: Set<Promise<unknown>> }
 const mems = new WeakMap<DB, Mem>();
@@ -188,7 +188,15 @@ async function maintain(d: Deps, h: Hold, at: number) {
   const s = h.unverified ? null : await inspect(d, h.backend, h.t);
   h.nextCheck = at + (ttl > 0 ? Math.min(checkEvery(d), Math.max(5_000, ttl * 0.3)) : checkEvery(d));
   if (s && s.error) return; // server unreachable right now: try again at the next check
-  if (s && !s.present) { h.state = 'lost'; await start(d, h, at); return; } // unloaded or crashed: bring it back
+  if (s && !s.present) { // unloaded or crashed: bring it back, unless it keeps happening (one model at a time on the server?)
+    h.losses = [...(h.losses ?? []).filter((x) => at - x < 10 * 60_000), at];
+    if (h.losses.length > 3) {
+      h.state = 'failed'; h.nextCheck = at + 10 * 60_000; h.losses = [];
+      h.error = 'The server keeps unloading this model, probably to make room for another. Let the models run side by side (see docs/MODELS.md), then this is held again.';
+      emit(d); return;
+    }
+    h.state = 'lost'; await start(d, h, at); return;
+  }
   if (s?.ttl !== undefined) h.ttl = s.ttl;
   if (h.backend === 'ollama' && s && !s.forever) { settle(d, h, await load(d, h.backend, h.t), at); return; }
   const ttl2 = ttlMs();
@@ -331,7 +339,9 @@ export function attachSessionEvents(d: Deps): void {
 
 export function startLifecycle(d: Deps): () => void {
   const every = Math.max(1000, envMs(d, 'ALX_MODELS_TICK_MS', 20_000));
-  void resume(d).catch(() => {});
+  const first = resume(d).catch(() => {});
+  memOf(d).pending.add(first);
+  void first.finally(() => memOf(d).pending.delete(first));
   const t = setInterval(() => { void lifecycleTick(d).catch(() => {}); }, every);
   t.unref?.();
   return () => clearInterval(t);
