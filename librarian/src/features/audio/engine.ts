@@ -11,12 +11,13 @@ import { jobConfig, ModelUnavailable, transcribe } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { everyone, type Audience } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
-import { id as newId, now, parseJson } from '../../core/util.ts';
+import { HttpError, id as newId, now, parseJson } from '../../core/util.ts';
 import { groupUtterances, MAX_UTTERANCE_MS, mergeGroup, similarity, token, utterances, type Word } from './merge.ts';
 import { cleanWords, echoesPrompt, junkReason, QUIET_LEVEL, type Pw } from './clean.ts';
 import { buildHint, containsTerm, dmOnlyTerms } from './hint.ts';
 import { notifyLine } from './hooks.ts';
-import { runRecordingRetention } from './recordings.ts';
+import { runRecordingRetention, rewriteTranscript } from './recordings.ts';
+import { chooseOffsets, dedupeLines, tidyLines, type OffsetEstimate } from './final.ts';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS audio_consent (
@@ -62,6 +63,9 @@ CREATE TABLE IF NOT EXISTS audio_chunks (
   words TEXT NOT NULL DEFAULT '[]',
   attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
+  source TEXT,
+  stt TEXT NOT NULL DEFAULT '',
+  skew_ms INTEGER,
   UNIQUE (session_id, mic_id, seq)
 );
 CREATE INDEX IF NOT EXISTS audio_chunks_time ON audio_chunks (session_id, end_ms);
@@ -91,7 +95,27 @@ CREATE TABLE IF NOT EXISTS audio_lines (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS audio_lines_session ON audio_lines (session_id, start_ms);
+CREATE TABLE IF NOT EXISTS audio_final (
+  session_id TEXT PRIMARY KEY REFERENCES audio_sessions(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  step TEXT NOT NULL DEFAULT '',
+  pct INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  live_lines TEXT NOT NULL DEFAULT '[]',
+  offsets TEXT NOT NULL DEFAULT '{}',
+  stats TEXT NOT NULL DEFAULT '{}',
+  error TEXT
+);
 `;
+
+/** Columns audio_chunks gains (additive). */
+export function migrateStt(db: import('../../core/db.ts').DB) {
+  const cols = (db.prepare('PRAGMA table_info(audio_chunks)').all() as any[]).map((c) => c.name);
+  if (!cols.includes('source')) db.exec('ALTER TABLE audio_chunks ADD COLUMN source TEXT');
+  if (!cols.includes('stt')) db.exec("ALTER TABLE audio_chunks ADD COLUMN stt TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('skew_ms')) db.exec('ALTER TABLE audio_chunks ADD COLUMN skew_ms INTEGER');
+}
 
 export const DEFAULT_CONSENT_TEXT = 'This session is recorded and turned into a text transcript so everyone can follow it. Your microphone is only used while a session is recording, and only if you turn it on. You can withdraw your consent at any time.';
 
@@ -218,11 +242,87 @@ export class Engine {
         return 'pending';
       }
       const words = this.wordsOf(t.segments, ch.start_ms, hint);
-      run(this.d.db, "UPDATE audio_chunks SET status = 'done', words = ?, attempts = attempts + 1 WHERE id = ?", JSON.stringify(words), chunkId);
+      run(this.d.db, "UPDATE audio_chunks SET status = 'done', source = 'server', words = ?, attempts = attempts + 1 WHERE id = ?", JSON.stringify(words), chunkId);
       await this.touch(ch.session_id, ch.start_ms, ch.end_ms);
       return 'done';
     } finally { this.inflight.delete(chunkId); }
   }
+
+  // ---- speech to text on the device ---------------------------------------------------
+
+  /** Where speech to text runs for a world: 'device', 'server' or 'device-first' (the device, the server for what it did not send). */
+  sttMode(worldId: string): 'device' | 'server' | 'device-first' {
+    const v = this.worldSetting(worldId, 'speechToText');
+    return v === 'device' || v === 'server' ? v : 'device-first';
+  }
+
+  /** How long a chunk waits for its device's text before the server (or nobody) takes it. */
+  get textWaitMs() { const n = Number(this.d.env.ALX_AUDIO_TEXT_WAIT_MS ?? 45_000); return Number.isFinite(n) && n >= 0 ? n : 45_000; }
+
+  /**
+   * A chunk was just stored. `wait`: its device says text is coming. With the server doing the speech to text (or the
+   * device not promising text) the server listens now; with 'device' only, a chunk with no text is kept as audio alone.
+   */
+  async intake(chunkId: string, wait: boolean): Promise<string> {
+    const ch = one<any>(this.d.db, 'SELECT c.id, s.world_id FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE c.id = ?', chunkId);
+    if (!ch) return 'skipped';
+    const mode = this.sttMode(ch.world_id);
+    if (mode !== 'server' && wait) { run(this.d.db, "UPDATE audio_chunks SET status = 'awaiting' WHERE id = ?", chunkId); return 'awaiting'; }
+    if (mode === 'device') { run(this.d.db, "UPDATE audio_chunks SET status = 'notext' WHERE id = ?", chunkId); return 'notext'; }
+    return this.process(chunkId);
+  }
+
+  /**
+   * The words a device heard in a chunk (segments or a flat word list, seconds from the chunk's start). They go through
+   * the same filters as the server model's (loops, hallucinations, an echo of the vocabulary prompt), so a device cannot
+   * put anything on the transcript the server's own model could not. Late text for a chunk the server already did is ignored.
+   */
+  async acceptText(chunkId: string, body: any): Promise<{ status: string; accepted: boolean; words: number }> {
+    const ch = one<any>(this.d.db, 'SELECT c.*, s.world_id FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE c.id = ?', chunkId);
+    if (!ch) throw new HttpError(404, 'Chunk not found');
+    if (this.sttMode(ch.world_id) === 'server') return { status: ch.status, accepted: false, words: 0 };
+    if (ch.status === 'done' && ch.source === 'server') return { status: ch.status, accepted: false, words: 0 };
+    const num = (v: unknown, lo: number, hi: number, what: string) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw new HttpError(400, `${what} is out of range`); return n; };
+    const span = (ch.end_ms - ch.start_ms) / 1000;
+    const rawSegs: any[] | null = Array.isArray(body?.segments) ? body.segments : Array.isArray(body?.words) ? [{ start: 0, end: span, text: body.words.map((w: any) => String(w?.word ?? '')).join(' '), words: body.words }] : null;
+    if (!rawSegs) throw new HttpError(400, 'Send segments or words');
+    let total = 0;
+    const segments = rawSegs.slice(0, 200).map((sg) => {
+      const words = (Array.isArray(sg?.words) ? sg.words : []).slice(0, 1500).map((w: any) => {
+        if (typeof w?.word !== 'string') throw new HttpError(400, 'Each word needs a word');
+        total++;
+        return { word: w.word.slice(0, 80), start: num(w.start, -5, span + 5, 'start'), end: num(w.end, -5, span + 10, 'end'), probability: w.probability === undefined ? undefined : num(w.probability, 0, 1, 'probability') };
+      });
+      return {
+        start: num(sg?.start ?? 0, -5, span + 5, 'start'), end: num(sg?.end ?? span, -5, span + 10, 'end'), text: String(sg?.text ?? words.map((w: any) => w.word).join(' ')).slice(0, 4000),
+        avgLogprob: typeof sg?.avgLogprob === 'number' ? sg.avgLogprob : undefined, noSpeechProb: typeof sg?.noSpeechProb === 'number' ? sg.noSpeechProb : undefined,
+        compressionRatio: typeof sg?.compressionRatio === 'number' ? sg.compressionRatio : undefined, words: words.length ? words : undefined,
+      };
+    });
+    if (total > 3000) throw new HttpError(400, 'That is too many words for one chunk');
+    const hint = this.worldSetting(ch.world_id, 'transcriptHint') !== 'off' && ch.level >= QUIET_LEVEL ? this.hint(ch.world_id) : '';
+    const words = this.wordsOf(segments, ch.start_ms, hint);
+    const s = body?.stt ?? {};
+    const info = JSON.stringify({ model: String(s.model ?? '').slice(0, 60), backend: String(s.backend ?? '').slice(0, 20), ms: Number.isFinite(Number(s.ms)) ? Math.round(Number(s.ms)) : null, rtf: Number.isFinite(Number(s.rtf)) ? Math.round(Number(s.rtf) * 100) / 100 : null });
+    run(this.d.db, "UPDATE audio_chunks SET status = 'done', source = 'device', stt = ?, words = ? WHERE id = ?", info, JSON.stringify(words), chunkId);
+    await this.touch(ch.session_id, ch.start_ms, ch.end_ms);
+    return { status: 'done', accepted: true, words: words.length };
+  }
+
+  /** Chunks whose device text never came: the server takes them (or, with 'device' only, they stay audio alone). */
+  async expireAwaiting(sessionId?: string, olderThanMs = this.textWaitMs): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const rows = all<any>(this.d.db, `SELECT c.id, s.world_id FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE c.status = 'awaiting' AND c.created_at <= ? ${sessionId ? 'AND c.session_id = ?' : ''} ORDER BY c.created_at LIMIT 100`, cutoff, ...(sessionId ? [sessionId] : []));
+    let n = 0;
+    for (const r of rows) {
+      if (this.sttMode(r.world_id) === 'device') { run(this.d.db, "UPDATE audio_chunks SET status = 'notext' WHERE id = ?", r.id); continue; }
+      if ((await this.process(r.id)) === 'done') n++;
+    }
+    return n;
+  }
+
+  /** What each mic's device last said about itself (model, backend, speed, backlog), by mic id. */
+  sttStatus = new Map<string, { at: number; model: string; backend: string; state: string; rtf: number | null; backlog: number; progress: number | null; note: string }>();
 
   /** Speech-model segments -> the words we keep: hallucinations, prompt echoes and loops removed, dice written the table's way. */
   wordsOf(segments: { start: number; end: number; text: string; avgLogprob?: number; noSpeechProb?: number; compressionRatio?: number; words?: { word: string; start: number; end: number; probability?: number }[] }[], startMs: number, hint: string): Pw[] {
@@ -265,7 +365,11 @@ export class Engine {
   scheduleRefine(sessionId: string) {
     const n = Number(this.d.env.ALX_AUDIO_REFINE_DELAY_MS ?? 20_000);
     let go!: () => void;
-    const p = new Promise<void>((resolve) => { go = resolve; }).then(() => this.refine(sessionId)).catch((e) => console.error('audio: refine failed', e)).finally(() => { this.refining.delete(sessionId); });
+    const p = new Promise<void>((resolve) => { go = resolve; }).then(() => this.refine(sessionId)).catch((e) => console.error('audio: refine failed', e))
+      .then(() => {
+        const w = one<any>(this.d.db, 'SELECT world_id FROM audio_sessions WHERE id = ?', sessionId);
+        if (w && this.worldSetting(w.world_id, 'finalTranscript') !== 'off') return this.finalize(sessionId).catch((e) => console.error('audio: final transcript failed', e));
+      }).finally(() => { this.refining.delete(sessionId); });
     this.refining.set(sessionId, p);
     const t = setTimeout(go, Number.isFinite(n) ? n : 20_000);
     t.unref?.();
@@ -277,18 +381,19 @@ export class Engine {
    * keep their ids and DM-only flags, and a line that was DM-only stays DM-only (nothing is loosened). Off unless the
    * world's transcriptRefine is on and the job names a refineModel. Returns how many windows were redone.
    */
-  async refine(sessionId: string): Promise<number> {
+  async refine(sessionId: string, opts: { force?: boolean } = {}): Promise<number> {
     const { db, dataDir } = this.d;
     const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
     if (!session || !session.stopped_at || !dataDir) return 0;
-    if (this.worldSetting(session.world_id, 'transcriptRefine') !== 'on') return 0;
+    if (!opts.force && this.worldSetting(session.world_id, 'transcriptRefine') !== 'on') return 0;
     const model = jobConfig(this.d, 'audio')?.options?.refineModel;
-    if (typeof model !== 'string' || !model) return 0;
+    if (!opts.force && (typeof model !== 'string' || !model)) return 0;
+    if (opts.force && !jobConfig(this.d, 'audio')) return 0;
     const hint = this.hint(session.world_id);
     let redone = 0;
-    const mics = all<any>(db, "SELECT DISTINCT mic_id FROM audio_chunks WHERE session_id = ? AND status = 'done' AND file IS NOT NULL", sessionId);
+    const mics = all<any>(db, "SELECT DISTINCT mic_id FROM audio_chunks WHERE session_id = ? AND status IN ('done', 'notext') AND file IS NOT NULL", sessionId);
     for (const { mic_id } of mics) {
-      const chunks = all<any>(db, "SELECT id, file, mime, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND status = 'done' AND file IS NOT NULL ORDER BY start_ms", sessionId, mic_id);
+      const chunks = all<any>(db, "SELECT id, file, mime, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND status IN ('done', 'notext') AND file IS NOT NULL ORDER BY start_ms", sessionId, mic_id);
       const windows: { chunk: any; trim: number; from: number }[][] = [];
       let cur: { chunk: any; trim: number; from: number }[] = [];
       let covered = 0;
@@ -309,7 +414,7 @@ export class Engine {
         const wav = await this.joiner(win.map((x) => ({ path: path.join(dataDir, x.chunk.file), trimMs: x.trim })));
         if (!wav) return redone;
         let t;
-        try { t = await transcribe(this.d, wav, 'audio/wav', { prompt: hint, model }); } catch (err) { if (!(err instanceof ModelUnavailable)) console.error('audio: refine failed', err); return redone; }
+        try { t = await transcribe(this.d, wav, 'audio/wav', { prompt: hint, ...(typeof model === 'string' && model ? { model } : {}) }); } catch (err) { if (!(err instanceof ModelUnavailable)) console.error('audio: refine failed', err); return redone; }
         const words = this.wordsOf(t.segments, start, hint);
         // Each word goes back to the chunk that owns that moment.
         const owned = new Map<string, Pw[]>(win.map((x) => [x.chunk.id, []]));
@@ -318,7 +423,7 @@ export class Engine {
           const x = win.find((y) => mid >= y.from && mid <= y.chunk.end_ms) ?? win[win.length - 1];
           owned.get(x.chunk.id)!.push(w);
         }
-        for (const [id, ws] of owned) run(db, 'UPDATE audio_chunks SET words = ? WHERE id = ?', JSON.stringify(ws), id);
+        for (const [id, ws] of owned) run(db, "UPDATE audio_chunks SET words = ?, status = 'done', source = 'server' WHERE id = ?", JSON.stringify(ws), id);
         this.merge(sessionId, start, end, true);
         redone++;
       }
@@ -327,10 +432,155 @@ export class Engine {
   }
 
   async retryPending(limit = 25): Promise<number> {
+    await this.expireAwaiting();
     const rows = all<any>(this.d.db, "SELECT id FROM audio_chunks WHERE status = 'pending' AND file IS NOT NULL ORDER BY created_at LIMIT ?", limit);
     let n = 0;
     for (const r of rows) if ((await this.process(r.id)) === 'done') n++;
     return n;
+  }
+
+  // ---- the final transcript ---------------------------------------------------------
+
+  private finalizing = new Map<string, Promise<void>>();
+  isFinalizing(sessionId: string) { return this.finalizing.has(sessionId); }
+
+  private setFinal(sessionId: string, worldId: string, p: { status?: string; step?: string; pct?: number; error?: string | null; offsets?: unknown; stats?: unknown; finished?: boolean }) {
+    const sets: string[] = []; const vals: unknown[] = [];
+    if (p.status !== undefined) { sets.push('status = ?'); vals.push(p.status); }
+    if (p.step !== undefined) { sets.push('step = ?'); vals.push(p.step); }
+    if (p.pct !== undefined) { sets.push('pct = ?'); vals.push(Math.max(0, Math.min(100, Math.round(p.pct)))); }
+    if (p.error !== undefined) { sets.push('error = ?'); vals.push(p.error); }
+    if (p.offsets !== undefined) { sets.push('offsets = ?'); vals.push(JSON.stringify(p.offsets)); }
+    if (p.stats !== undefined) { sets.push('stats = ?'); vals.push(JSON.stringify(p.stats)); }
+    if (p.finished) { sets.push('finished_at = ?'); vals.push(now()); }
+    if (sets.length) run(this.d.db, `UPDATE audio_final SET ${sets.join(', ')} WHERE session_id = ?`, ...vals, sessionId);
+    const row = one<any>(this.d.db, 'SELECT status, step, pct FROM audio_final WHERE session_id = ?', sessionId);
+    if (row) this.d.hub.emit(worldId, 'transcript-final', { sessionId, status: row.status, step: row.step, pct: row.pct }, (v) => v.role === 'dm');
+  }
+
+  /** The final pass of a session (running, finished or undone), for the DM. */
+  finalView(sessionId: string) {
+    const f = one<any>(this.d.db, 'SELECT * FROM audio_final WHERE session_id = ?', sessionId);
+    if (!f) return null;
+    return {
+      status: f.status as 'running' | 'done' | 'failed' | 'undone', step: f.step as string, pct: f.pct as number, startedAt: f.started_at as string, finishedAt: f.finished_at as string | null, error: f.error as string | null,
+      offsets: parseJson<Record<string, unknown>>(f.offsets, {}), stats: parseJson<Record<string, unknown>>(f.stats, {}), hasLive: parseJson<unknown[]>(f.live_lines, []).length > 0,
+    };
+  }
+
+  /** The lines as they were live, before the final pass (as the DM's view). */
+  liveLines(sessionId: string): LineRow[] {
+    const f = one<any>(this.d.db, 'SELECT live_lines FROM audio_final WHERE session_id = ?', sessionId);
+    return f ? parseJson<LineRow[]>(f.live_lines, []) : [];
+  }
+
+  /** Wait (a little) for devices' text that is on its way, then hand what never came to the server. */
+  private async settleAwaiting(sessionId: string) {
+    const n = Number(this.d.env.ALX_AUDIO_FINAL_WAIT_MS ?? 15_000);
+    const until = Date.now() + (Number.isFinite(n) ? n : 15_000);
+    while (Date.now() < until && one(this.d.db, "SELECT 1 FROM audio_chunks WHERE session_id = ? AND status = 'awaiting'", sessionId)) await new Promise((r) => setTimeout(r, 200));
+    await this.expireAwaiting(sessionId, 0);
+  }
+
+  /**
+   * The final transcript of a stopped session: every mic's words put on one timeline (clock offsets from the words they
+   * share and from the clock samples of their uploads), the best mic for each moment, duplicates across mics removed,
+   * speakers from the mic's owner, line breaks fixed. It replaces the live lines (kept in audio_final for comparing and
+   * undo); DM-only lines stay DM-only and a DM's own audience marks are kept. With `retranscribe` the kept audio is first
+   * listened to again with the server's speech model. Transcript.md is written again after.
+   */
+  finalize(sessionId: string, opts: { retranscribe?: boolean } = {}): Promise<void> {
+    const running = this.finalizing.get(sessionId);
+    if (running) return running;
+    const p = this.runFinal(sessionId, opts).finally(() => { this.finalizing.delete(sessionId); });
+    this.finalizing.set(sessionId, p);
+    return p;
+  }
+
+  private async runFinal(sessionId: string, opts: { retranscribe?: boolean }) {
+    const { db } = this.d;
+    const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
+    if (!session || !session.stopped_at) throw new HttpError(409, 'Stop the recording first');
+    const w = session.world_id as string;
+    const prev = one<any>(db, 'SELECT status, live_lines FROM audio_final WHERE session_id = ?', sessionId);
+    // The live version is kept from the first pass; a second pass compares against that, not against the first final.
+    const live = prev && prev.status !== 'undone' && parseJson<unknown[]>(prev.live_lines, []).length ? prev.live_lines : JSON.stringify(all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ?', sessionId));
+    run(db, `INSERT INTO audio_final (session_id, status, step, pct, started_at, live_lines) VALUES (?, 'running', 'Waiting for the last chunks', 0, ?, ?)
+      ON CONFLICT (session_id) DO UPDATE SET status = 'running', step = 'Waiting for the last chunks', pct = 0, started_at = excluded.started_at, finished_at = NULL, error = NULL, live_lines = excluded.live_lines`, sessionId, now(), live);
+    this.setFinal(sessionId, w, {});
+    try {
+      await this.settleAwaiting(sessionId);
+      if (opts.retranscribe) {
+        this.setFinal(sessionId, w, { step: 'Listening again with the server model', pct: 5 });
+        await this.refine(sessionId, { force: true });
+      }
+      this.flush(sessionId);
+
+      // Every mic's words over the whole session, and the clock samples its uploads carried.
+      const chunks = all<any>(db, "SELECT mic_id, level, words, start_ms, end_ms, skew_ms FROM audio_chunks WHERE session_id = ? AND status = 'done'", sessionId);
+      const streams = new Map<string, Word[]>();
+      const skews = new Map<string, number[]>();
+      let duration = 0;
+      for (const c of chunks) {
+        duration = Math.max(duration, c.end_ms);
+        const l = streams.get(c.mic_id) ?? [];
+        for (const [x, s0, e0, p] of parseJson<[string, number, number, number][]>(c.words, [])) l.push({ w: x, s: s0, e: e0, c: p, l: Math.max(0.02, Math.min(1, c.level)) });
+        streams.set(c.mic_id, l);
+        if (c.skew_ms !== null) { const k = skews.get(c.mic_id) ?? []; k.push(c.skew_ms); skews.set(c.mic_id, k); }
+      }
+      const micCount = streams.size;
+      this.setFinal(sessionId, w, { step: `Syncing ${micCount} mic${micCount === 1 ? '' : 's'}`, pct: 10 });
+      const est = chooseOffsets(streams, skews);
+      const offsets = new Map<string, number>([...est].map(([m, e]) => [m, e.ms]));
+      const offOut: Record<string, OffsetEstimate> = {};
+      for (const [m, e] of est) offOut[m] = e;
+      this.setFinal(sessionId, w, { offsets: offOut });
+
+      // No device or model produced a single word (tones, a test, a dead model): the lines stay as they are.
+      const heard = [...streams.values()].reduce((n, l) => n + l.length, 0);
+      const WIN = 10 * 60_000;
+      const windows = Math.max(1, Math.ceil((duration + Math.max(0, ...[...offsets.values()].map((v) => Math.abs(v)))) / WIN));
+      for (let i = 0; i < (heard ? windows : 0); i++) {
+        this.merge(sessionId, i * WIN, (i + 1) * WIN, true, { offsets, final: true });
+        this.setFinal(sessionId, w, { step: `Merging ${micCount} mic${micCount === 1 ? '' : 's'} (${i + 1} of ${windows})`, pct: 15 + (75 * (i + 1)) / windows });
+        await new Promise((r) => setImmediate(r));
+      }
+      this.setFinal(sessionId, w, { step: 'Writing Transcript.md', pct: 92 });
+      const liveRows = parseJson<LineRow[]>(live, []);
+      const finalRows = all<LineRow>(db, 'SELECT id FROM audio_lines WHERE session_id = ?', sessionId);
+      this.setFinal(sessionId, w, { status: 'done', step: 'Done', pct: 100, finished: true, stats: { mics: micCount, words: heard, liveLines: liveRows.length, finalLines: finalRows.length, retranscribed: !!opts.retranscribe } });
+      rewriteTranscript(this.d, sessionId);
+    } catch (e) {
+      this.setFinal(sessionId, w, { status: 'failed', step: 'Failed', error: String((e as Error)?.message ?? e).slice(0, 300), finished: true });
+      throw e;
+    }
+  }
+
+  /** Put the live lines back (the DM prefers them) and write Transcript.md again. */
+  undoFinal(sessionId: string): number {
+    const { db } = this.d;
+    const f = one<any>(db, 'SELECT * FROM audio_final WHERE session_id = ?', sessionId);
+    const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
+    if (!f || !session || f.status === 'running') throw new HttpError(409, f?.status === 'running' ? 'The final transcript is still being made' : 'There is no final transcript to undo');
+    const rows = parseJson<LineRow[]>(f.live_lines, []);
+    if (!rows.length && f.status === 'undone') throw new HttpError(409, 'The live transcript is already back');
+    const nm = this.nameOf(session.world_id);
+    const current = all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ?', sessionId);
+    const keep = new Map(current.map((l) => [l.id, l]));
+    db.exec('BEGIN');
+    try {
+      run(db, 'DELETE FROM audio_lines WHERE session_id = ?', sessionId);
+      for (const l of rows) run(db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, words, sources, audience, audience_override, rev, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        l.id, l.session_id, l.world_id, l.start_ms, l.end_ms, l.speaker_account, l.speaker_label, l.text, l.words, l.sources, l.audience, l.audience_override, (keep.get(l.id)?.rev ?? l.rev) + 1, now());
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    const restored = new Set(rows.map((l) => l.id));
+    for (const l of current) if (!restored.has(l.id)) this.emitLine({ ...l, rev: l.rev + 1 }, l.audience, nm, true);
+    for (const l of all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ?', sessionId)) this.emitLine(l, keep.get(l.id)?.audience ?? null, nm);
+    run(db, "UPDATE audio_final SET status = 'undone', step = 'Live transcript restored', pct = 100 WHERE session_id = ?", sessionId);
+    this.setFinal(sessionId, session.world_id, {});
+    rewriteTranscript(this.d, sessionId);
+    return rows.length;
   }
 
   // ---- merging -----------------------------------------------------------
@@ -357,16 +607,21 @@ export class Engine {
   }
   flushAll() { for (const k of [...this.dirty.keys()]) this.flush(k); }
 
-  private merge(sessionId: string, from: number, to: number, keepDm = false) {
+  private merge(sessionId: string, from: number, to: number, keepDm = false, opts: { offsets?: Map<string, number>; final?: boolean } = {}) {
     const { db } = this.d;
     const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
     if (!session) return;
-    const lo = from - CONTEXT;
-    const hi = to + CONTEXT;
+    const offs = opts.offsets ?? new Map<string, number>();
+    const pad = Math.max(0, ...[...offs.values()].map((v) => Math.abs(v)));
+    const lo = from - CONTEXT - pad;
+    const hi = to + CONTEXT + pad;
     const mics = new Map(all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ?', session.world_id).map((m) => [m.id, m]));
     const roles = new Map(all<any>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', session.world_id).map((m) => [m.account_id, m.role as string]));
     const chunks = all<any>(db, "SELECT mic_id, level, words, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND status = 'done' AND end_ms >= ? AND start_ms <= ?", sessionId, lo, hi);
     const holds = all<any>(db, 'SELECT mic_id, kind, start_ms, end_ms FROM audio_holds WHERE session_id = ? AND end_ms >= ? AND start_ms <= ?', sessionId, lo, hi);
+    // The final pass puts every device's times on the reference clock.
+    for (const c of chunks) { const o = offs.get(c.mic_id) ?? 0; c.off = o; c.start_ms += o; c.end_ms += o; }
+    for (const h of holds) { const o = h.mic_id ? offs.get(h.mic_id) ?? 0 : 0; h.start_ms += o; h.end_ms += o; }
 
     // Every mic's words in the window, before any hold rules. Chunks overlap (each carries a little of the one before for
     // context): a stretch of time belongs to the chunk whose middle is nearest it, so no word is counted twice.
@@ -377,7 +632,9 @@ export class Engine {
       const list = raw.get(c.mic_id) ?? [];
       const mine = spans.get(c.mic_id)!;
       const edge = (x: { s: number; e: number }, t: number) => Math.min(t - x.s, x.e - t);
-      for (const [w, s, e, p] of parseJson<[string, number, number, number][]>(c.words, [])) {
+      for (const [w, s0, e0, p] of parseJson<[string, number, number, number][]>(c.words, [])) {
+        const s = s0 + (c.off ?? 0);
+        const e = e0 + (c.off ?? 0);
         const mid = (s + e) / 2;
         const own = edge({ s: c.start_ms, e: c.end_ms }, mid);
         if (mine.some((x) => (x.s !== c.start_ms || x.e !== c.end_ms) && mid >= x.s && mid <= x.e && (edge(x, mid) > own || (edge(x, mid) === own && x.s < c.start_ms)))) continue;
@@ -422,7 +679,9 @@ export class Engine {
       utts.push(...utterances(micId, kept, 700, MAX_UTTERANCE_MS).flatMap((u) => splitAt(u, cuts)));
     }
 
-    const lines = groupUtterances(utts).map(mergeGroup).filter((l) => l.words.length && l.end >= from && l.start <= to);
+    let merged = groupUtterances(utts).map(mergeGroup).filter((l) => l.words.length);
+    if (opts.final) merged = tidyLines(dedupeLines(merged), cuts);
+    const lines = merged.filter((l) => l.end >= from && l.start <= to);
     // Lines already stored are looked for over what was produced, not just the chunk's own range: a line that began in an
     // earlier chunk and has grown into this one is the same line (it used to be inserted again).
     const lowest = Math.min(from, ...lines.map((l) => l.start)) - 500;
