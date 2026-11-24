@@ -129,3 +129,23 @@
 .adm-lib-pick select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); min-height: 36px; }
 .lib-embedded { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 @media (max-width: 760px) { .t-admin .adm-lib .page-head .row { width: 100%; } }
+
+/* Tabs inside a hub page: the tab's own big heading and outer padding go; its lead line and buttons stay. */
+.t-admin .in-tab .page { padding: 0; max-width: none; }
+.t-admin .in-tab .page-head h1 { display: none; }
+.t-admin .in-tab .page-head { margin-top: 0; }
+.t-admin .hub > .tabs { margin-bottom: -4px; }
+
+/* The admin menu reuses the DM menu rules on the dark sidebar. */
+.t-admin .nav-find input { color: #FFFFFF; border-color: #3A4856; }
+.t-admin .nav-find input::placeholder { color: var(--adm-side-faint); }
+.t-admin .nav-find > i, .t-admin .nav-kbd, .t-admin .nav-head .nav-chev, .t-admin .nav-head .nav-ico, .t-admin .nav-link .nav-ico { color: var(--adm-side-faint); }
+.t-admin .nav-kbd { border-color: #3A4856; }
+.t-admin .nav-link.active .nav-ico { color: #7FD1C7; }
+.t-admin .nav-head { color: var(--adm-side-text); }
+.t-admin .nav-head:hover { background: #1C2833; }
+.t-admin .nav-head .nav-label { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; color: var(--adm-side-text); }
+.t-admin .nav-desc { color: var(--adm-side-faint); }
+.t-admin .nav-item .nav-link { padding-right: 12px; }
+.t-admin .nav-items { padding-left: 6px; }
+.t-admin .nav-menu .faint { color: var(--adm-side-faint); }
