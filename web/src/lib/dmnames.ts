@@ -47,6 +47,7 @@ export const DM_NAMES: Record<string, DMName> = {
   minerva: { group: 'prep', label: 'Minerva', icon: 'fa-brain', desc: 'The campaign’s memory: status, arc, who knows what.' },
   worldlore: { group: 'prep', label: 'WorldLore', icon: 'fa-feather-pointed', desc: 'The AI’s own wiki for this world.' },
   sessionlog: { group: 'prep', label: 'Recaps', icon: 'fa-clock-rotate-left', desc: 'What happened, session by session; draft and publish summaries.' },
+  recordings: { group: 'prep', label: 'Recordings', icon: 'fa-record-vinyl', desc: 'Play, download and clear each session’s audio and transcript.' },
   macros: { group: 'prep', label: 'Macros', icon: 'fa-bolt-lightning', desc: 'Named sequences of actions, run from a button or key.' },
   lights: { group: 'prep', label: 'Lights', icon: 'fa-lightbulb', desc: 'Lights on your network that follow the game.' },
 

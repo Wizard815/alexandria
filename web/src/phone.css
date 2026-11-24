@@ -43,7 +43,7 @@
   html body:has(.bottomnav) .dock-panel { bottom: calc(var(--nav-h) + 66px + env(safe-area-inset-bottom, 0px)); }
   :root { --dock-reserve: calc(var(--nav-h) + 76px + env(safe-area-inset-bottom, 0px)) !important; }
   .player .toast { bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px)); left: 12px; right: 12px; max-width: none; }
-  .player .topbar { min-height: 44px; }
+  .player .topbar { min-height: calc(44px + var(--safe-top)); }
   .player .page { padding: 12px 14px var(--dock-reserve); gap: 14px; }
   .player .page h1 { font-size: 22px; }
   .player .page-head { align-items: stretch; }
@@ -100,7 +100,7 @@
 
   /* ---- pop-ups become bottom sheets ---- */
   .player .modal-back { align-items: flex-end; padding: 0; overflow: hidden; }
-  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
+  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(100dvh - 24px - var(--safe-top)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
   .player .modal-grip { display: block; width: 56px; height: 24px; margin: 0 auto -6px; touch-action: none; cursor: grab; position: sticky; top: 0; z-index: 1; background: transparent; }
   .player .modal-grip::after { content: ''; display: block; width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); margin: 10px auto 0; }
   @keyframes sheet-up { from { transform: translateY(40px); opacity: 0.6; } to { transform: none; opacity: 1; } }
