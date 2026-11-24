@@ -185,13 +185,19 @@ for (const profile of PROFILES) {
   await dpage.getByRole('button', { name: /sign in|log in/i }).click();
   await dpage.waitForURL(/\/w\/saltreach/);
   await dpage.waitForSelector('.topnav');
-  const topLinks = (await dpage.$$eval('.topnav a', (els) => els.map((e) => e.getAttribute('href')))).map(toRoute);
+  // The desktop bar: areas, then the pages of the area you are in. Every area is visited.
+  const topLinks = [];
+  for (const href of await dpage.$$eval('.pl-area', (els) => els.map((e) => e.getAttribute('href')))) {
+    await dpage.goto(base + href);
+    await dpage.waitForSelector('.topnav a');
+    topLinks.push(...(await dpage.$$eval('.topnav a', (els) => els.map((e) => e.getAttribute('href')))).map(toRoute));
+  }
   const dTabs = await dpage.$$eval('.bottomnav', (e) => getComputedStyle(e[0]).display);
   check(dTabs === 'none', 'bottom bar shows on desktop');
   for (const l of topLinks) check(inGroups.includes(l), `nav item "/${l}" is not in any More group`);
   check(groupsOf.length >= 4, `More has ${groupsOf.length} groups`);
   note(`More groups: ${groupsOf.map((x) => `${x.g} (${x.items.length})`).join(', ')}`);
-  // desktop is unchanged: the top nav lists the same pages
+  // no page is lost: the areas together list them all
   check(topLinks.length >= 18, `desktop top nav has only ${topLinks.length} links`);
   await dpage.screenshot({ path: path.join(SHOTS, 'desktop-home.png') });
   await desk.close();

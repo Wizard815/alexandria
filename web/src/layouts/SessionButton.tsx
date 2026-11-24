@@ -32,7 +32,7 @@ export function SessionButton() {
   return (
     <div className="dmx-pop-wrap" ref={box}>
       <button type="button" className={`btn small dmx-session${running ? ' live' : ' primary'}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="session-btn">
-        {running ? <><span className={rec ? 'au-rec-dot' : 'live-dot'} /> {rec ? 'Recording' : 'In session'} · {since(session?.startedAt ?? session?.started_at ?? rec?.startedAt ?? rec?.started_at ?? new Date().toISOString())}</> : <><i className="fa-solid fa-play" aria-hidden="true" /> Start session</>}
+        {running ? <><span className={rec ? 'au-rec-dot' : 'live-dot'} /> <span>{rec ? 'Recording' : 'In session'}</span><span className="dmx-since"> · {since(session?.startedAt ?? session?.started_at ?? rec?.startedAt ?? rec?.started_at ?? new Date().toISOString())}</span></> : <><i className="fa-solid fa-play" aria-hidden="true" /> <span>Start session</span></>}
       </button>
       {open && (
         <div className="dmx-pop dmx-session-panel" role="dialog" aria-label="Session">
