@@ -107,7 +107,7 @@ try {
     for (const g of ['run', 'players', 'world', 'prep', 'setup']) {
       await rail.locator(`a[data-group=${g}]`).click();
       await page.waitForTimeout(250);
-      dmLinks.push(...(await strip.locator('a.dmx-tab').evaluateAll((as) => as.map((x) => x.getAttribute('href').replace(/\/$/, '')))));
+      dmLinks.push(...(await strip.locator('.dmx-tabwrap a.dmx-tab').evaluateAll((as) => as.map((x) => x.getAttribute('href').replace(/\/$/, '')))));
     }
     check(new Set(dmLinks).size === dmLinks.length, `${label} tabs: a page is listed twice: ` + dmLinks.filter((h, i) => dmLinks.indexOf(h) !== i).join(', '));
     for (const r of ROUTES.filter((x) => !(x in REDIRECTS))) check(dmLinks.includes(`/w/saltreach/dm${r ? '/' + r : ''}`), `${label} tabs: no link to /dm/${r}`);

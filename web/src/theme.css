@@ -1,6 +1,6 @@
 /* Two looks: .t-fantasy (DM and players, dark parchment-and-gold) and
    .t-admin (library admin, light and plain). Components use the tokens. */
-:root { color-scheme: dark; --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)); }
+:root { color-scheme: dark; --safe-top: env(safe-area-inset-top, 0px); --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)); }
 /* On phones the player's bottom bar sits under the dock: the page keeps room for both. */
 @media (max-width: 760px) { body:has(.bottomnav) { --dock-reserve: calc(128px + env(safe-area-inset-bottom, 0px)); } }
 * { box-sizing: border-box; }
@@ -174,9 +174,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
   h1 { font-size: 23px; }
   .topnav.desktop { display: none; }
   /* Phone: one slim top row, one slim bottom row. */
-  .topbar { flex-wrap: wrap; gap: 4px 8px; padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
-  /* The world's name may take two lines (and a smaller size on a narrow screen) before it is cut. */
-  .topbar .brand { flex: 1 1 100%; font-size: clamp(14px, 4.4vw, 17px); line-height: 1.15; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  /* The inset (the status bar, when the page draws under it) is applied once, as this bar's top padding; the bar's own colour fills it. */
+  .topbar { flex-wrap: nowrap; align-items: center; gap: 8px; padding: calc(4px + var(--safe-top)) 12px 4px; }
+  /* The world's name may take two lines (and a smaller size on a narrow screen) before it is cut; it shares the row with the date and search. */
+  .topbar .brand { flex: 1 1 0; font-size: clamp(14px, 4.4vw, 17px); line-height: 1.15; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  .topbar .chip { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .sx-open span { display: none; }
   .topbar > :not(.brand) { flex: 0 0 auto; }
   .desktop-only { display: none !important; }
   .phone-only { display: inline-block; }
@@ -186,10 +189,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .bottomnav .icon { position: relative; font-size: 16px; line-height: 20px; }
   .bottomnav .icon .nav-badge { position: absolute; top: -4px; left: 12px; margin: 0; font-size: 10px; line-height: 14px; min-width: 14px; padding: 0 4px; }
   /* DM: slim top bar; the side menu slides in. */
-  .shell.has-drawer .dm-phonebar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 30; background: var(--side); border-bottom: 1px solid var(--line-strong); padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
+  .shell.has-drawer .dm-phonebar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 30; background: var(--side); border-bottom: 1px solid var(--line-strong); padding: calc(4px + var(--safe-top)) 12px 4px; }
   .dm-phonebar .brand { font-family: var(--font-head); font-weight: 700; color: var(--accent); letter-spacing: 0.03em; min-width: 0; flex: 1 1 auto; font-size: clamp(14px, 4.4vw, 17px); line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
   .shell.has-drawer .side { display: none; }
-  .shell.has-drawer .side.open { display: flex; position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); height: 100%; z-index: 50; padding: calc(16px + env(safe-area-inset-top, 0px)) 12px 16px; overflow-y: auto; }
+  .shell.has-drawer .side.open { display: flex; position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); height: 100%; z-index: 50; padding: calc(16px + var(--safe-top)) 12px 16px; overflow-y: auto; }
   .shell.has-drawer .side.open .nav-group { flex-direction: column; }
   .shell.has-drawer .side.open .side-foot { flex-direction: column; border-top: 1px solid var(--line); padding-top: 12px; }
 }
