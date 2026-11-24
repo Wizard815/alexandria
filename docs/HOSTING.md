@@ -103,7 +103,8 @@ Notes on local MCP servers:
 ## Backups
 
 Everything (every world, account, key and page) is one SQLite database, plus
-the data folders (recorded audio under `audio/`).
+the data folders (recorded audio under `recordings/`, and under `audio/` while
+a session is still being joined).
 
 ```bash
 ALX_URL=https://alexandria.example.com ALX_ADMIN_KEY=alx_adm_… ./deploy/backup.sh
@@ -111,14 +112,56 @@ ALX_URL=https://alexandria.example.com ALX_ADMIN_KEY=alx_adm_… ./deploy/backup
 
 The script:
 - downloads one `.tar.gz` from `GET /api/admin/backup`: a consistent copy of
-  the database (`librarian.db`) and the data folders (`audio/`)
+  the database (`librarian.db`) and the data folders (`recordings/`, `audio/`)
 - with `ALX_DB_ONLY=1` it downloads just the database (`?db=1`)
 - keeps the last 14
 
 Make an admin key under Library admin → Keys & AI, and run the script from
 cron, e.g. nightly. Restore by stopping the server and unpacking the archive
-into the data folder (it holds `librarian.db` and `audio/`):
+into the data folder (it holds `librarian.db`, `recordings/` and `audio/`):
 `tar -xzf alexandria-….tar.gz -C /data`. A plain `.db` backup goes back as `librarian.db`.
+
+## Session recordings
+
+When the DM stops a recording, the server joins the five-second chunks with
+ffmpeg (the Docker image has it) and keeps plain files you can open without
+the app:
+
+```
+data/recordings/<World name>/<YYYY-MM-DD> <Session name>/
+  Full session.mp3              every microphone mixed, one file for the whole session
+  <Mic name> - <Person>.mp3     one file per microphone (silence where it had nothing)
+  Transcript.md                 the DM's transcript; DM-only lines are marked
+  session.json                  what is in the folder: session, mics and who they belong to, files
+```
+
+Every audio file starts at the session's time zero, so they line up. MP3
+plays everywhere, including iOS Safari. Once the files are checked (length
+and size) the raw chunks under `data/audio/` are deleted to save space; if
+the build fails they are kept, and the DM's **Recordings** page shows "Build
+failed" with a **Rebuild** button. Sessions recorded before this existed are
+built the first time the server starts (one at a time) or with **Build
+recording**. The build runs in the background, one session at a time, and
+streams through ffmpeg, so a four hour session is not held in memory.
+
+**Back these up.** `recordings/` is part of the backup archive above, and
+the files are the only copy of the audio, so a plain copy of the folder is
+a valid backup too. Expect roughly 30 MB an hour for the mix and 20 MB an
+hour for each microphone.
+
+**Retention.** The world setting *Keep raw audio for (days)* (default 30,
+blank keeps forever) is the default for every session. On the Recordings page
+the DM can set a session to *Delete after N days*, *Keep forever*, or press
+**Delete audio now**. Deleting removes only the audio files; the transcript,
+summaries and logs always stay (`Transcript.md` and `session.json` stay in
+the folder). The days count from when the session ended. Deletion runs
+hourly.
+
+**Who can listen.** The DM can play and download everything. A player's
+*My recordings* page offers only the track of their own microphone and the
+transcript as players see it (never DM-only lines); the full mix and other
+people's tracks are refused. Players who did not agree to recording are not
+recorded and have no track.
 
 ## Security checklist
 

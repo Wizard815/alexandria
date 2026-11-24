@@ -38,7 +38,8 @@ import { semanticPages } from '../search/embeddings.ts';
 import { MORE_TOOLS_TOOL, claimsChange, describeTools, matchTools, rewriteClaim } from './moretools.ts';
 import { BLOCKED_REPLY, SentenceGate, leakChecker, treeText } from './leak.ts';
 import { LOOKING } from '../sourcekeys/escalation.ts';
-import { clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
+import { actionView, clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
+import { AUTO_NEVER, runsWithoutAsking } from './auto.ts';
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
 import { sourceSummary } from '../connections/summary.ts';
 import { readOnOpen, readSearchHits } from '../connections/ondemand.ts';
@@ -571,7 +572,7 @@ class Live {
 /** A task from a macro or a spoken command: `do` runs the allowed write tools at once, `propose` leaves them as pending actions. `allow` limits the tools offered. */
 export interface TaskExec { mode: 'do' | 'propose'; allow?: string[] }
 /** Never run by a task on its own, whatever the allowlist says. */
-export const TASK_DENY = /^(delete_|lore_delete|end_game_session|stop_recording|start_recording|decide_|publish_|broker_|save_page|edit_session_log_draft|update_person|promote|arc_close|source_lookup)/;
+export const TASK_DENY = AUTO_NEVER;
 /** What a task may do when the macro names no allowlist. */
 export const TASK_DEFAULT_TOOLS = ['play_music', 'stop_music', 'play_ambience', 'play_sfx', 'show_on_stage', 'hide_stage_card', 'send_quick_event', 'set_combat', 'next_turn', 'add_combatant', 'damage_combatant', 'heal_combatant', 'set_conditions', 'set_initiative', 'remove_combatant', 'add_item', 'add_coin', 'move_item', 'advance_world_time', 'speak', 'send_scene', 'send_table_chat', 'make_statblock', 'generate', 'generate_items', 'generate_coins', 'draft_session_summary', 'add_world_event', 'status_update', 'memory_log'];
 const TASK_READS = ['get_combat', 'get_sound_now', 'get_stage', 'get_inventory', 'list_members', 'list_sound_library', 'search_library', 'read_page', 'list_pages', 'list_people', 'get_world_date', 'who_is', 'context_for', 'search_transcript', 'list_session_log', 'lookup_term', 'read_term', 'list_quick_events', 'list_sound_scenes', 'list_macros'];
@@ -581,6 +582,13 @@ export interface RunInput { chatId: string; replyId: string; text: string; conte
 const running = new Map<string, AbortController>();
 export const stopRun = (chatId: string): boolean => { const a = running.get(chatId); if (!a) return false; a.abort(); return true; };
 
+/** Tell the owner's screens about an action (a new card, or a decision): the card travels with the event, so no screen re-reads the chat. */
+export function emitAction(d: Deps, worldId: string, accountId: string, actionId: string) {
+  const row = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ?', actionId);
+  if (!row) return;
+  d.hub.emit(worldId, 'agent', { kind: 'action', chatId: row.chat_id, actionId, action: actionView(row) }, only(accountId));
+}
+
 function proposeAction(d: Deps, c: Caller, chatId: string, tool: McpTool, args: any): string {
   const aid = id('act_');
   let summary = describeCall(tool.name, args);
@@ -589,27 +597,36 @@ function proposeAction(d: Deps, c: Caller, chatId: string, tool: McpTool, args: 
   run(d.db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, call, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', aid, c.worldId, chatId, c.accountId, tool.name, JSON.stringify(args ?? {}), summary, JSON.stringify(tool.call(args ?? {})), 'pending', now());
   audit(d, c.worldId, c.accountId, 'agent.propose', `${tool.name} ${JSON.stringify(args ?? {})}`);
   logAgentProposal(d, c.worldId, { actionId: aid, tool: tool.name, args: args ?? {}, summary });
-  d.hub.emit(c.worldId, 'agent', { kind: 'action', chatId, actionId: aid }, only(c.accountId));
+  emitAction(d, c.worldId, c.accountId, aid);
   return aid;
 }
+
+/** Does this write tool run without a card right now? Asked at each call, so the Auto switch applies to the next action. */
+export type AutoCheck = (tool: string) => boolean;
 
 interface Executed { content: string; proposed?: string; ran?: { ok: boolean; status: number }; cites: Citation[]; summary?: string }
 
 /** One tool call from the model or a fast path: unknown tools are refused, writes become proposals, reads run. */
-async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, McpTool>, auto: Set<string>, name: string, args: any): Promise<Executed> {
+async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, McpTool>, auto: AutoCheck, name: string, args: any): Promise<Executed> {
   const tool = byName.get(name);
   try {
     // The player harness never lists write tools, and a call to one is refused here too.
     if (!tool) return { content: `Unknown tool "${name}".`, cites: [] };
     // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
     if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
-    if (tool.write && !auto.has(name)) {
+    if (tool.write && !auto(name)) {
       const aid = proposeAction(d, c, chatId, tool, args);
       return { content: `Proposed to the DM as action ${aid}: ${describeCall(name, args)}. It has NOT run; it waits for the DM to approve it.`, proposed: aid, cites: [], summary: describeCall(name, args) };
     }
     const t = await runTool(d, c, tool, args);
     if (c.harness === 'dm') audit(d, c.worldId, c.accountId, tool.write ? 'agent.action' : 'agent.read', `${name} ${JSON.stringify(args ?? {})}${tool.write ? ` auto-approved -> ${t.status}` : ''}`);
-    if (c.harness === 'dm' && tool.write) logAgentCall(d, c.worldId, { tool: name, args, summary: describeCall(name, args), ok: t.ok, result: t.text, via: 'auto-approved' });
+    if (c.harness === 'dm' && tool.write) {
+      logAgentCall(d, c.worldId, { tool: name, args, summary: describeCall(name, args), ok: t.ok, result: t.text, via: 'auto-approved' });
+      // The chat shows what was applied without asking, as a card already settled.
+      const aid = id('act_');
+      run(d.db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, call, status, result, created_at, decided_at, auto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)', aid, c.worldId, chatId, c.accountId, name, JSON.stringify(args ?? {}), describeCall(name, args), JSON.stringify(tool.call(args ?? {})), t.ok ? 'done' : 'failed', t.text.slice(0, 8000), now(), now());
+      emitAction(d, c.worldId, c.accountId, aid);
+    }
     return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, budgetFor(d).toolChars), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
   } catch (e: any) {
     return { content: `The call failed: ${String(e?.message ?? e).slice(0, 200)}`, cites: [] };
@@ -623,7 +640,7 @@ function citedHits(reply: string, hits: Hit[]): Citation[] {
 }
 
 /** Commands answered with no model. Null: not one (or it names something that is not there), so the model answers. */
-async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byName: Map<string, McpTool>, auto: Set<string>): Promise<{ text: string; cites: Citation[] } | null> {
+async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byName: Map<string, McpTool>, auto: AutoCheck): Promise<{ text: string; cites: Citation[] } | null> {
   if (plan.kind === 'reply') return { text: plan.text, cites: [] };
   if (plan.kind === 'date') { const l = getClock(d.db, c.worldId).label; return { text: `It is **${l}**.`, cites: [] }; }
   let calls: { tool: string; args: Record<string, unknown> }[];
@@ -708,11 +725,13 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       if (opts.desc === 'concise') tools = tools.map((t) => (CONCISE[t.name] ? { ...t, description: CONCISE[t.name] } : t));
     }
     const exec = c.harness === 'dm' ? input.exec : undefined;
-    let auto = c.harness === 'dm' ? new Set(featureSetting<string[]>(c.settings, 'agentAutoApprove') ?? []) : new Set<string>();
+    // The DM's own chat asks the settings at every call (the per-tool list and the Auto switch); a player's never runs a write.
+    let auto: AutoCheck = c.harness === 'dm' ? (name) => runsWithoutAsking(d, c.worldId, name) : () => false;
     if (exec) {
       const allow = new Set(exec.allow?.length ? exec.allow : TASK_DEFAULT_TOOLS);
       tools = tools.filter((t) => (t.write ? allow.has(t.name) && !TASK_DENY.test(t.name) : TASK_READS.includes(t.name) || allow.has(t.name)));
-      auto = exec.mode === 'do' ? new Set(tools.filter((t) => t.write).map((t) => t.name)) : new Set<string>();
+      const doNow = exec.mode === 'do' ? new Set(tools.filter((t) => t.write).map((t) => t.name)) : new Set<string>();
+      auto = (name) => doNow.has(name);
     }
     const byName = new Map(tools.map((t) => [t.name, t]));
 
