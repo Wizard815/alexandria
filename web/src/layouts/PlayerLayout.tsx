@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
-import { availableLinks, loadPinned, savePinned, tabsFor } from '../lib/playerNav.ts';
+import { FALLBACK_GROUP, GROUPS, availableLinks, groupOf, loadPinned, savePinned, tabsFor } from '../lib/playerNav.ts';
 import { useKeyboardInset } from '../lib/viewport.ts';
 import QuickPrompt from '../pages/player/QuickPrompt.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
+import './dmmenu.css';
 import { MoreSheet } from './MoreSheet.tsx';
 import * as F from '../features/registry.ts';
 
@@ -31,14 +32,17 @@ export function PlayerLayout() {
   const tabs = tabIds.map((id) => links.find((l) => l.to === id)!).filter(Boolean);
   const here = (to: string) => (to === '' ? loc.pathname === base || loc.pathname === `${base}/` : loc.pathname === `${base}/${to}` || loc.pathname.startsWith(`${base}/${to}/`));
   const moreActive = !tabs.some((t) => here(t.to));
+  const current = links.find((l) => here(l.to));
+  const area = current ? groupOf(current.to) : loc.pathname.startsWith(`${base}/connect`) ? 'Settings & account' : GROUPS[0];
+  const areas = [...GROUPS, FALLBACK_GROUP].map((g) => ({ g, list: links.filter((l) => groupOf(l.to) === g) })).filter((a) => a.list.length);
   return (
     <div className="t-fantasy player">
       <header className="topbar">
         <Link to={base} className="brand">{info.name}</Link>
         {F.topbars.map((C, i) => <C key={i} />)}
         <span className={`live-dot${connected ? '' : ' off'} phone-only`} title={connected ? 'Live updates on' : 'Reconnecting'} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} />
-        <nav className="topnav desktop" aria-label="Scribe">
-          {links.map(({ to, label }) => <NavLink key={to} to={`${base}/${to}`} end={to === ''} className="nav-link">{label}{badge(to)}</NavLink>)}
+        <nav className="pl-areas desktop-only" aria-label="Areas">
+          {areas.map((a) => <Link key={a.g} to={`${base}/${a.list[0].to}`} className={`pl-area${a.g === area ? ' on' : ''}`} aria-current={a.g === area || undefined} title={a.list.map((l) => l.label).join(' · ')}>{a.g}</Link>)}
         </nav>
         <span className="row topbar-end desktop-only">
           <span className="tiny faint" title={connected ? 'Live updates on' : 'Reconnecting'}><span className={`live-dot${connected ? '' : ' off'}`} /></span>
@@ -46,6 +50,9 @@ export function PlayerLayout() {
           <NavLink to="/" className="chip gold" style={{ textDecoration: 'none' }}>{me?.account.display_name}</NavLink>
           <button type="button" className="btn small ghost" onClick={() => void signOut()}>Sign out</button>
         </span>
+        <nav className="topnav desktop" aria-label="Scribe">
+          {(areas.find((a) => a.g === area)?.list ?? []).map(({ to, label }) => <NavLink key={to} to={`${base}/${to}`} end={to === ''} className="nav-link">{label}{badge(to)}</NavLink>)}
+        </nav>
       </header>
       <OfflineBanner />
       <main><Outlet /></main>

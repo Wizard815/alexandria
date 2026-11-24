@@ -1,43 +1,71 @@
-/* The DM menu: a filter, a Pinned group and task groups that fold away. */
-.nav-menu { display: flex; flex-direction: column; gap: 6px; }
-.nav-find { position: relative; display: flex; align-items: center; }
-.nav-find > i { position: absolute; left: 10px; color: var(--faint); font-size: 12px; pointer-events: none; }
-.nav-find input { width: 100%; padding: 7px 30px 7px 30px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 14px; }
-.nav-find input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.nav-kbd { position: absolute; right: 8px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; font: 11px var(--font); color: var(--faint); }
-.nav-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 12px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
-.nav-head:hover { background: var(--accent-bg); }
-.nav-head:focus-visible, .nav-pin:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.nav-head .nav-label { padding: 0; flex: 1; }
-.nav-head .nav-chev { font-size: 10px; color: var(--faint); }
-.nav-head .nav-ico { color: var(--faint); font-size: 12px; }
-.nav-items { display: flex; flex-direction: column; gap: 1px; }
-.nav-item { position: relative; display: flex; align-items: center; }
-.nav-item .nav-link { flex: 1; min-width: 0; padding-right: 34px; }
-.nav-link .nav-ico { color: var(--faint); font-size: 14px; flex: 0 0 auto; }
-.nav-link.active .nav-ico { color: var(--accent); }
-.nav-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.nav-desc { font-size: 12px; color: var(--faint); white-space: normal; }
-.nav-head .count { padding: 0 8px; border-radius: 999px; background: var(--danger); color: #12161F; font-size: 12px; font-weight: 700; }
-.nav-item .nav-link .count { margin-left: auto; margin-right: 0; flex: 0 0 auto; }
-.nav-pin { position: absolute; right: 4px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; opacity: 0; }
-.nav-item:hover .nav-pin, .nav-pin:focus-visible, .nav-pin[aria-pressed="true"] { opacity: 1; }
-.nav-pin[aria-pressed="true"] { color: var(--accent); }
-.nav-pin:disabled { cursor: not-allowed; }
-.nav-item:hover .nav-pin:disabled { opacity: 0.3; }
-.nav-results .nav-item .nav-pin { display: none; }
-.nav-none { padding: 6px 12px; }
-@media (hover: none) { .nav-pin { opacity: 0.55; } .nav-pin[aria-pressed="true"] { opacity: 1; } }
-/* A small laptop: tighter rows so the open groups fit without much scrolling. */
-@media (max-height: 800px) and (min-width: 761px) {
-  .shell.has-drawer .side { padding: 12px 10px; gap: 10px; }
-  .nav-menu .nav-link { padding: 5px 10px; }
-  .nav-head { padding: 4px 10px; }
-  .nav-menu { gap: 2px; }
-}
+/* The DM's frame: one bar on top, five areas on a rail, the area's pages as a strip. */
+.dmx { display: flex; flex-direction: column; min-height: 100vh; }
+.dmx-top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 12px; background: var(--side); border-bottom: 1px solid var(--line); }
+.dmx-brand { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--accent); font-family: var(--font-head); font-size: 17px; font-weight: 700; letter-spacing: .04em; cursor: pointer; padding: 6px; border-radius: 6px; white-space: nowrap; }
+.dmx-brand > i { font-size: 10px; color: var(--faint); }
+.dmx-search { flex: 1 1 auto; max-width: 480px; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--faint); font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+.dmx-search span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dmx-search:hover { border-color: var(--accent); }
+.dmx-search kbd { padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; font: 11px var(--font); }
+.dmx-end { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.dmx-session.live { border-color: var(--danger); color: var(--danger-text); }
+.dmx-pop-wrap { position: relative; display: inline-flex; }
+.dmx-pop { position: absolute; top: calc(100% + 8px); left: 0; z-index: 60; min-width: 220px; padding: 14px; display: flex; flex-direction: column; gap: 4px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+.dmx-session-panel { width: min(360px, calc(100vw - 24px)); }
+.dmx-menu a, .dmx-menu button { padding: 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; text-decoration: none; cursor: pointer; }
+.dmx-menu a:hover, .dmx-menu button:hover { background: var(--accent-bg); }
+.dmx-body { display: flex; flex: 1; min-width: 0; }
+.dmx-rail { flex: 0 0 72px; position: sticky; top: 48px; height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; background: var(--side); border-right: 1px solid var(--line); }
+.dmx-area { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 2px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 12px; }
+.dmx-area i { font-size: 17px; }
+.dmx-area:hover { background: var(--panel-2); }
+.dmx-area.on { background: var(--accent-bg); color: var(--accent-strong); }
+.dmx-area .nav-badge { position: absolute; top: 2px; right: 8px; background: var(--danger); color: #12161F; }
+.dmx-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dmx-tabs { position: sticky; top: 48px; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 12px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.dmx-tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap; }
+.dmx-tab i { font-size: 12px; color: var(--faint); }
+.dmx-tab:hover { background: var(--panel-2); color: var(--text); }
+.dmx-tab.active { background: var(--accent-bg); color: var(--accent-strong); } .dmx-tab.active i { color: var(--accent); }
+.dmx-pins { display: inline-flex; flex-wrap: wrap; gap: 2px; margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--line); }
+.dmx-star { margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
+.dmx-star[aria-pressed="true"] { color: var(--accent); }
+/* Denser pages: the page's own heading is already on the tab, so it is small. */
+.dmx .page { padding: 12px 16px var(--dock-reserve); gap: 12px; }
+.dmx .page-head h1 { font-size: 20px; } .dmx .page-head .lead { gap: 0; } .dmx .page-head .lead p { font-size: 13px; }
+.dmx .card { padding: 12px 14px; gap: 8px; } .dmx .card.flush { padding: 0; } .dmx .card.lib-view { padding: 0; }
+.dmx .empty { padding: 12px; }
+.dmx .lib-tree, .dmx .lib-flat { height: auto; max-height: none; }
+.dmx .lib-tree { height: calc(100vh - 250px); }
+.set-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
+.set-nav { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 100px; }
+.set-list { display: flex; flex-direction: column; }
+.set-link { padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.set-link:hover { background: var(--panel-2); } .set-link[aria-selected="true"] { background: var(--accent-bg); color: var(--accent-strong); }
+.share-list { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.share-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.kind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.kind-tile { display: flex; flex-direction: column; padding: 8px 12px; border-radius: 8px; background: var(--panel-2); color: var(--text); text-decoration: none; font-size: 13px; }
+.kind-tile b { font-size: 20px; color: var(--accent-strong); }
+/* The player's desktop bar: areas, then the pages of the one you are in. */
+.pl-areas { display: flex; gap: 2px; }
+.pl-area { padding: 6px 12px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+.pl-area.on { background: var(--accent-bg); color: var(--accent-strong); }
+.player .topbar .topnav { flex: 1 1 100%; }
+@media (max-width: 1100px) { .dmx-search span, .dmx-search kbd { display: none; } .dmx-search { flex: 0 0 auto; } }
 @media (max-width: 760px) {
-  .shell.has-drawer .side.open .nav-menu { gap: 4px; }
-  .shell.has-drawer .side.open .nav-link, .shell.has-drawer .side.open .nav-head { min-height: 44px; }
-  .shell.has-drawer .side.open .nav-pin { width: 44px; height: 44px; right: 0; }
-  .shell.has-drawer .side.open .nav-item .nav-link { padding-right: 46px; }
+  .dmx-top { height: auto; min-height: 48px; flex-wrap: wrap; padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 6px; gap: 6px; }
+  .dmx-end [data-testid="world-date"], .dmx-end .act-badge-wrap { display: none; }
+  .dmx-end [data-testid="share-open"] span { display: none; }
+  .dmx-search, .dmx-session, .dmx-end .btn, .dmx-end .icon-btn { min-height: 40px; min-width: 40px; }
+  .dmx-brand { max-width: 40vw; overflow: hidden; font-size: 15px; } .dmx-brand span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
+  .dmx-rail { position: fixed; left: 0; right: 0; bottom: 0; top: auto; height: auto; z-index: 30; flex-direction: row; padding: 2px 4px env(safe-area-inset-bottom, 0px); border-right: 0; border-top: 1px solid var(--line-strong); }
+  .dmx-area { flex: 1; padding: 6px 2px; font-size: 11px; min-height: 48px; }
+  .dmx-tabs { position: static; flex-wrap: nowrap; overflow-x: auto; } .dmx-tab { min-height: 40px; } .dmx-star { flex: 0 0 40px; height: 40px; }
+  .dmx-pop { position: fixed; left: 12px; right: 12px; top: 60px; width: auto; }
+  body:has(.dmx-rail) { --dock-reserve: calc(132px + env(safe-area-inset-bottom, 0px)); }
+  body:has(.dmx-rail) .dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  body:has(.dmx-rail) .dock-panel { bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+  .set-shell { grid-template-columns: minmax(0, 1fr); } .set-nav { position: static; } .set-list { flex-direction: row; flex-wrap: wrap; } .set-link { min-height: 40px; }
+  .dmx .lib-tree { height: calc(100vh - 340px); }
 }

@@ -9,7 +9,7 @@ import { usePlayers } from './shared.tsx';
 const KINDS: [string, string][] = [['ally', 'Ally'], ['neutral', 'Neutral'], ['rival', 'Rival']];
 
 export default function DMPeople() {
-  const { w } = useWorld();
+  const { w, info } = useWorld();
   const people = useLoad<any[]>(() => w.people(), [w], ['person', 'quote', 'recall']);
   const [filter, setFilter] = useState<'all' | 'ally' | 'neutral' | 'rival' | 'dm'>('all');
   const [q, setQ] = useState('');
@@ -36,7 +36,7 @@ export default function DMPeople() {
                 <span className="stack tight grow"><strong>{p.name}</strong><span className="tiny muted">{[p.role, p.attitude].filter(Boolean).join(' · ') || '—'}</span></span>
                 <VisChip v={p.visibility} />
               </button>
-            )) : <Empty>No one here yet.</Empty>}
+            )) : <Empty>No one here yet. People are who the party has met; <a href={`/w/${info.slug}/dm/library?kind=npc`}>the library’s NPC pages</a> are in the Library.</Empty>}
           </div>
         </aside>
         <section className="col-3">

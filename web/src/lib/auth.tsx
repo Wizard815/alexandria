@@ -33,6 +33,8 @@ function storedToken(): string | null {
 function storedAccount(): string | null {
   try { return localStorage.getItem(ACCOUNT); } catch { return null; }
 }
+/** The server answered, but not about who you are (busy, rate limited, restarting): the token may still be good. */
+const transient = (e: unknown) => e instanceof AlexandriaError && e.status !== 0 && (e.status === 429 || e.status >= 500);
 const unreachable = (e: unknown) => e instanceof AlexandriaError && e.status === 0;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -49,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   const refresh = useCallback(async () => {
     window.clearTimeout(setupRetry.current);
+    let wait = false;
     try {
       // Set needsSetup together with me (below), so no screen sees "setup
       // done" with nobody signed in and bounces to /login in between.
@@ -73,6 +76,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMe(null);
       }
     } catch (e) {
+      // Only a real "no" signs you out. A busy server is asked again; until then whoever was signed in stays so.
+      if (transient(e) && client.token) {
+        wait = true;
+        setupRetry.current = window.setTimeout(() => { void refreshRef.current(); }, 4000);
+        return;
+      }
       // Offline with nothing cached: keep the token and try again later.
       if (!unreachable(e)) {
         client.token = null;
@@ -81,7 +90,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setMe(null);
     } finally {
-      setReady(true);
+      // Not ready while waiting: no screen bounces to /login meanwhile. (A page already open stays open.)
+      if (!wait) setReady(true);
     }
   }, [client]);
 
