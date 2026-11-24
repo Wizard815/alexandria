@@ -80,7 +80,7 @@ const feature: Feature = {
     const every = Math.max(1000, Number(d.env.ALX_BIBLE_MS ?? 30_000) || 30_000);
     let busy = false;
     const tick = async () => {
-      if (busy || !hasJob(d, 'chat')) return;
+      if (busy || !hasJob(d, 'chat') || d.jobs.pressure) return;
       busy = true;
       try {
         const until = Date.now() + 45_000;

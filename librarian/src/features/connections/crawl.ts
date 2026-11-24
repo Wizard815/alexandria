@@ -17,6 +17,7 @@ import { all, one, run } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
 import { hasJob } from '../../core/ai.ts';
 import { HttpError, id, now } from '../../core/util.ts';
+import type { JobCtx } from '../../core/jobs.ts';
 import { connectorFor } from '../../intake/registry.ts';
 import { effectiveConfig } from '../../intake/connections.ts';
 import { runSync, stopSync } from '../../intake/sync.ts';
@@ -110,11 +111,15 @@ export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'r
   const ctl = new AbortController();
   active.set(worldId, { id: cid, ctl, current: null });
   run(d.db, 'INSERT INTO connections_crawls (id, world_id, mode, status, started_by, started_at) VALUES (?, ?, ?, ?, ?, ?)', cid, worldId, mode, 'running', opts.by, now());
-  void work(d, worldId, cid, mode, sources, ctl, !!opts.full).catch(() => {});
+  // A job the admin page lists, stops and (after a restart) starts again: the sources are synced again from where their state left off and
+  // the embeddings carry on with the pages not yet read.
+  const title = mode === 'reindex' ? 'Re-index (embeddings)' : 'Crawl (sources, then embeddings)';
+  void d.jobs.track({ kind: 'crawl', title, worldId, resume: { worldId, mode, sourceIds: opts.sourceIds, full: !!opts.full }, cancel: () => { stopCrawl(worldId); } },
+    (job) => work(d, worldId, cid, mode, sources, ctl, !!opts.full, job)).catch(() => {});
   return { id: cid };
 }
 
-async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'reindex', sources: any[], ctl: AbortController, full: boolean) {
+async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'reindex', sources: any[], ctl: AbortController, full: boolean, job?: JobCtx) {
   const slot = active.get(worldId)!;
   const lines: string[] = [];
   const log = (m: string) => { lines.push(`${new Date().toISOString().slice(11, 19)} ${m}`); if (lines.length > 500) lines.splice(0, lines.length - 500); };
@@ -136,6 +141,8 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
     P.depth = depthTotals(d, worldId);
     run(d.db, 'UPDATE connections_crawls SET progress = ?, log = ?, status = ? WHERE id = ?', JSON.stringify(P), lines.join('\n'), status, cid);
     d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, dmOnly);
+    if (P.phase === 'embed') job?.progress(P.embedding.pagesDone, P.embedding.pagesTotal, `Embedding: ${P.embedding.pagesDone} of ${P.embedding.pagesTotal} pages`);
+    else job?.progress(P.sources.done, Math.max(1, P.sources.total), `${P.sources.current ? `Syncing ${P.sources.current}: ` : ''}${P.saved} pages saved`);
   };
   const tierLine = (s: any, indexCalls: number): TierLine | null => {
     const cfg = effectiveConfig(d.db, s);
@@ -179,7 +186,7 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
             P.calls.detail = baseDetailCalls + (st.detailCalls ?? 0);
             publish();
           },
-        }, s.id, null, { tiered: true, full });
+        }, s.id, null, { tiered: true, full, nested: true });
         P.calls.index = baseIndexCalls + (out.stats.indexCalls ?? 0);
         P.calls.detail = baseDetailCalls + (out.stats.detailCalls ?? 0);
         setTier(s, out.stats.indexCalls ?? 0);

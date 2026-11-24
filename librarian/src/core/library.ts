@@ -14,10 +14,12 @@ import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts'
 import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelForAccountKey, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
 import { createHash } from 'node:crypto';
 import { reconcile } from '../features/search/scopes.ts';
+import { jobsOf } from './jobs.ts';
 import { HttpError, id, now } from './util.ts';
 import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
 
 const CLEAR_COPIES = ['player', 'broker', 'ai'].flatMap((p) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${p}_${c} = NULL`)).join(', ');
+const everythingOf = (opts: { only?: string[] }) => !opts.only?.length;
 const normClassifiedText = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
 const ALL_SCOPES: Scope[] = ['dm', 'party', 'broker', 'ai'];
 
@@ -128,11 +130,65 @@ export const libraryOf = (db: DB): Library | undefined => libraries.get(db);
 export class Library {
   db: DB;
   dataDir: string | null;
-  constructor(db: DB, dataDir: string | null) {
+  /** The versioned rebuild of the copies is waiting for finishMigrations (the server starts listening first). */
+  migrationPending = false;
+
+  /**
+   * `deferMigration`: do not rebuild every page before returning. The old copies are cleared at once (nothing stale can be read: a
+   * page without a copy is simply not shown) and finishMigrations rebuilds them in short steps while the server answers requests.
+   */
+  constructor(db: DB, dataDir: string | null, opts: { deferMigration?: boolean } = {}) {
     this.db = db;
     this.dataDir = dataDir;
     libraries.set(db, this);
-    this.migrateLevels();
+    if (opts.deferMigration) this.prepareMigration(); else this.migrateLevels();
+  }
+
+  private levelsCurrent(): boolean {
+    try { return one<any>(this.db, `SELECT value FROM search_meta WHERE key = 'levels_version'`)?.value === LEVELS_VERSION; } catch { return true; }
+  }
+
+  private prepareMigration() {
+    if (this.levelsCurrent()) return;
+    if (!one(this.db, 'SELECT 1 FROM pages LIMIT 1')) { this.stampLevels(); return; }
+    run(this.db, `UPDATE pages SET ${CLEAR_COPIES}`);
+    this.migrationPending = true;
+  }
+
+  private stampLevels() {
+    run(this.db, `INSERT INTO search_meta (key, value) VALUES ('levels_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, LEVELS_VERSION);
+  }
+
+  /** Finish what prepareMigration started: rebuild every world's copies, drop the old semantic chunks, then record the version. */
+  async finishMigrations(): Promise<void> {
+    if (!this.migrationPending) return;
+    for (const w of all<{ id: string }>(this.db, 'SELECT id FROM worlds')) await this.rebuildPlayerCopiesAsync(w.id);
+    try {
+      run(this.db, `DELETE FROM search_chunks WHERE scope = 'dm'`);
+      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'dm'`);
+    } catch { /* the search tables are made by the search feature: nothing to drop yet */ }
+    this.stampLevels();
+    this.migrationPending = false;
+  }
+
+  /** Pages with no copies (a sync or a restart stopped before they were rebuilt): the ids per world. */
+  pagesWithoutCopies(): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const r of all<{ id: string; world_id: string }>(this.db, `SELECT id, world_id FROM pages WHERE ai_body IS NULL AND visibility <> 'classified'`)) {
+      const list = out.get(r.world_id) ?? [];
+      list.push(r.id);
+      out.set(r.world_id, list);
+    }
+    return out;
+  }
+
+  /** Free what can be made again (copies of the resolver, the hidden-title sets, the classified text index): for a memory squeeze. */
+  dropCaches() {
+    this.resolverCache.clear();
+    this.hiddenCache.clear();
+    this.classifiedPagesCache.clear();
+    this.cg = new ClassifiedIndex();
+    this.cgBuilt = -1;
   }
 
   /**
@@ -216,7 +272,8 @@ export class Library {
 
   /** Save an entry from a source connector. Always batch: the sync rebuilds player copies at the end. */
   saveEntry(worldId: string, sourceId: string, prefix: string | null, e: Entry, by: string | null) {
-    const existing = one<any>(this.db, 'SELECT id, path FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, sourceId, e.externalId);
+    const existing = one<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position,
+      source_level, marker_level, (ai_body IS NOT NULL OR visibility = 'classified') AS has_copies FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?`, worldId, sourceId, e.externalId);
     const title = String(e.title || 'Untitled').slice(0, 200);
     const isMd = typeof e.markdown === 'string';
     let p = existing?.path as string | undefined;
@@ -242,6 +299,9 @@ export class Library {
     const vals = [title, vis, JSON.stringify(fm), body, JSON.stringify(blocks), isMd ? 'markdown' : 'blocks', e.parentExternalId ?? null, JSON.stringify(e.folder ?? []),
       JSON.stringify(e.aliases ?? []), JSON.stringify(e.tags ?? []), e.type ?? 'page', e.icon ? JSON.stringify(e.icon) : null, e.banner ?? null, safeSourceUrl(e.url),
       e.knowledge ?? null, JSON.stringify(e.properties ?? []), Number.isFinite(e.position) ? e.position : null, e.updatedAt || now(), by, sourceLevel, markerLevel];
+    // Nothing the library keeps has changed (a scheduled sync of an unchanged source, or a source that gives no times): leave the page, its
+    // updated_at, its copies, its index rows and its embeddings alone. A new updated_at would make every page look edited and read again.
+    if (existing && existing.has_copies && this.sameEntry(existing, vals)) return { id: existing.id as string, path: existing.path as string, changed: false, linksChanged: false };
     let pid: string;
     tx(this.db, () => {
       if (existing) {
@@ -256,9 +316,20 @@ export class Library {
       this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
-    this.changed(worldId, [pid!]);
+    // A sync saves many pages and then rebuilds the copies and reconciles once (rebuildPlayerCopies calls changed): per page it would be 30 statements each.
     this.touchClassified();
-    return { id: pid!, path: p };
+    return { id: pid!, path: p, changed: true, linksChanged: !existing || existing.title !== title || existing.visibility !== vis };
+  }
+
+  /** Is the stored row what `vals` (see saveEntry) would write? Compared field by field, so nothing needs a stored hash. */
+  private sameEntry(row: any, vals: any[]): boolean {
+    const cols = ['title', 'visibility', 'frontmatter', 'body', 'blocks', 'origin', 'parent_external', 'folder', 'aliases', 'tags', 'kind', 'icon', 'banner', 'url', 'knowledge', 'properties', 'position'];
+    for (let i = 0; i < cols.length; i++) {
+      const a = row[cols[i]] ?? null;
+      const b = vals[i] ?? null;
+      if (a !== b) return false;
+    }
+    return (row.source_level ?? null) === (vals[19] ?? null) && (row.marker_level ?? null) === (vals[20] ?? null);
   }
 
   /** The audience a source is set to (auto when it has none, or its column is not there yet). */
@@ -342,9 +413,15 @@ export class Library {
   }
 
   /** Titles (lower case) of pages an audience must not learn about: the ones above its level. Players by default. */
+  private hiddenCache = new Map<string, { rev: number; set: Set<string> }>();
   hiddenTitles(worldId: string, audience: Audience = 'player'): Set<string> {
-    return new Set(all<{ t: string; v: string }>(this.db, 'SELECT lower(title) AS t, visibility AS v FROM pages WHERE world_id = ?', worldId)
+    const key = `${worldId}|${audience}`;
+    const hit = this.hiddenCache.get(key);
+    if (hit && hit.rev === this.pagesRev) return hit.set;
+    const set = new Set(all<{ t: string; v: string }>(this.db, 'SELECT lower(title) AS t, visibility AS v FROM pages WHERE world_id = ?', worldId)
       .filter((r) => !canSeeLevel(normLevel(r.v), audience)).map((r) => r.t));
+    this.hiddenCache.set(key, { rev: this.pagesRev, set });
+    return set;
   }
 
   /**
@@ -398,12 +475,23 @@ export class Library {
   // of classified text in every world. Classified text is whatever the DM copy
   // of a page has that no AI copy has. The index is built on first use and
   // again after the pages change (touchClassified runs on every write here).
+  /** A number that goes up with every change to the pages (cheap to compare: "has anything changed since I looked?"). */
+  get rev(): number { return this.pagesRev; }
+
+  /** The permission clean-up of `changed`, without counting as a change (for a periodic check that must not wake the caches it feeds). */
+  reconcileQuietly(worldId: string) {
+    try { this.pruneShares(worldId); } catch { /* sharing is not installed */ }
+    try { reconcile(this, worldId); } catch { /* the stores are not there yet */ }
+  }
+
+  /** Bumped by every change to the pages (what the resolver and hidden-title caches depend on). */
+  private pagesRev = 0;
   private cgVersion = 0;
   private cgBuilt = -1;
   private cg = new ClassifiedIndex();
 
   /** Call after anything that changes pages or their copies. */
-  touchClassified() { this.cgVersion++; }
+  touchClassified() { this.cgVersion++; this.pagesRev++; }
 
   classifiedGrams(): ClassifiedIndex {
     if (this.cgBuilt === this.cgVersion) return this.cg;
@@ -452,7 +540,15 @@ export class Library {
    * file name or path (Obsidian links by file name). A ref "resource#document"
    * that is not stored falls back to the resource's first page.
    */
+  private resolverCache = new Map<string, { rev: number; R: ReturnType<Library['buildResolver']> }>();
   private resolver(worldId: string) {
+    const hit = this.resolverCache.get(worldId);
+    if (hit && hit.rev === this.pagesRev) return hit.R;
+    const R = this.buildResolver(worldId);
+    this.resolverCache.set(worldId, { rev: this.pagesRev, R });
+    return R;
+  }
+  private buildResolver(worldId: string) {
     const rows = all<any>(this.db, 'SELECT id, title, aliases, visibility, source_id, external_id, path, origin FROM pages WHERE world_id = ?', worldId);
     const byRef = new Map<string, any>();
     const byName = new Map<string, { r: any; weak: boolean }>();
@@ -523,49 +619,117 @@ export class Library {
    * saves; `only` limits it to pages whose links didn't change.
    */
   rebuildPlayerCopies(worldId: string, only?: string[]) {
-    const hiddenBy: Record<CopyAud, Set<string>> = { player: this.hiddenTitles(worldId, 'player'), broker: this.hiddenTitles(worldId, 'broker'), ai: this.hiddenTitles(worldId, 'ai') };
+    const hiddenBy = this.hiddenSets(worldId);
     const R = this.resolver(worldId);
     const sel = only?.length ? `AND id IN (${only.map(() => '?').join(',')})` : '';
     const pages = all<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, properties, source_id, aliases, ai_body FROM pages WHERE world_id = ? ${sel}`, worldId, ...(only ?? []));
     tx(this.db, () => {
       if (!only?.length) for (const a of COPY_AUDS) unindexWorld(this.db, COPY_SCOPE[a], worldId);
-      for (const pg of pages) {
-        const fm = JSON.parse(pg.frontmatter || '{}');
-        const sets: string[] = [];
-        const vals: any[] = [];
-        let playerBuilt: BuiltCopy | null = null;
-        let aiBody: string | null = null;
-        for (const aud of COPY_AUDS) {
-          if (only?.length) unindexPage(this.db, COPY_SCOPE[aud], pg.id);
-          const c = this.buildCopy(pg, fm, aud, R, hiddenBy[aud]);
-          const pre = COPY_PREFIX[aud];
-          sets.push(`${pre}frontmatter = ?`, `${pre}body = ?`, `${pre}blocks = ?`, `${pre}properties = ?`);
-          vals.push(c ? JSON.stringify(c.fm) : null, c ? c.body : null, c ? JSON.stringify(c.blocks) : null, c ? JSON.stringify(c.properties) : null);
-          if (c) indexPage(this.db, COPY_SCOPE[aud], pg.id, worldId, pg.title, playerAliases(pg.origin, c.fm, JSON.parse(pg.aliases || '[]'), hiddenBy[aud]), c.body, factsText(c.properties));
-          if (aud === 'player') playerBuilt = c;
-          if (aud === 'ai') aiBody = c ? c.body : null;
-        }
-        run(this.db, `UPDATE pages SET ${sets.join(', ')} WHERE id = ?`, ...vals, pg.id);
-        // The semantic index of the DM scope is cut from the AI copy: when that changes, its chunks go and are made again.
-        // A page with no AI copy (classified) or no player copy (no longer shared) keeps no chunks of either: they were cut from text those readers may no longer have.
-        if (aiBody !== pg.ai_body || aiBody === null) {
-          try {
-            run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'dm'`, pg.id);
-            run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'dm'`, pg.id);
-          } catch { /* no search tables yet */ }
-        }
-        if (!playerBuilt) {
-          try {
-            run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'party'`, pg.id);
-            run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'party'`, pg.id);
-          } catch { /* no search tables yet */ }
-        }
-        const pc: BuiltCopy | null = playerBuilt;
-        this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc ? { fm: pc.fm, body: pc.body, blocks: pc.blocks, properties: pc.properties } : null);
-      }
+      for (const pg of pages) this.rebuildOne(worldId, pg, R, hiddenBy, !!only?.length);
     });
     this.changed(worldId, only?.length ? only : undefined);
     this.touchClassified();
+  }
+
+  private hiddenSets(worldId: string): Record<CopyAud, Set<string>> {
+    return { player: this.hiddenTitles(worldId, 'player'), broker: this.hiddenTitles(worldId, 'broker'), ai: this.hiddenTitles(worldId, 'ai') };
+  }
+
+  /** One page's copies, search index rows and mirror files. `unindex`: drop its old index rows first (a whole-world pass clears them all up front). */
+  private rebuildOne(worldId: string, pg: any, R: ReturnType<Library['resolver']>, hiddenBy: Record<CopyAud, Set<string>>, unindex: boolean) {
+    const fm = JSON.parse(pg.frontmatter || '{}');
+    const sets: string[] = [];
+    const vals: any[] = [];
+    let playerBuilt: BuiltCopy | null = null;
+    let aiBody: string | null = null;
+    for (const aud of COPY_AUDS) {
+      if (unindex) unindexPage(this.db, COPY_SCOPE[aud], pg.id);
+      const c = this.buildCopy(pg, fm, aud, R, hiddenBy[aud]);
+      const pre = COPY_PREFIX[aud];
+      sets.push(`${pre}frontmatter = ?`, `${pre}body = ?`, `${pre}blocks = ?`, `${pre}properties = ?`);
+      vals.push(c ? JSON.stringify(c.fm) : null, c ? c.body : null, c ? JSON.stringify(c.blocks) : null, c ? JSON.stringify(c.properties) : null);
+      if (c) indexPage(this.db, COPY_SCOPE[aud], pg.id, worldId, pg.title, playerAliases(pg.origin, c.fm, JSON.parse(pg.aliases || '[]'), hiddenBy[aud]), c.body, factsText(c.properties));
+      if (aud === 'player') playerBuilt = c;
+      if (aud === 'ai') aiBody = c ? c.body : null;
+    }
+    run(this.db, `UPDATE pages SET ${sets.join(', ')} WHERE id = ?`, ...vals, pg.id);
+    // The semantic index of the DM scope is cut from the AI copy: when that changes, its chunks go and are made again.
+    // A page with no AI copy (classified) or no player copy (no longer shared) keeps no chunks of either: they were cut from text those readers may no longer have.
+    if (aiBody !== pg.ai_body || aiBody === null) {
+      try {
+        run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'dm'`, pg.id);
+        run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'dm'`, pg.id);
+      } catch { /* no search tables yet */ }
+    }
+    if (!playerBuilt) {
+      try {
+        run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'party'`, pg.id);
+        run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'party'`, pg.id);
+      } catch { /* no search tables yet */ }
+    }
+    const pc: BuiltCopy | null = playerBuilt;
+    this.mirror(worldId, pg.path, fm, pg.body, pg.visibility, pc ? { fm: pc.fm, body: pc.body, blocks: pc.blocks, properties: pc.properties } : null);
+  }
+
+  private rebuilding = new Map<string, { done: Promise<void>; again: boolean; all: boolean; ids: Set<string> }>();
+
+  /**
+   * The same as rebuildPlayerCopies for a sync, an import or a big edit, but in short steps
+   * (a few dozen pages, each step its own small transaction) with the event loop free between them,
+   * so a world of thousands of pages never holds the server for seconds.
+   * A page waiting for its turn has no copy (a sync clears them as it saves), so nobody reads a half-scrubbed page.
+   * The hidden titles are read again for every step, so a page hidden meanwhile is scrubbed from the pages built after it.
+   * A pass asked for while another runs joins it (one more pass follows).
+   */
+  rebuildPlayerCopiesAsync(worldId: string, opts: { only?: string[]; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; sliceMs?: number } = {}): Promise<void> {
+    const want = (slot: { again: boolean; all: boolean; ids: Set<string> }) => { if (opts.only?.length) for (const x of opts.only) slot.ids.add(x); else slot.all = true; };
+    const running = this.rebuilding.get(worldId);
+    if (running) { running.again = true; want(running); return running.done; }
+    const slot = { done: Promise.resolve(), again: false, all: false, ids: new Set<string>() };
+    want(slot);
+    this.rebuilding.set(worldId, slot);
+    const big = !opts.only?.length || opts.only.length > 50;
+    const body = async (ctx?: { progress(done: number, total: number, message?: string): void }) => {
+      try {
+        do {
+          slot.again = false;
+          const everything = slot.all;
+          const only = [...slot.ids];
+          slot.all = false;
+          slot.ids = new Set();
+          const ids = !everything && only.length ? only : all<{ id: string }>(this.db, 'SELECT id FROM pages WHERE world_id = ? ORDER BY path', worldId).map((r) => r.id);
+          let i = 0;
+          while (i < ids.length && !opts.signal?.aborted) {
+            const stepStart = performance.now();
+            const hiddenBy = this.hiddenSets(worldId);
+            const R = this.resolver(worldId);
+            const take = ids.slice(i, i + 25);
+            const rows = new Map(all<any>(this.db, `SELECT id, path, title, visibility, frontmatter, body, blocks, origin, properties, source_id, aliases, ai_body FROM pages WHERE world_id = ? AND id IN (${take.map(() => '?').join(',')})`, worldId, ...take).map((r) => [r.id, r]));
+            let used = 0;
+            let n = 0;
+            tx(this.db, () => {
+              for (const id of take) {
+                used++;
+                const pg = rows.get(id);
+                if (!pg) continue;
+                this.rebuildOne(worldId, pg, R, hiddenBy, true);
+                // A step lasts about sliceMs (at least 5 pages).
+                if (++n >= 5 && performance.now() - stepStart > (opts.sliceMs ?? 25)) break;
+              }
+            });
+            i += used;
+            opts.onProgress?.(Math.min(i, ids.length), ids.length);
+            ctx?.progress(Math.min(i, ids.length), ids.length, `${Math.min(i, ids.length)} of ${ids.length} pages`);
+            await new Promise<void>((r) => setImmediate(r));
+          }
+          this.changed(worldId, !everything && only.length ? only : undefined);
+          this.touchClassified();
+        } while (slot.again && !opts.signal?.aborted);
+      } finally { this.rebuilding.delete(worldId); }
+    };
+    // A whole-world pass is a job the admin page lists; it cannot be cancelled (a page left without its copy would be hidden from players).
+    slot.done = big ? jobsOf(this.db).track({ kind: 'rebuild', title: 'Updating the player copies', worldId, cancellable: false, resume: everythingOf(opts) ? { worldId } : undefined }, (ctx) => body(ctx)) : body();
+    return slot.done;
   }
 
   /**
@@ -576,6 +740,7 @@ export class Library {
    * the background. Never throws: the query paths check permissions again.
    */
   changed(worldId: string, ids?: string[]) {
+    this.pagesRev++;
     try { this.pruneShares(worldId); } catch { /* sharing is not installed */ }
     try { reconcile(this, worldId, ids); } catch { /* the stores are not there yet */ }
   }
@@ -854,6 +1019,8 @@ export class Library {
     return count;
   }
 
+  private mirrored = new Map<string, string>();
+
   /** Told of every copy the mirror writes (`error` null) or cannot write; the gateway status page keeps the failures. */
   mirrorSink: ((e: { worldId: string; copy: string; path: string; error: string | null }) => void) | null = null;
 
@@ -874,13 +1041,16 @@ export class Library {
     // is skipped, so one odd path never stops every later save.
     const write = (sub: string, rel: string, text: string) => {
       const f = path.join(dir, sub, rel);
-      try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); this.mirrorSink?.({ worldId, copy: sub, path: rel, error: null }); }
+      // What was written last is remembered (as a hash): a rebuild of pages that did not change writes nothing.
+      const h = createHash('sha1').update(text).digest('base64');
+      if (this.mirrored.get(f) === h && fs.existsSync(f)) return;
+      try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); this.mirrored.set(f, h); this.mirrorSink?.({ worldId, copy: sub, path: rel, error: null }); }
       catch (e) {
         console.warn(`library: could not write the ${sub} copy of ${rel}: ${(e as Error).message}`);
         try { this.mirrorSink?.({ worldId, copy: sub, path: rel, error: (e as Error).message }); } catch { /* the status page never stops a save */ }
       }
     };
-    const remove = (f: string) => { try { fs.rmSync(f, { force: true }); } catch (e) { console.warn(`library: could not remove ${f}: ${(e as Error).message}`); } };
+    const remove = (f: string) => { try { this.mirrored.delete(f); fs.rmSync(f, { force: true }); } catch (e) { console.warn(`library: could not remove ${f}: ${(e as Error).message}`); } };
     write('vault', p, joinFrontmatter({ ...fm, visibility }, body));
     const partyFile = path.join(dir, 'party', p);
     if (pc) {

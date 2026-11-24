@@ -4,12 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { type DB, openDb, run } from './core/db.ts';
 import { EventHub } from './core/events.ts';
+import { Jobs, jobsOf } from './core/jobs.ts';
 import { Library } from './core/library.ts';
 import { authenticate, loadWorld, requireAdmin, Throttle } from './core/auth.ts';
 import { HttpError, now } from './core/util.ts';
 import authRoutes from './routes/auth.ts';
 import adminRoutes from './routes/admin.ts';
 import sourceRoutes from './routes/sources.ts';
+import jobRoutes from './routes/jobs.ts';
+import { accessRoutes, activityRoutes } from './routes/modelaccess.ts';
+import { ensureModelSchema, pruneCalls } from './core/modelcalls.ts';
 import { startScheduler } from './intake/sync.ts';
 import type { McpClient } from './core/mcp.ts';
 import worldRoutes, { listMyWorlds } from './routes/world.ts';
@@ -40,6 +44,10 @@ export interface Deps {
   env: Record<string, string | undefined>;
   /** Tests only: an MCP client used instead of connecting to real servers. */
   testMcp?: McpClient;
+  /** The heavy background work that is running (crawls, syncs, rebuilds), for the admin page and /health. */
+  jobs: Jobs;
+  /** What the server is doing after it started listening (src/server.ts). `warming`: it answers, but is still getting ready. */
+  startup: { warming: boolean; phase: string; since: number };
 }
 
 export interface AppOptions {
@@ -49,6 +57,8 @@ export interface AppOptions {
   /** Built web app (web/dist). Served at / with a fallback to index.html. */
   webDir?: string | null;
   dbFile?: string;
+  /** The server rebuilds old copies after it listens (src/server.ts) instead of before. */
+  deferMigration?: boolean;
   dataDir?: string | null;
   vaultsDir?: string | null;
   fetch?: typeof fetch;
@@ -62,16 +72,19 @@ export function audit(db: DB, worldId: string | null, accountId: string | null, 
 export function createApp(opts: AppOptions = {}) {
   const db = openDb(opts.dbFile ?? ':memory:');
   applyFeatureSchemas(db);
+  ensureModelSchema(db);
   const deps: Deps = {
     db,
     hub: new EventHub(),
-    library: new Library(db, opts.dataDir ?? null),
+    library: new Library(db, opts.dataDir ?? null, { deferMigration: opts.deferMigration }),
     throttle: new Throttle(),
     dataDir: opts.dataDir ?? null,
     vaultsDir: opts.vaultsDir ?? null,
     fetch: opts.fetch ?? fetch,
     env: opts.env ?? process.env,
     testMcp: opts.testMcp,
+    jobs: jobsOf(db),
+    startup: { warming: false, phase: '', since: Date.now() },
   };
 
   const app = express();
@@ -117,10 +130,16 @@ export function createApp(opts: AppOptions = {}) {
     next();
   });
 
+  // Answers at once whatever the server is doing: a server that is busy (a crawl, a re-index) or still warming up is alive.
+  // 200 unless the database does not answer; `status` says "warming" while the start-up work runs, `busyJobs` how much heavy work is running.
   app.get('/health', (_req, res) => {
     let dbOk = true;
     try { db.prepare('SELECT 1').get(); } catch { dbOk = false; }
-    res.status(dbOk ? 200 : 503).json({ status: dbOk ? 'ok' : 'db-error', time: now(), uptimeSeconds: Math.round((Date.now() - started) / 1000), version: VERSION, release: RELEASE });
+    const warming = deps.startup.warming;
+    res.status(dbOk ? 200 : 503).json({
+      status: !dbOk ? 'db-error' : warming ? 'warming' : 'ok', warming, phase: deps.startup.phase, busyJobs: deps.jobs.busy(),
+      time: now(), uptimeSeconds: Math.round((Date.now() - started) / 1000), version: VERSION, release: RELEASE,
+    });
   });
 
   // Calendar feed: calendar apps send Basic auth (username + scribe key).
@@ -129,6 +148,9 @@ export function createApp(opts: AppOptions = {}) {
   app.use('/api', authRoutes(deps));
   app.use('/api/admin', authenticate(db), adminRoutes(deps));
   app.use('/api/admin', authenticate(db), requireAdmin, sourceRoutes(deps));
+  app.use('/api/admin/jobs', authenticate(db), requireAdmin, jobRoutes(deps));
+  app.use('/api/admin/models/activity', authenticate(db), requireAdmin, activityRoutes(deps));
+  app.use('/api/admin/models/access', authenticate(db), requireAdmin, accessRoutes(deps));
   for (const f of FEATURES) if (f.adminRoutes) app.use(`/api/admin/${f.adminMount ?? f.id}`, authenticate(db), requireAdmin, f.adminRoutes(deps));
 
   const w = express.Router({ mergeParams: true });
@@ -181,7 +203,7 @@ export function createApp(opts: AppOptions = {}) {
 
   if (!opts.noScheduler) for (const f of FEATURES) f.start?.(deps);
   if (!opts.noScheduler) startScheduler({ db, library: deps.library, dataDir: deps.dataDir, vaultsDir: deps.vaultsDir, fetch: deps.fetch, env: deps.env });
-  const timer = setInterval(() => purgeExpiredThreads(db), 60 * 60 * 1000);
+  const timer = setInterval(() => { purgeExpiredThreads(db); pruneCalls(db); }, 60 * 60 * 1000);
   timer.unref();
 
   return { app, deps };
