@@ -18,6 +18,8 @@ export const CONCISE: Record<string, string> = {
   ask_broker_quote: 'Use to price a question to the information broker without asking it. Example: "what would the broker charge for a rumour about the mayor".',
   list_broker_requests: 'Use to see what players asked the broker and which answers wait. Example: "which broker questions are still waiting for an answer".',
   list_broker_offers: 'Use to see the broker\'s special offers. Example: "what has the broker put up for sale".',
+  library_sharing: 'Use to see what players can read in the library right now and who each page, file and folder is shared with. Example: "what have I shared with the players".',
+  share_library_item: 'Use to share a library page, file or folder with everyone, chosen players or nobody, and optionally tell the players. Example: "send the harbour map to Jess and Tom".',
   list_transfers: 'Use to see coin and items given between players and the party. Example: "who passed gold to whom last session".',
   save_page: 'Use to create or replace a library page (DM-only unless visibility is party). Example: "file a new DM page about the mill under Places".',
   add_person: 'Use to add a new NPC to the People list. Example: "put Edda the ratcatcher on the NPC list".',
