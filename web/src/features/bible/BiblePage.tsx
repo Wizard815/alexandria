@@ -31,10 +31,13 @@ export default function BiblePage() {
   const left = progressText(status.data?.progress);
   useEffect(() => {
     if (!left) return;
-    const t = setInterval(() => { void status.reload(); void data.reload(); }, 5000);
+    const t = setInterval(() => { void status.reload(); void data.reload(); }, 20_000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
+  // Thousands of facts: subjects start closed unless you are searching, and come a screenful at a time.
+  const [n, setN] = useState(60);
+  useEffect(() => setN(60), [path]);
   return (
     <div className="page">
       <PageHead title="Story bible" lead={isDM ? 'The world as facts, from every page but classified ones.' : 'What you know about the world, as facts, from the pages you can read.'} />
@@ -50,10 +53,10 @@ export default function BiblePage() {
       {!b ? <Loading /> : !b.subjects.length ? (
         <Empty>{debounced || kind ? 'No facts match.' : 'Nothing has been written into the bible yet. It fills in the background once a chat model is set and the library has been read.'}</Empty>
       ) : (
-        <div className="stack">
-          {b.subjects.map((s) => (
-            <section key={s.key} className="card bible-subject">
-              <h3><i className={`fa-solid ${ICON[s.kind] ?? 'fa-book-open'}`} aria-hidden="true" /> {s.subject} <span className="chip">{s.kind}</span></h3>
+        <div className="stack tight">
+          {b.subjects.slice(0, n).map((s) => (
+            <details key={`${s.key}:${debounced}`} className="card bible-subject" open={!!debounced || undefined}>
+              <summary><h3 style={{ display: 'inline' }}><i className={`fa-solid ${ICON[s.kind] ?? 'fa-book-open'}`} aria-hidden="true" /> {s.subject} <span className="chip">{s.kind}</span></h3> <span className="tiny faint">{s.facts.length} fact{s.facts.length === 1 ? '' : 's'}</span></summary>
               <ul className="bible-facts">
                 {s.facts.map((f, i) => (
                   <li key={i} className="bible-fact">{f.text}
@@ -61,8 +64,9 @@ export default function BiblePage() {
                   </li>
                 ))}
               </ul>
-            </section>
+            </details>
           ))}
+          {b.subjects.length > n && <button type="button" className="btn" onClick={() => setN(n + 100)}>Show more ({b.subjects.length - n} left)</button>}
         </div>
       )}
     </div>

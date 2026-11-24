@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, Loading, useToast } from '../../ui/index.tsx';
+import { copyText } from '../../lib/copy.tsx';
 
 interface Card { id: string; capGiB: number; usedGiB: number; freeGiB: number; models: string[] }
 interface PoolModel { id: string; state: string; sizeGiB: number; sizeKnown: boolean; cards: string[]; persistent: boolean }
@@ -30,7 +31,7 @@ function Provider({ p }: { p: Prov }) {
   const [which, setWhich] = useState<'group' | 'pool'>(p.router === 'pool' ? 'pool' : 'group');
   const { toast, toastNode } = useToast();
   const text = p.config[which];
-  const copy = () => { void navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast('Select the text and copy it')); };
+  const copy = () => { void copyText(text).then((ok) => toast(ok ? 'Copied' : 'Select the text and copy it')); };
   const b = p.budget;
   return (
     <div className="stack tight" data-vram-provider={p.id}>

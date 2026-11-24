@@ -7,6 +7,7 @@ import { ErrorBox, Tabs, useAction } from '../../ui/index.tsx';
 import { DockButton } from '../../ui/Dock.tsx';
 import SculptButton from '../sculpt/SculptButton.tsx';
 import './quickgen.css';
+import { copyText } from '../../lib/copy.tsx';
 
 type Tab = 'names' | 'items' | 'gold';
 interface Options { races: string[]; genders: string[]; rarities: string[]; types: string[]; modes: string[]; coins: string }
@@ -23,7 +24,7 @@ function load(): Sel {
 function save(s: Sel) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* private window */ } }
 
 const gp = (n: number | null) => (n === null ? 'priceless' : `${n.toLocaleString('en-US')} gp`);
-const copy = (text: string) => { try { void navigator.clipboard?.writeText(text); } catch { /* not allowed */ } };
+const copy = (text: string) => { void copyText(text); };
 
 export default function QuickGenOverlay() {
   const { isDM } = useWorld();

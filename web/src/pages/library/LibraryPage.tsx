@@ -15,6 +15,7 @@ import * as off from '../../lib/offline.ts';
 import { useNet } from '../../lib/net.ts';
 import { Blocks, Facts, Icon, LIB_CSS, type RenderCtx } from './Blocks.tsx';
 import { Tree, TREE_CSS, type PageRow } from './Tree.tsx';
+import { mergeCopies } from './treeModel.ts';
 import { safeImageUrl, sourceLink } from './links.ts';
 import { Editor, SecretHint } from './Editor.tsx';
 import { ClassifiedFrame, LEVELS, LEVEL_LABEL, LevelChip, levelOf } from './Levels.tsx';
@@ -22,7 +23,7 @@ import { AskModal } from './AskModal.tsx';
 import { Connections } from '../../features/bible/Connections.tsx';
 import { DepthBadge } from '../../features/connections/Tiers.tsx';
 import { StatusBanner, WaitingForSite } from '../../features/connections/StatusBanner.tsx';
-import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
+import { ShareButton, openShare } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
 import { FILES_CSS, FilesTab, PageFiles } from '../../features/libfiles/Files.tsx';
@@ -40,7 +41,8 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<any[] | null>(null);
   const [tag, setTag] = useState('');
-  const [kind, setKind] = useState('');
+  const [kind, setKind] = useState(() => params.get('kind') ?? '');
+  const [every, setEvery] = useState(() => { try { return localStorage.getItem('alx.lib.every') === '1'; } catch { return false; } });
   const [vis, setVis] = useState<'all' | 'party' | 'broker' | 'dm' | 'classified'>('all');
   const [savedOnly, setSavedOnly] = useState(false);
   const [sharedOnly, setSharedOnly] = useState(false);
@@ -82,15 +84,27 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   const tags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags ?? []))].sort((a, b) => a.localeCompare(b)), [rows]);
   const kinds = useMemo(() => [...new Set(rows.map((r) => r.kind).filter(Boolean))].sort(), [rows]);
   const needle = q.trim().toLowerCase();
-  const list = useMemo(() => rows.filter((r) =>
+  const matching = useMemo(() => rows.filter((r) =>
     (!tag || r.tags?.includes(tag)) && (!kind || r.kind === kind) && (!savedOnly || savedIds.has(r.id)) && (!sharedOnly || r.sharedWithMe) &&
     (vis === 'all' || levelOf(r.visibility) === vis) &&
     (!needle || r.title.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle))), [rows, tag, kind, savedOnly, sharedOnly, savedIds, vis, needle]);
+  const merged = useMemo(() => mergeCopies(matching), [matching]);
+  const whole = useMemo(() => mergeCopies(rows), [rows]);
+  const list = every ? matching : merged.rows;
+  const extra = rows.length - whole.rows.length;
+  const toggleEvery = (v: boolean) => { setEvery(v); try { localStorage.setItem('alx.lib.every', v ? '1' : '0'); } catch { /* this page only */ } };
+  // Text matches: one row per page too (the first, best-ranked copy).
+  const shownHits = useMemo(() => {
+    if (!hits || every) return hits;
+    const seen = new Set<string>();
+    return hits.filter((h) => { const k = whole.repOf.get(h.id) ?? h.id; return !seen.has(k) && !!seen.add(k); });
+  }, [hits, every, whole]);
   const flat = useMemo(() => (sort === 'tree' && !needle ? null : [...list].sort((a, b) => (sort === 'recent' ? b.updated_at.localeCompare(a.updated_at) : a.title.localeCompare(b.title, undefined, { numeric: true })))), [list, sort, needle]);
 
   const selected = params.get('page');
   const creating = isDM && !readOnly ? params.get('new') : null;
   const open = useCallback((id: string) => setParams({ page: id }), [setParams]);
+  const shownAs = selected && !every ? merged.repOf.get(selected) ?? selected : selected;
   const filtered = !!(tag || kind || savedOnly || sharedOnly || vis !== 'all');
 
   /** Fetch pages by id (100 at a time) and save them for offline. */
@@ -134,7 +148,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
     off.download(`${info.name} library.zip`, zipSync(files) as BlobPart, 'application/zip');
   };
 
-  const sideItems: [Side, string][] = [['pages', `Pages (${rows.length})`], ['files', 'Files'], ...(readOnly ? [] : [['saved', `Saved (${saved.length})`] as [Side, string]])];
+  const sideItems: [Side, string][] = [['pages', `Pages (${every ? rows.length : whole.rows.length})`], ['files', 'Files'], ...(readOnly ? [] : [['saved', `Saved (${saved.length})`] as [Side, string]])];
   if (isDM) sideItems.push(['lint', `Leak check${lint.data?.length ? ` (${lint.data.length})` : ''}`]);
 
   return (
@@ -153,6 +167,8 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
           {side === 'pages' && (
             <>
               <label className="field"><span className="sr-only">Search the library</span><input type="search" placeholder={offline || !netOnline ? 'Filter saved titles…' : 'Search titles and text…'} value={q} onChange={(e) => setQ(e.target.value)} /></label>
+              <details className="lib-filter-box" open={filtered || undefined}>
+              <summary>Filter &amp; sort{filtered ? ' (on)' : ''}</summary>
               <div className="lib-filters">
                 <select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}><option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                 {kinds.length > 1 && <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select>}
@@ -161,12 +177,14 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
                 <label className="lib-check"><input type="checkbox" checked={savedOnly} onChange={(e) => setSavedOnly(e.target.checked)} /> Saved for offline</label>
                 {rows.some((r) => r.sharedWithMe) && <label className="lib-check"><input type="checkbox" checked={sharedOnly} onChange={(e) => setSharedOnly(e.target.checked)} /> Shared with me</label>}
                 {filtered && <button type="button" className="btn small" onClick={() => { setTag(''); setKind(''); setVis('all'); setSavedOnly(false); setSharedOnly(false); }}>Clear</button>}
+                {extra > 0 && <label className="lib-check"><input type="checkbox" checked={every} onChange={(e) => toggleEvery(e.target.checked)} /> Show every copy ({extra} more)</label>}
               </div>
+              </details>
               {pages.loading && !rows.length && <Loading what="pages" />}
-              {hits && (
+              {shownHits && (
                 <div className="lib-hits" aria-label="Text matches">
-                  <div className="tiny faint">Text matches ({hits.length})</div>
-                  {hits.length ? hits.slice(0, 50).map((h) => (
+                  <div className="tiny faint">Text matches ({shownHits.length})</div>
+                  {shownHits.length ? shownHits.slice(0, 50).map((h) => (
                     <button key={h.id} type="button" className={`list-item${selected === h.id ? ' active' : ''}`} aria-current={(selected === h.id) || undefined} onClick={() => open(h.id)}>
                       <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="sx-snip" dangerouslySetInnerHTML={{ __html: h.titleHtml !== undefined ? safeMarks(h.titleHtml) : escapeHtml(h.title) }} /><span className="tiny muted sx-snip" dangerouslySetInnerHTML={{ __html: snippetOf(h) }} /></span>
                     </button>
@@ -174,8 +192,8 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
                   {list.length > 0 && <div className="tiny faint" style={{ marginTop: 6 }}>Titles</div>}
                 </div>
               )}
-              {hits && !list.length ? null : flat ? <FlatList rows={flat} selected={selected} onOpen={open} saved={savedIds} />
-                : <Tree rows={list} selected={selected} onOpen={open} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} />}
+              {hits && !list.length ? null : flat ? <FlatList rows={flat} selected={shownAs} onOpen={open} saved={savedIds} />
+                : <Tree rows={list} selected={shownAs} onOpen={open} onShare={isDM && !readOnly && !offline ? (id) => openShare([id]) : undefined} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} />}
             </>
           )}
           {side === 'files' && <FilesTab onOpen={open} />}
@@ -189,7 +207,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
             <Editor key={`new:${creating}`} initial={{ path: creating, title: creating, body: '', visibility: 'dm', frontmatter: {} }} isNew
               onSaved={(p) => { toast(`Saved ${p.title}`); setParams({ page: p.id }); }} onCancel={() => setParams({})} />
           ) : selected ? (
-            <PageView key={selected} id={selected} rows={rows} savedAt={saved.find((s) => s.pageId === selected)?.savedAt ?? null} onOpen={open}
+            <PageView key={selected} id={selected} rows={rows} copies={whole.rows.find((r) => r.id === whole.repOf.get(selected))?.copies ?? []} savedAt={saved.find((s) => s.pageId === selected)?.savedAt ?? null} onOpen={open}
               onSavedChange={refreshSaved} toast={toast} onDeleted={() => { toast('Page deleted'); setParams({}); }} />
           ) : (
             <div className="card"><Empty>{rows.length ? 'Pick a page on the left.' : offline ? 'Nothing is saved on this device yet.' : isDM ? 'No pages yet. Make one, or add a source in Library admin.' : 'Your DM hasn\'t shared any pages yet.'}</Empty>{isDM && <SecretHint />}</div>
@@ -269,8 +287,8 @@ function LintPanel({ rows, error, onOpen }: { rows: any[] | null; error: string 
   );
 }
 
-function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }: {
-  id: string; rows: PageRow[]; savedAt: string | null; onOpen: (id: string) => void; onSavedChange: () => Promise<void> | void; toast: (m: string) => void; onDeleted: () => void;
+function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onDeleted }: {
+  id: string; rows: PageRow[]; copies: NonNullable<PageRow['copies']>; savedAt: string | null; onOpen: (id: string) => void; onSavedChange: () => Promise<void> | void; toast: (m: string) => void; onDeleted: () => void;
 }) {
   const { w, info, isDM, me, readOnly } = useWorld();
   const netOnline = useNet().online;
@@ -364,12 +382,12 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
           {pg.updated_at && <span className="tiny faint">Updated {when(pg.updated_at)}</span>}
         </div>
         <div className="row wrap lib-actions">
+          {!offlineAt && !readOnly && <ShareButton pageId={pg.id} primary={isDM} />}
           {!readOnly && <button type="button" className={`btn small${savedAt ? ' on' : ''}`} onClick={() => void toggleSave()} disabled={!!offlineAt} aria-pressed={!!savedAt}>
             <i className={`fa-solid ${savedAt ? 'fa-circle-check' : 'fa-download'}`} aria-hidden="true" /> {savedAt ? 'Saved for offline' : 'Save for offline'}
           </button>}
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
-          {!offlineAt && !readOnly && <ShareButton pageId={pg.id} />}
           {isDM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {isDM && !offlineAt && !readOnly && <MoreMenu><button type="button" role="menuitem" className="lib-menu-danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete this page…</button></MoreMenu>}
@@ -378,6 +396,9 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
             <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
           </>}
         </div>
+        {copies.length > 1 && <div className="row wrap lib-copies" role="group" aria-label="Copies of this page"><span className="tiny faint">Copies:</span>
+          {copies.map((c) => <button key={c.id} type="button" className={`chip${c.id === id ? ' gold' : ''}`} aria-current={c.id === id || undefined} onClick={() => onOpen(c.id)}>{c.source ?? 'Imported'}{isDM && (c.visibility === 'party' ? ' · players see' : ' · DM')}</button>)}
+        </div>}
         {pg.source && <p className="tiny faint lib-source" style={{ margin: '6px 0 0' }}>From {pg.source}{pg.synced_at ? <>, last synced {when(pg.synced_at)}</> : null}.{isDM && ' Edit it there. Delete removes it here until the next sync brings it back.'}</p>}
         <ErrorBox error={act.error} />
       </header>
@@ -429,6 +450,8 @@ const SHELL_CSS = `
 .lib-back { display: none; margin-bottom: 10px; }
 .lib-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .lib-filters select { width: auto; max-width: 100%; padding: 4px 8px; font-size: 13px; }
+.lib-filter-box > summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 2px 0 6px; }
+.lib-copies { gap: 6px; margin-top: 8px; } .lib-copies button.chip { background: none; cursor: pointer; font: inherit; font-size: 12px; }
 .lib-check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .lib-hits { display: flex; flex-direction: column; max-height: 34vh; overflow-y: auto; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 .lib-flat { display: flex; flex-direction: column; max-height: min(70vh, calc(100vh - 260px)); overflow-y: auto; margin: 0 -8px; }

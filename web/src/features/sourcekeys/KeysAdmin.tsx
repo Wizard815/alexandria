@@ -115,21 +115,27 @@ function AddKey({ sources, members, onClose, onDone }: { sources: { id: string; 
   const { w, me } = useWorld();
   const act = useAction();
   const [f, setF] = useState({ sourceId: sources[0]?.id ?? '', secret: '', label: '', trust: 'unsure' });
-  const [users, setUsers] = useState<string[]>([me]);
-  const [uses, setUses] = useState<string[]>(['agent']);
-  const toggle = (list: string[], set: (v: string[]) => void, v: string) => set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  const [users, setUsers] = useState<string[]>([]);
+  // Until the DM picks, a key with its own view may feed the library and agents; any other key only answers agents.
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const uses = chosen ?? (f.trust === 'per-user' ? ['library', 'agent'] : ['agent']);
+  const flip = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  const others = members.filter((m) => m.id !== me);
+  const label = f.label.trim() || (users.length === 1 ? `${members.find((m) => m.id === users[0])?.name ?? 'Player'}’s key` : '');
   return (
-    <Modal title="Add a key" onClose={onClose}>
+    <Modal title="Add a source key" onClose={onClose}>
       <ErrorBox error={act.error} />
-      <div className="stack">
-        <Field label="Source"><select value={f.sourceId} onChange={(e) => setF({ ...f, sourceId: e.target.value })}>{sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
-        <Field label="Key" help="Checked against this world, stored on the server, never shown again."><input type="password" autoComplete="off" value={f.secret} onChange={(e) => setF({ ...f, secret: e.target.value })} /></Field>
-        <Field label="Name"><input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
-        <Field label="Trust"><select value={f.trust} onChange={(e) => setF({ ...f, trust: e.target.value })}><option value="per-user">Per-user</option><option value="blanket">Blanket</option><option value="unsure">Not sure (treated as blanket)</option></select></Field>
-        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>{USES.map((u) => <label key={u} className="row" style={{ gap: 4 }}><input type="checkbox" checked={uses.includes(u)} onChange={() => toggle(uses, setUses, u)} /> {u}</label>)}</div>
-        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>{members.map((m) => <label key={m.id} className="row" style={{ gap: 4 }}><input type="checkbox" checked={users.includes(m.id)} onChange={() => toggle(users, setUsers, m.id)} /> {m.name}</label>)}</div>
-        <div className="row"><button type="button" className="btn primary" disabled={act.busy || f.secret.length < 8 || !uses.length} onClick={() => void act.run(async () => { await w.call('POST', '/source-keys', { ...f, users, uses }); onDone(); })}>Check and save</button></div>
-      </div>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); void act.run(async () => { await w.call('POST', '/source-keys', { ...f, label, users, uses }); onDone(); }); }}>
+        {sources.length > 1 && <Field label="Which source is it for?"><select value={f.sourceId} onChange={(e) => setF({ ...f, sourceId: e.target.value })}>{sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>}
+        <Field label="Paste the key" help="Checked against this world, stored on the server, never shown again."><input type="password" autoComplete="off" autoFocus value={f.secret} onChange={(e) => setF({ ...f, secret: e.target.value })} /></Field>
+        <div className="field"><span className="label">Who may use it?</span><span className="row" style={{ gap: 6 }}>{[...others, ...members.filter((m) => m.id === me)].map((m) => <button key={m.id} type="button" className={`btn small${users.includes(m.id) ? ' on' : ''}`} aria-pressed={users.includes(m.id)} onClick={() => setUsers(flip(users, m.id))}>{m.id === me ? 'Me' : m.name}</button>)}</span></div>
+        <Field label="What can this key see on the source’s own site?"><select value={f.trust} onChange={(e) => setF({ ...f, trust: e.target.value })}><option value="unsure">Not sure (treated as everything, the safe choice)</option><option value="per-user">Only what that player may see</option><option value="blanket">Everything</option></select></Field>
+        <details><summary className="small muted">Advanced</summary><div className="stack" style={{ paddingTop: 8 }}>
+          <Field label="Name"><input value={f.label} placeholder={label} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
+          <div className="row" style={{ gap: 12 }}><span className="small muted">Used for</span>{USES.map((u) => <label key={u} className="row" style={{ gap: 4 }}><input type="checkbox" checked={uses.includes(u)} onChange={() => setChosen(flip(uses, u))} /> {u}</label>)}</div>
+        </div></details>
+        <div className="row"><button type="submit" className="btn primary" disabled={act.busy || f.secret.trim().length < 8 || !uses.length || !users.length}>Check and save</button></div>
+      </form>
     </Modal>
   );
 }

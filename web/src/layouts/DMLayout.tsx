@@ -1,45 +1,82 @@
-import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
 import * as F from '../features/registry.ts';
-import { DMMenu } from './DMMenu.tsx';
+import { OPEN_EVENT } from '../features/search/SearchBox.tsx';
+import { ShareHost, openShare } from '../features/sourcekeys/ShareButton.tsx';
+import { DMRail, DMTabs } from './DMMenu.tsx';
+import { SessionButton } from './SessionButton.tsx';
+
+// Search has its own wide box in this bar, so its small button is left out.
+const TOPBARS = F.FEATURES.filter((f) => f.topbar && f.id !== 'search').map((f) => f.topbar!);
 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
-  const { me, signOut } = useAuth();
-  // On a phone the side menu is a drawer behind the top bar's menu button.
-  const [drawer, setDrawer] = useState(false);
-  const loc = useLocation();
-  useEffect(() => setDrawer(false), [loc.pathname]);
-  const openDrawer = useCallback(() => setDrawer(true), []);
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isDM) return <Navigate to={`/w/${info.slug}`} replace />;
+  const base = `/w/${info.slug}/dm`;
   const open = (requests.data ?? []).filter((r: any) => r.status === 'open').length;
   const c = approvals.data?.counts;
-  const pending = c ? c.coin + c.items + c.disputes : 0;
+  const waiting = open + (c ? c.coin + c.items + c.disputes : 0);
+  const badges = { inbox: waiting };
   return (
-    <div className="t-fantasy shell has-drawer">
-      <header className="dm-phonebar">
-        <button type="button" className="icon-btn" aria-label="Menu" aria-expanded={drawer} onClick={() => setDrawer((d) => !d)}><i className="fa-solid fa-bars" aria-hidden="true" />{open + pending > 0 && <span className="nav-badge">{open + pending}</span>}</button>
-        <span className="brand">{info.name}</span>
-        <span className="tiny faint" style={{ marginLeft: 'auto' }}><span className={`live-dot${connected ? '' : ' off'}`} /> DM</span>
+    <div className="t-fantasy dmx">
+      <header className="dmx-top">
+        <AccountMenu connected={connected} />
+        <SessionButton />
+        <button type="button" className="dmx-search" onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))} aria-keyshortcuts="/" data-testid="menu-find">
+          <i className="fa-solid fa-magnifying-glass" aria-hidden="true" /><span>Find any page, person or setting</span><kbd aria-hidden="true">/</kbd>
+        </button>
+        <span className="dmx-end">
+          {TOPBARS.map((C, i) => <C key={i} />)}
+          <button type="button" className="btn small" onClick={() => openShare()} data-testid="share-open"><i className="fa-solid fa-share-nodes" aria-hidden="true" /> <span>Share</span></button>
+          <Link to={`${base}/inbox`} className="icon-btn" aria-label={waiting ? `Inbox, ${waiting} waiting` : 'Inbox'} title="Inbox"><i className="fa-solid fa-inbox" aria-hidden="true" />{waiting > 0 && <span className="nav-badge">{waiting}</span>}</Link>
+        </span>
       </header>
-      {drawer && <div className="drawer-backdrop" onClick={() => setDrawer(false)} />}
-      <nav className={`side${drawer ? ' open' : ''}`} aria-label="DM">
-        <div className="stack tight"><span className="brand">Alexandria</span><span className="sub">Dungeon Master · {info.name}</span></div>
-        <DMMenu base={`/w/${info.slug}/dm`} badges={{ inbox: open + pending }} openDrawer={openDrawer} />
-        <div className="side-foot">
-          <span className="tiny faint"><span className={`live-dot${connected ? '' : ' off'}`} /> {connected ? 'Live' : 'Reconnecting…'}</span>
-          <NavLink to="/" className="nav-link">← Your worlds</NavLink>
-          {me?.account.is_admin && <NavLink to="/admin" className="nav-link">Library admin</NavLink>}
-          <button type="button" className="btn small" onClick={() => void signOut()}>Sign out</button>
+      <div className="dmx-body">
+        <DMRail base={base} badges={badges} />
+        <div className="dmx-col">
+          <DMTabs base={base} badges={badges} />
+          <main className="main"><OfflineBanner /><Outlet /></main>
         </div>
-      </nav>
-      <main className="main"><OfflineBanner />{F.topbars.length > 0 && <div className="feature-topbar">{F.topbars.map((C, i) => <C key={i} />)}</div>}<Outlet /></main>
+      </div>
+      <ShareHost />
       {F.overlays.map((C, i) => <C key={i} />)}
+    </div>
+  );
+}
+
+/** The world's name: other worlds, library admin, sign out. */
+function AccountMenu({ connected }: { connected: boolean }) {
+  const { info } = useWorld();
+  const { me, signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const loc = useLocation();
+  useEffect(() => setOpen(false), [loc.pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const out = (e: Event) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  return (
+    <div className="dmx-pop-wrap" ref={box}>
+      <button type="button" className="dmx-brand" aria-haspopup="menu" aria-expanded={open} aria-label={`${info.name}: worlds and account`} onClick={() => setOpen((o) => !o)}>
+        <span className={`live-dot${connected ? '' : ' off'}`} title={connected ? 'Live' : 'Reconnecting…'} /><span>{info.name}</span><i className="fa-solid fa-chevron-down" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="dmx-pop dmx-menu" role="menu">
+          <span className="tiny faint">{me?.account.display_name} · Dungeon Master · {connected ? 'live' : 'reconnecting…'}</span>
+          <Link role="menuitem" to="/">Your worlds</Link>
+          {me?.account.is_admin && <Link role="menuitem" to="/admin">Library admin</Link>}
+          <button type="button" role="menuitem" onClick={() => void signOut()}>Sign out</button>
+        </div>
+      )}
     </div>
   );
 }
