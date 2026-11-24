@@ -15,7 +15,7 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
-  { re: /\b(share|unshare|send)\b.*\b(with|to)\b.*\b(players?|party|everyone|jess\w*|tomas?|ana)\b|\bshared with (the )?(players|party)\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bshare (this|that|the|a) (page|file|folder|map|handout)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
+  { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
   { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
   { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
   { re: /\b(own (codex )?page|keeps? coming up|promote (him|her|them|it)|give (him|her|them) (a |his |her |their )?(own )?(codex )?page)\b/i, tools: ['promote', 'who_is', 'codex_upsert', 'context_for'] },
