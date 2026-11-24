@@ -14,7 +14,7 @@ const rowHeight = () => (typeof window !== 'undefined' && window.matchMedia?.('(
 /** Room left under the last row so the floating dock never covers it. */
 const END_PAD = 84;
 
-export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; saved: Set<string> }) {
+export function Tree({ rows, selected, onOpen, onSaveFolder, onShare, saved }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; onShare?: (id: string) => void; saved: Set<string> }) {
   const tree = useMemo(() => buildTree(rows), [rows]);
   const [ROW, setRow] = useState(rowHeight);
   useEffect(() => {
@@ -25,8 +25,9 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: Pa
     return () => mq.removeEventListener('change', f);
   }, []);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  // With one source, start with it open (rows can arrive after the first render).
-  const only = tree.length === 1 ? tree[0].key : null;
+  // Start with the biggest source open (rows can arrive after the first render).
+  const top = tree.length ? tree.reduce((a, b) => (b.count > a.count ? b : a)) : null;
+  const only = top?.key ?? null;
   useEffect(() => { if (only) setOpen((o) => (o.size ? o : new Set([only]))); }, [only]);
   const box = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(0);
@@ -87,10 +88,12 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved }: { rows: Pa
               <button type="button" data-row={i} className="lib-row-btn" onClick={() => (n.page ? onOpen(n.page.id) : toggle(n.key))} onKeyDown={(e) => onKey(e, r, i)} title={n.page?.path ?? n.label}>
                 {n.page ? (n.page.icon?.glyph ? <Icon icon={n.page.icon} size={13} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />) : <i className={`fa-solid ${r.depth === 0 ? 'fa-database' : isOpen ? 'fa-folder-open' : 'fa-folder'} lib-ico`} aria-hidden="true" />}
                 <span className="lib-row-label">{n.label}</span>
-                {n.page?.visibility && n.page.visibility !== 'party' && <LevelChip level={n.page.visibility} />}
+                {n.page?.playersSee && <i className="fa-solid fa-eye lib-eye" title="Players can read a copy of this page" aria-label="Players can read a copy" />}
+                {n.page?.visibility && n.page.visibility !== 'party' && n.page.visibility !== 'dm' && <LevelChip level={n.page.visibility} />}
                 {n.page && saved.has(n.page.id) && <i className="fa-solid fa-download lib-saved-ico" title="Saved for offline" aria-label="Saved for offline" />}
                 {!n.page && <span className="lib-count">{n.count}</span>}
               </button>
+              {n.page && onShare && <button type="button" className="lib-row-save" title={`Share “${n.label}” with players`} aria-label={`Share ${n.label}`} onClick={() => onShare(n.page!.id)}><i className="fa-solid fa-share-nodes" aria-hidden="true" /></button>}
               {!n.page && onSaveFolder && <button type="button" className="lib-row-save" title={`Save “${n.label}” for offline`} aria-label={`Save ${n.label} for offline`} onClick={() => onSaveFolder(pageIds(n), n.label)}><i className="fa-solid fa-download" aria-hidden="true" /></button>}
             </div>
           );
@@ -111,6 +114,7 @@ export const TREE_CSS = `
 .lib-row.folder .lib-row-btn { color: var(--muted); font-weight: 600; }
 .lib-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 .lib-ico { color: var(--faint); width: 16px; text-align: center; font-size: 13px; }
+.lib-eye { color: var(--teal); font-size: 11px; flex: 0 0 auto; }
 .lib-count { font-size: 12px; color: var(--faint); }
 .lib-dm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
 .lib-saved-ico { color: var(--teal); font-size: 11px; }

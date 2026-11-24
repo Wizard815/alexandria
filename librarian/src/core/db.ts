@@ -551,6 +551,8 @@ function migrate(db: DB) {
   for (const c of ['broker_frontmatter', 'broker_body', 'broker_blocks', 'broker_properties', 'ai_frontmatter', 'ai_body', 'ai_blocks', 'ai_properties']) add(c, 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pages_source_ext ON pages (world_id, source_id, external_id) WHERE external_id IS NOT NULL');
   db.exec('CREATE INDEX IF NOT EXISTS pages_world_vis ON pages (world_id, visibility)');
+  // A page's child pages (read every time a page opens).
+  db.exec('CREATE INDEX IF NOT EXISTS pages_parent ON pages (world_id, source_id, parent_external)');
   // Search: create the FTS tables, or rebuild them when the layout/version changed (needs the pages columns above).
   ensureSearchIndex(db);
 

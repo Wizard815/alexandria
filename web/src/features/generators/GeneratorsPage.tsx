@@ -8,6 +8,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Empty, ErrorBox, Field, Loading, Markdown, PageHead, Tabs, VisibilityPicker, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import './generators.css';
+import { copyText } from '../../lib/copy.tsx';
 
 type Cat = 'npc' | 'monster' | 'map' | 'tavern' | 'names' | 'library';
 const CATS: [Cat, string][] = [['npc', 'NPCs'], ['monster', 'Monsters'], ['map', 'Maps'], ['tavern', 'Taverns'], ['names', 'Names'], ['library', 'Libraries']];
@@ -68,7 +69,7 @@ interface Result {
 }
 
 const newSeed = () => Math.random().toString(36).slice(2, 8);
-const copy = (t: string) => { try { void navigator.clipboard?.writeText(t); } catch { /* not allowed */ } };
+const copy = (t: string) => { void copyText(t); };
 
 export default function GeneratorsPage() {
   const { w } = useWorld();

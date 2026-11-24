@@ -13,7 +13,7 @@ import { hybridPages } from '../features/search/embeddings.ts';
 import { relatedPages } from '../features/search/related.ts';
 import { scopeFor } from '../features/search/global.ts';
 import { readOnOpen, readSearchHits } from '../features/connections/ondemand.ts';
-import { shareRoutes } from '../features/sourcekeys/share.ts';
+import { allShares, shareRoutes } from '../features/sourcekeys/share.ts';
 import { logSearch, roleOf } from '../features/gatewaystatus/searchlog.ts';
 
 export default function libraryRoutes(d: Deps) {
@@ -21,6 +21,8 @@ export default function libraryRoutes(d: Deps) {
   const L = d.library;
 
   r.use('/pages/:id/share', shareRoutes(d));
+  // DM: who was given which page, in one list.
+  r.get('/shares', requireDM, (_req, res) => res.json({ shares: allShares(d, ctx(res).world.id) }));
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   // A page held only at index depth (a tiered crawl) is read from its source first, then served.
   r.get('/pages/:id/related', (req, res) => {
@@ -52,11 +54,7 @@ export default function libraryRoutes(d: Deps) {
   r.post('/pages/bulk', (req, res) => {
     const ids: unknown = req.body?.ids;
     if (!Array.isArray(ids) || ids.length > 500 || ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'ids must be a list of up to 500 page ids');
-    const out: any[] = [];
-    for (const pid of ids as string[]) {
-      try { out.push(L.get(ctx(res).world.id, pid, ctx(res).viewer)); } catch { /* not visible or gone */ }
-    }
-    res.json(out);
+    res.json(L.getMany(ctx(res).world.id, ids as string[], ctx(res).viewer));
   });
   // Ranked page search with <mark> snippets. ?semantic=1 also merges nearest-meaning matches when an embeddings model is set.
   r.get('/search', async (req, res) => {

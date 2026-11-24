@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { captureState, comboFromEvent } from './keys.ts';
+import { CopyButton } from '../../lib/copy.tsx';
 
 interface Arg { name: string; type: string; label?: string; required?: boolean; default?: any; values?: string[] }
 interface ActionDef { id: string; title: string; group: string; description: string; roles: string[]; args: Arg[] }
@@ -239,7 +240,7 @@ function Triggers() {
         <div className="card" role="status">
           <strong>Copy this now: it will not be shown again.</strong>
           <input readOnly value={fresh.url} aria-label="Trigger URL" onFocus={(e) => e.currentTarget.select()} style={{ width: '100%' }} />
-          <div className="row"><button type="button" className="btn small" onClick={() => void navigator.clipboard?.writeText(fresh.url)}>Copy</button><button type="button" className="btn small" onClick={() => setFresh(null)}>Done</button></div>
+          <div className="row"><CopyButton text={fresh.url} /><button type="button" className="btn small" onClick={() => setFresh(null)}>Done</button></div>
         </div>
       )}
       {list.data.length === 0 && <Empty>No trigger URLs yet.</Empty>}

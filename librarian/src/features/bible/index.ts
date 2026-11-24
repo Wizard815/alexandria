@@ -16,7 +16,7 @@ import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { requireDM } from '../../core/auth.ts';
-import { hasJob } from '../../core/ai.ts';
+import { hasJob, withPriority } from '../../core/ai.ts';
 import { run } from '../../core/db.ts';
 import { int } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
@@ -85,7 +85,8 @@ const feature: Feature = {
       try {
         const until = Date.now() + 45_000;
         for (;;) {
-          const r = await syncBible(d);
+          // Background work: the table's own requests go first.
+          const r = await withPriority(0, () => syncBible(d));
           if (!r.remaining || r.skipped || r.pages === 0 || Date.now() > until) break;
         }
       } catch { /* retried next time */ } finally { busy = false; }

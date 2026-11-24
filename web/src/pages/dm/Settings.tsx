@@ -4,6 +4,7 @@ import { PageHead, ErrorBox, Empty, Loading, Tabs, Switch, useAction, useToast }
 import { useWorld, useLoad, type WorldSettings } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { type ApprovalSettings, extra } from '../broker/shared.tsx';
+import { CopyButton } from '../../lib/copy.tsx';
 import * as F from '../../features/registry.ts';
 
 type K = keyof WorldSettings | keyof ApprovalSettings;
@@ -53,12 +54,10 @@ const GROUPS: [string, string, Row[]][] = [
 
 export default function DMSettings() {
   const { info } = useWorld();
-  const [tab, setTab] = useState<'settings' | 'invites' | 'audit'>('settings');
   return (
     <div className="page">
       <PageHead title="Settings" lead={`These apply to ${info.name} only. Nothing here exposes DM-only content.`} />
-      <Tabs label="Settings section" value={tab} onChange={setTab} items={[['settings', 'Settings'], ['invites', 'Invite players'], ['audit', 'Audit log']]} />
-      {tab === 'settings' ? <SettingsForm /> : tab === 'invites' ? <Invites /> : <Audit />}
+      <SettingsForm />
     </div>
   );
 }
@@ -74,14 +73,27 @@ function SettingsForm() {
     await reloadInfo();
     toast('Saved');
   });
-  const rows = GROUPS.find((g) => g[0] === group)?.[2] ?? [];
-  const FeatureSection = F.settingsSections.find((f) => f.id === group)?.component;
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  // Typing looks through every setting in every section.
+  const found = needle ? GROUPS.flatMap(([id, title, list]) => list.filter((r) => `${title} ${r.label} ${r.help}`.toLowerCase().includes(needle)).map((r) => ({ id, title, r }))) : [];
+  const rows = needle ? found.map((f) => f.r) : GROUPS.find((g) => g[0] === group)?.[2] ?? [];
+  const sections: [string, string][] = [...GROUPS.map(([k, label]) => [k, label] as [string, string]), ...F.settingsSections.map((f) => [f.id, f.title] as [string, string]), ['invites', 'Invite players'], ['audit', 'Audit log']];
+  const shownSections = needle ? sections.filter(([k, t]) => t.toLowerCase().includes(needle) || found.some((f) => f.id === k)) : sections;
+  const FeatureSection = needle ? undefined : F.settingsSections.find((f) => f.id === group)?.component;
 
   return (
-    <div className="stack">
-      <Tabs label="Settings group" value={group} onChange={setGroup} items={[...GROUPS.map(([k, label]) => [k, label] as [string, string]), ...F.settingsSections.map((f) => [f.id, f.title] as [string, string])]} />
+    <div className="set-shell">
+      <nav className="set-nav" aria-label="Settings sections">
+        <input type="search" className="input" placeholder="Find a setting" aria-label="Find a setting" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="set-list" role="tablist" aria-label="Settings section">
+          {shownSections.map(([k, t]) => <button key={k} type="button" role="tab" aria-selected={!needle && group === k} className="set-link" onClick={() => { setQ(''); setGroup(k); }}>{t}</button>)}
+          {!shownSections.length && <span className="small faint">No setting matches.</span>}
+        </div>
+      </nav>
+      <div className="stack set-body">
       <ErrorBox error={act.error} />
-      {FeatureSection ? <FeatureSection /> : <section className="card flush">
+      {!needle && group === 'invites' ? <Invites /> : !needle && group === 'audit' ? <Audit /> : FeatureSection ? <FeatureSection /> : rows.length > 0 && <section className="card flush">
         {rows.map((r) => (
           <div key={r.k} className="row between" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
             <div className="stack tight" style={{ flex: '1 1 300px' }}><strong style={{ fontWeight: 500 }}>{r.label}</strong><span className="small muted">{r.help}</span></div>
@@ -98,11 +110,12 @@ function SettingsForm() {
         ))}
       </section>}
       {toastNode}
+      </div>
     </div>
   );
 }
 
-function Invites() {
+export function Invites() {
   const { w, members } = useWorld();
   const act = useAction();
   const [role, setRole] = useState<'player' | 'guest'>('player');
@@ -133,7 +146,7 @@ function Invites() {
             <span className="mono" style={{ fontSize: 18, userSelect: 'all' }}>{made.code}</span>
             <span className="small">Or send this link: <span className="mono" style={{ userSelect: 'all', overflowWrap: 'anywhere' }}>{link}</span></span>
             <span className="tiny">{made.role} · expires in {made.days} days</span>
-            <div className="row"><button type="button" className="btn small" onClick={() => void navigator.clipboard?.writeText(link)}>Copy link</button></div>
+            <div className="row"><CopyButton text={link} label="Copy link" /></div>
           </div>
         )}
       </section>
