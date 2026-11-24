@@ -306,7 +306,7 @@ async function buildRecording(d: Deps, sessionId: string): Promise<void> {
       } finally {
         await enc.end().catch((e) => { if (usable) throw e; });
       }
-      if (!usable) throw new BuildError(`None of the audio chunks of "${mic.label}" could be read.`);
+      if (!usable) throw new BuildError(`The audio of "${mic.label}" could not be read (none of its chunks could be decoded).`);
       micOut.push({ mic, person: { ...(person ?? {}), who }, file, tmp, expectMs: plan.length ? plan[plan.length - 1].from + plan[plan.length - 1].dur : 0 });
     }
 
