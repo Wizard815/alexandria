@@ -84,8 +84,9 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
     // The same test the outgoing screen uses (any classified page, by shared word runs), so a line that would make the
     // whole request refused is left out instead and the summary still runs.
     const secret = (t: string) => d.library.containsClassified(worldId, t) || wouldBeRefused(d, t);
-    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: audience === 'dm' }).filter((l) => !secret(l.text));
-    const fresh = lines.filter((l) => l.updatedAt > upto).sort((a, b) => a.start - b.start);
+    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: audience === 'dm' });
+    // Newer than the summary first, then the secret test: the whole night is not tested again on every pass.
+    const fresh = lines.filter((l) => l.updatedAt > upto && !secret(l.text)).sort((a, b) => a.start - b.start);
     if (!fresh.length) return { ran: false, reason: 'Nothing new', lines: 0 };
     // The first summary waits like the rest: from the start of the session.
     const since = cur?.updated_at ?? one<any>(d.db, 'SELECT started_at FROM audio_sessions WHERE id = ?', sessionId)?.started_at;
