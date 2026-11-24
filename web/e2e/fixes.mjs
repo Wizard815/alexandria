@@ -107,6 +107,7 @@ try {
   const ph = await signIn('dm', { width: 390, height: 844 }, true);
   await ph.page.goto(`${W}/dm/party`);
   await ph.page.locator('main').waitFor();
+  await ph.page.getByRole('tab', { name: 'Details and approvals' }).click().catch(() => {});
   await ph.page.waitForTimeout(600);
   const rows = await ph.page.evaluate(() => [...document.querySelectorAll('.pack-table tbody tr')].slice(0, 4).map((tr) => { const r = tr.getBoundingClientRect(); const first = tr.querySelector('td'); return { w: Math.round(r.width), h: Math.round(r.height), firstW: Math.round(first.getBoundingClientRect().width), disp: getComputedStyle(tr).display }; }));
   if (rows.length) check(rows.every((r) => r.disp === 'flex' && r.firstW > 250), `pack rows are still cramped: ${JSON.stringify(rows)}`);
