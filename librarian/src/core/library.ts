@@ -18,6 +18,7 @@ import { HttpError, id, now } from './util.ts';
 import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, unindexPage, unindexWorld } from './pagesearch.ts';
 
 const CLEAR_COPIES = ['player', 'broker', 'ai'].flatMap((p) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${p}_${c} = NULL`)).join(', ');
+const normClassifiedText = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
 const ALL_SCOPES: Scope[] = ['dm', 'party', 'broker', 'ai'];
 
 /**
@@ -353,16 +354,42 @@ export class Library {
    * characters against what the DM copy has and the AI copy lacks.
    */
   containsClassified(worldId: string, text: string): boolean {
-    const norm = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
-    const chunks = [norm(text), ...text.split(/[.!?\n]+/).map(norm)].filter((c) => c.length >= 8);
+    const chunks = [normClassifiedText(text), ...text.split(/[.!?\n]+/).map(normClassifiedText)].filter((c) => c.length >= 8);
     if (!chunks.length) return false;
-    for (const p of all<any>(this.db, 'SELECT visibility, body, blocks, properties, ai_body, ai_blocks, ai_properties FROM pages WHERE world_id = ?', worldId)) {
-      const flat = (...xs: (string | null)[]) => norm(xs.map((x) => (x ?? '').replace(/"[a-zA-Z]+":/g, ' ')).join(' '));
-      const dm = flat(p.body, p.blocks, p.properties);
-      const ai = normLevel(p.visibility) === 'classified' ? '' : flat(p.ai_body, p.ai_blocks, p.ai_properties);
-      for (const c of chunks) if (dm.includes(c) && !ai.includes(c)) return true;
+    const idx = this.classifiedPages(worldId);
+    if (!idx.pages.length) return false;
+    for (const c of chunks) {
+      const known = idx.memo.get(c);
+      if (known !== undefined) { if (known) return true; continue; }
+      let hit = false;
+      for (const p of idx.pages) if (p.dm.includes(c) && !p.ai.includes(c)) { hit = true; break; }
+      if (idx.memo.size > 20_000) idx.memo.clear();
+      idx.memo.set(c, hit);
+      if (hit) return true;
     }
     return false;
+  }
+
+  /**
+   * The only pages that can make containsClassified true: those whose DM text
+   * differs from their AI text (a page with nothing classified has the same
+   * words in both, so "in the DM copy and not in the AI copy" is never true).
+   * Built once per change of the library, not once per line of a transcript.
+   */
+  private classifiedPagesCache = new Map<string, { version: number; pages: { dm: string; ai: string }[]; memo: Map<string, boolean> }>();
+  private classifiedPages(worldId: string) {
+    const hit = this.classifiedPagesCache.get(worldId);
+    if (hit && hit.version === this.cgVersion) return hit;
+    const pages: { dm: string; ai: string }[] = [];
+    for (const p of all<any>(this.db, 'SELECT visibility, body, blocks, properties, ai_body, ai_blocks, ai_properties FROM pages WHERE world_id = ?', worldId)) {
+      const flat = (...xs: (string | null)[]) => normClassifiedText(xs.map((x) => (x ?? '').replace(/"[a-zA-Z]+":/g, ' ')).join(' '));
+      const dm = flat(p.body, p.blocks, p.properties);
+      const ai = normLevel(p.visibility) === 'classified' ? '' : flat(p.ai_body, p.ai_blocks, p.ai_properties);
+      if (dm !== ai) pages.push({ dm, ai });
+    }
+    const out = { version: this.cgVersion, pages, memo: new Map<string, boolean>() };
+    this.classifiedPagesCache.set(worldId, out);
+    return out;
   }
 
   // ---- the last line of defence: what text is classified -------------------------------
