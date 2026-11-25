@@ -139,7 +139,7 @@ function routes(d: Deps) {
     if (req.query.known === '1' && !isDM(res)) found = found.filter((s) => known.has(s.id));
     if (isDM(res) && req.query.public === '1') found = found.filter((s) => s.public);
     if (isDM(res) && req.query.public === '0') found = found.filter((s) => !s.public);
-    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
+    const limit = Math.max(1, Math.min(5000, Number(req.query.limit) || 100));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const rules = R(res);
     const full = req.query.full === '1';
