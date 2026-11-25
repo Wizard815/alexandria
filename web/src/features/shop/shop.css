@@ -1,0 +1,27 @@
+/* The Shop: players' page and the DM's Shops and Items pages. */
+.shop-pick { text-align: left; display: flex; flex-direction: column; gap: 4px; cursor: pointer; width: 100%; font: inherit; color: inherit; }
+.shop-pick.on { border-color: var(--accent); background: var(--accent-bg); }
+.shop-keeper { padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 6px; }
+.shop-lines { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.shop-line { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.shop-line:first-child { border-top: 0; }
+.shop-line details { flex: 1 1 auto; min-width: 0; }
+.shop-line summary { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; list-style: none; min-height: 44px; }
+.shop-line summary::-webkit-details-marker { display: none; }
+.shop-line .btn { flex: none; min-height: 40px; }
+.shop-desc { padding: 6px 0 0; }
+.shop-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.shop-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 6px 8px; }
+.shop-table td { padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.shop-table input[type=number], .shop-table input[type=text] { width: 100%; min-width: 64px; }
+.shop-table tr.hid td { opacity: 0.65; }
+.shop-scroll { overflow-x: auto; max-width: 100%; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.shop-status { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.shop-status button { border: 0; border-radius: 0; padding: 6px 12px; min-height: 36px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.shop-status button.on { background: var(--accent-bg); color: var(--accent-strong); font-weight: 600; }
+.item-row { cursor: pointer; }
+.item-row:hover td { background: var(--panel-2); }
+@media (max-width: 640px) {
+  .shop-table .wide { display: none; }
+}

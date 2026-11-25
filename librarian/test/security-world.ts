@@ -250,6 +250,20 @@ export async function seedContent(h: H, S: Seed) {
   }
   await dm('POST', '/broker/classify', { question: 'Who secretly answers to the smuggler queen in the harbour council?' }).catch(() => {});
 
+  // ---- the shop: a hidden shop, DM notes, a hidden stock line, the keeper's secret, a DM-only location ------------------
+  const hiddenItem = await dm('POST', '/shop/items', { name: `Glass Key ${mark('shop_item_hidden_line', ['dm'], 'an item stocked only on a hidden line')}`, cost: '5 gp', dmNotes: mark('shop_item_dm_notes', ['dm'], 'DM notes on an item in the item database') });
+  const saleItem = await dm('POST', '/shop/items', { name: 'Harbour Lantern', cost: '2 gp', description: `A brass lantern. ${mark('shop_item_public', ['dm', 'jess', 'tom'], 'the description of an item on sale in an open shop (control)')}`, dmNotes: mark('shop_item_dm_notes_sale', ['dm'], 'DM notes on an item on sale in an open shop') });
+  const openShop = await dm('POST', '/shop/shops', {
+    name: 'Harbour Chandlery', kind: 'general', status: 'open', description: `Ropes and lamps. ${mark('shop_open_desc', ['dm', 'jess', 'tom'], 'the description of an open shop (control)')}`,
+    haggle: mark('shop_haggle', ['dm'], "a shop's haggle note"), dmNotes: mark('shop_dm_notes', ['dm'], "a shop's DM notes"), locationPageId: S.pages.dm.id,
+    keeper: { name: 'Odda Wick', look: 'Tall and thin', voice: 'Low', personality: 'Kind', secret: mark('shop_keeper_secret', ['dm'], "a shopkeeper's secret") },
+    stock: [{ itemId: saleItem.id, qty: 5, dmNote: mark('shop_line_note', ['dm'], 'a DM note on a stock line') }, { itemId: hiddenItem.id, qty: 1, hidden: true }],
+  });
+  pushId('shop', openShop.id);
+  pushId('shop', (await dm('POST', '/shop/shops', { name: `Smuggler Den ${mark('shop_hidden_name', ['dm'], 'the name of a hidden shop')}`, kind: 'fence', status: 'hidden', description: mark('shop_hidden_desc', ['dm'], 'the description of a hidden shop'), stock: [{ itemId: saleItem.id, qty: 1 }] })).id);
+  await dm('POST', '/live/ledger', { owner: ID.jess, amountCp: 1000, note: 'Shop money' });
+  await jess('POST', `/shop/shops/${openShop.id}/buy`, { stockId: openShop.stock.find((l: any) => l.name === 'Harbour Lantern').id, qty: 1 });
+
   // ---- the table: transcript, chat, whiteboard -----------------------------------------------------------
   const db = h.deps.db;
   const asid = 'ses_crawl';

@@ -47,7 +47,7 @@ const feature: Feature = {
       try { jobs = warmSnapshot(d); } catch (e) { if (!(e instanceof ModelUnavailable)) jobs = {}; }
       const states = Object.values(jobs).map((j) => j.state);
       const counts = {
-        coin: count(d, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending'`, w),
+        coin: count(d, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending' AND id NOT IN (SELECT ledger_id FROM shop_orders WHERE ledger_id IS NOT NULL)`, w),
         items: count(d, `SELECT COUNT(*) AS n FROM item_changes WHERE world_id = ? AND status = 'pending'`, w),
         disputes: count(d, `SELECT COUNT(*) AS n FROM item_changes WHERE world_id = ? AND status = 'disputed'`, w),
         agent: count(d, `SELECT COUNT(*) AS n FROM agent_actions WHERE world_id = ? AND status = 'pending'`, w),
