@@ -76,6 +76,8 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const [live, setLive] = useState<Live | null>(null);
   const [model, setModel] = useState<boolean | null>(null);
   const [alwaysAsk, setAlwaysAsk] = useState<string[]>([]);
+  // The tools the DM let run without a card (agentAutoApprove), kept live by the settings event.
+  const trusted: string[] = Array.isArray((info.settings as any)?.agentAutoApprove) ? (info.settings as any).agentAutoApprove : [];
   // Auto mode: the world's setting (kept live by the settings event). `autoNow` shows a tap at once, until the server's answer arrives.
   const [autoNow, setAutoNow] = useState<boolean | null>(null);
   const [savingAuto, setSavingAuto] = useState(false);
@@ -292,6 +294,25 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
       .finally(() => announceActions());
   };
 
+  // Every waiting card at once, oldest first and one after another (adding a creature before damaging it keeps its order).
+  const decideAll = (decision: 'approve' | 'reject') => run(async () => {
+    const list = (chatRef.current?.actions ?? []).filter((a) => a.status === 'pending').sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+    if (phone) buzz(decision === 'approve' ? 15 : [20, 40, 20]);
+    for (const a of list) {
+      setChat((c) => (c ? { ...c, actions: upsert(c.actions, { ...a, status: decision === 'approve' ? 'running' : 'rejected' }) } : c));
+      try { const got = await w.call<Act>('POST', `/agent/actions/${a.id}`, { decision }); setChat((c) => (c ? { ...c, actions: upsert(c.actions, got) } : c)); }
+      catch (e: any) { setError(e.message); if (chatRef.current) await load(chatRef.current.id); break; }
+    }
+    announceActions();
+  });
+  const editAction = async (a: Act, args: Record<string, unknown>) => {
+    const got = await w.call<Act>('PATCH', `/agent/actions/${a.id}`, { args });
+    setChat((c) => (c ? { ...c, actions: upsert(c.actions, got) } : c));
+  };
+  const setTrusted = (next: string[]) => w.call('PATCH', '/settings', { agentAutoApprove: [...new Set(next)].slice(0, 60) });
+  const trustAction = (a: Act) => { void setTrusted([...trusted, a.tool]).then(() => decide(a, 'approve')).catch((e: any) => setError(`Could not allow ${a.tool}: ${e.message}`)); };
+  const untrust = (tool: string) => { void setTrusted(trusted.filter((t) => t !== tool)).catch((e: any) => setError(e.message)); };
+
   const toggleAuto = async () => {
     const next = !autoOn;
     setAutoNow(next); setSavingAuto(true); setError(null);
@@ -319,8 +340,16 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const focusInput = () => (box.current ?? document.querySelector<HTMLTextAreaElement>('[data-ag-input]'))?.focus();
   const addText = (t: string) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); focusInput(); };
   const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh() };
-  const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} />;
-  const modeSwitch = harness === 'dm' && isDM && <AutoSwitch phone={phone} on={autoOn} saving={savingAuto} onToggle={() => void toggleAuto()} alwaysAsk={alwaysAsk} />;
+  const dmCards = harness === 'dm' && isDM;
+  const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} cardTools={dmCards ? { edit: editAction, trust: trustAction } : undefined} />;
+  const modeSwitch = dmCards && <AutoSwitch phone={phone} on={autoOn} saving={savingAuto} onToggle={() => void toggleAuto()} alwaysAsk={alwaysAsk} trusted={trusted} untrust={untrust} />;
+  const bulk = dmCards && pending >= 2 && (
+    <div className={phone ? 'row ag-bulk' : 'row ag-bulk'} role="group" aria-label="All waiting changes" data-testid="ag-bulk">
+      <span className={phone ? 'sub' : 'tiny muted'}>{pending} changes waiting</span>
+      <button type="button" className={phone ? 'b ok' : 'btn small primary'} disabled={busy} onClick={() => void decideAll('approve')} data-testid="ag-approve-all">Approve all</button>
+      <button type="button" className={phone ? 'b' : 'btn small'} disabled={busy} onClick={() => void decideAll('reject')}>Reject all</button>
+    </div>
+  );
   const jump = away && <button type="button" className={phone ? 'b chip ag-jump' : 'btn small ag-jump'} onClick={toEnd} data-testid="ag-jump"><i className="fa-solid fa-arrow-down" aria-hidden="true" /> Latest</button>;
   const noModel = model === false && <p className="tiny muted">No chat model is set yet (Admin → Models). Dice, the date and simple combat commands still work.</p>;
   const hello = harness === 'dm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.';
@@ -340,6 +369,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
           <div ref={end} />
         </div>
         {jump}
+        {bulk}
         <div className="ask-bar">
           {error && <div className="err" role="alert">{error}</div>}
           {aloud && aloudNote && <div className="sub" role="status">{aloudNote}</div>}
@@ -376,6 +406,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
         <div ref={end} />
       </div>
       {jump}
+      {bulk}
       <ErrorBox error={error} />
       {aloud && aloudNote && <p className="tiny muted" role="status">{aloudNote}</p>}
       <div className="row ag-chips" aria-label="Attached to your message">
