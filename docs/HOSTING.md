@@ -109,9 +109,10 @@ Recommended: **2 GB of RAM** for Alexandria on a home server (4 GB with a librar
 embeddings model, since the vectors are held in memory for search). The container sets `NODE_OPTIONS=--max-old-space-size=1536`;
 raise it in `librarian/.env` if you have the RAM. Alexandria's own models run elsewhere (Argos), not in this container.
 
-- **Heavy admin work does not stop the table.** A crawl, a sync, a re-index, a module import and the rebuilding of the player copies
-  work in short steps with the server answering requests in between. Admin > Jobs (`GET /api/admin/jobs`) lists what is running, how far
-  it is, and stops it. `/health` says `busyJobs`.
+- **Heavy admin work does not stop the table.** A crawl, a sync, a re-index, a module import, the rebuilding of the player copies and
+  the building of a session recording work in short steps (or in another process) with the server answering requests in between. The
+  jobs bar at the top of the admin pages (`GET /api/admin/jobs`) lists what is running, how far it is, and stops what can be stopped.
+  `/health` says `busyJobs`.
 - **Starting is quick.** The server listens as soon as the database is open. `/health` answers `200` with `"status": "warming"` while
   it finishes in the background (rebuilding the copies after an upgrade, starting again the jobs a restart interrupted, warming the
   search caches); it is `"ok"` afterwards. Docker's health check allows for both.
@@ -122,6 +123,9 @@ raise it in `librarian/.env` if you have the RAM. Alexandria's own models run el
   limit it measures against (default: V8's heap limit).
 - **Nothing to do means no work.** With no new or changed content the embeddings, the story bible and the transcript passes make no model
   calls. A recording session nobody has touched for 30 minutes (`ALX_AUDIO_STALE_MIN`) is closed.
+- **Model servers stay private.** Bind Argos, Ollama, LM Studio and whisper to `127.0.0.1` (or the Docker network), never forward
+  their ports, and set an API key on each (see [SECURITY.md](SECURITY.md)). Alexandria's own `/v1` gateway answers only the DM and the
+  admin, with per-minute and daily limits, and logs every call.
 - **Measuring.** `node --experimental-strip-types librarian/scripts/bigworld.ts all --data /tmp/bigworld` builds a large world (3000
   pages, 700 LegendKeeper resources, 20 000 transcript lines, 50 MB of uploads) and measures start-up time, call latency and event
   loop delay while each heavy job runs. `PERF=1 npm test` runs the guard in `test/perf.test.ts`.
