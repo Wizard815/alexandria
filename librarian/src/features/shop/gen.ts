@@ -39,16 +39,25 @@ export interface DraftLine { itemId: string; name: string; type: string; rarity:
 export interface ShopDraft {
   seed: string; kind: ShopKind; kindLabel: string; size: Size; level: number; theme: string; maxRarity: string;
   name: string; description: string; keeper: Keeper; markupPct: number; haggle: string; dmNotes: string; stock: DraftLine[];
+  /** The keeper's purse in copper (what they can pay for things players sell) and how far they will haggle, in percent. */
+  goldCp: number; barterPct: number;
   poolSize: number; enriched: boolean; guided: boolean; notes: string[];
 }
 
-const NAME_KIND: Record<ShopKind, 'magic shop' | 'smithy' | 'tavern' | 'guild'> = { general: 'guild', blacksmith: 'smithy', alchemist: 'magic shop', magic: 'magic shop', tavern: 'tavern', fence: 'guild' };
+const NAME_KIND: Record<ShopKind, 'magic shop' | 'smithy' | 'tavern' | 'guild'> = { general: 'guild', blacksmith: 'smithy', weaponsmith: 'smithy', armorer: 'smithy', alchemist: 'magic shop', enchanter: 'magic shop', magic: 'magic shop', curio: 'guild', tavern: 'tavern', fence: 'guild' };
+const CURIO_NAMES = ['Curiosities', 'Trinkets', 'Oddments', 'Knick-knacks', 'Wonders', 'Baubles'];
+/** The keeper's purse by settlement, in gold; a kind multiplies it. */
+const SIZE_GOLD: Record<Size, number> = { hamlet: 40, village: 150, town: 800, city: 4000, metropolis: 15000 };
+const KIND_GOLD: Record<ShopKind, number> = { general: 1, blacksmith: 1.5, weaponsmith: 1.5, armorer: 2, alchemist: 1.5, enchanter: 4, magic: 5, curio: 0.8, tavern: 0.5, fence: 2 };
+/** How far a keeper of this kind will haggle, in percent (before reputation). */
+const KIND_BARTER: Record<ShopKind, [number, number]> = { general: [8, 15], blacksmith: [5, 12], weaponsmith: [5, 12], armorer: [5, 10], alchemist: [5, 15], enchanter: [3, 8], magic: [0, 6], curio: [10, 25], tavern: [0, 8], fence: [15, 30] };
 const GENERAL_NAMES = ['Provisions', 'Sundries', 'Goods', 'Supply', 'Trading Post', 'Mercantile', 'Outfitters'];
 const ALCH_NAMES = ['Apothecary', 'Alembic', 'Tinctures', 'Remedies', 'Still', 'Phial'];
 const FENCE_NAMES = ['Curios', 'Second-hand Goods', 'Pawnshop', 'Bric-a-brac', 'Odds and Ends', 'Salvage'];
-const NPC_PRESET: Record<ShopKind, string> = { general: 'shopkeeper', blacksmith: 'dwarf', alchemist: 'shopkeeper', magic: 'wizard', tavern: 'tavern-keeper', fence: 'rogue' };
+const NPC_PRESET: Record<ShopKind, string> = { general: 'shopkeeper', blacksmith: 'dwarf', weaponsmith: 'dwarf', armorer: 'dwarf', alchemist: 'shopkeeper', enchanter: 'wizard', magic: 'wizard', curio: 'shopkeeper', tavern: 'tavern-keeper', fence: 'rogue' };
 const ROLE: Record<ShopKind, string[]> = {
   general: ['general-store owner', 'shopkeeper', 'trader'], blacksmith: ['blacksmith', 'armourer', 'weaponsmith'], alchemist: ['alchemist', 'apothecary', 'herbalist'],
+  weaponsmith: ['weaponsmith', 'bladesmith', 'bowyer and fletcher'], armorer: ['armorer', 'mail-maker', 'shieldwright'], enchanter: ['enchanter', 'runecarver', 'arcane artificer'], curio: ['curio dealer', 'trinket seller', 'collector of oddities'],
   magic: ['curio dealer', 'enchanter', 'arcane trader'], tavern: ['tavern keeper', 'innkeeper', 'cellarer'], fence: ['pawnbroker', 'fence', 'dealer in second-hand goods'],
 };
 const DESC: Record<ShopKind, string[]> = {
@@ -58,6 +67,10 @@ const DESC: Record<ShopKind, string[]> = {
   magic: ['Glass cases, a ticking clock that runs backwards and a door that is larger inside.', 'Velvet-lined drawers, a smell of ozone and a bell that rings a moment before anyone touches it.', 'Shelves of odd things under dust sheets; the owner only uncovers what a customer can afford.'],
   tavern: ['A hatch beside the bar sells travel food, candles and a few things left by guests.', 'Behind the taproom, a pantry door opens onto a small counter of road supplies.', 'The landlord keeps a cupboard of useful odds for travellers, priced in chalk on a slate.'],
   fence: ['A cluttered pawnshop where nothing has a label and everything has a story.', 'A back room behind a cobbler\'s, reached by a knock in a certain rhythm.', 'Tables of second-hand goods in front; the better pieces are kept somewhere else.'],
+  weaponsmith: ['Blades on every wall, bows strung along the rafters, and a grindstone that never stops.', 'A long, narrow forge where every sword is tested on a straw man before it is sold.', 'Spears in barrels, axes on hooks and a target out back for trying a bow.'],
+  armorer: ['Suits of mail on wooden stands watch the door like a row of silent guards.', 'Hammer on steel all day; helms, gauntlets and shields cover every bench.', 'A fitting room with a mirror and a rack of padded gambesons in every size.'],
+  enchanter: ['Runes glow faintly on the counter; a half-finished ring turns slowly in the air.', 'A quiet workshop of chalk circles, silver wire and humming glass.', 'Scrolls in pigeonholes, wands in velvet and a smell of hot copper.'],
+  curio: ['Every shelf is a jumble: music boxes, glass eyes, bent spoons and a stuffed owl.', 'Tiny drawers floor to ceiling, each holding one odd and wonderful thing.', 'A bell over the door that plays a different note for every customer.'],
 };
 const HAGGLE: Record<ShopKind, string[]> = {
   general: ['Knocks 5% off for a regular, or for news from the road (Persuasion DC 12).', 'Will not haggle over food; will over anything else (DC 13).', 'Gives a discount to anyone who buys three things or more.'],
@@ -65,6 +78,10 @@ const HAGGLE: Record<ShopKind, string[]> = {
   alchemist: ['Will trade a potion for a rare ingredient of equal value.', 'Haggles happily, but always ends where they started (DC 15 to win 10%).', 'Gives 10% off if the buyer tells what the potion is for.'],
   magic: ['Insulted by haggling: the price goes up 10% on a failed Persuasion (DC 16).', 'Will lower a price for a favour, never for coin.', 'Accepts spell scrolls and components as part payment.'],
   tavern: ['Throws in a drink with any purchase over 1 gp.', 'Will haggle only after the second drink (DC 10).', 'Prices are what is chalked up; no exceptions.'],
+  weaponsmith: ['Will knock 10% off for anyone who can show real skill with the blade (Athletics or a weapon check, DC 13).', 'Haggles over arrows, never over swords.', 'Takes old weapons in trade at a third of their value.'],
+  armorer: ['Prices are fixed, but a fitting is free and so is mending dents for a month.', 'Will haggle 10% for a soldier or guard (DC 12 with proof).', 'Refuses to sell to anyone who insults the craft.'],
+  enchanter: ['Prices are set by the guild; a favour or a rare component can change them.', 'Gives 5% off to a fellow spellcaster (Arcana DC 15).', 'Will enchant an item the party brings, for the price of the scroll plus a fee.'],
+  curio: ['Loves to haggle and loses on purpose to anyone who tells a good story (DC 10).', 'Every price is a guess; the keeper goes down fast if pushed (DC 11).', 'Trades one trinket for another of any kind, no coin needed.'],
   fence: ['Asks no questions and expects none (Insight DC 14 shows the price is padded 20%).', 'Buys stolen goods at a quarter of their value; sells at full.', 'Haggles hard (DC 15); a failed attempt means the item is suddenly "promised to someone else".'],
 };
 const PERSONALITY = ['Talks prices as if they were poetry.', 'Suspicious of anyone who pays too quickly.', 'Cheerful, nosy and impossible to rush.', 'Says little, notices everything, remembers faces.', 'Proud of their goods and offended by bargain hunters.', 'Gossips while wrapping every purchase.', 'Tired, honest and short with time-wasters.', 'Charming in a way that makes customers count their coins twice.'];
@@ -99,6 +116,25 @@ function fit(kind: ShopKind, it: ItemRow): number {
     case 'fence':
       if (it.type === 'mount' || it.type === 'food') return 0;
       return magic ? 0.8 : 1;
+    case 'weaponsmith':
+      if (it.type === 'weapon') return magic ? 0.6 : 3;
+      if (it.type === 'ammunition') return magic ? 0.4 : 2;
+      if (it.type === 'tool' && /smith|fletcher|bowyer/.test(n)) return 0.5;
+      if (it.type === 'gear' && /quiver|sheath|scabbard|whetstone|case, crossbow/.test(n)) return 0.8;
+      return 0;
+    case 'armorer':
+      if (it.type === 'armor') return magic ? 0.6 : 3;
+      if (it.type === 'shield') return magic ? 0.6 : 2.5;
+      if (it.type === 'tool' && /smith|leatherworker/.test(n)) return 0.5;
+      return 0;
+    case 'enchanter':
+      if (!magic) return it.type === 'gear' && /arcane focus|crystal|orb|component|ink|parchment|focus|spellbook/.test(n) ? 0.5 : 0;
+      return ({ ring: 3, wand: 2.5, staff: 2, rod: 2, 'wondrous item': 2, scroll: 1.5, weapon: 1.5, armor: 1.5, shield: 1, ammunition: 0.8, potion: 0.3 } as Record<string, number>)[it.type] ?? 0.5;
+    case 'curio':
+      if (magic) return it.rarity === 'common' ? (it.type === 'wondrous item' ? 2 : 0.6) : it.type === 'wondrous item' ? 0.4 : 0;
+      if (it.type === 'tool' && /instrument|lute|flute|drum|horn|lyre|viol|bagpipes|dulcimer|pan flute|shawm|gaming|dice|card|disguise/.test(n)) return 1.5;
+      if (it.type === 'gear') return /bell|chalk|mirror|whistle|perfume|ink|candle|signet|string|bead|vial|book|map|magnifying|hourglass|music|jewel|lock|sealing wax|abacus|spyglass|scale|tinderbox|incense|robe|costume|fine clothes/.test(n) ? 2 : 0.4;
+      return 0;
   }
 }
 
@@ -123,7 +159,7 @@ const loadItems = (db: DB, worldId: string) => all<ItemRow>(db, 'SELECT * FROM s
  * The item database is filled from the SRD on first use, so a new world can generate at once.
  */
 export async function generateShop(d: Deps, worldId: string, opts: ShopOpts = {}, guide?: string): Promise<ShopDraft> {
-  const kind = String(opts.kind ?? 'general').toLowerCase().replace(/[\s_]+/g, '-').replace(/-shop$/, '').replace(/^tavern-?.*/, 'tavern').replace(/^(general-store|store)$/, 'general').replace(/^(smith|smithy|armou?rer|weaponsmith)$/, 'blacksmith').replace(/^(apothecary|potions?)$/, 'alchemist') as ShopKind;
+  const kind = String(opts.kind ?? 'general').toLowerCase().replace(/[\s_]+/g, '-').replace(/-shop$/, '').replace(/^tavern-?.*/, 'tavern').replace(/^(general-store|store)$/, 'general').replace(/^(smith|smithy)$/, 'blacksmith').replace(/^armou?rer$/, 'armorer').replace(/^(weapons?|bladesmith|bowyer|fletcher)$/, 'weaponsmith').replace(/^(apothecary|potions?|potion-maker|potion-making)$/, 'alchemist').replace(/^(enchant|enchanting|enchantment|enchantments|runesmith)$/, 'enchanter').replace(/^(trinkets?|curios?|curiosit(y|ies)|oddit(y|ies)|misc|miscellaneous)$/, 'curio') as ShopKind;
   if (!(SHOP_KINDS as readonly string[]).includes(kind)) throw new RangeError(`kind must be one of ${SHOP_KINDS.join(', ')}`);
   const size = String(opts.size ?? 'town').toLowerCase() as Size;
   if (!(SIZES as readonly string[]).includes(size)) throw new RangeError(`size must be one of ${SIZES.join(', ')}`);
@@ -199,13 +235,16 @@ export async function generateShop(d: Deps, worldId: string, opts: ShopOpts = {}
     if (kind === 'general') name = `${first}'s ${pick(r, GENERAL_NAMES)}`;
     else if (kind === 'alchemist') name = chance(r, 0.5) ? `The ${placeName('magic shop', 'common', r, avoid).replace(/^The /, '')} ${pick(r, ALCH_NAMES)}` : `${first}'s ${pick(r, ALCH_NAMES)}`;
     else if (kind === 'fence') name = `${first}'s ${pick(r, FENCE_NAMES)}`;
+    else if (kind === 'curio') name = `${first}'s ${pick(r, CURIO_NAMES)}`;
     else name = placeName(NAME_KIND[kind], String(opts.flavour ?? 'common'), r, avoid);
   }
+  const goldCp = Math.round(SIZE_GOLD[size] * KIND_GOLD[kind] * (0.75 + r() * 0.5)) * 100;
+  const barterPct = int(r, KIND_BARTER[kind][0], KIND_BARTER[kind][1]);
   const draft: ShopDraft = {
     seed, kind, kindLabel: KIND_LABEL[kind], size, level, theme, maxRarity: cap === 0 ? 'mundane' : MAGIC_ORDER[cap - 1],
     name, description: pick(r, DESC[kind]), keeper, markupPct, haggle: pick(r, HAGGLE[kind]),
     dmNotes: [`Generated: ${KIND_LABEL[kind].toLowerCase()} in a ${size}, party level ${level}${theme ? `, theme "${theme}"` : ''}, seed ${seed}.`, keeper.secret ? `Keeper's secret: ${keeper.secret}` : ''].filter(Boolean).join('\n'),
-    stock, poolSize: pool.length, enriched: false, guided: !!guide?.trim(), notes,
+    stock, poolSize: pool.length, enriched: false, guided: !!guide?.trim(), notes, goldCp, barterPct,
   };
   if (opts.enrich && hasJob(d, 'chat')) return (await enrich(d, draft, guide)) ?? draft;
   return draft;
