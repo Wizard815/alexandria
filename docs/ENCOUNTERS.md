@@ -21,6 +21,10 @@ word live. DM menu: **Encounters** (Players group). Code:
   that answer does not name its own. Left on "Any open shop", one open shop
   is picked.
 
+- **Someone from People** fills the NPC's name and look from the People
+  list. **Add this NPC to the party's People list** puts a new NPC there
+  the first time anyone meets them ("Met by Jessamine").
+
 One NPC at a time: sending to a player who is still talking to someone
 closes that older talk ("… wanders off").
 
@@ -40,6 +44,20 @@ when the NPC showed them a shop (it opens the Shop page on that shop).
 Players get only their own encounters, and of each only the log, the
 current line and the answer labels. Where an answer leads, the other steps,
 a check's DC and the encounter's coin cap stay on the server.
+
+## Where else encounters show up
+
+- **Table page**: an "Encounters now" card lists who is talking to whom
+  while any talk is open, with a link to watch and reply.
+- **Players' Encounters page** (More → World): every NPC who has talked to
+  that player and what was said, so a clue an NPC dropped is not lost.
+- **Recaps**: a session log draft lists who met whom under "People met"
+  (never what was said; the talk was between the NPC and one player).
+- **Minerva**: with Minerva on, a finished talk is logged to the session in
+  progress (DM-only notes): who met whom, what the player answered, and
+  what they won or lost.
+- **The assistant**: the DM's assistant can list, send, speak in and end
+  encounters (tools below).
 
 ## Saved encounters
 
@@ -65,6 +83,12 @@ odds:
 A game has a **stake** (taken from the player's own coin on a loss; they
 cannot play without it), a **win** payout, and the steps a win and a loss
 go to. A game step can keep normal answers too, such as "Walk away".
+
+**Draft one with the assistant**: describe the encounter and the world's
+chat model (your local model through Argos, usually) drafts the steps,
+answers and games. Loose links in the model's draft are repaired (a link to
+a missing step ends the talk). Nothing is saved or sent until you do. With
+no chat model, you get a plain one-step draft to edit.
 
 Copy a starter to change it. Mark an encounter **Wander** to put it in the
 wandering pool.
@@ -107,13 +131,14 @@ Guests get 403 everywhere.
 | `GET /config` | wandering, its wait, the cap, coin style; players also get `nextWanderAt` |
 | `GET /` | DM: the last 60 (`?status=open` for open ones); player: their own last 20 |
 | `GET /:id` | one encounter (a player only their own) |
-| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| script \| line + answers, npcName?, npcBlurb?, shopId?}` |
+| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| script \| line + answers, npcName?, npcBlurb?, shopId?, addToPeople?}` |
 | `POST /wander` | player: start a random encounter |
 | `POST /:id/choose` | player: `{option}`, or `{play: true, pick?, roll?, modifier?}` for the step's game |
 | `POST /:id/leave` | player: walk away |
 | `POST /:id/say` | DM: `{text, answers?}` |
 | `POST /:id/end` | DM |
 | `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | DM: saved encounters (`GET` also returns the starters) |
+| `POST /templates/draft` | DM: `{prompt}`: a draft from the chat model, not saved |
 
 Live event `encounter` `{id}` goes to the DM and that player; clients
 refetch.
