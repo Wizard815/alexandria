@@ -55,7 +55,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   const sharing = useSharing();
   const so = sharing.data;
   const [shareTarget, setShareTarget] = useState<Target | null>(null);
-  const shareNode = useCallback((n: Node) => setShareTarget(n.page ? { kind: 'page', id: n.page.id, title: n.page.title } : { kind: 'folder', title: n.label, sourceId: n.folder!.sourceId, path: n.folder!.path }), []);
+  const shareNode = useCallback((n: Node) => setShareTarget(n.page ? { kind: 'page', id: n.page.id, title: n.page.title } : { kind: 'folder', title: n.hint ? `${n.label} (${n.hint})` : n.label, sourceId: n.folder!.sourceId, path: n.folder!.path }), []);
   const badgeOf = useCallback((n: Node) => {
     if (n.page) return <AudBadge level={n.page.visibility} entry={so?.pages[n.page.id]} o={so} />;
     const r = n.folder && so?.folders.find((f) => f.sourceId === n.folder!.sourceId && f.path === n.folder!.path);

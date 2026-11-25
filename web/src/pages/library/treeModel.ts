@@ -9,6 +9,8 @@ export interface PageRow {
   sharedWithMe?: boolean;
   /** DM only: the source's id ('' for pages written in Alexandria); folder rules are keyed by it. */
   sourceId?: string;
+  /** DM only: the source's connector type, shown to tell apart two sources with the same name. */
+  sourceKind?: string | null;
   /** Set by mergeCopies: every copy of this page the viewer can open, this one first. */
   copies?: { id: string; source: string | null; visibility?: string }[];
   /** Set by mergeCopies (DM): some copy of this page is open to the whole party. */
@@ -17,6 +19,9 @@ export interface PageRow {
 
 const plain = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
+/** Which source a row is from: its id when known (the DM), else its name. Two sources may share a name. */
+export const srcKey = (r: Pick<PageRow, 'source' | 'sourceId'>) => (r.sourceId !== undefined ? `id:${r.sourceId}` : `name:${r.source ?? ''}`);
+
 /**
  * The same page can reach a world more than once: from two sources that read the same site, and from an import. One row per page:
  * same title in the same folder, from different sources. The copy from the biggest source leads, the rest are listed on it.
@@ -24,19 +29,19 @@ const plain = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
  */
 export function mergeCopies(rows: PageRow[]): { rows: PageRow[]; repOf: Map<string, string> } {
   const size = new Map<string, number>();
-  for (const r of rows) size.set(r.source ?? '', (size.get(r.source ?? '') ?? 0) + (r.source ? 1 : 0));
+  for (const r of rows) size.set(srcKey(r), (size.get(srcKey(r)) ?? 0) + (r.source ? 1 : 0));
   const groups = new Map<string, PageRow[][]>();
   for (const r of rows) {
     const k = `${plain(r.title)}|${(r.folder ?? []).map(plain).join('/')}`;
     const g = groups.get(k) ?? [];
-    const slot = g.find((x) => !x.some((y) => y.source === r.source));
+    const slot = g.find((x) => !x.some((y) => srcKey(y) === srcKey(r)));
     if (slot) slot.push(r); else g.push([r]);
     groups.set(k, g);
   }
   const repOf = new Map<string, string>();
   const lead = new Map<string, PageRow>();
   for (const g of groups.values()) for (const set of g) {
-    const order = [...set].sort((a, b) => (size.get(b.source ?? '') ?? 0) - (size.get(a.source ?? '') ?? 0));
+    const order = [...set].sort((a, b) => (size.get(srcKey(b)) ?? 0) - (size.get(srcKey(a)) ?? 0));
     for (const r of order) repOf.set(r.id, order[0].id);
     lead.set(order[0].id, { ...order[0], playersSee: order.some((r) => r.visibility === 'party'), sharedWithMe: order.some((r) => r.sharedWithMe) || undefined, copies: order.map((r) => ({ id: r.id, source: r.source, visibility: r.visibility })) });
   }
@@ -44,7 +49,9 @@ export function mergeCopies(rows: PageRow[]): { rows: PageRow[]; repOf: Map<stri
   return { rows: rows.filter((r) => lead.has(r.id)).map((r) => { const m = lead.get(r.id)!; return m.parentId ? { ...m, parentId: repOf.get(m.parentId) ?? m.parentId } : m; }), repOf };
 }
 
-export interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number; pos: number | null; /** A folder: where a share rule for it is kept. */ folder?: { sourceId: string; path: string } }
+export interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number; pos: number | null; /** A folder: where a share rule for it is kept. */ folder?: { sourceId: string; path: string }; /** A source whose name another source also has: what tells them apart (its connector type). */ hint?: string }
+
+const kindName = (k: string | null | undefined) => (k ? k.charAt(0).toUpperCase() + k.slice(1) : 'Source');
 
 const byLabel = (a: Node, b: Node) => a.label.localeCompare(b.label, undefined, { numeric: true });
 
@@ -52,6 +59,7 @@ export function buildTree(rows: PageRow[]): Node[] {
   const roots: Node[] = [];
   const byPage = new Map<string, Node>();
   const ids = new Set(rows.map((r) => r.id));
+  const kindOf = new Map<Node, string | null>();
   for (const r of rows) byPage.set(r.id, { key: `p:${r.id}`, label: r.title, page: r, children: [], count: 0, pos: r.position ?? null });
   const folderNode = (parent: Node[], key: string, label: string, folder?: Node['folder']) => {
     let n = parent.find((x) => !x.page && x.key === key);
@@ -62,9 +70,12 @@ export function buildTree(rows: PageRow[]): Node[] {
     const node = byPage.get(r.id)!;
     if (r.parentId && ids.has(r.parentId) && r.parentId !== r.id) { byPage.get(r.parentId)!.children.push(node); continue; }
     const src = r.source ?? 'Written in Alexandria';
-    // A source at the top is a folder too: a rule with no path shares the whole source.
-    let level = folderNode(roots, `s:${src}`, src, { sourceId: r.sourceId ?? '', path: '' }).children;
-    let key = `s:${src}`;
+    // A source at the top is a folder too: a rule with no path shares the whole source. Keyed by the source, not its
+    // name, so two sources with one name stay two rows and each share covers its own source.
+    let key = `s:${srcKey(r)}`;
+    const top = folderNode(roots, key, src, { sourceId: r.sourceId ?? '', path: '' });
+    if (!kindOf.has(top)) kindOf.set(top, r.sourceKind ?? null);
+    let level = top.children;
     const names: string[] = [];
     for (const f of r.folder ?? []) {
       key += `/${f}`;
@@ -104,6 +115,19 @@ export function buildTree(rows: PageRow[]): Node[] {
     return total;
   };
   sortCount(roots, true);
+  // Sources that share a name say which is which: the connector type, and a number if that is the same too.
+  const clash = new Map<string, Node[]>();
+  for (const n of roots) clash.set(same(n.label), [...(clash.get(same(n.label)) ?? []), n]);
+  for (const g of clash.values()) {
+    if (g.length < 2) continue;
+    const kinds = new Map<string, number>();
+    for (const n of g) {
+      const k = kindName(kindOf.get(n));
+      const seen = (kinds.get(k) ?? 0) + 1;
+      kinds.set(k, seen);
+      n.hint = g.filter((x) => kindName(kindOf.get(x)) === k).length > 1 ? `${k} ${seen}` : k;
+    }
+  }
   return roots;
 }
 

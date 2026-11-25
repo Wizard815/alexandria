@@ -338,6 +338,26 @@ test('TestLibShare_WholeSourceIsSharedOnlyWhenAskedForByName', async () => {
   } finally { e.close(); }
 });
 
+test('TestLibShare_TwoSourcesWithOneNameAreSharedApart', async () => {
+  const e = await boot();
+  try {
+    const a = await e.page('Harbor.md', 'dm', 'From the first.');
+    const b = await e.page('Tower.md', 'dm', 'From the second.');
+    run(e.deps.db, `INSERT INTO sources (id, world_id, kind, name) VALUES ('src_one', ?, 'kanka', 'Wiki'), ('src_two', ?, 'obsidian', 'Wiki')`, e.W, e.W);
+    run(e.deps.db, `UPDATE pages SET source_id = 'src_one' WHERE id = ?`, a.id);
+    run(e.deps.db, `UPDATE pages SET source_id = 'src_two' WHERE id = ?`, b.id);
+    e.deps.library.changed(e.W);
+    // The DM's list carries the source id and type, so the tree keeps them apart.
+    const list = await e.ok('GET', `${e.lib}/pages`, e.T.dm);
+    assert.deepEqual(list.filter((p: any) => p.source === 'Wiki').map((p: any) => `${p.sourceId}:${p.sourceKind}`).sort(), ['src_one:kanka', 'src_two:obsidian']);
+    assert.equal((await e.ok('GET', `${e.lib}/pages`, e.T.jess)).some((p: any) => 'sourceKind' in p || 'sourceId' in p), false, 'players get neither');
+    assert.equal((await e.share({ kind: 'folder', sourceId: 'src_two', path: '', whole: true, mode: 'party', confirm: true })).status, 200);
+    assert.deepEqual(await e.titles('jess'), ['Tower'], 'only the source asked for is shared');
+    const ov = await e.ok('GET', `${e.ls}/overview`, e.T.dm);
+    assert.equal(ov.folders[0].source, 'Wiki (obsidian)', 'the rule says which Wiki');
+  } finally { e.close(); }
+});
+
 test('TestLibShare_LiveEventsNameOnlyPagesThePlayerCanOpenOrJustLost', async () => {
   const e = await boot();
   try {

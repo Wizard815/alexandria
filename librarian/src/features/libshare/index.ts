@@ -168,7 +168,11 @@ function routes(d: Deps) {
     const shares = dmShares(w);
     const fshares = fileShares(w);
     const nm = names(db, w);
-    const srcName = new Map(all<any>(db, 'SELECT id, name FROM sources WHERE world_id = ?', w).map((s) => [s.id, s.name]));
+    const srcRows = all<any>(db, 'SELECT id, name, kind FROM sources WHERE world_id = ?', w);
+    const srcName = new Map(srcRows.map((s) => [s.id, s.name]));
+    // Two sources may share a name: the connector type tells them apart wherever a source is named.
+    const clashes = (id: string) => srcRows.some((s) => s.id !== id && s.name === srcName.get(id));
+    const srcLabel = (id: string) => { const n = srcName.get(id) ?? 'Source'; const k = srcRows.find((s) => s.id === id)?.kind; return clashes(id) && k ? `${n} (${k})` : n; };
     const pages: Record<string, { mode: string; to: string[]; via: string[] }> = {};
     const files: Record<string, { mode: string; to: string[]; via: string[] }> = {};
     const shared: any[] = [];
@@ -180,7 +184,7 @@ function routes(d: Deps) {
       audOf.set(p.id, a);
       // A page that is party by its own level needs no entry: the list already says so.
       if ((a.mode === 'party' || a.mode === 'players') && !(a.mode === 'party' && a.via.length === 1 && a.via[0] === 'level')) pages[p.id] = { mode: a.mode, to: a.to, via: a.via };
-      if (a.mode === 'party' || a.mode === 'players') shared.push({ kind: 'page', id: p.id, pageId: p.id, title: p.title, mode: a.mode, to: a.to, via: a.via, where: [srcName.get(p.source_id) ?? 'Written in Alexandria', ...JSON.parse(p.folder || '[]')].join(' / ') });
+      if (a.mode === 'party' || a.mode === 'players') shared.push({ kind: 'page', id: p.id, pageId: p.id, title: p.title, mode: a.mode, to: a.to, via: a.via, where: [srcName.has(p.source_id) ? srcLabel(p.source_id) : 'Written in Alexandria', ...JSON.parse(p.folder || '[]')].join(' / ') });
     }
     for (const f of all<any>(db, 'SELECT * FROM libfiles_files WHERE world_id = ? ORDER BY at DESC', w)) {
       const pg = byId.get(f.page_id);
@@ -192,7 +196,7 @@ function routes(d: Deps) {
     return {
       players: [...valid].map((id) => ({ id, name: nm[id] ?? 'Player' })),
       pages, files, shared: shared.slice(0, 3000),
-      folders: rules.map((x) => ({ sourceId: x.sourceId, path: x.path, whole: !x.path, mode: x.mode, to: x.mode === 'players' ? x.players.filter((p) => valid.has(p)) : [], source: x.sourceId ? srcName.get(x.sourceId) ?? 'Source' : 'Written in Alexandria', at: x.at })),
+      folders: rules.map((x) => ({ sourceId: x.sourceId, path: x.path, whole: !x.path, mode: x.mode, to: x.mode === 'players' ? x.players.filter((p) => valid.has(p)) : [], source: x.sourceId ? srcLabel(x.sourceId) : 'Written in Alexandria', at: x.at })),
     };
   }
 
