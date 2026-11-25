@@ -135,13 +135,16 @@ const emit = (d: Deps) => {
 export type WarmState = 'idle' | 'loading' | 'ready' | 'failed';
 export interface WarmEntry { state: WarmState; ms?: number; error?: string }
 
-/** Per local job: idle until held, then loading, ready or failed. */
+/**
+ * Per local job set to "keep loaded": idle until held, then loading, ready or failed. While models are held only the
+ * held jobs are listed: a job on a server that cannot hold a model (plain OpenAI-compatible) is never "ready".
+ */
 export function warmSnapshot(d: Deps): Record<string, WarmEntry> {
   const m = memOf(d);
   const out: Record<string, WarmEntry> = {};
-  for (const j of localJobs(d)) out[j] = { state: 'idle' };
+  if (!m.holds.size) for (const j of localJobs(d)) if (getPolicy(d.db, j) === 'hold') out[j] = { state: 'idle' };
   for (const h of m.holds.values()) for (const j of h.t.jobs) {
-    if (!(j in out)) continue;
+    if (h.t.location !== 'local') continue;
     out[j] = { state: h.state === 'ready' ? 'ready' : h.state === 'failed' ? 'failed' : 'loading', ...(h.ms !== undefined ? { ms: h.ms } : {}), ...(h.error ? { error: h.error } : {}) };
   }
   return out;
