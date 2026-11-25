@@ -170,7 +170,8 @@ function multipart(buf: Buffer, contentType: string): { file: Buffer | null; fie
 function transcript(file: Buffer | null) {
   // The marker may follow a real audio header (the librarian checks for one).
   const at = file ? file.indexOf('FAKE:', 0, 'latin1') : -1;
-  const raw = file && at >= 0 ? file.subarray(at + 5).toString('utf8').replace(/\u0000/g, '').trim() : '';
+  // A real audio file carries its words in its title and ends them with `;;END` (the bytes after it are audio).
+  const raw = file && at >= 0 ? file.subarray(at + 5).toString('utf8').replace(/\u0000/g, '').split(';;END')[0].trim() : '';
   const tokens = raw ? raw.split(/\s+/) : [];
   if (!tokens.length) {
     return { text: '(inaudible)', language: 'en', duration: 1, segments: [{ id: 0, start: 0, end: 1, text: '(inaudible)', avg_logprob: -1.5, no_speech_prob: 0.8, words: [{ word: '(inaudible)', start: 0, end: 1, probability: 0.2 }] }] };

@@ -15,6 +15,8 @@ import type { Feature } from '../types.ts';
 import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, type LineRow, type MicRow } from './engine.ts';
 import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
 import { RULES_SCHEMA, ruleNotes, rulesPass } from './rulescheck.ts';
+import { REC_SCHEMA, enqueueBuild, migrateRecordings, resetStuckBuilds, sweepRecordings } from './recordings.ts';
+import { recordingMedia, recordingRoutes } from './recroutes.ts';
 
 // (app.ts cannot be imported by a feature: it is waiting on the registry.)
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
@@ -36,9 +38,19 @@ const micOut = (m: MicRow, names?: (id: string) => string) => ({
 
 const sessionOut = (s: any) => ({ id: s.id, name: s.name, startedAt: s.started_at, stoppedAt: s.stopped_at, active: !s.stopped_at });
 
+/** A little after the last chunk may arrive (60 s) and once the second listen is done, join the session's chunks into its recording. */
+function scheduleBuild(d: Deps, eng: ReturnType<typeof engine>, sessionId: string) {
+  const n = Number(d.env.ALX_RECORDINGS_BUILD_DELAY_MS ?? 65_000);
+  const t = setTimeout(() => {
+    void Promise.resolve(eng.refining.get(sessionId)).then(() => { if (d.dataDir) enqueueBuild(d, sessionId); }).catch((e) => console.error('audio: build not started', e));
+  }, Number.isFinite(n) ? n : 65_000);
+  t.unref?.();
+}
+
 const feature: Feature = {
   id: 'audio',
-  schema: SCHEMA + SUMMARY_SCHEMA + RULES_SCHEMA,
+  schema: SCHEMA + SUMMARY_SCHEMA + RULES_SCHEMA + REC_SCHEMA,
+  migrate: migrateRecordings,
   settings: {
     recordingConsentText: { type: 'string', default: DEFAULT_CONSENT_TEXT, max: 2000 },
     audioRetentionDays: { type: 'int', default: 30, min: 1, max: 3650, nullable: true },
@@ -52,7 +64,8 @@ const feature: Feature = {
     transcriptRefine: { type: 'enum', values: ['on', 'off'], default: 'off' },
   },
   worldMount: 'audio',
-  dataDirs: ['audio'],
+  dataDirs: ['audio', 'recordings'],
+  appRoutes: (app, d) => recordingMedia(app, d),
 
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
@@ -181,6 +194,7 @@ const feature: Feature = {
       eng.flush(s.id);
       eng.broadcastRecording(c.world.id, false, null);
       eng.scheduleRefine(s.id);
+      scheduleBuild(d, eng, s.id);
       // The last lines go into the running summary once the recording ends (after the chunks are flushed).
       // Then Minerva drafts the hand-off for the DM's review: the running notes as "Last session" in the status doc,
       // which the next session reads.
@@ -304,6 +318,7 @@ const feature: Feature = {
       res.json({ transcribed: n, pending: one<any>(db, "SELECT COUNT(*) AS n FROM audio_chunks WHERE status = 'pending'")!.n });
     });
 
+    recordingRoutes(r, d);
     return r;
   },
 
@@ -322,9 +337,12 @@ const feature: Feature = {
     const rules = setInterval(() => { for (const x of recordingSessions(d)) void rulesPass(d, x.worldId, x.sessionId).catch((e) => console.error('audio: rules check failed', e)); }, 20_000);
     rules.unref();
     summ.unref();
-    const first = setTimeout(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } void eng.retryPending().catch(() => {}); }, 10_000);
-    for (const t of [retry, keep, first]) t.unref();
-    return () => { clearInterval(retry); clearInterval(keep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
+    // Sessions that stopped with no recording built (before this existed, or the server restarted) are built lazily, one at a time.
+    resetStuckBuilds(d.db);
+    const sweep = setInterval(() => { try { sweepRecordings(d); } catch (e) { console.error('audio: recording sweep failed', e); } }, 30 * 60_000);
+    const first = setTimeout(() => { try { eng.runRetention(); sweepRecordings(d); } catch (e) { console.error('audio: retention failed', e); } void eng.retryPending().catch(() => {}); }, 10_000);
+    for (const t of [retry, keep, first, sweep]) t.unref();
+    return () => { clearInterval(retry); clearInterval(keep); clearInterval(sweep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
   },
 };
 
