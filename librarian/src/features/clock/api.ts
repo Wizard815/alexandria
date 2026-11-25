@@ -152,7 +152,10 @@ export const PRESET_REASON: Record<Preset, string> = { 'short-rest': 'Short rest
 
 export function advancePreset(db: DB, hub: EventHub | null, worldId: string, preset: Preset, longRestMode: LongRestMode, reason: string, by: string | null): LogEntry {
   const cur = ensure(db, worldId).minutes as number;
-  return advance(db, hub, worldId, presetMinutes(preset, cur, longRestMode), reason || PRESET_REASON[preset], by);
+  const entry = advance(db, hub, worldId, presetMinutes(preset, cur, longRestMode), reason || PRESET_REASON[preset], by);
+  // Server-side listeners only (no viewer gets it): features that refill things on a rest, such as mana (features/spells).
+  if (preset !== 'next-day') hub?.emit(worldId, 'rest', { kind: preset === 'long-rest' ? 'long' : 'short' }, () => false);
+  return entry;
 }
 
 /** The game-clock minute at which a wait that starts now is over (for the broker). */
