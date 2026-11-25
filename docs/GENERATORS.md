@@ -29,6 +29,8 @@ set, can improve the wording of a result (a checkbox, off by default).
   tavern-keeper NPC), atmosphere, menu with prices in the world's coin setting,
   rooms, patrons, rumours (from the party-level story bible when it has facts,
   else tables) and the floor-plan map.
+- **Shops** are generated on the Shops page (stock from the item database,
+  a keeper from the NPC generator): see [SHOPS.md](SHOPS.md).
 - **Names**: people (any race; styles default, virtue, **dark**) and places or
   businesses: tavern, inn, town, guild, magic shop, smithy, temple, keep,
   dungeon, in flavours common, dwarven, elven, pirate, haunted, dark. Titles
