@@ -25,6 +25,10 @@ Everything below is built unless it says *planned*.
 - `/takeover-1` *Mood only*, `/takeover-2` *Combat helper*, `/takeover-3` *Full takeover*; `/takeover-save <n> [name]` saves the current settings as preset *n*.
 - `/auto <music|sfx|stage|events|combat|monsters|items|clock> on|off|ask`.
 
+**Approvals.** A waiting card can be **edited** before it is approved (*Edit*: the tool's arguments as JSON, checked against the tool's schema by the server, `PATCH /api/worlds/:w/agent/actions/:id { args }`; the card's words follow the change). Two or more waiting cards get **Approve all / Reject all**, which decide them oldest first, one after another, so "add the ogre" runs before "damage the ogre". **Always allow** on a card approves it and adds that tool to the world's `agentAutoApprove` list, so it runs without a card from then on, in Ask first too; the list shows under the mode switch (*Runs without asking*) with a × to ask first again. Tools that always ask never offer it. The folded assistant's dock button shows how many changes wait.
+
+**Tool calls from local models** (`features/agent/toolargs.ts`). Arguments are repaired when it is safe: a code fence, a trailing comma or text around the JSON object, a number sent as `"5"`, `"true"`, an enum value in the wrong case, a list or object sent as JSON text, `null` for an optional field. Otherwise the model is told exactly what is wrong (*Not proposed: hp must be a number*) before anything runs or becomes a card, so a card the DM approves never fails on a typo. A tool name that does not exist gets the nearest real ones (*Did you mean "search_library"?*). The same change proposed twice in one chat (a model that repeats itself, two parallel calls) stays one card.
+
 ## 2. What she does by herself (Active mode)
 
 How a line is read: a rules pass (regex cues, under 50 ms) finds candidate actions with a confidence; the audit model (temperature 0, JSON) confirms the unsure ones and reads narration the rules cannot; the chat model is used only for multi-step requests (wake commands, macros). Lines are processed in batches after about 0.7 s.
@@ -42,6 +46,16 @@ How a line is read: a rules pass (regex cues, under 50 ms) finds candidate actio
 | Notes, clues, NPCs | a clue found, an NPC named twice, a promise | Review drafts | draft | n/a | never applied by themselves |
 
 **Never from Active mode, in any setting:** deleting anything, ending a session, stopping a recording, publishing, broker deals, writing pages, anything a model suggests that is not in the table above (tool allowlist). **Always:** classified text is never read; a line with any classified text is skipped whole. A DM-aside line may only set the music or the tracker. A player's words can only set off their own initiative roll and their own item use (as a card). An unsure cue with no model to settle it becomes a card, not an action. At most 14 automatic actions a minute; the rest wait for a tap. Repeats from the speech model are de-duplicated per action (the same hit is never applied twice).
+
+## 2b. Minerva's thoughts
+
+A floating window for the DM (the brain button in the dock) that says what the assistant is doing and why, live. It opens by itself when Active mode or Auto is switched on; closed while that mode is on, it stays closed until the mode changes. Like the transcript island it can be dragged by its header, locked to a corner (⌖), resized and folded to its dock button; settings are per device. On a phone it is a bottom drawer.
+
+- **Status line:** listening (with the last line heard), "Active mode is on, but nothing is recording, so I am not listening", Auto, or Assistant mode.
+- **Waiting for you:** Active-mode cards (*Do it / Dismiss / Not this*, with the time left) and the chat's proposals (*Approve / Reject*). While the window is open, the old corner cards and undo toasts are not shown; the Undo is on the thought instead.
+- **The feed**, grouped by request: what it heard and made of it, what the audit model said, why it acted, asked (*Sound effects is set to Ask*, *I am not sure (60%)*, *a player said it*, the rate limit) or let it go (*set to Off*, *you said "Not this" for that cue*, *already done 4 s ago*, *said in a DM aside*); for the chat, a spoken request or a macro task: what it is working on, the context it read, each look-up, the model's own words before it calls tools, each proposal or change, and how long it took. Filter: all, Active mode, or chat and tasks.
+
+Thoughts are held in memory only (the last 120 per world; `features/active/thoughts.ts`), DM only (`GET /api/worlds/:w/active/thoughts`, the `thought` event). The command log stays the record of what was done.
 
 ## 3. The command log (both modes)
 
