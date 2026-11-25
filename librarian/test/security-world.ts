@@ -386,6 +386,22 @@ export async function seedContent(h: H, S: Seed) {
   run(db, 'INSERT INTO agent_messages (id, chat_id, role, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', 'agm_seed', chat.id, 'user', mark('agent_msg_dm', ['dm'], 'a message in the DM agent chat'), 'done', new Date().toISOString());
   run(db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 'aga_seed', W, chat.id, ID.dm, 'add_person', JSON.stringify({ name: 'x' }), mark('agent_action', ['dm'], 'a pending agent action'), 'pending', new Date().toISOString());
 
+  // ---- spells: DM notes on spells and recipes, homebrew nobody may read, hidden and draft recipes, a player's sheet and requests ----------
+  await dm('PATCH', '/settings', { spellCrafting: true, spellMana: true });
+  await dm('PUT', '/spells/s/srd:fireball/meta', { public: true, dmNotes: mark('spell_dm_note', ['dm'], "the DM's note on a public spell") });
+  const hbHidden = await dm('POST', '/spells/s', { name: `Veil ${mark('spell_hidden_name', ['dm'], 'the name of a homebrew spell no player knows (result of a hidden recipe)')}`, level: 3, castingTime: 'Action', range: 'Self', components: 'V', duration: '1 hour', text: mark('spell_hidden_text', ['dm'], 'the text of a homebrew spell no player knows') });
+  const hbJess = await dm('POST', '/spells/s', { name: 'Tidecall', level: 1, castingTime: 'Action', range: '30 feet', components: 'V, S', duration: 'Instantaneous', text: mark('spell_known_jess', ['dm', 'jess'], 'the text of a homebrew spell only jess knows'), dmNotes: mark('spell_known_note', ['dm'], "the DM's note on a spell jess knows") });
+  await dm('POST', '/spells/s', { name: 'Harbour Light', level: 0, castingTime: 'Action', range: 'Touch', components: 'V', duration: '1 hour', text: mark('spell_public', ['dm', 'jess', 'tom'], 'the text of a public homebrew spell (control)'), public: true });
+  await dm('POST', `/spells/characters/${ID.jess}/known`, { spellId: hbJess.id });
+  await dm('POST', `/spells/characters/${ID.jess}/known`, { spellId: 'srd:fire-bolt' });
+  pushId('spell', hbHidden.id); pushId('spell', hbJess.id);
+  await dm('POST', '/spells/recipes', { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Tidecall'], stats: { int: 13 }, dmNotes: mark('recipe_dm_note', ['dm'], "the DM's note on a visible recipe") });
+  await dm('POST', '/spells/recipes', { result: hbHidden.id, prereqs: ['Fire Bolt'], visibility: 'hidden', dmNotes: mark('recipe_hidden_note', ['dm'], "the DM's note on a hidden recipe") });
+  await dm('POST', '/spells/recipes', { result: 'Fireball', prereqs: ['Tidecall'], draft: true, dmNotes: mark('recipe_draft_note', ['dm'], "the DM's note on a draft recipe from the assistant") });
+  await jess('PUT', '/spells/characters/me', { class: `Tidecaller ${mark('spell_sheet_jess', ['dm', 'jess'], "jess's class on her spell sheet")}`, level: 3, abilities: { int: 14 } });
+  const rid = (await jess('GET', '/spells/recipes')).recipes.find((x: any) => x.result.name === 'Scorching Ray')?.id;
+  if (rid) await jess('POST', '/spells/learn', { recipeId: rid, note: mark('spell_learn_note', ['dm', 'jess'], "jess's note on her request to learn a spell") });
+
   // ---- source keys: a per-user key's page, a blanket key's page, the keys' own secrets ---------------------------------------------
   // jess's key sees her own private page; tom's sees his; a blanket key (tom's, claimed so) sees everything, and nothing it returns may reach a player.
   const jessKey = mark('key_secret_jess', [], "the secret of jess's source key (never returned to anyone)");
