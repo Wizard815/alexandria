@@ -240,6 +240,9 @@ console.log(`  scans: ${Object.entries(scanned).map(([k, v]) => `${k} ${v}`).joi
 for (const p of PEOPLE) if (!process.env.LEAK_SELFTEST && (allowedSeen[p.who]?.size ?? 0) < 5) hits.set(`${p.who}: only ${allowedSeen[p.who]?.size ?? 0} allowed markers were ever seen, so the crawl is not reaching the content`, true);
 // The library-sharing seeds must reach the players they were shared with, or the crawl proves nothing about them.
 if (!process.env.LEAK_SELFTEST) for (const m of markers.filter((x) => x.id.startsWith('share_'))) for (const who of ['jess', 'tom']) if (m.seen.includes(who) && !allowedSeen[who]?.has(m.id)) hits.set(`${who}: the shared marker ${m.id} (${m.where}) was never seen, so sharing is not reaching them`, true);
+// The spell seeds (security-world.ts: a homebrew spell only jess knows, her spell sheet, her request to learn) must reach her Codex,
+// so the crawl proves the DM's notes, hidden recipes and unknown spells on the same page did not.
+if (!process.env.LEAK_SELFTEST) for (const id of ['spell_known_jess', 'spell_sheet_jess', 'spell_public']) if (markers.some((m) => m.id === id) && !allowedSeen.jess?.has(id)) hits.set(`jess: the spell marker ${id} was never seen, so the Codex crawl is not reaching it`, true);
 console.log('  allowed markers seen: ' +Object.entries(allowedSeen).map(([k, v]) => `${k} ${v.size}`).join(', '));
 if (hits.size) { console.log(`\n${hits.size} LEAKS / problems:`); for (const k of hits.keys()) console.log(' - ' + k); process.exit(1); }
 console.log('leaks ok: no DM, broker or classified marker reached a player or guest in the DOM, storage or cache');
