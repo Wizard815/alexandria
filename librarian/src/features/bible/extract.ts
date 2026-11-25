@@ -9,7 +9,7 @@
 // or when it fails, nothing happens and the job tries again later.
 import type { Deps } from '../../app.ts';
 import { chatJson, embed, hasJob, jobBudget, jobConfig } from '../../core/ai.ts';
-import { run, tx } from '../../core/db.ts';
+import { one, run, tx } from '../../core/db.ts';
 import { type Pending, isCurrent, pendingCopies } from '../search/copies.ts';
 import { noteDone } from '../search/pace.ts';
 import type { VecScope } from '../search/scopes.ts';
@@ -84,7 +84,7 @@ export function cleanFacts(j: any): Fact[] {
   return out;
 }
 
-export interface BibleSync { pages: number; facts: number; remaining: boolean; skipped?: string }
+export interface BibleSync { pages: number; facts: number; remaining: boolean; skipped?: string; /** Copies whose text another scope of the same page already had: its facts were reused, no model call. */ reused?: number }
 
 const failures = new Map<string, number>();
 
@@ -120,7 +120,8 @@ export async function syncBible(d: Deps, opts: { maxPages?: number; worldId?: st
 /** Is a story bible pass running for this world (or for every world) now? */
 export const bibleRunning = (d: Deps, worldId: string) => { const r = runningBy.get(d.db); return !!r && (r.has(worldId) || r.has('*')); };
 
-interface Read { r: Pending; facts: Fact[] }
+/** `twins`: other scopes' copies of the same page with the very same text, given the same facts. */
+interface Read { r: Pending; facts: Fact[]; twins: Pending[] }
 
 /**
  * Bulk: several pages are read at once (the model's maxConcurrent, or
@@ -137,12 +138,40 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
   let budget = opts.maxPages ?? 10;
   // Failures in a row: two and the pass ends (the model is down or answers nonsense); a good page resets it.
   let bad = 0;
+  let failed = 0;
+  let read = 0;
   const stopped = () => !!opts.signal?.aborted || bad >= 2;
 
   // Pages in scope turns (a few of the party's copy, then the DM's, ...), each page taken once per pass.
   const taken = new Set<string>();
   let settled = 0;
   const buf: Pending[] = [];
+  const twinsOf = new Map<string, Pending[]>();
+  const version = model.slice(model.indexOf('|') + 1);
+  const writeState = (r: Pending, n: number) => run(d.db, `INSERT INTO bible_state (page_id, scope, world_id, updated_at, sig, model, hash, facts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id, hash = excluded.hash, facts = excluded.facts`, r.id, r.scope, r.world_id, r.updated_at, r.sig, model, r.hash, n);
+  const counted = (r: Pending, n: number, reused: boolean) => {
+    settled++;
+    res.pages++;
+    res.facts += n;
+    if (reused) res.reused = (res.reused ?? 0) + 1;
+    noteDone('bible', r.world_id);
+  };
+  // Another scope of this page already holds facts read from exactly this text (same hash, same prompt version): copy them.
+  const copyStored = (r: Pending): boolean => {
+    if (!r.hash) return false;
+    const src = one<any>(d.db, "SELECT scope, facts FROM bible_state WHERE page_id = ? AND scope <> ? AND hash = ? AND substr(model, instr(model, '|') + 1) = ? LIMIT 1", r.id, r.scope, r.hash, version);
+    if (!src) return false;
+    return tx(d.db, () => {
+      if (!isCurrent(d, r)) return false;
+      run(d.db, 'DELETE FROM bible_facts WHERE page_id = ? AND scope = ?', r.id, r.scope);
+      run(d.db, `INSERT INTO bible_facts (world_id, page_id, scope, subject, subject_norm, kind, fact, idx, vec)
+        SELECT ?, page_id, ?, subject, subject_norm, kind, fact, idx, vec FROM bible_facts WHERE page_id = ? AND scope = ? ORDER BY idx`, r.world_id, r.scope, r.id, src.scope);
+      writeState(r, Number(src.facts));
+      counted(r, Number(src.facts), true);
+      return true;
+    });
+  };
   let turn = 0;
   let dry = 0;
   const nextPage = (): Pending | null => {
@@ -153,7 +182,16 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
         .slice(0, Math.min(PER_TURN, budget));
       if (!rows.length) { dry++; continue; }
       dry = 0;
-      for (const r of rows) { taken.add(`${r.id}|${scope}`); buf.push(r); budget--; }
+      for (const r of rows) {
+        taken.add(`${r.id}|${scope}`);
+        budget--;
+        // The same text as another scope's copy of this page (the broker copy is often the party copy): read it once.
+        const lead = r.hash ? twinsOf.get(`${r.id}|${r.hash}`) : undefined;
+        if (lead) { lead.push(r); continue; }
+        if (copyStored(r)) continue;
+        if (r.hash) twinsOf.set(`${r.id}|${r.hash}`, []);
+        buf.push(r);
+      }
     }
     return buf.shift() ?? null;
   };
@@ -169,19 +207,20 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
     const vecs = await embedFacts(d, part.flatMap((p) => p.facts), batch, opts.signal);
     let at = 0;
     tx(d.db, () => {
-      for (const { r, facts } of part) {
+      for (const { r: lead, facts, twins } of part) {
         const base = at;
         at += facts.length;
-        // Only what still matches the page's copy now is stored.
-        if (!isCurrent(d, r)) continue;
-        run(d.db, 'DELETE FROM bible_facts WHERE page_id = ? AND scope = ?', r.id, r.scope);
-        facts.forEach((f, i) => run(d.db, 'INSERT INTO bible_facts (world_id, page_id, scope, subject, subject_norm, kind, fact, idx, vec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', r.world_id, r.id, r.scope, f.subject, normSubject(f.subject), f.kind, f.fact, i, vecs?.[base + i] ? toBlob(vecs[base + i]) : null));
-        run(d.db, `INSERT INTO bible_state (page_id, scope, world_id, updated_at, sig, model, hash, facts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id, hash = excluded.hash, facts = excluded.facts`, r.id, r.scope, r.world_id, r.updated_at, r.sig, model, r.hash, facts.length);
-        settled++;
-        res.pages++;
-        res.facts += facts.length;
-        noteDone('bible', r.world_id);
+        // A twin that turns up later copies the stored facts instead (copyStored).
+        if (lead.hash) twinsOf.delete(`${lead.id}|${lead.hash}`);
+        // The page's own copy, then its twins (the same text in other scopes) with the same facts.
+        [lead, ...twins].forEach((r, k) => {
+          // Only what still matches the page's copy now is stored.
+          if (!isCurrent(d, r)) return;
+          run(d.db, 'DELETE FROM bible_facts WHERE page_id = ? AND scope = ?', r.id, r.scope);
+          facts.forEach((f, i) => run(d.db, 'INSERT INTO bible_facts (world_id, page_id, scope, subject, subject_norm, kind, fact, idx, vec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', r.world_id, r.id, r.scope, f.subject, normSubject(f.subject), f.kind, f.fact, i, vecs?.[base + i] ? toBlob(vecs[base + i]) : null));
+          writeState(r, facts.length);
+          counted(r, facts.length, k > 0);
+        });
       }
     });
     opts.onPage?.({ pages: res.pages, facts: res.facts });
@@ -201,12 +240,14 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
     if (!facts) {
       // The model did not answer (or answered with something that is not JSON): try later, and stop this pass after two in a row.
       bad++;
+      failed++;
       const fk = `${r.id}|${r.scope}|${r.updated_at}`;
       failures.set(fk, (failures.get(fk) ?? 0) + 1);
       return;
     }
     bad = 0;
-    done.push({ r, facts });
+    read++;
+    done.push({ r, facts, twins: r.hash ? twinsOf.get(`${r.id}|${r.hash}`) ?? [] : [] });
     doneFacts += facts.length;
     if (doneFacts >= batch || done.length >= parallel * 2) await flush();
   };
@@ -217,7 +258,8 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
     // What was read before a stop is kept (unless the stop was an abort: then nothing more is written).
     if (!opts.signal?.aborted) await flush().catch(() => {});
   }
-  if (bad >= 2) res.skipped = 'the chat model did not answer';
+  // Two failures in a row, or nothing the model was asked for came back (one page and its twins): the model did not answer.
+  if (bad >= 2 || (failed > 0 && read === 0)) res.skipped = 'the chat model did not answer';
   res.remaining = ORDER.some((s) => pendingCopies(d, s, 'bible_state', model, 1, opts.worldId).length > 0);
   return res;
 }
@@ -237,7 +279,7 @@ async function embedFacts(d: Deps, facts: Fact[], batch: number, signal?: AbortS
     const out: Float32Array[] = [];
     for (let i = 0; i < facts.length; i += batch) {
       const part = facts.slice(i, i + batch);
-      const got = await embed(d, part.map((f) => `${f.subject}: ${f.fact}`), signal);
+      const got = await embed(d, part.map((f) => `${f.subject}: ${f.fact}`), signal, 'document');
       if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) return null;
       for (const v of got) out.push(normalize(v));
     }
