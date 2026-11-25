@@ -114,8 +114,8 @@ World settings → Spells & mana → **Use mana** (`spellMana`). Then:
   scores), `strMod` ... `chaMod`, and `min`, `max`, `floor`, `ceil`, `round`,
   `abs`. The DM can set a maximum by hand per character.
 - **Cost.** `spellManaCosts`: ten numbers, cantrip then levels 1 to 9. The
-  default is this app's own simple table, `0, 2, 4, 6, 8, 10, 12, 14, 16, 18`;
-  change it to taste. A spell can have its own cost (Codex → the spell → Mana
+  default is Spell_Plan.md's table, `0, 2, 3, 5, 6, 7, 9, 11, 13, 15` (what 5e
+  spell slots are worth); change it to taste. A spell can have its own cost (Codex → the spell → Mana
   cost, or `manaCost` in an import); casting it higher adds the table's step.
 - **Casting.** A player casts a spell they know from the Codex (My spells →
   Cast, or the spell card with a level to cast at); the DM can cast for anyone.
@@ -213,6 +213,40 @@ carries content.
 | `draft_spell_recipe` | DM (write) | Suggest a recipe: a card to approve, and even then it lands as a draft the DM approves in the editor |
 | `my_spell_codex` | players | Their spells, mana and what they can learn |
 
+## The spell rules engine
+
+`librarian/src/features/spells/rules.ts` holds the rest of
+[Spell_Plan.md](../Spell_Plan.md) as pure formulas with the plan's numbers as
+defaults: pools and highest spell level per caster type (full, half, third,
+none) and for multiclass characters, upcasting with a surcharge, the casting
+limits (one leveled spell per turn, surge cast, echo strain, the high-level
+limit, overchannel, low mana), dual cast (empower, fuse, the Arcana check,
+the fuse insight), learning (tier gates, ability minimums, study points,
+progress per day, materials, the graded final check, level-up insight, memory
+relic, scroll) and spell line mastery.
+
+A world changes any part of it with the setting `spellRules`: a partial object
+laid over the defaults, so `{"dualCast": {"unlock": "feat"}}` changes only
+that. Unknown keys and wrong kinds of value are refused. Lists (the pool
+tables, the DC table) are replaced whole; `learning.gates` merges per spell
+level. `GET /api/worlds/:w/spells/rules` returns the merged rules and the
+preview tables (pool and highest level per character level and caster type;
+complexity, study points, days per source, materials and DC per spell level).
+
+The plan's open questions, answered as settings:
+
+| Question | Default | Setting |
+|---|---|---|
+| Third-caster pool | the plan's table; every pool table is editable per world | `pools.full`, `pools.half`, `pools.third`, `pools.none` |
+| Dual cast at level 5 or by a feat | level 5 | `dualCast.unlock` (`level` or `feat`), `dualCast.level` |
+| Failed final checks cost coin | no | `learning.failCoinLoss`, `learning.setbackCoinLoss` (share of the materials) |
+| Gifted spells count toward line mastery | yes | `lines.giftsCountForMastery` |
+
+The engine is not wired into casting or the Codex UI yet: `POST /spells/cast`
+still uses the mana rules above. Characters have no caster type or study
+state yet; those come with the cast panel and the Study panel (plan steps
+2 to 8).
+
 ## Settings
 
 | Key | Default | |
@@ -220,11 +254,12 @@ carries content.
 | `spellsPublicSrd` | false | Players may read every SRD spell |
 | `spellPlayerStats` | true | Players fill in their own spell sheet |
 | `spellMana` | false | Mana instead of spell slots |
-| `spellManaCosts` | `[0,2,4,...,18]` | Cost per spell level |
+| `spellManaCosts` | `[0,2,3,5,6,7,9,11,13,15]` | Cost per spell level |
 | `spellManaPool` | formula `level * 4 + mod` | `{mode: formula \| table, formula, table[20]}` |
 | `spellManaRest` | `{long: full, short: none}` | |
 | `spellManaMaxLevel` | off | `{on, table[20]}` |
 | `spellManaOverdraw` | false | |
+| `spellRules` | `{}` (all defaults) | The spell rules engine, below; only what the world changes |
 | `spellCrafting` | false | |
 | `spellCraftApproval` | `dm` | or `auto` |
 | `spellCraftHidden` | `mystery` | or `hide` |
