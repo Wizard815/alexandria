@@ -87,7 +87,7 @@ test('TestBrokerPayFrom_OfferPaidFromThePartyPouchIsLoggedForTheParty', async ()
   assert.equal(coin('party'), 300);
   assert.equal(coin(ID.jess), 100, 'her own coin was not touched');
   const row = one<any>(deps.db, `SELECT note, by_id, amount_cp FROM ledger WHERE world_id = ? AND owner = 'party' AND amount_cp = -500`, W)!;
-  assert.equal(row.note, 'Broker: The lantern route (paid by Jess from the party pouch)');
+  assert.equal(row.note, 'Broker purchase (paid by Jess from the party pouch)', 'even an offer to the whole party is not named on the pouch');
   assert.equal(row.by_id, ID.jess);
   // Another player reads the party log and sees who paid.
   const log = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
@@ -264,7 +264,7 @@ test('TestBrokerPayFrom_APendingDebitBlocksAGiftThatWouldOverdraw', async () => 
   clearPending();
 });
 
-test('TestBrokerPayFrom_ThePartyLogNamesOnlyWhatEveryPlayerMaySee', async () => {
+test('TestBrokerPayFrom_ThePartyLogNeverNamesWhatWasBought', async () => {
   setCoin(ID.jess, 0); setCoin('party', 5000);
   // An offer to Jess alone, paid from the pouch: Tom reads the pouch log and must not learn its title.
   const o = await offer(200, [ID.jess], 'The secret of the drowned bell');
