@@ -45,7 +45,10 @@ Other commands: `scripts/build.sh image | up | down | logs | desktop | android |
 Docker Hub rate limit? `NODE_IMAGE=mirror.gcr.io/library/node:24-alpine scripts/build.sh up-nginx`.
 
 Everything (database, uploads, recordings) is in `./data`. It survives
-`down`, `up` and rebuilds. Back it up (see HOSTING.md).
+`down`, `up` and rebuilds. Back it up (see HOSTING.md). Session audio ends up
+as plain files in `./data/recordings/<World>/<date> <Session>/` (a full mix,
+one file per microphone, the transcript and a `session.json`); they are the
+only copy of the audio, so back that folder up too.
 
 ## 4. nginx and a certificate
 
@@ -141,6 +144,12 @@ authenticate to it. The `/v1` gateway Alexandria itself offers is for the DM and
   used for dictation. Remembered per browser.
 - **Players, Audio:** each player picks their own microphone and agrees to
   recording on their own device.
+- **DM, Recordings** (`/w/<world>/dm/recordings`): after a session stops the
+  audio is joined in the background (ffmpeg is in the Docker image). Play the
+  full recording or any microphone, click a transcript line to jump there,
+  download files, and choose per session how long the audio is kept (blank
+  keeps forever; the transcript always stays). Players find their own
+  microphone's track under **My recordings**.
 
 ## 10. Install the apps
 
