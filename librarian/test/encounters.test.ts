@@ -221,3 +221,55 @@ test('TestEncounters_TemplatesAreDmOnly', async () => {
   await ok('DELETE', `${P()}/templates/all/${t.id}`, T.dm);
   assert.equal((await call('DELETE', `${P()}/templates/all/${t.id}`, T.dm)).status, 404);
 });
+
+test('TestEncounters_DraftWithoutAModelIsAPlainStart', async () => {
+  const r = await ok('POST', `${P()}/templates/draft`, T.dm, { prompt: 'A nervous fence offers a dice game behind the tannery.' });
+  assert.equal(r.usedModel, false);
+  assert.ok(r.note);
+  assert.doesNotThrow(() => parseScript(r.script));
+  assert.equal((await call('POST', `${P()}/templates/draft`, T.jess, { prompt: 'x' })).status, 403);
+  assert.equal((await call('POST', `${P()}/templates/draft`, T.dm, { prompt: ' ' })).status, 400);
+});
+
+test('TestEncounters_RecapsListWhoMetWhom', async () => {
+  const { gather, skeleton } = await import('../src/features/sessionlog/api.ts');
+  const g = gather(deps.db, W, { from: '2000-01-01T00:00:00.000Z', to: new Date(Date.now() + 1000).toISOString(), sessionIds: [] });
+  assert.ok(g.meetings!.some((m) => m === 'Jess met Old Bess'), JSON.stringify(g.meetings));
+  assert.ok(g.meetings!.some((m) => /while wandering/.test(m)));
+  assert.match(skeleton(g), /Jess met Old Bess/);
+  // What was said never goes into the recap material.
+  assert.ok(!skeleton(g).includes('Spare a moment'));
+});
+
+test('TestEncounters_FinishedTalksGoToMinervaWhenOn', async () => {
+  const { setEnabled } = await import('../src/features/minerva/store.ts');
+  setEnabled(deps.db, W, true);
+  try {
+    const [e] = await send({ accountIds: [ID.tom], npcName: 'Sister Ama', line: 'Bless you, traveller.', answers: ['Thank you'] });
+    await ok('POST', `${P()}/${e.id}/choose`, T.tom, { option: 0 });
+    const pages = all<any>(deps.db, `SELECT body FROM pages WHERE world_id = ? AND body LIKE '%Sister Ama%'`, W);
+    assert.ok(pages.some((p) => /Tom met Sister Ama/.test(p.body) && /"Thank you"/.test(p.body)), 'logged to the session notes');
+  } finally { setEnabled(deps.db, W, false); }
+});
+
+test('TestEncounters_AddToPeopleOnce', async () => {
+  await send({ accountIds: [ID.jess], npcName: 'Fennick the Fence', npcBlurb: 'Fence', line: 'Psst.', addToPeople: true });
+  await send({ accountIds: [ID.tom], npcName: 'fennick the fence', line: 'Psst again.', addToPeople: true });
+  const people = await ok('GET', `/api/worlds/${W}/people`, T.jess);
+  const hits = people.filter((p: any) => /fennick/i.test(p.name));
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].met, 'Met by Jess');
+});
+
+test('TestEncounters_RepairFixesAModelsLooseLinks', async () => {
+  const { repair } = await import('../src/features/encounters/draft.ts');
+  const fixed = repair({ start: 'Greeting!', nodes: [
+    { id: 'Greeting!', text: 'Hi', options: [{ label: 'Play', next: 'dice game' }, { label: 'Bye', next: 'nowhere' }] },
+    { id: 'dice game', text: 'Roll', game: { kind: 'dice', win: 'missing' } },
+  ] });
+  const s = parseScript(fixed);
+  assert.equal(s.start, 'Greeting');
+  assert.equal(s.nodes[0].options[0].next, 'dice-game');
+  assert.equal(s.nodes[0].options[1].next, null);
+  assert.equal(s.nodes[1].game!.win, 'Greeting');
+});

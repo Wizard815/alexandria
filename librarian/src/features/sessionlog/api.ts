@@ -36,6 +36,8 @@ export interface Gathered {
   audioSessionIds: string[];
   /** The players' running summaries of these sessions (built only from lines players could read). */
   notes?: string[];
+  /** NPC encounters in the range: who met whom (features/encounters). Never what was said. */
+  meetings?: string[];
 }
 
 export function resolveRange(db: DB, worldId: string, b: { audioSessionId?: unknown; from?: unknown; to?: unknown }): { from: string; to: string; sessionIds: string[] } {
@@ -85,7 +87,9 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
   const clockRows = all<any>(db, `SELECT kind, reason, before_label, after_label, before_minutes FROM clock_log WHERE world_id = ? AND kind IN ('advance','set') AND undone = 0 AND ${inRange('at')} ORDER BY rowid`, worldId, range.from, range.to);
   const clock = clockRows.map((c) => `${c.before_label} to ${c.after_label}${c.reason ? `: ${c.reason}` : ''}`);
   const worldStartMinutes = clockRows.length ? (clockRows[0].before_minutes as number) : getClock(db, worldId).minutes;
-  return { from: range.from, to: range.to, worldStartMinutes, playerLines, dmLines, combat, coin, loot, broker, clock, audioSessionIds: range.sessionIds, notes };
+  const meetings = all<any>(db, `SELECT account_id, npc_name, source FROM encounters WHERE world_id = ? AND ${inRange('created_at')} ORDER BY created_at`, worldId, range.from, range.to)
+    .map((e) => `${nm[e.account_id] ?? 'Someone'} met ${e.npc_name}${e.source === 'wander' ? ' while wandering' : ''}`);
+  return { from: range.from, to: range.to, worldStartMinutes, playerLines, dmLines, combat, coin, loot, broker, clock, audioSessionIds: range.sessionIds, notes, meetings };
 }
 
 const bullets = (xs: string[], none: string) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : none);
@@ -105,6 +109,7 @@ export function material(g: Gathered): string {
     `COIN:\n${bullets(g.coin, '(none)')}`,
     `ITEMS:\n${bullets(g.loot, '(none)')}`,
     `BOUGHT ANSWERS:\n${bullets(g.broker, '(none)')}`,
+    `NPC ENCOUNTERS (who met whom, in the app):\n${bullets(g.meetings ?? [], '(none)')}`,
     `WORLD CLOCK CHANGES:\n${bullets(g.clock, '(none)')}`,
   ].join('\n\n');
 }
@@ -127,7 +132,7 @@ export function skeleton(g: Gathered): string {
     '## Recap', bullets(recap, '_No transcript was recorded for this session._'),
     '## Key moments', bullets(moments, '_Nothing recorded._'),
     '## Loot & coin', bullets([...g.coin, ...g.loot], '_No loot or coin changes._'),
-    '## People met', bullets(people, '_Nobody recorded._'),
+    '## People met', bullets([...(g.meetings ?? []), ...people], '_Nobody recorded._'),
     '## Open threads', bullets(open, '_None recorded._'),
   ].join('\n\n') + '\n';
 }
