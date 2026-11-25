@@ -114,6 +114,28 @@ make sure the server's batch size takes `ALX_EMBED_BATCH` inputs of about 500
 characters each. A page the classified guard refuses is sent on its own, so it
 never holds back the pages around it.
 
+Copies with the same text are read once. A page's party, broker and DM copies
+are often identical; when one copy's text (its hash) matches another scope's
+copy of the same page, the vectors and facts are copied instead of asking the
+model again. On a real 825-page world this skipped about 30% of the work.
+
+### Embedding prefixes
+
+Some embeddings models are trained with a prefix that says what a text is.
+Set it in the embeddings model's job options (Admin > Models), or with
+`ALX_MODEL_EXTRA_OPTIONS`:
+
+```json
+{ "docPrefix": "search_document: ", "queryPrefix": "search_query: " }
+```
+
+These are the values for nomic-embed-text. `docPrefix` goes before every
+stored library chunk and story bible fact, `queryPrefix` before every search.
+On an 80-question test over a real world, the top result was right 57.5% of
+the time with them and 50% without. The document prefix is part of what the
+chunks are recorded as made with, so changing it embeds the world again.
+Leave both unset for a model that has no prefixes (most do not).
+
 ## Vector store
 
 Chunks go through a small `VectorStore` interface (`features/search/vectorstore.ts`):
