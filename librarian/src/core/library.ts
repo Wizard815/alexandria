@@ -9,6 +9,7 @@ import { type FM, type FMValue, joinFrontmatter, splitFrontmatter } from './fron
 import { audienceOf, copyOfMarkdown, frontmatterFor, redactMarkdown, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
 import { imageVisibleTo, imagesForPage, importedRelations } from '../intake/records.ts';
 import { mintTicket } from '../features/sound/ticket.ts';
+import { folderLifted } from '../features/libshare/grants.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
 import { blocksFor, playerProperties, propertiesFor } from '../intake/player.ts';
 import { type Audience, type Level, RANK, canSeeLevel, copyFor, isLevel, levelForAccountKey, levelWords, maxLevel, normLevel, pageLevel } from './levels.ts';
@@ -816,7 +817,7 @@ export class Library {
     const shown = new Set(rows.map((r) => `${r.source_id}|${r.external_id}`));
     return rows.map((r) => {
       const parent = r.parent_external && shown.has(`${r.source_id}|${r.parent_external}`) ? rows.find((x) => x.source_id === r.source_id && x.external_id === r.parent_external)?.id ?? null : null;
-      const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, position: r.position ?? null, updated_at: r.updated_at };
+      const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, ...(aud !== 'player' ? { sourceId: r.source_id ?? '' } : {}), position: r.position ?? null, updated_at: r.updated_at };
       if (aud !== 'player') out.visibility = r.visibility;
       else if (lifted.has(r.id)) { out.via = lifted.get(r.id); out.sharedWithMe = lifted.get(r.id) !== 'key'; }
       return out;
@@ -929,6 +930,8 @@ export class Library {
         if (one(this.db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", worldId, g.from_id)) out.set(g.page_id, 'dm');
       } else if (g.from_id !== accountId && depth < 3 && this.liftedInfo(worldId, g.from_id, g.page_id, depth + 1).has(g.page_id)) out.set(g.page_id, 'share');
     }
+    // Pages in a folder the DM shared (a rule that also covers pages added or moved in later).
+    for (const id of folderLifted(this.db, worldId, accountId, only)) if (!out.has(id)) out.set(id, 'dm');
     return out;
   }
 

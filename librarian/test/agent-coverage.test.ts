@@ -200,6 +200,7 @@ const movableItem = () => once('movable', async () => (await dm('POST', '/invent
 /** Arguments that need real ids or values. A tool not listed gets values made from its schema. */
 const ARGS: Record<string, Maker> = {
   run_macro: () => once('macro', async () => { await dm('POST', '/actions/macros', { name: 'Coverage roll', steps: [{ action: 'dice.roll' }] }); return 'ok'; }).then(() => ({ macro: 'Coverage roll' })),
+  share_library_item: () => ({ kind: 'page', id: ID.saltmarsh, to: 'party', notify: true }),
   read_page: () => ({ page: ID.saltmarsh }),
   search_library: () => ({ query: 'Saltmarsh' }),
   search_world: () => ({ query: 'Saltmarsh' }),

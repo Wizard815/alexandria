@@ -96,7 +96,9 @@ async function crawl(browser, p) {
   });
   const open = async (url) => { await page.goto(url); await page.locator('main, .page, #root > *').first().waitFor({ timeout: 10000 }).catch(() => {}); await page.waitForTimeout(500); };
 
-  const links = new Set(PLAYER_ROUTES.map((r) => `${W}/${r}`.replace(/\/$/, '')));
+  // The library-sharing seeds first, so they are always reached inside the time budget.
+  const links = new Set(Object.entries(world.pages).filter(([k]) => k.startsWith('share_')).map(([, pg]) => `${W}/library?page=${encodeURIComponent(pg.id)}`));
+  for (const r of PLAYER_ROUTES) links.add(`${W}/${r}`.replace(/\/$/, ''));
   // The players' screen is a route of its own (no layout, no links to it): visit it as every player and the guest too.
   links.add(`${W}/screen/players`);
   await open(W);
@@ -216,6 +218,8 @@ finally { await browser.close(); srv.kill(); }
 
 console.log(`  scans: ${Object.entries(scanned).map(([k, v]) => `${k} ${v}`).join(', ')} against ${markers.length} markers; ${((Date.now() - t0) / 1000).toFixed(0)}s`);
 for (const p of PEOPLE) if (!process.env.LEAK_SELFTEST && (allowedSeen[p.who]?.size ?? 0) < 5) hits.set(`${p.who}: only ${allowedSeen[p.who]?.size ?? 0} allowed markers were ever seen, so the crawl is not reaching the content`, true);
-console.log('  allowed markers seen: ' + Object.entries(allowedSeen).map(([k, v]) => `${k} ${v.size}`).join(', '));
+// The library-sharing seeds must reach the players they were shared with, or the crawl proves nothing about them.
+if (!process.env.LEAK_SELFTEST) for (const m of markers.filter((x) => x.id.startsWith('share_'))) for (const who of ['jess', 'tom']) if (m.seen.includes(who) && !allowedSeen[who]?.has(m.id)) hits.set(`${who}: the shared marker ${m.id} (${m.where}) was never seen, so sharing is not reaching them`, true);
+console.log('  allowed markers seen: ' +Object.entries(allowedSeen).map(([k, v]) => `${k} ${v.size}`).join(', '));
 if (hits.size) { console.log(`\n${hits.size} LEAKS / problems:`); for (const k of hits.keys()) console.log(' - ' + k); process.exit(1); }
 console.log('leaks ok: no DM, broker or classified marker reached a player or guest in the DOM, storage or cache');
