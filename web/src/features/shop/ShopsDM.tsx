@@ -1,17 +1,20 @@
 // DM page: Shops. Every shop with its status (hidden, closed, open: changed
 // live), its keeper card, its stock with prices and quantities, the shop
 // generator, purchases and sales waiting for approval, and the shop settings.
-// "Show on players' TV" sends the stock as a stage card.
+// "Show on players' TV" sends the stock as a stage card. Towns set a price
+// level for every shop in them; each shop has a keeper's purse, a barter
+// percent, and a memory of every player (reputation, spending, haggles, deals);
+// "Send to players" pops the shop up on chosen players' screens.
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { PagePicker } from '../itemcards/PagePicker.tsx';
-import { rarityLabel, STATUS_LABEL, statusChip, type Item, type Keeper, type Line, type Order, type Shop, type ShopConfig } from './types.ts';
+import { rarityLabel, STATUS_LABEL, statusChip, type Item, type Keeper, type Line, type Memory, type Order, type Shop, type ShopConfig, type Town } from './types.ts';
 import './shop.css';
 
-type Tab = 'shops' | 'generate' | 'orders' | 'settings';
+type Tab = 'shops' | 'towns' | 'generate' | 'orders' | 'settings';
 
 export default function ShopsDM() {
   const { w } = useWorld();
@@ -23,8 +26,8 @@ export default function ShopsDM() {
   return (
     <div className="page shop-page">
       <PageHead title="Shops" lead={<>Shops players can browse and buy from. Stock comes from the <Link to="../items">item database</Link>.</>} />
-      <Tabs label="Shops" value={tab} onChange={(t) => setTab(t)} items={[['shops', 'Shops'], ['generate', 'Generate'], ['orders', `Orders${orders.data?.pending ? ` (${orders.data.pending})` : ''}`], ['settings', 'Settings']]} />
-      {!cfg.data ? <Loading /> : tab === 'generate' ? <Generate cfg={cfg.data} onSaved={(id) => setTab('shops', { shop: id })} /> : tab === 'orders' ? <Orders list={orders.data?.orders ?? null} reload={orders.reload} /> : tab === 'settings' ? <Settings cfg={cfg.data} reload={cfg.reload} /> : <ShopList cfg={cfg.data} sel={sp.get('shop') ?? ''} pick={(id) => setSp(id ? { shop: id } : {})} />}
+      <Tabs label="Shops" value={tab} onChange={(t) => setTab(t)} items={[['shops', 'Shops'], ['towns', 'Towns'], ['generate', 'Generate'], ['orders', `Orders${orders.data?.pending ? ` (${orders.data.pending})` : ''}`], ['settings', 'Settings']]} />
+      {!cfg.data ? <Loading /> : tab === 'generate' ? <Generate cfg={cfg.data} onSaved={(id) => setTab('shops', { shop: id })} /> : tab === 'towns' ? <Towns cfg={cfg.data} /> : tab === 'orders' ? <Orders list={orders.data?.orders ?? null} reload={orders.reload} /> : tab === 'settings' ? <Settings cfg={cfg.data} reload={cfg.reload} /> : <ShopList cfg={cfg.data} sel={sp.get('shop') ?? ''} pick={(id) => setSp(id ? { shop: id } : {})} />}
     </div>
   );
 }
@@ -60,6 +63,7 @@ function ShopList({ cfg, sel, pick }: { cfg: ShopConfig; sel: string; pick: (id:
 function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: () => void }) {
   const { w, info } = useWorld();
   const shop = useLoad<Shop>(() => w.call('GET', `/shop/shops/${encodeURIComponent(id)}`), [w, id], ['shop', 'shop-items']);
+  const towns = useLoad<{ towns: Town[] }>(() => w.call('GET', '/shop/towns'), [w], ['shop-towns']);
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [form, setForm] = useState<Shop | null>(null);
@@ -74,7 +78,7 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
   const path = `/shop/shops/${encodeURIComponent(s.id)}`;
   const run = (fn: () => Promise<unknown>, msg?: string) => act.run(async () => { await fn(); await shop.reload(); if (msg) toast(msg); });
   const save = () => run(async () => {
-    await w.call('PATCH', path, { name: form.name, kind: form.kind, description: form.description, markupPct: form.markupPct ?? 0, haggle: form.haggle, dmNotes: form.dmNotes, locationPageId: form.locationPageId ?? null, keeper: form.keeper ?? {}, restock: form.restock, sellPct: form.sellPct ?? null });
+    await w.call('PATCH', path, { name: form.name, kind: form.kind, description: form.description, markupPct: form.markupPct ?? 0, haggle: form.haggle, dmNotes: form.dmNotes, locationPageId: form.locationPageId ?? null, keeper: form.keeper ?? {}, restock: form.restock, sellPct: form.sellPct ?? null, townId: form.townId ?? null, goldCp: form.goldCp ?? null, barterPct: form.barterPct ?? 0 });
     setDirty(false);
   }, 'Saved');
   const status = (st: Shop['status']) => run(() => w.call('POST', `${path}/status`, { status: st }), st === 'open' ? 'Open: players can buy now' : st === 'closed' ? 'Closed: players see the sign, not the stock' : 'Hidden from players');
@@ -94,6 +98,11 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
           <Field label="Name"><input value={form.name} maxLength={120} onChange={(e) => upd({ name: e.target.value })} /></Field>
           <Field label="Kind"><select value={form.kind} onChange={(e) => upd({ kind: e.target.value })}>{cfg.kinds.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select></Field>
           <Field label="Markup %" help="Negative for a discount. A line's own price wins."><input type="number" min={-90} max={1000} value={form.markupPct ?? 0} onChange={(e) => upd({ markupPct: Math.round(Number(e.target.value) || 0) })} /></Field>
+          <Field label="Town" help={s.town ? `Prices there: ${(s.town.pricePct ?? 0) > 0 ? '+' : ''}${s.town.pricePct ?? 0}%` : 'A town sets a price level for all its shops.'}>
+            <select value={form.townId ?? ''} data-testid="shop-town-pick" onChange={(e) => upd({ townId: e.target.value || null })}><option value="">No town</option>{(towns.data?.towns ?? []).map((t) => <option key={t.id} value={t.id}>{t.name} ({t.pricePct > 0 ? '+' : ''}{t.pricePct}%)</option>)}</select>
+          </Field>
+          <Field label="Keeper's purse" help="What they can pay for things players sell. Blank: never runs out."><input type="text" aria-label="Keeper's purse" defaultValue={form.goldCp === null || form.goldCp === undefined ? '' : coins(form.goldCp, 'gsc')} key={`gold-${s.goldCp}`} placeholder="∞" onBlur={(e) => { const v = e.target.value.trim(); const cp = v ? parseCoins(v) : null; if (v && cp === null) return; if (cp !== (form.goldCp ?? null)) upd({ goldCp: cp }); }} /></Field>
+          <Field label="Haggles up to %" help="0: never haggles. Reputation moves it by up to 10 points."><input type="number" min={0} max={90} value={form.barterPct ?? 0} onChange={(e) => upd({ barterPct: Math.max(0, Math.min(90, Math.round(Number(e.target.value) || 0))) })} /></Field>
           <Field label="Restock">
             <select value={form.restock?.rule ?? 'manual'} onChange={(e) => upd({ restock: { ...(form.restock ?? { days: 7, at: null }), rule: e.target.value as 'manual' | 'days' } })}><option value="manual">By hand</option><option value="days">Every few game days</option></select>
           </Field>
@@ -156,6 +165,8 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
         )}
         <AddStock onAdd={(itemId, qty) => run(() => w.call('POST', `${path}/stock`, { itemId, qty }), 'Added')} />
       </section>
+      <SendToPlayers shop={s} onDone={(m) => { toast(m); void shop.reload(); }} />
+      <KeeperMemory shop={s} />
       <section className="card row between">
         <span className="small muted">{s.restock?.at ? `Last restocked ${when(s.restock.at)}` : 'Not restocked yet'}</span>
         <button type="button" className="btn ghost small" disabled={act.busy} onClick={() => { if (confirm(`Delete ${s.name}? Its stock lines go too; the items stay in the item database.`)) void act.run(async () => { await w.call('DELETE', path); onGone(); }); }}>Delete shop</button>
@@ -194,14 +205,15 @@ function AddStock({ onAdd }: { onAdd: (itemId: string, qty: number | null) => Pr
   );
 }
 
-interface Draft { seed: string; kind: string; kindLabel: string; size: string; level: number; name: string; description: string; keeper: Keeper; markupPct: number; haggle: string; maxRarity: string; stock: { itemId: string; name: string; type: string; rarity: string; priceCp: number | null; qty: number | null; hidden: boolean }[]; notes: string[]; enriched: boolean }
+interface Draft { seed: string; kind: string; kindLabel: string; size: string; level: number; name: string; description: string; keeper: Keeper; markupPct: number; haggle: string; maxRarity: string; goldCp: number; barterPct: number; stock: { itemId: string; name: string; type: string; rarity: string; priceCp: number | null; qty: number | null; hidden: boolean }[]; notes: string[]; enriched: boolean }
 
 function Generate({ cfg, onSaved }: { cfg: ShopConfig; onSaved: (id: string) => void }) {
   const { w, info } = useWorld();
-  const [o, setO] = useState({ kind: 'general', size: 'town', level: '', theme: '', guide: '', enrich: false, open: false });
+  const [o, setO] = useState({ kind: 'general', size: 'town', townId: '', level: '', theme: '', guide: '', enrich: false, open: false });
+  const towns = useLoad<{ towns: Town[] }>(() => w.call('GET', '/shop/towns'), [w], ['shop-towns']);
   const [draft, setDraft] = useState<Draft | null>(null);
   const act = useAction();
-  const body = (seed?: string) => ({ kind: o.kind, size: o.size, level: o.level === '' ? undefined : Number(o.level), theme: o.theme || undefined, guide: o.guide || undefined, enrich: o.enrich, seed });
+  const body = (seed?: string) => ({ kind: o.kind, size: o.townId ? undefined : o.size, townId: o.townId || undefined, level: o.level === '' ? undefined : Number(o.level), theme: o.theme || undefined, guide: o.guide || undefined, enrich: o.enrich, seed });
   const gen = (seed?: string) => act.run(async () => { const r = await w.call<{ draft: Draft }>('POST', '/shop/generate', body(seed)); setDraft(r.draft); });
   const save = () => act.run(async () => {
     if (!draft) return;
@@ -215,7 +227,8 @@ function Generate({ cfg, onSaved }: { cfg: ShopConfig; onSaved: (id: string) => 
       <section className="card stack">
         <div className="shop-grid">
           <Field label="Kind"><select value={o.kind} data-testid="gen-kind" onChange={(e) => setO({ ...o, kind: e.target.value })}>{cfg.kinds.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select></Field>
-          <Field label="Settlement"><select value={o.size} data-testid="gen-size" onChange={(e) => setO({ ...o, size: e.target.value })}>{cfg.sizes.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></Field>
+          <Field label="Town" help="Optional: the shop joins it and takes its size."><select value={o.townId} onChange={(e) => setO({ ...o, townId: e.target.value })}><option value="">No town</option>{(towns.data?.towns ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
+          {!o.townId && <Field label="Settlement"><select value={o.size} data-testid="gen-size" onChange={(e) => setO({ ...o, size: e.target.value })}>{cfg.sizes.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></Field>}
           <Field label="Party level" help="Blank: the party's level"><input type="number" min={1} max={20} value={o.level} onChange={(e) => setO({ ...o, level: e.target.value })} /></Field>
           <Field label="Theme (optional)"><input value={o.theme} maxLength={200} placeholder="elven, fire, sailors…" onChange={(e) => setO({ ...o, theme: e.target.value })} /></Field>
         </div>
@@ -233,7 +246,7 @@ function Generate({ cfg, onSaved }: { cfg: ShopConfig; onSaved: (id: string) => 
       {draft && (
         <section className="card stack" data-testid="gen-draft">
           <div className="row between"><h2 style={{ margin: 0 }}>{draft.name}</h2><span className="chip">seed {draft.seed}</span></div>
-          <span className="small muted">{draft.kindLabel} in a {draft.size}, party level {draft.level}, up to {draft.maxRarity} · markup {draft.markupPct}%{draft.enriched ? ' · wording by the model' : ''}</span>
+          <span className="small muted">{draft.kindLabel} in a {draft.size}, party level {draft.level}, up to {draft.maxRarity} · markup {draft.markupPct}% · purse {coins(draft.goldCp, info.settings.coins)} · haggles up to {draft.barterPct}%{draft.enriched ? ' · wording by the model' : ''}</span>
           <p className="read" style={{ margin: 0 }}>{draft.description}</p>
           <div className="shop-keeper stack tight">
             <strong>{draft.keeper.name}, {draft.keeper.role}, {draft.keeper.race}</strong>
@@ -293,6 +306,7 @@ function Settings({ cfg, reload }: { cfg: ShopConfig; reload: () => Promise<void
   const { w, reloadInfo } = useWorld();
   const act = useAction();
   const [pct, setPct] = useState(String(cfg.sellPct));
+  const [rep, setRep] = useState(String(cfg.repEffect ?? 10));
   const set = (patch: Record<string, unknown>) => act.run(async () => { await w.updateSettings(patch); await reloadInfo(); await reload(); });
   return (
     <section className="card stack">
@@ -300,7 +314,142 @@ function Settings({ cfg, reload }: { cfg: ShopConfig; reload: () => Promise<void
       <div className="row between"><span><strong>DM approves shop purchases</strong><br /><span className="small muted">A purchase waits for you; the coin is held and the stock kept aside.</span></span><Switch checked={cfg.approval} label="DM approves shop purchases" onChange={(v) => void set({ shopApproval: v })} /></div>
       <div className="row between"><span><strong>The party pouch can pay shops</strong><br /><span className="small muted">Needs the party pouch on. The log shows only "Shop purchase (paid by …)".</span></span><Switch checked={cfg.partyPay} label="The party pouch can pay shops" onChange={(v) => void set({ shopPartyPay: v })} /></div>
       <div className="row between"><span><strong>Players can sell to shops</strong><br /><span className="small muted">A sale is a request you approve (and may re-price).</span></span><Switch checked={cfg.sellBack} label="Players can sell to shops" onChange={(v) => void set({ shopSellBack: v })} /></div>
+      <div className="row between"><span><strong>Players can haggle</strong><br /><span className="small muted">A player asks a keeper for a percentage off one thing; the keeper's haggle percent and the player's reputation decide it.</span></span><Switch checked={cfg.haggle !== false} label="Players can haggle" onChange={(v) => void set({ shopHaggle: v })} /></div>
+      <Field label="Reputation moves prices by up to (%)" help="At the best reputation a player pays this much less; at the worst, this much more. 0 turns it off."><div className="row" style={{ gap: 8 }}><input type="number" min={0} max={50} value={rep} onChange={(e) => setRep(e.target.value)} style={{ width: 90 }} /><button type="button" className="btn small" disabled={act.busy} onClick={() => void set({ shopRepEffect: Math.max(0, Math.min(50, Math.round(Number(rep) || 0))) })}>Save</button></div></Field>
       {cfg.sellBack && <Field label="Shops buy at (% of their price)"><div className="row" style={{ gap: 8 }}><input type="number" min={0} max={100} value={pct} onChange={(e) => setPct(e.target.value)} style={{ width: 90 }} /><button type="button" className="btn small" disabled={act.busy} onClick={() => void set({ shopSellBackPct: Math.max(0, Math.min(100, Math.round(Number(pct) || 0))) })}>Save</button></div></Field>}
     </section>
+  );
+}
+
+/** "Send to players": the shop pops up on chosen players' screens, as if its keeper walked up to them. */
+function SendToPlayers({ shop, onDone }: { shop: Shop; onDone: (msg: string) => void }) {
+  const { w, members } = useWorld();
+  const players = members.filter((m) => m.role === 'player');
+  const [to, setTo] = useState<string[]>([]);
+  const [msg, setMsg] = useState('');
+  const act = useAction();
+  const send = () => act.run(async () => {
+    const r = await w.call<{ sentTo: string[]; opened: boolean }>('POST', `/shop/shops/${encodeURIComponent(shop.id)}/present`, { to: to.length ? to : 'all', message: msg || undefined, open: shop.status !== 'open' });
+    onDone(`Sent to ${r.sentTo.length} player${r.sentTo.length === 1 ? '' : 's'}${r.opened ? ' (the shop is open now)' : ''}`);
+    setMsg('');
+  });
+  return (
+    <section className="card stack" aria-labelledby="send-h">
+      <h2 id="send-h">Send to players</h2>
+      <span className="small muted">The keeper walks up: the shop pops up on their screens with a button to browse.{shop.status !== 'open' ? ' Sending opens the shop.' : ''}</span>
+      {!players.length ? <Empty>No players in this world yet.</Empty> : (
+        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+          {players.map((p) => (
+            <label key={p.id} className="row small" style={{ gap: 6 }}>
+              <input type="checkbox" checked={to.includes(p.id)} onChange={(e) => setTo(e.target.checked ? [...to, p.id] : to.filter((x) => x !== p.id))} />
+              {p.character_name || p.display_name}
+            </label>
+          ))}
+          <span className="tiny faint">{to.length ? '' : 'None ticked: everyone.'}</span>
+        </div>
+      )}
+      <Field label="What the keeper says (optional)"><input value={msg} maxLength={300} placeholder="Fine wares, friend! Have a look." onChange={(e) => setMsg(e.target.value)} /></Field>
+      <ErrorBox error={act.error} />
+      <div className="row"><button type="button" className="btn primary" data-testid="shop-send" disabled={act.busy || !players.length} onClick={() => void send()}>Send</button></div>
+    </section>
+  );
+}
+
+/** What the keeper remembers about each player: reputation (editable), coin spent and sold, haggles, and deals (give or cancel one). */
+function KeeperMemory({ shop }: { shop: Shop }) {
+  const { w, info } = useWorld();
+  const path = `/shop/shops/${encodeURIComponent(shop.id)}`;
+  const mem = useLoad<Memory>(() => w.call('GET', `${path}/memory`), [w, shop.id], ['shop', 'shop-order', 'shop-haggle']);
+  const act = useAction();
+  const [deal, setDeal] = useState({ accountId: '', stockId: '', pct: '10', days: '' });
+  if (!mem.data) return <section className="card"><ErrorBox error={mem.error} />{!mem.error && <Loading />}</section>;
+  const m = mem.data;
+  const money = (cp: number) => coins(cp, info.settings.coins);
+  const setRep = (aid: string, patch: { rep?: number; note?: string }) => act.run(async () => { await w.call('PUT', `${path}/memory/${encodeURIComponent(aid)}`, patch); await mem.reload(); });
+  const give = () => act.run(async () => {
+    await w.call('POST', `${path}/deals`, { accountId: deal.accountId, stockId: deal.stockId || null, pct: Number(deal.pct), days: deal.days === '' ? null : Number(deal.days) });
+    setDeal({ ...deal, stockId: '', days: '' });
+    await mem.reload();
+  });
+  const active = m.deals.filter((x) => x.status === 'active');
+  const past = m.deals.filter((x) => x.status !== 'active').slice(0, 20);
+  return (
+    <section className="card stack shop-memory" aria-labelledby="mem-h">
+      <h2 id="mem-h">{shop.keeper?.name ? `What ${shop.keeper.name} remembers` : "The keeper's memory"}</h2>
+      <span className="small muted">Reputation runs from -100 to 100 and moves prices by up to {m.repEffect}% each way. Buying raises it; failed haggles lower it.</span>
+      <div className="shop-scroll">
+        <table className="shop-table">
+          <thead><tr><th>Player</th><th>Reputation</th><th className="wide">Spent</th><th className="wide">Sold</th><th className="wide">Haggles</th><th>DM note</th></tr></thead>
+          <tbody>
+            {m.players.map((p) => (
+              <tr key={p.accountId} data-testid="memory-row">
+                <td><strong>{p.name}</strong><div className="tiny muted">{p.standing}{p.repPct ? ` · ${p.repPct > 0 ? `${p.repPct}% off` : `${-p.repPct}% more`}` : ''}</div></td>
+                <td><input type="number" min={-100} max={100} aria-label={`Reputation of ${p.name}`} defaultValue={p.rep} key={`r-${p.accountId}-${p.rep}`} onBlur={(e) => { const v = Math.max(-100, Math.min(100, Math.round(Number(e.target.value) || 0))); if (v !== p.rep) void setRep(p.accountId, { rep: v }); }} /></td>
+                <td className="wide small">{money(p.spentCp)}{p.purchases ? ` (${p.purchases})` : ''}</td>
+                <td className="wide small">{money(p.soldCp)}</td>
+                <td className="wide small">{p.hagglesWon} won, {p.hagglesLost} lost</td>
+                <td><input type="text" maxLength={1000} aria-label={`DM note on ${p.name}`} defaultValue={p.note} key={`n-${p.accountId}-${p.note}`} onBlur={(e) => { if (e.target.value !== p.note) void setRep(p.accountId, { note: e.target.value }); }} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h3 style={{ margin: 0 }}>Deals</h3>
+      {!active.length ? <span className="small muted">No deal waiting to be used.</span> : <ul className="stack tight" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {active.map((x) => (
+          <li key={x.id} className="row between">
+            <span className="small"><strong>{x.name}</strong>: {x.pct}% off {x.line ?? 'everything'} <span className="tiny muted">({x.source === 'dm' ? 'from you' : x.source === 'counter' ? `counter-offer, asked ${x.askedPct}%` : `haggled, asked ${x.askedPct}%`}{x.expiresMin === null ? ', until used' : ''})</span></span>
+            <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('DELETE', `${path}/deals/${x.id}`); await mem.reload(); })}>Cancel</button>
+          </li>
+        ))}
+      </ul>}
+      <div className="shop-grid">
+        <Field label="Give a deal to"><select value={deal.accountId} onChange={(e) => setDeal({ ...deal, accountId: e.target.value })}><option value="">Pick a player…</option>{m.players.map((p) => <option key={p.accountId} value={p.accountId}>{p.name}</option>)}</select></Field>
+        <Field label="On"><select value={deal.stockId} onChange={(e) => setDeal({ ...deal, stockId: e.target.value })}><option value="">Everything</option>{shop.stock.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field>
+        <Field label="% off"><input type="number" min={1} max={90} value={deal.pct} onChange={(e) => setDeal({ ...deal, pct: e.target.value })} /></Field>
+        <Field label="For (game days)" help="Blank: until used"><input type="number" min={1} value={deal.days} onChange={(e) => setDeal({ ...deal, days: e.target.value })} /></Field>
+      </div>
+      <div className="row"><button type="button" className="btn" disabled={act.busy || !deal.accountId || !(Number(deal.pct) >= 1)} onClick={() => void give()}>Give deal</button></div>
+      {!!past.length && <details><summary className="small">Past haggles and deals</summary><ul className="stack tight" style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+        {past.map((x) => <li key={x.id} className="tiny muted">{when(x.at)}: {x.name} {x.source === 'refused' ? `asked ${x.askedPct}% off ${x.line ?? 'everything'} and was refused` : `${x.pct}% off ${x.line ?? 'everything'} (${x.source}, ${x.status})`}</li>)}
+      </ul></details>}
+      <ErrorBox error={act.error} />
+    </section>
+  );
+}
+
+/** Towns: a price level for every shop in them (a siege makes everything dear; a market town is cheap). */
+function Towns({ cfg }: { cfg: ShopConfig }) {
+  const { w } = useWorld();
+  const list = useLoad<{ towns: Town[] }>(() => w.call('GET', '/shop/towns'), [w], ['shop-towns', 'shop']);
+  const act = useAction();
+  const [name, setName] = useState('');
+  if (!list.data) return <><ErrorBox error={list.error} />{!list.error && <Loading />}</>;
+  const patch = (t: Town, p: Record<string, unknown>) => act.run(async () => { await w.call('PATCH', `/shop/towns/${t.id}`, p); await list.reload(); });
+  return (
+    <div className="stack loose">
+      <section className="card stack">
+        <span className="small muted">A town's price level raises or lowers every shop in it, on top of each shop's markup. Players see the town's name and whether prices there are cheap, fair or dear, never the number or your notes.</span>
+        <div className="row" style={{ gap: 8 }}>
+          <input value={name} maxLength={120} placeholder="New town name" aria-label="New town name" onChange={(e) => setName(e.target.value)} style={{ flex: '1 1 200px' }} />
+          <button type="button" className="btn primary" disabled={act.busy || !name.trim()} onClick={() => void act.run(async () => { await w.call('POST', '/shop/towns', { name: name.trim() }); setName(''); await list.reload(); })}>Add town</button>
+        </div>
+        <ErrorBox error={act.error} />
+      </section>
+      {!list.data.towns.length ? <Empty>No towns yet.</Empty> : list.data.towns.map((t) => (
+        <section key={t.id} className="card stack" data-testid="town-card">
+          <div className="row between"><strong>{t.name}</strong><span className="chip">prices {t.prices}</span></div>
+          <div className="shop-grid">
+            <Field label="Name"><input defaultValue={t.name} key={`n${t.name}`} maxLength={120} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== t.name) void patch(t, { name: e.target.value.trim() }); }} /></Field>
+            <Field label="Size"><select value={t.size} onChange={(e) => void patch(t, { size: e.target.value })}>{cfg.sizes.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></Field>
+            <Field label="Price level %" help="+25 inflated, -10 cheap"><input type="number" min={-90} max={500} defaultValue={t.pricePct} key={`p${t.pricePct}`} onBlur={(e) => { const v = Math.round(Number(e.target.value) || 0); if (v !== t.pricePct) void patch(t, { pricePct: v }); }} /></Field>
+          </div>
+          <Field label="What players read about its market"><input defaultValue={t.description} key={`d${t.description}`} maxLength={2000} onBlur={(e) => { if (e.target.value !== t.description) void patch(t, { description: e.target.value }); }} /></Field>
+          <Field label="DM notes (DM only)"><input defaultValue={t.dmNotes} key={`m${t.dmNotes}`} maxLength={4000} onBlur={(e) => { if (e.target.value !== t.dmNotes) void patch(t, { dmNotes: e.target.value }); }} /></Field>
+          <span className="small muted">{t.shops.length ? `Shops: ${t.shops.map((x) => x.name).join(', ')}` : 'No shops yet: pick this town on a shop, or generate one here.'}</span>
+          <div className="row"><button type="button" className="btn ghost small" disabled={act.busy} onClick={() => { if (confirm(`Delete ${t.name}? Its shops stay, at their own prices.`)) void act.run(async () => { await w.call('DELETE', `/shop/towns/${t.id}`); await list.reload(); }); }}>Delete town</button></div>
+        </section>
+      ))}
+    </div>
   );
 }
