@@ -10,7 +10,10 @@
 //   2. device: the DM's computer and a player's phone both transcribe on the device; the phone says so; the DM sees
 //      each mic on the device and its speed; lines come from the devices; after Stop the final pass syncs both mics
 //      into one transcript (no sentence twice), shown on Recordings, and Transcript.md / session.json say so.
-//   3. (E2E_REAL_STT=1 only) the real library and the smallest Whisper model, fetched through the librarian.
+//   3. (E2E_REAL_STT=1 only) the real library and the smallest Whisper model, fetched through the librarian. Chromium's
+//      fake mic plays a tone, which Whisper hears as nothing: give it speech with DSTT_WAV=<a .wav of someone talking>
+//      (it loops) to check that real words with times reach the transcript. The librarian fetches from the internet,
+//      so behind a proxy run Node with NODE_USE_ENV_PROXY=1.
 //
 // Run from web/: npm run build && node e2e/devicestt.mjs   (DSTT_PORT, DSTT_FAKE_PORT, DSTT_SHOTS=<dir>)
 import http from 'node:http';
@@ -75,7 +78,8 @@ const tokTom = await login('tom', 'player pass 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0].id;
 const api = async (tok, method, p, body) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
 
-const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+const WAV = REAL && process.env.DSTT_WAV ? path.resolve(process.env.DSTT_WAV) : '';
+const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', ...(WAV ? [`--use-file-for-fake-audio-capture=${WAV}`] : [])] });
 const watch = (page, who) => {
   page.on('pageerror', (e) => problems.push(`${who} page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text()) && !/ERR_|Failed to load resource/.test(m.text())) problems.push(`${who} console: ${m.text()}`); });
@@ -187,7 +191,9 @@ try {
   await dm.screenshot({ path: path.join(SHOTS, '2-dm-setup.png'), fullPage: true });
   const sid = (await api(tokDM, 'GET', '/audio/status')).body.session?.id;
   const liveLines = (await api(tokDM, 'GET', `/audio/sessions/${sid}/lines`)).body.lines;
-  check(liveLines.some((l) => SENTENCES.some((s) => l.text.includes(s.split(' ').slice(1, 4).join(' ')))), `lines come from the devices' text (${liveLines.length} lines)`);
+  if (!REAL) check(liveLines.some((l) => SENTENCES.some((s) => l.text.includes(s.split(' ').slice(1, 4).join(' ')))), `lines come from the devices' text (${liveLines.length} lines)`);
+  else if (WAV) check(liveLines.some((l) => /\w+\s+\w+/.test(l.text) && l.end > l.start), `the real model's words reach the transcript (${liveLines.length} lines: "${(liveLines[0]?.text ?? '').slice(0, 60)}")`);
+  else console.log(`  (real model, tone only: ${liveLines.length} lines; set DSTT_WAV to check real words)`);
 
   // A mode change reaches the recording phone live: no reload, no restart of the recording.
   const tomUrl = tom.url();
@@ -219,14 +225,16 @@ try {
     const rec = await waitFor(async () => { const s = await sessionByName('E2E device session'); return s?.status === 'ready' || s?.status === 'failed' ? s : null; }, 60000, 'the build');
     const dir = path.join(data, rec.folder ?? '');
     const md = fs.existsSync(path.join(dir, 'Transcript.md')) ? fs.readFileSync(path.join(dir, 'Transcript.md'), 'utf8') : '';
-    check(/microphones synced onto one timeline/.test(md), 'Transcript.md is the final transcript');
+    if (!REAL || WAV) check(/microphones synced onto one timeline/.test(md), 'Transcript.md is the final transcript');
     const doc = fs.existsSync(path.join(dir, 'session.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'session.json'), 'utf8')) : {};
     check(doc.transcript?.status === 'done' && doc.microphones?.some((m) => m.speechToText?.deviceChunks > 0), 'session.json says which chunks each device transcribed');
   } else console.log('  (ffmpeg missing: the recording folder checks are skipped)');
-  // Undo puts the live lines back.
-  await box.getByRole('button', { name: /Undo/ }).click();
-  await box.getByText(/Undone/).waitFor({ timeout: 10000 });
-  check(true, 'Undo brings the live transcript back');
+  // Undo puts the live lines back (a tone heard by the real model leaves no lines, so nothing to undo).
+  if (!REAL || WAV) {
+    await box.getByRole('button', { name: /Undo/ }).click();
+    await box.getByText(/Undone/).waitFor({ timeout: 10000 });
+    check(true, 'Undo brings the live transcript back');
+  }
   const wide = await tom.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(wide <= 1, `no sideways scroll on the phone (${wide}px)`);
 } catch (e) {
