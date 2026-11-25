@@ -379,6 +379,48 @@ export default function inventoryRoutes(d: Deps) {
     res.json({ ok: true });
   });
 
+  // ---- One view for the Players page and the player's "Mine / Party" header ----
+
+  const itemLine = (res: Response, it: any) => ({ id: it.id, name: it.name, qty: it.qty, note: it.note, image: it.image ?? null, pageId: it.page_id ?? null, status: it.status ?? 'approved', ...(isDM(res) ? { dm_note: it.dm_note } : {}), ...(settings(res).trackWeight ? { weight: it.weight } : {}) });
+  const waitingBy = (w: string) => {
+    const out = new Map<string, number>();
+    for (const x of all<any>(db, `SELECT owner, COUNT(*) AS n FROM item_changes WHERE world_id = ? AND status = 'pending' GROUP BY owner`, w)) out.set(x.owner, (out.get(x.owner) ?? 0) + x.n);
+    for (const x of all<any>(db, `SELECT owner, COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending' GROUP BY owner`, w)) out.set(x.owner, (out.get(x.owner) ?? 0) + x.n);
+    return out;
+  };
+
+  /** DM: every player's pack and coin, then the party's, in one answer. */
+  r.get('/overview', (req, res) => {
+    if (!isDM(res)) throw new HttpError(403, 'DM only');
+    const w = ctx(res).world.id;
+    const s = settings(res);
+    const items = all<any>(db, `SELECT * FROM items WHERE world_id = ? AND status IN ('approved', 'pending') ORDER BY status, name COLLATE NOCASE`, w);
+    const by = new Map<string, any[]>();
+    for (const it of items) by.set(it.owner, [...(by.get(it.owner) ?? []), it]);
+    const waiting = waitingBy(w);
+    const nm = all<any>(db, `SELECT a.id, a.display_name, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player' ORDER BY COALESCE(NULLIF(m.character_name, ''), a.display_name) COLLATE NOCASE`, w);
+    const card = (owner: string) => ({ cp: balance(db, w, owner), items: (by.get(owner) ?? []).map((it) => itemLine(res, it)), waiting: waiting.get(owner) ?? 0 });
+    res.json({
+      coins: s.coins, trackWeight: s.trackWeight, dmEdits: s.dmEditsInventory, partyPurse: s.partyPurse, dmChangeReason: !!(s as any).dmChangeReason,
+      players: nm.map((p) => ({ id: p.id, character: p.character_name || p.display_name, player: p.display_name, ...card(p.id) })),
+      party: { ...card('party'), purse: s.partyPurse, cp: s.partyPurse ? balance(db, w, 'party') : null },
+    });
+  });
+
+  /** Anyone: my coin and pack size, and the party's, for the header of the Inventory page. */
+  r.get('/summary', requirePlayerOrDM, (req, res) => {
+    const w = ctx(res).world.id;
+    const s = settings(res);
+    const count = (o: string) => one<any>(db, `SELECT COALESCE(SUM(qty), 0) AS qty, COUNT(*) AS n FROM items WHERE world_id = ? AND owner = ? AND status = 'approved'`, w, o)!;
+    const mine = count(me(res));
+    const party = count('party');
+    res.json({
+      coins: s.coins,
+      mine: { cp: balance(db, w, me(res)), kinds: mine.n, qty: mine.qty },
+      party: { cp: s.partyPurse ? balance(db, w, 'party') : null, purse: s.partyPurse, kinds: party.n, qty: party.qty },
+    });
+  });
+
   r.get('/', (req, res) => {
     const c = ctx(res);
     const o = owner(res, String(req.query.owner ?? 'me'), false);

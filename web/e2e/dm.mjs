@@ -156,7 +156,7 @@ try {
     await nav.getByRole('button', { name: 'Unpin Map' }).first().click();
     check((await nav.locator('.nav-group.pinned a.nav-link').count()) === 1, `${label} menu: Unpin did not remove the page`);
     // At most eight.
-    for (const n of ['Quick events', 'Scenes', 'Stage', 'Sound', 'Clock', 'Active mode', 'Party', 'Broker']) await nav.getByRole('button', { name: `Pin ${n}` }).first().click({ timeout: 2000 }).catch(() => {});
+    for (const n of ['Quick events', 'Scenes', 'Stage', 'Sound', 'Clock', 'Active mode', 'Players', 'Broker']) await nav.getByRole('button', { name: `Pin ${n}` }).first().click({ timeout: 2000 }).catch(() => {});
     check((await nav.locator('.nav-group.pinned a.nav-link').count()) === 8, `${label} menu: pins should stop at 8 (${await nav.locator('.nav-group.pinned a.nav-link').count()})`);
     // The menu fits the screen: on a laptop it scrolls inside itself, never sideways.
     check(await nav.evaluate((n) => n.scrollWidth <= n.clientWidth + 1), `${label} menu: scrolls sideways`);
