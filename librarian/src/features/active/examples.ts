@@ -8,6 +8,7 @@
 // engine knows how to do, and the rules and confirmation steps are unchanged.
 import type { Deps } from '../../app.ts';
 import { embed, hasJob, jobConfig } from '../../core/ai.ts';
+import { embedCached } from '../../core/embedcache.ts';
 
 export interface LineExample { line: string; actions: Record<string, unknown>[] }
 
@@ -60,7 +61,7 @@ async function bankVectors(d: Deps): Promise<Float32Array[] | null> {
   if (!model) return null;
   const hit = bank.get(d.env as object);
   if (hit && hit.model === model) return hit.vecs;
-  const got = await embed(d, LINE_EXAMPLES.map((e) => e.line));
+  const got = await embedCached(d, LINE_EXAMPLES.map((e) => e.line));
   if (got.length !== LINE_EXAMPLES.length || got.some((v) => !Array.isArray(v) || !v.length)) return null;
   const vecs = got.map(unit);
   bank.set(d.env as object, { model, vecs });

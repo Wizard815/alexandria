@@ -11,6 +11,7 @@ import { all, one, run } from '../../core/db.ts';
 import { HttpError, int, now, oneOf, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me } from '../../routes/_shared.ts';
 import { serveFile } from '../sound/files.ts';
+import { engine } from './engine.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
 import {
   type SessionRow, type TrackRow, buildProgress, chunkFiles, deleteSessionAudio, deletesAt, effectiveDays, enqueueBuild, ffmpegAvailable, isBuilding, localDate,
@@ -78,6 +79,7 @@ function sessionView(d: Deps, s: SessionRow, accountId: string, dm: boolean, wit
     id: s.id, name: s.name, date: localDate(s.started_at), startedAt: s.started_at, stoppedAt: s.stopped_at, active: !s.stopped_at,
     durationMs, status: s.rec_status ?? (chunks.n ? 'raw' : s.audio_deleted_at ? 'deleted' : 'none'),
     error: s.rec_error, warnings: parseJson<string[]>(s.rec_warnings, []), progress: prog, builtAt: s.rec_built_at,
+    final: dm ? engine(d).finalView(s.id) : undefined,
     folder: dm && s.rec_dir ? s.rec_dir.replace(/\\/g, '/') : undefined,
     people: people.length ? people : [...new Set(micNames.map((m) => m.display_name))],
     mics: tracks.filter((t) => t.kind === 'mic').length || micNames.length,

@@ -1,5 +1,4 @@
 import type { WebFeature } from '../registry.ts';
-import ConnectionsPage from './ConnectionsPage.tsx';
 import SetupFlow from './SetupFlow.tsx';
 import WorldPage from './WorldPage.tsx';
 
@@ -7,10 +6,8 @@ import WorldPage from './WorldPage.tsx';
 const feature: WebFeature = {
   id: 'connections',
   adminRoutes: [
-    { path: 'connections', element: <ConnectionsPage /> },
     { path: 'worlds/setup', element: <SetupFlow /> },
     { path: 'worlds/:id', element: <WorldPage /> },
   ],
-  adminNav: [{ to: 'connections', label: 'Connections' }],
 };
 export default feature;

@@ -123,7 +123,7 @@ const feature: Feature = {
     });
     stopRunning = (worldId) => { if (stop?.worldId === worldId) stop.ctl.abort(); };
     const tick = async () => {
-      if (busy || !hasJob(d, 'bible')) return;
+      if (busy || !hasJob(d, 'bible') || d.jobs.pressure) return;
       busy = true;
       try {
         const until = Date.now() + 45_000;

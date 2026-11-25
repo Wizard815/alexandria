@@ -8,6 +8,7 @@ import { Modal } from '../../ui/index.tsx';
 import { DockButton, DockItem, useExclusivePanel } from '../../ui/Dock.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { engine, useEngine } from './engine.ts';
+import { useDeviceStt } from './stt.ts';
 import { TranscriptView, useRecordingSync, useTranscript } from './TranscriptView.tsx';
 import { useMainPrefs } from '../screens/prefs.ts';
 
@@ -53,8 +54,14 @@ export default function TranscriptOverlay() {
 function RecordingBadge() {
   useRecordingSync();
   const st = useEngine();
+  const stt = useDeviceStt();
   if (!st.recording) return null;
-  return <DockItem order={1} keep><span className="au-badge" role="status" aria-live="polite"><span className="au-rec-dot" /> Recording</span></DockItem>;
+  const here = stt.state === 'ready' || stt.state === 'running' || stt.state === 'behind';
+  return (
+    <DockItem order={1} keep>
+      <span className="au-badge" role="status" aria-live="polite"><span className="au-rec-dot" /> Recording{here && <span className="au-badge-stt" title={`Transcribing on this device: ${stt.model}, ${stt.backend === 'webgpu' ? 'graphics card' : 'processor'}`}> · <i className="fa-solid fa-microchip" aria-hidden="true" /> transcribing on this device</span>}</span>
+    </DockItem>
+  );
 }
 
 function ConsentPrompt() {

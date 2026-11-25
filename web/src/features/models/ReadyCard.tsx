@@ -1,8 +1,8 @@
-// The DM's table page: "Models ready: chat ✓ audit ✓ whisper … loading". Shown when
-// "Load before play" is on (Admin → Models → Session mode) or a warm-up has run.
+// The DM's table page: "Models ready: chat ✓ audit ✓ whisper … loading". Shown while a game session
+// holds the local models (Admin → Models → Game night). Reads the server's state only, never asks a model.
 import { useEffect } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
-import { WARM_NAMES, type WarmEntry } from './SessionCard.tsx';
+import { WARM_NAMES, type WarmEntry } from './GameNightCard.tsx';
 
 interface Ready { enabled: boolean; jobs: Record<string, WarmEntry> }
 
