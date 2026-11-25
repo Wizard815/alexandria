@@ -193,6 +193,7 @@ let tmp = '';
 const T: Record<string, string> = {};
 let W = '';
 let W2 = '';
+const ID: Record<string, string> = {};
 const SP = (w = W) => `/api/worlds/${w}/spells`;
 
 async function call(method: string, url: string, token?: string, body?: unknown) {
@@ -212,7 +213,9 @@ before(async () => {
   W = (await call('POST', '/api/admin/worlds', T.admin, { name: 'Runeholm', dmAccountId: dm })).body.id;
   W2 = (await call('POST', '/api/admin/worlds', T.admin, { name: 'Ashmark', dmAccountId: dm })).body.id;
   const inv = (await call('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' })).body;
-  T.jess = (await call('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).body.token;
+  const j = (await call('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).body;
+  T.jess = j.token;
+  ID.jess = j.account.id;
 });
 
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -299,4 +302,52 @@ test('SpellRules: a profile exports by name and imports into another world with 
   assert.equal((await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: { lines: [{ name: 'Bad', color: 'red' }] } })).status, 400);
   assert.equal((await call('GET', `${SP(W2)}/lines`, T.dm)).body.lines.length, 0, 'a refused import changes nothing');
   assert.equal((await call('POST', `${SP()}/profile/import`, T.jess, { profile: p })).status, 403);
+});
+
+test('SpellRules: in play: caster levels set the pool, casts follow the limits, dual cast needs the ability, rests reset', async () => {
+  const ok = async (m: string, u: string, t: string, b?: unknown) => { const r = await call(m, u, t, b); assert.ok(r.status < 300, `${m} ${u} -> ${r.status} ${JSON.stringify(r.body)}`); return r.body; };
+  // Off until the DM turns the engine on.
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellMana: true, spellRules: {} });
+  await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: 'srd:fireball' });
+  await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: 'srd:scorching-ray' });
+  await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: 'srd:fire-bolt' });
+  assert.equal((await call('POST', `${SP()}/cast/quote`, T.jess, { spellId: 'srd:fireball' })).status, 409, 'the engine is off');
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: true });
+  assert.equal((await call('PUT', `${SP()}/characters/me/caster`, T.jess, { casterLevels: { full: 25 } })).status, 400);
+  assert.equal((await call('PUT', `${SP()}/characters/me/caster`, T.jess, { dualAbility: true })).status, 403, 'only the DM grants the ability');
+  // Wizard 5: pool 27, 3rd-level spells.
+  let me = await ok('PUT', `${SP()}/characters/me/caster`, T.jess, { casterLevels: { full: 5 } });
+  assert.deepEqual([me.mana.max, me.mana.now, me.mana.maxCastLevel], [27, 27, 3]);
+  assert.equal((await call('POST', `${SP()}/cast/quote`, T.jess, { spellId: 'srd:fireball', level: 4 })).status, 409, 'above the highest level');
+  const q = await ok('POST', `${SP()}/cast/quote`, T.jess, { spellId: 'srd:fireball' });
+  assert.deepEqual([q.allowed, q.cost], [true, 5]);
+  let c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:fireball' });
+  assert.deepEqual([c.cost, c.mana], [5, 22]);
+  // Same turn: a surge cast, ×2 with echo strain (5 + 1) and a CON save.
+  c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:fireball' });
+  assert.deepEqual([c.cost, c.mana, c.surge, c.saves[0].dc], [12, 10, true, 13]);
+  assert.match((await call('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:scorching-ray' })).body.error, /Surge cast is used up/);
+  assert.equal((await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:fire-bolt' })).cost, 0, 'cantrips are free of the turn limit');
+  // A new turn: echo strain makes the third Fireball 7.
+  await ok('POST', `${SP()}/characters/me/turn`, T.jess);
+  assert.equal((await ok('POST', `${SP()}/cast/quote`, T.jess, { spellId: 'srd:fireball' })).cost, 7);
+  // Dual cast needs the ability, then counts as the turn's leveled spell.
+  assert.match((await ok('POST', `${SP()}/dual/quote`, T.jess, { spellA: 'srd:scorching-ray' })).reasons[0], /Dual cast ability/);
+  await ok('PUT', `${SP()}/characters/${ID.jess}/caster`, T.dm, { dualAbility: true });
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'long-rest' });
+  me = await ok('GET', `${SP()}/characters/me`, T.jess);
+  assert.deepEqual([me.mana.now, me.mana.casting.echo, me.mana.casting.surgeUsed, me.mana.casting.dualAbility], [27, {}, false, true], 'a long rest refills and resets');
+  const dq = await ok('POST', `${SP()}/dual/quote`, T.jess, { spellA: 'srd:scorching-ray', spellB: 'srd:fireball' });
+  assert.deepEqual([dq.kind, dq.allowed, dq.cost, dq.dc], ['fuse', true, 12, 15]);
+  assert.equal((await call('POST', `${SP()}/dual`, T.jess, { spellA: 'srd:scorching-ray', spellB: 'srd:fireball' })).status, 400, 'the Arcana total is needed');
+  const fail = await ok('POST', `${SP()}/dual`, T.jess, { spellA: 'srd:scorching-ray', spellB: 'srd:fireball', arcana: 9 });
+  assert.deepEqual([fail.success, fail.mana], [false, 15], 'the mana is spent on a failure');
+  me = await ok('GET', `${SP()}/characters/me`, T.jess);
+  assert.deepEqual([me.mana.casting.dualUsed, me.mana.casting.dualPenalty, me.mana.casting.turnLeveled], [true, 2, 1]);
+  assert.match((await call('POST', `${SP()}/dual`, T.jess, { spellA: 'srd:fireball', arcana: 30 })).body.error, /used up until a short rest/);
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'short-rest' });
+  const emp = await ok('POST', `${SP()}/dual/quote`, T.jess, { spellA: 'srd:fireball' });
+  assert.deepEqual([emp.kind, emp.cost, emp.effectiveLevel, emp.dc], ['empower', 10, 5, 16], 'a short rest clears the use and the penalty');
+  assert.equal((await call('POST', `${SP()}/dual/quote`, T.jess, { spellA: 'srd:fire-bolt' })).status, 400, 'not for cantrips');
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false });
 });
