@@ -8,6 +8,7 @@
 // learning) is in rules.ts.
 import { ABILITIES, type Ability } from './format.ts';
 import type { Character } from './store.ts';
+import { multiclassHighest, multiclassPool, type SpellRules } from './rules.ts';
 
 // The cost table of Spell_Plan.md: what 5e spell slots are worth, editable per world.
 export const DEFAULT_COSTS = [0, 2, 3, 5, 6, 7, 9, 11, 13, 15];
@@ -88,6 +89,8 @@ function evaluate(n: Node, vars: Record<string, number>): number {
   return n.op === '+' ? a + b : n.op === '-' ? a - b : n.op === '*' ? a * b : b === 0 ? 0 : a / b;
 }
 
+const hasLevels = (c: Character): boolean => Object.values(c.casterLevels ?? {}).some((n) => (n ?? 0) > 0);
+
 export const abilityMod = (score: number | undefined): number => (typeof score === 'number' ? Math.floor((score - 10) / 2) : 0);
 
 /** The spellcasting modifier: the character's chosen ability, else the best of INT, WIS and CHA. */
@@ -104,11 +107,14 @@ export interface ManaRules {
   rest: typeof DEFAULT_REST;
   maxLevel: typeof DEFAULT_MAX_LEVEL;
   overdraw: boolean;
+  /** The spell rules engine, when the world turns it on (`spellRulesOn`): caster-type pools, limits, dual cast. */
+  engine?: SpellRules | null;
 }
 
 /** The pool's maximum: the DM's number for this character, else the formula or table at the character's level. Null without a level. */
 export function poolMax(c: Character, r: ManaRules): number | null {
   if (c.manaMax !== null && c.manaMax !== undefined) return c.manaMax;
+  if (r.engine && hasLevels(c)) return multiclassPool(c.casterLevels!, r.engine);
   if (!c.level) return null;
   const lv = Math.max(1, Math.min(20, c.level));
   if (r.pool.mode === 'table') return r.pool.table[lv - 1] ?? 0;
@@ -130,6 +136,7 @@ export function castCost(spell: { level: number; manaOverride?: number | null; m
 
 /** The highest spell level the character may cast with mana, or null with no limit. */
 export function maxCastLevel(c: Character, r: ManaRules): number | null {
+  if (r.engine && hasLevels(c)) return multiclassHighest(c.casterLevels!);
   if (!r.maxLevel.on) return null;
   if (!c.level) return 0;
   return r.maxLevel.table[Math.max(1, Math.min(20, c.level)) - 1] ?? 0;

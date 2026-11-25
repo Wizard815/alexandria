@@ -274,10 +274,31 @@ what the world changed), the lines with their spells, and the recipes.
   a profile does not carry or a bad line refuses the whole import. Lines merge
   by name; `replace: true` clears the world's lines and recipes first.
 
-The engine is not wired into casting or the Codex UI yet: `POST /spells/cast`
-still uses the mana rules above. Characters have no caster type or study
-state yet; those come with the cast panel and the Study panel (plan steps
-2 to 8).
+### The engine in play
+
+World setting `spellRulesOn` (off by default, needs `spellMana`) puts the
+engine into casting:
+
+- **Caster levels.** `PUT /spells/characters/:aid/caster {casterLevels: {full, half, third}}`
+  (the player too when `spellPlayerStats` is on). With caster levels set, the
+  pool and the highest spell level come from the engine's tables (multiclass:
+  the full table at the combined caster level); a mana maximum set by hand
+  still wins. Without them the old formula or table applies.
+- **The Dual cast ability.** `PUT .../caster {dualAbility: true}`, the DM only.
+- **Casting.** `POST /spells/cast` applies every limit: upcast surcharge, echo
+  strain, one leveled spell per turn with the surge cast, the high-level
+  limit, overchannel and low mana. It answers with the cost breakdown and the
+  saves to roll (the DM applies fatigue on a failure). `POST /spells/cast/quote`
+  shows the same without casting.
+- **Turns.** `POST /spells/characters/:aid/turn` starts a new turn.
+- **Dual cast.** `POST /spells/dual/quote {spellA, spellB}` (the same spell
+  twice is empower), then `POST /spells/dual {..., arcana: total}`. The mana is
+  spent either way; a failure gives the next Arcana check its penalty.
+- **Rests.** A short rest resets the turn, echo strain, the surge cast and the
+  dual cast; a long rest also the high-level spells.
+
+Not yet: the fuse insight toward recipes, studying spells (days, final
+check, memories, scrolls), the cast panel and tree view in the app.
 
 ## Settings
 

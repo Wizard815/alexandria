@@ -19,7 +19,8 @@ import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { ABILITIES, ABILITY_NAMES, componentsText, normalizeSpell, spellLine, toCsv, type Ability } from './format.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST, castCost, checkCosts, checkMaxLevel, checkPool, checkRest, maxCastLevel, poolMax, poolNow, restGain, type ManaRules, type RestGain } from './mana.ts';
-import { checkSpellRules, preview, resolveRules } from './rules.ts';
+import { checkSpellRules, preview, quoteCast, quoteDual, resolveRules } from './rules.ts';
+import { STATE_SCHEMA, castMemory, normalizeCasterLevels, restMemory, saveMemory } from './castState.ts';
 import { LINES_SCHEMA, MAX_LINES, PROFILE_FORMAT, PROFILE_SETTINGS, deleteLine, forgetSpell, lineById, lineByName, lines, normalizeLine, readProfile, saveLine, setLineSpells, setSpellLines } from './lines.ts';
 import { eligibility, holding, normalizeRecipe, recipeById, recipes, tiers, type Eligibility, type Recipe } from './craft.ts';
 import { readImport, saveImport } from './importers.ts';
@@ -38,6 +39,7 @@ export const manaRules = (s: WorldSettings): ManaRules => ({
   rest: featureSetting<typeof DEFAULT_REST>(s, 'spellManaRest') ?? DEFAULT_REST,
   maxLevel: featureSetting<typeof DEFAULT_MAX_LEVEL>(s, 'spellManaMaxLevel') ?? DEFAULT_MAX_LEVEL,
   overdraw: featureSetting<boolean>(s, 'spellManaOverdraw') === true,
+  engine: featureSetting<boolean>(s, 'spellRulesOn') === true ? resolveRules(featureSetting(s, 'spellRules')) : null,
 });
 const craftOn = (s: WorldSettings) => featureSetting<boolean>(s, 'spellCrafting') === true;
 const publicSrd = (s: WorldSettings) => featureSetting<boolean>(s, 'spellsPublicSrd') === true;
@@ -60,7 +62,9 @@ const spellStub = (s: WorldSpell | null, ref: string) => (s ? { id: s.id, name: 
 
 function charOut(db: DB, worldId: string, c: Character, r: ManaRules) {
   const max = poolMax(c, r);
-  return { ...c, mana: r.on ? { on: true, now: poolNow(c, max), max, manual: c.manaMax !== null, maxCastLevel: maxCastLevel(c, r) } : { on: false } };
+  const m = r.on && r.engine ? castMemory(db, worldId, c.accountId) : null;
+  const casting = m ? { dualAbility: m.dualAbility, turnLeveled: m.turnLeveled, surgeUsed: m.surgeUsed, dualUsed: m.dualUsed, dualPenalty: m.dualPenalty, echo: m.echo, highUsed: m.highUsed } : null;
+  return { ...c, mana: r.on ? { on: true, now: poolNow(c, max), max, manual: c.manaMax !== null, maxCastLevel: maxCastLevel(c, r), ...(casting ? { casting } : {}) } : { on: false } };
 }
 
 function emitChar(d: Deps, worldId: string, accountId: string) {
@@ -87,6 +91,7 @@ function routes(d: Deps) {
     const gain: RestGain = kind === 'long' ? rules.rest.long : rules.rest.short;
     const out: { accountId: string; before: number | null; after: number | null }[] = [];
     for (const aid of only ?? playerIds(db, worldId)) {
+      if (rules.engine) restMemory(db, worldId, aid, kind);
       const c = character(db, worldId, aid);
       const max = poolMax(c, rules);
       if (max === null) continue;
@@ -356,6 +361,109 @@ function routes(d: Deps) {
     res.json(charOut(db, W(res), character(db, W(res), aid), rules));
   });
 
+  // ---- the spell rules engine in play (Spell_Plan.md §3-4; world setting spellRulesOn) ----
+
+  /** The spell a cast names, the level to cast it at, and that the caster may use it. */
+  function castTarget(res: Response, aid: string, ref: unknown, level: unknown) {
+    const s = spellById(db, W(res), String(ref ?? ''));
+    if (!s) throw new HttpError(404, 'Spell not found');
+    if (!isDM(res) && !knownIds(db, W(res), aid).has(s.id)) throw new HttpError(s.public ? 403 : 404, s.public ? 'You do not know this spell' : 'Spell not found');
+    const at = level === undefined || level === null || level === '' ? s.level : Number(level);
+    if (!Number.isInteger(at) || at < s.level || at > 9) throw new HttpError(400, `Cast ${s.name} at level ${s.level} to 9`);
+    return { s, at };
+  }
+
+  /** What casting would cost and whether it may happen now, from the character's pool and cast memory. */
+  function quote(res: Response, aid: string, s: WorldSpell, at: number) {
+    const rules = R(res);
+    if (!rules.on || !rules.engine) throw new HttpError(409, 'The spell rules are off in this world');
+    const c = character(db, W(res), aid);
+    const max = poolMax(c, rules);
+    if (max === null) throw new HttpError(409, 'Set the character level, caster levels or a mana maximum first');
+    const lim = maxCastLevel(c, rules);
+    if (lim !== null && at > 0 && at > lim) throw new HttpError(409, `${c.name || 'This character'} casts spells of level ${lim} or lower`);
+    const m = castMemory(db, W(res), aid);
+    const charLevel = c.level ?? Object.values(c.casterLevels ?? {}).reduce((a, b) => a + (b ?? 0), 0);
+    const q = quoteCast({ level: s.level, manaCost: s.manaOverride ?? s.manaCost ?? null }, at, {
+      mana: poolNow(c, max) ?? max, max, characterLevel: charLevel, leveledThisTurn: m.turnLeveled, surgeUsed: m.surgeUsed,
+      echoCount: m.echo[s.id] ?? 0, highUsed: m.highUsed.includes(s.id),
+    }, rules.costs, rules.engine);
+    return { q, c, max, m, charLevel };
+  }
+
+  r.post('/cast/quote', requirePlayerOrDM, (req, res) => {
+    const b = req.body ?? {};
+    const aid = who(res, b.accountId ?? 'me');
+    const { s, at } = castTarget(res, aid, b.spellId, b.level);
+    const { q } = quote(res, aid, s, at);
+    res.json({ spellId: s.id, ...q });
+  });
+
+  /** Caster levels (the player too, when they keep their own sheet) and the Dual cast ability (the DM only). */
+  r.put('/characters/:aid/caster', requirePlayerOrDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    const b = req.body ?? {};
+    const dm = isDM(res);
+    const patch: Parameters<typeof saveMemory>[3] = {};
+    if (b.casterLevels !== undefined) {
+      if (!dm && featureSetting<boolean>(S(res), 'spellPlayerStats') === false) throw new HttpError(403, 'The DM keeps your spell sheet in this world');
+      try { patch.casterLevels = normalizeCasterLevels(b.casterLevels); } catch (e: any) { throw new HttpError(400, e.message); }
+    }
+    if (b.dualAbility !== undefined) {
+      if (!dm) throw new HttpError(403, 'Only the DM grants the Dual cast ability');
+      if (typeof b.dualAbility !== 'boolean') throw new HttpError(400, 'dualAbility must be true or false');
+      patch.dualAbility = b.dualAbility;
+    }
+    saveMemory(db, W(res), aid, patch);
+    audit(db, W(res), me(res), 'spells.caster', JSON.stringify(patch).slice(0, 300));
+    emitChar(d, W(res), aid);
+    res.json(charOut(db, W(res), character(db, W(res), aid), R(res)));
+  });
+
+  /** A new turn: the one-leveled-spell-per-turn count starts again. */
+  r.post('/characters/:aid/turn', requirePlayerOrDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    saveMemory(db, W(res), aid, { turnLeveled: 0 });
+    emitChar(d, W(res), aid);
+    res.json(charOut(db, W(res), character(db, W(res), aid), R(res)));
+  });
+
+  /** Dual cast: the same spell twice (empower) or two known spells (fuse). Without `arcana` it only quotes. */
+  function dual(res: Response, b: any, commit: boolean) {
+    const aid = who(res, b.accountId ?? 'me');
+    const rules = R(res);
+    if (!rules.on || !rules.engine) throw new HttpError(409, 'The spell rules are off in this world');
+    const A = castTarget(res, aid, b.spellA, undefined).s;
+    const B = castTarget(res, aid, b.spellB ?? b.spellA, undefined).s;
+    if (A.level === 0 || B.level === 0) throw new HttpError(400, 'Dual cast is for leveled spells');
+    const c = character(db, W(res), aid);
+    const max = poolMax(c, rules);
+    if (max === null) throw new HttpError(409, 'Set the character level, caster levels or a mana maximum first');
+    const m = castMemory(db, W(res), aid);
+    const q = quoteDual({ id: A.id, level: A.level, manaCost: A.manaOverride ?? A.manaCost ?? null, concentration: A.concentration }, { id: B.id, level: B.level, manaCost: B.manaOverride ?? B.manaCost ?? null, concentration: B.concentration },
+      { characterLevel: c.level ?? 0, hasAbility: m.dualAbility, usedSinceShortRest: m.dualUsed, penalty: m.dualPenalty }, rules.costs, rules.engine);
+    const cur = poolNow(c, max) ?? max;
+    if (rules.engine.oneLeveledPerTurn && m.turnLeveled >= 1) q.reasons.push('A leveled spell was already cast this turn');
+    if (cur < q.cost) q.reasons.push(`Not enough mana (needs ${q.cost}, has ${cur})`);
+    q.allowed = q.reasons.length === 0;
+    const out = { kind: A.id === B.id ? 'empower' : 'fuse', ...q, mana: cur };
+    if (!commit) return out;
+    if (!q.allowed) throw new HttpError(409, q.reasons.join('; '));
+    const roll = Number(b.arcana);
+    if (!Number.isFinite(roll)) throw new HttpError(400, 'arcana must be the Arcana check total');
+    const success = roll >= q.dc;
+    const after = cur - q.cost;
+    tx(db, () => {
+      saveCharacter(db, W(res), aid, { mana: after });
+      saveMemory(db, W(res), aid, { dualUsed: true, turnLeveled: m.turnLeveled + 1, dualPenalty: success ? 0 : rules.engine!.dualCast.failPenalty });
+      logEntry(db, W(res), aid, 'cast', me(res), { spellId: A.id, amount: -q.cost, manaAfter: after, note: `Dual cast (${out.kind}): ${A.name}${A.id === B.id ? '' : ` + ${B.name}`}, Arcana ${roll} vs ${q.dc}: ${success ? 'success' : 'failed'}` });
+    });
+    emitChar(d, W(res), aid);
+    return { ...out, success, mana: after };
+  }
+  r.post('/dual/quote', requirePlayerOrDM, (req, res) => res.json(dual(res, req.body ?? {}, false)));
+  r.post('/dual', requirePlayerOrDM, (req, res) => res.json(dual(res, req.body ?? {}, true)));
+
   r.post('/cast', requirePlayerOrDM, (req, res) => {
     const b = req.body ?? {};
     const aid = who(res, b.accountId ?? 'me');
@@ -370,6 +478,26 @@ function routes(d: Deps) {
       logEntry(db, W(res), aid, 'cast', me(res), { spellId: s.id, note: `${s.name}${at > s.level ? ` at level ${at}` : ''}` });
       emitChar(d, W(res), aid);
       return res.json({ ok: true, cost: 0, mana: null });
+    }
+    if (rules.engine) {
+      const out = tx(db, () => {
+        const { q, max, m } = quote(res, aid, s, at);
+        if (!q.allowed) throw new HttpError(409, q.reasons.join('; '));
+        saveCharacter(db, W(res), aid, { mana: q.manaAfter });
+        if (s.level > 0) {
+          const e = rules.engine!;
+          saveMemory(db, W(res), aid, {
+            turnLeveled: m.turnLeveled + 1,
+            surgeUsed: m.surgeUsed || q.surge,
+            echo: { ...m.echo, [s.id]: (m.echo[s.id] ?? 0) + 1 },
+            highUsed: e.highLevelLimit.on && at >= e.highLevelLimit.fromLevel && !m.highUsed.includes(s.id) ? [...m.highUsed, s.id] : m.highUsed,
+          });
+        }
+        logEntry(db, W(res), aid, 'cast', me(res), { spellId: s.id, amount: -q.cost, manaAfter: q.manaAfter, note: `${s.name}${at > s.level ? ` at level ${at}` : ''}${q.surge ? ' (surge)' : ''}` });
+        return { cost: q.cost, mana: q.manaAfter, max, breakdown: q.breakdown, saves: q.saves, surge: q.surge, lowMana: q.lowMana };
+      });
+      emitChar(d, W(res), aid);
+      return res.json({ ok: true, ...out });
     }
     const out = tx(db, () => {
       const c = character(db, W(res), aid);
@@ -823,7 +951,7 @@ const qs = (a: Record<string, unknown>) => Object.entries(a).filter(([, v]) => v
 
 const feature: Feature = {
   id: 'spells',
-  schema: SCHEMA + LINES_SCHEMA,
+  schema: SCHEMA + LINES_SCHEMA + STATE_SCHEMA,
   settings: {
     spellMana: { type: 'boolean', default: false },
     spellManaCosts: { type: 'json', default: DEFAULT_COSTS, validate: checkCosts },
@@ -832,6 +960,7 @@ const feature: Feature = {
     spellManaMaxLevel: { type: 'json', default: DEFAULT_MAX_LEVEL, validate: checkMaxLevel },
     spellManaOverdraw: { type: 'boolean', default: false },
     spellRules: { type: 'json', default: {}, validate: checkSpellRules },
+    spellRulesOn: { type: 'boolean', default: false },
     spellCrafting: { type: 'boolean', default: false },
     spellCraftApproval: { type: 'enum', values: ['dm', 'auto'], default: 'dm' },
     spellCraftHidden: { type: 'enum', values: ['mystery', 'hide'], default: 'mystery' },

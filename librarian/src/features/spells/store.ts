@@ -220,6 +220,8 @@ export interface Character {
   mana: number | null;
   /** Where each value came from when the spell sheet has none: the player's profile blocks. */
   from: { level?: 'profile'; abilities?: Ability[] };
+  /** Levels per caster type (spell rules engine); empty when not set. */
+  casterLevels?: Partial<Record<'full' | 'half' | 'third', number>>;
 }
 
 const ABBR: Record<string, Ability> = { str: 'str', strength: 'str', dex: 'dex', dexterity: 'dex', con: 'con', constitution: 'con', int: 'int', intelligence: 'int', wis: 'wis', wisdom: 'wis', cha: 'cha', charisma: 'cha' };
@@ -272,6 +274,7 @@ export function character(db: DB, worldId: string, accountId: string): Character
     manaMax: r?.mana_max ?? null,
     mana: r?.mana ?? null,
     from: { ...(r?.level == null && prof.level != null ? { level: 'profile' as const } : {}), ...(fromProfile.length ? { abilities: fromProfile } : {}) },
+    casterLevels: parseJson(one<any>(db, 'SELECT caster_levels FROM spells_state WHERE world_id = ? AND account_id = ?', worldId, accountId)?.caster_levels, {}),
   };
 }
 
