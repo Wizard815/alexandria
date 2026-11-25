@@ -38,7 +38,12 @@ CREATE TABLE IF NOT EXISTS model_access (
 );
 `;
 
-export function ensureModelSchema(db: DB) { db.exec(MODEL_SCHEMA); }
+export function ensureModelSchema(db: DB) {
+  db.exec(MODEL_SCHEMA);
+  // outcome: '' for a call that left for a model; 'refused' (not allowed) or 'limited' (rate or daily cap) for a /v1 call the gate stopped.
+  const cols = (db.prepare('PRAGMA table_info(model_calls)').all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes('outcome')) db.exec(`ALTER TABLE model_calls ADD COLUMN outcome TEXT NOT NULL DEFAULT ''`);
+}
 
 /** The feature and function that asked, from the stack: src/features/<feature>/..., else the route or core file. */
 export function callerOf(): { feature: string; reason: string } {
@@ -56,13 +61,13 @@ export function callerOf(): { feature: string; reason: string } {
   return { feature: 'unknown', reason: '' };
 }
 
-export interface CallRow { job: string; model?: string | null; feature?: string; reason?: string; via?: 'internal' | 'gateway'; accountId?: string | null; status?: number; ms?: number; tokensIn?: number | null; tokensOut?: number | null }
+export interface CallRow { job: string; model?: string | null; feature?: string; reason?: string; via?: 'internal' | 'gateway'; accountId?: string | null; status?: number; ms?: number; tokensIn?: number | null; tokensOut?: number | null; outcome?: '' | 'refused' | 'limited' }
 
 export function recordCall(db: DB, c: CallRow) {
   try {
     const who = c.feature ? { feature: c.feature, reason: c.reason ?? '' } : callerOf();
-    run(db, 'INSERT INTO model_calls (at, job, model, feature, reason, via, account_id, status, ms, tokens_in, tokens_out) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      now(), c.job, c.model ?? null, who.feature, who.reason, c.via ?? 'internal', c.accountId ?? null, c.status ?? null, c.ms === undefined ? null : Math.round(c.ms), c.tokensIn ?? null, c.tokensOut ?? null);
+    run(db, 'INSERT INTO model_calls (at, job, model, feature, reason, via, account_id, status, ms, tokens_in, tokens_out, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      now(), c.job, c.model ?? null, who.feature, who.reason, c.via ?? 'internal', c.accountId ?? null, c.status ?? null, c.ms === undefined ? null : Math.round(c.ms), c.tokensIn ?? null, c.tokensOut ?? null, c.outcome ?? '');
   } catch { /* a database without the log (a test stub) */ }
 }
 
@@ -129,12 +134,47 @@ export function allowanceOf(db: DB, s: Subject, env: Record<string, string | und
   return { allowed: false, why: 'only the DM and the admin use the model gateway', ...guestLimits };
 }
 
-/** Requests and tokens an account has used through the gateway since 00:00 UTC. */
+const startOfDayUtc = () => { const s = new Date(); s.setUTCHours(0, 0, 0, 0); return s; };
+
+/** Requests and tokens an account has used through the gateway since 00:00 UTC. A call the gate stopped does not count. */
 export function usedToday(db: DB, accountId: string) {
-  const start = new Date();
-  start.setUTCHours(0, 0, 0, 0);
-  const r = one<any>(db, `SELECT count(*) AS n, coalesce(sum(coalesce(tokens_in, 0) + coalesce(tokens_out, 0)), 0) AS t FROM model_calls WHERE via = 'gateway' AND account_id = ? AND at >= ?`, accountId, start.toISOString());
+  const start = startOfDayUtc();
+  const r = one<any>(db, `SELECT count(*) AS n, coalesce(sum(coalesce(tokens_in, 0) + coalesce(tokens_out, 0)), 0) AS t FROM model_calls WHERE via = 'gateway' AND outcome = '' AND account_id = ? AND at >= ?`, accountId, start.toISOString());
   return { requests: Number(r?.n ?? 0), tokens: Number(r?.t ?? 0) };
 }
 
 export const secondsToMidnightUtc = () => { const n = new Date(); const m = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1)); return Math.max(1, Math.ceil((m.getTime() - n.getTime()) / 1000)); };
+
+/**
+ * The /v1 call log for the admin: recent gateway calls (who, when, model, tokens, status, refused or limited) and, per account that
+ * called today or is listed, today's totals against its caps. Never the prompt or the answer: the log does not hold them.
+ */
+export function gatewayLog(db: DB, env: Record<string, string | undefined>, opts: { limit?: number } = {}) {
+  const limit = Math.max(1, Math.min(500, Math.floor(opts.limit ?? 100)));
+  const start = startOfDayUtc().toISOString();
+  const calls = all<any>(db, `SELECT c.id, c.at, c.job, c.model, c.reason, c.account_id, a.username, c.status, c.ms, c.tokens_in, c.tokens_out, c.outcome
+    FROM model_calls c LEFT JOIN accounts a ON a.id = c.account_id WHERE c.via = 'gateway' ORDER BY c.id DESC LIMIT ?`, limit);
+  const today = all<any>(db, `SELECT account_id, sum(CASE WHEN outcome = '' THEN 1 ELSE 0 END) AS n,
+      coalesce(sum(CASE WHEN outcome = '' THEN coalesce(tokens_in, 0) + coalesce(tokens_out, 0) ELSE 0 END), 0) AS t,
+      sum(CASE WHEN outcome = 'refused' THEN 1 ELSE 0 END) AS refused, sum(CASE WHEN outcome = 'limited' THEN 1 ELSE 0 END) AS limited,
+      sum(CASE WHEN outcome = '' AND (status >= 400 OR status = 0) THEN 1 ELSE 0 END) AS errors, max(at) AS last_at
+    FROM model_calls WHERE via = 'gateway' AND at >= ? AND account_id IS NOT NULL GROUP BY account_id`, start);
+  const ids = new Set<string>(today.map((t) => t.account_id));
+  for (const r of all<any>(db, `SELECT subject_id FROM model_access WHERE subject_kind = 'account'`)) ids.add(r.subject_id);
+  const users = [...ids].map((id) => {
+    const acct = one<any>(db, 'SELECT id, username, is_admin FROM accounts WHERE id = ?', id);
+    const isDm = !!one(db, `SELECT 1 FROM members WHERE account_id = ? AND role = 'dm'`, id);
+    const a = allowanceOf(db, { accountId: id, keyId: null, isAdmin: !!acct?.is_admin, isDm, viaSession: true, viaScribeKey: false }, env);
+    const t = today.find((x) => x.account_id === id);
+    return {
+      accountId: id, username: acct?.username ?? null, role: acct?.is_admin ? 'admin' : isDm ? 'dm' : a.allowed ? 'listed' : 'not allowed', allowed: a.allowed,
+      requests: Number(t?.n ?? 0), tokens: Number(t?.t ?? 0), refused: Number(t?.refused ?? 0), limited: Number(t?.limited ?? 0), errors: Number(t?.errors ?? 0), lastAt: t?.last_at ?? null,
+      caps: { dailyRequests: a.dailyRequests, dailyTokens: a.dailyTokens, ratePerMinute: a.ratePerMinute },
+    };
+  }).sort((x, y) => (y.lastAt ?? '').localeCompare(x.lastAt ?? '') || (x.username ?? '').localeCompare(y.username ?? ''));
+  return {
+    since: start,
+    calls: calls.map((r) => ({ id: r.id, at: r.at, job: r.job, model: r.model, path: r.reason, accountId: r.account_id, username: r.username ?? null, status: r.status, ms: r.ms, tokensIn: r.tokens_in, tokensOut: r.tokens_out, outcome: r.outcome || 'passed' })),
+    users,
+  };
+}

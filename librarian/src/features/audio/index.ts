@@ -16,6 +16,7 @@ import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, migr
 import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
 import { RULES_SCHEMA, ruleNotes, rulesPass } from './rulescheck.ts';
 import { sttAssetRoutes, sttAssetsFor } from './sttassets.ts';
+import { HANDOFF_SCHEMA, afterRecording, decideHandoff, handoffView, watchFinals } from './handoff.ts';
 import { REC_SCHEMA, enqueueBuild, migrateRecordings, resetStuckBuilds, sweepRecordings } from './recordings.ts';
 import { recordingMedia, recordingRoutes } from './recroutes.ts';
 
@@ -50,7 +51,7 @@ function scheduleBuild(d: Deps, eng: ReturnType<typeof engine>, sessionId: strin
 
 const feature: Feature = {
   id: 'audio',
-  schema: SCHEMA + SUMMARY_SCHEMA + RULES_SCHEMA + REC_SCHEMA,
+  schema: SCHEMA + SUMMARY_SCHEMA + RULES_SCHEMA + REC_SCHEMA + HANDOFF_SCHEMA,
   migrate: (db) => { migrateRecordings(db); migrateStt(db); },
   settings: {
     recordingConsentText: { type: 'string', default: DEFAULT_CONSENT_TEXT, max: 2000 },
@@ -71,7 +72,23 @@ const feature: Feature = {
   },
   worldMount: 'audio',
   dataDirs: ['audio', 'recordings'],
-  appRoutes: (app, d) => { recordingMedia(app, d); sttAssetRoutes(app, d); },
+  appRoutes: (app, d) => {
+    recordingMedia(app, d);
+    sttAssetRoutes(app, d);
+    // When the final transcript is done (or undone), the summaries are made again from its lines and the hand-off follows.
+    watchFinals(d);
+    // The DM changed where speech to text runs: tell every recording device at once ('stt-mode'), so it loads or frees its model
+    // without waiting for its next recording. The mode is no secret (players read it in /audio/status); nothing else is sent.
+    const lastMode = new Map<string, string>();
+    d.hub.tap((worldId, type) => {
+      if (type !== 'settings') return;
+      let mode: string;
+      try { mode = engine(d).sttMode(worldId); } catch { return; }
+      if (lastMode.get(worldId) === mode) return;
+      lastMode.set(worldId, mode);
+      d.hub.emit(worldId, 'stt-mode', { mode }, () => true);
+    });
+  },
 
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
@@ -244,13 +261,11 @@ const feature: Feature = {
       eng.broadcastRecording(c.world.id, false, null);
       eng.scheduleRefine(s.id);
       scheduleBuild(d, eng, s.id);
-      // The last lines go into the running summary once the recording ends (after the chunks are flushed).
-      // Then Minerva drafts the hand-off for the DM's review: the running notes as "Last session" in the status doc,
-      // which the next session reads.
-      setTimeout(() => {
-        void updateBoth(d, c.world.id, s.id, { force: true })
-          .then(() => import('../minerva/after.ts')).then((m) => m.draftHandoff(d, c.world.id, s.id)).catch(() => {});
-      }, 5_000).unref();
+      // The last lines go into the running summary once the recording ends (after the chunks are flushed). Then the
+      // hand-off for the DM's review: with Minerva on, "Last session" for the status doc (which the next session reads);
+      // with Minerva off, a "Summary ready" card on Recordings. When the final transcript is done, both are made again
+      // from its lines (handoff.ts).
+      setTimeout(() => { void afterRecording(d, c.world.id, s.id).catch((e) => console.error('audio: hand-off failed', e)); }, Number(d.env.ALX_AUDIO_HANDOFF_DELAY_MS ?? 5_000)).unref();
       res.json(sessionOut(one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', s.id)));
     });
 
@@ -350,6 +365,18 @@ const feature: Feature = {
     r.get('/sessions/:sid/summary', (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json(getSummary(d, s.id, isDM(res) ? 'dm' : 'party'));
+    });
+    // Where the session's summary went (Minerva's review queue, or a card here), for the DM. Never for a player: it is the
+    // DM's summary, asides included.
+    r.get('/sessions/:sid/handoff', requireDM, (req, res) => {
+      const s = sessionOf(res, String(req.params.sid));
+      res.json(handoffView(d, ctx(res).world.id, s.id));
+    });
+    r.post('/sessions/:sid/handoff/:id', requireDM, (req, res) => {
+      const s = sessionOf(res, String(req.params.sid));
+      const action = oneOf(req.body?.action, 'action', ['approve', 'discard'] as const);
+      const text = typeof req.body?.text === 'string' ? req.body.text : undefined;
+      res.json(decideHandoff(d, ctx(res).world.id, s.id, String(req.params.id), action, me(res), text));
     });
     // Minerva's quiet rules checks for the DM: the calls that looked off (all=1 for every check made).
     r.get('/sessions/:sid/rule-notes', requireDM, (req, res) => {

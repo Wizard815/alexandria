@@ -6,7 +6,7 @@
 // every draft is also made from the data alone.
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable } from '../../core/ai.ts';
-import { one, run } from '../../core/db.ts';
+import { all, one, run } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
@@ -288,17 +288,44 @@ function sessionTexts(d: Deps, worldId: string, draft: { audio_session_id?: stri
 /**
  * The hand-off when a recording ends: the DM's running summary becomes a "Last session" update to the Campaign Status,
  * drafted for the DM's review. Approved, it is in every later conversation (the status doc rides along with each
- * message), so the next session starts from what happened in this one even when no session log is published. Once
- * per recording; nothing when Minerva is off or there is no summary.
+ * message), so the next session starts from what happened in this one even when no session log is published.
+ *
+ * Once per recording, unless `refresh` (the final transcript finished, was redone or undone, and the summary was made
+ * again from its lines): then a draft still pending is brought up to date, one the DM approved gets a second draft
+ * "updated from the final transcript" next to it, and one the DM rejected is left alone. Nothing is ever written to the
+ * status doc without the DM's approval.
+ *
+ * 'off': Minerva is off for this world (the caller puts the summary on the Recordings page instead). 'none': no summary.
  */
-export function draftHandoff(d: Deps, worldId: string, sessionId: string): boolean {
-  try { requireEnabled(d.db, worldId); } catch { return false; }
+export type HandoffResult = 'off' | 'none' | 'created' | 'updated' | 'added' | 'kept';
+export function draftHandoff(d: Deps, worldId: string, sessionId: string, opts: { refresh?: boolean; source?: 'live' | 'final' } = {}): HandoffResult {
+  try { requireEnabled(d.db, worldId); } catch { return 'off'; }
   const sum = one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'dm'", sessionId);
   const s = one<any>(d.db, 'SELECT name, stopped_at FROM audio_sessions WHERE id = ? AND world_id = ?', sessionId, worldId);
-  if (!sum?.text || !s) return false;
+  if (!sum?.text || !s) return 'none';
   const review = `handoff-${sessionId}`;
-  if (one(d.db, 'SELECT 1 FROM minerva_drafts WHERE world_id = ? AND review = ?', worldId, review)) return false;
   const when = String(s.stopped_at ?? now()).slice(0, 10);
-  createDraft(d, worldId, { review, kind: 'status', title: `Status: last session (${s.name}, from the running notes)`, op: { op: 'section', rel: STATUS_PATH, section: 'Last session', text: `_${s.name}, ${when}: the running notes, approved by the DM._\n\n${String(sum.text).trim()}`, mode: 'replace' } as Op, tool: 'session_handoff' });
-  return true;
+  const final = opts.source === 'final';
+  const text = `_${s.name}, ${when}: ${final ? 'from the final transcript' : 'the running notes'}, approved by the DM._\n\n${String(sum.text).trim()}`;
+  const op = { op: 'section', rel: STATUS_PATH, section: 'Last session', text, mode: 'replace' } as Op;
+  const drafts = all<any>(d.db, 'SELECT id, status, op, title FROM minerva_drafts WHERE world_id = ? AND review = ? ORDER BY created_at, rowid', worldId, review);
+  const title = (second: boolean) => `Status: last session (${s.name}, ${second ? `updated from the ${final ? 'final transcript' : 'running notes'}` : `from the ${final ? 'final transcript' : 'running notes'}`})`;
+  if (!drafts.length) {
+    createDraft(d, worldId, { review, kind: 'status', title: title(false), op, tool: 'session_handoff' });
+    return 'created';
+  }
+  if (!opts.refresh) return 'kept';
+  const last = drafts[drafts.length - 1];
+  const lastText = (() => { try { return String(JSON.parse(last.op)?.text ?? ''); } catch { return ''; } })();
+  if (lastText === text) return 'kept';
+  if (last.status === 'pending') {
+    run(d.db, "UPDATE minerva_drafts SET op = ?, title = ? WHERE id = ? AND status = 'pending'", JSON.stringify(op), title(drafts.length > 1).slice(0, 200), last.id);
+    d.hub.emit(worldId, 'minerva', { kind: 'draft', id: last.id }, dmOnly);
+    return 'updated';
+  }
+  if (last.status === 'approved') {
+    createDraft(d, worldId, { review, kind: 'status', title: title(true), op, tool: 'session_handoff' });
+    return 'added';
+  }
+  return 'kept';
 }
