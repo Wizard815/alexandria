@@ -694,6 +694,11 @@ test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () =
   assert.equal((await suggestionPass(e.deps, W)).ran, true, 'thirty new lines run it at once');
   // Nothing new: nothing to do. A forced run (the DM\'s button) with no new lines is also a no-op.
   assert.equal((await suggestionPass(e.deps, W, { force: true })).ran, false);
+  // A line stamped in the same millisecond as the last line read is still new (it was skipped as "No new lines" on a fast machine).
+  const lastAt = (all<any>(e.deps.db, "SELECT MAX(updated_at) AS t FROM audio_lines WHERE session_id = 'as_1'")[0]).t as string;
+  addLine(e.ID.tom, 'tom', 'Same millisecond line about Bram Oakes', 'players', lastAt);
+  assert.deepEqual(await suggestionPass(e.deps, W, { force: true }).then((r) => [r.ran, r.lines]), [true, 1]);
+  assert.equal((await suggestionPass(e.deps, W, { force: true })).ran, false, 'and read once only');
   // The DM's button.
   addLine(e.ID.jess, 'jess', 'I will protect Brask the dockhand with my life', 'players');
   assert.equal((await e.ok('POST', api('/minerva/live/suggest'), e.T.dm, {})).ran, true);
