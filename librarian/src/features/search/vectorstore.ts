@@ -41,19 +41,32 @@ export { toBlob, fromBlob };
 
 class SqliteVectorStore implements VectorStore {
   db: DB;
-  cache = new Map<string, { stamp: string; rows: VectorRow[] }>();
+  cache = new Map<string, { stamp: string; n: number; max: number; sum: number; rows: VectorRow[] }>();
   constructor(db: DB) { this.db = db; }
 
   rows(worldId: string, scope: VecScope): VectorRow[] {
-    const stamp = JSON.stringify(one<any>(this.db, 'SELECT count(*) AS n, max(id) AS m, sum(id) AS s FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope));
+    const st = one<any>(this.db, 'SELECT count(*) AS n, coalesce(max(id), 0) AS m, coalesce(sum(id), 0) AS s FROM search_chunks WHERE world_id = ? AND scope = ?', worldId, scope)!;
+    const n = Number(st.n), max = Number(st.m), sum = Number(st.s);
     const key = `${worldId}|${scope}`;
     const hit = this.cache.get(key);
-    if (hit && hit.stamp === stamp) return hit.rows;
+    if (hit && hit.n === n && hit.max === max && hit.sum === sum) return hit.rows;
     // Only rows that have a state row: chunks cut under an older level scheme or left without state are never read.
-    const rows = all<any>(this.db, `SELECT c.page_id, c.idx, c.text, c.vec FROM search_chunks c JOIN search_chunk_state s ON s.page_id = c.page_id AND s.scope = c.scope
-      WHERE c.world_id = ? AND c.scope = ? ${scope === 'dm' ? "AND s.model LIKE '%|lv1'" : ''} ORDER BY c.page_id, c.idx`, worldId, scope)
-      .map((r) => ({ page: r.page_id as string, idx: Number(r.idx), text: r.text as string, v: fromBlob(r.vec) }));
-    this.cache.set(key, { stamp, rows });
+    const select = `SELECT c.id, c.page_id, c.idx, c.text, c.vec FROM search_chunks c JOIN search_chunk_state s ON s.page_id = c.page_id AND s.scope = c.scope
+      WHERE c.world_id = ? AND c.scope = ? ${scope === 'dm' ? "AND s.model LIKE '%|lv1'" : ''}`;
+    const toRow = (r: any): VectorRow & { id: number } => ({ id: Number(r.id), page: r.page_id as string, idx: Number(r.idx), text: r.text as string, v: fromBlob(r.vec) });
+    // While pages are being embedded the rows only grow: read just the new ones (ids above the newest held) and check the totals add up.
+    // Anything else (a page re-embedded, rows deleted) reads the scope again.
+    if (hit && hit.rows.length && max > hit.max && n >= hit.n) {
+      const added = all<any>(this.db, `${select} AND c.id > ? ORDER BY c.page_id, c.idx`, worldId, scope, hit.max).map(toRow);
+      const addedSum = added.reduce((a, r) => a + r.id, 0);
+      if (n === hit.n + added.length && sum === hit.sum + addedSum) {
+        const rows = hit.rows.concat(added);
+        this.cache.set(key, { stamp: '', n, max, sum, rows });
+        return rows;
+      }
+    }
+    const rows = all<any>(this.db, `${select} ORDER BY c.page_id, c.idx`, worldId, scope).map(toRow);
+    this.cache.set(key, { stamp: '', n, max, sum, rows });
     return rows;
   }
 
@@ -93,4 +106,10 @@ export function vectorStore(db: DB): VectorStore {
   let s = stores.get(db);
   if (!s) { s = new SqliteVectorStore(db); stores.set(db, s); }
   return s;
+}
+
+/** Forget the vectors held in memory (they are read again from the database when next needed): for a memory squeeze. */
+export function dropVectorCaches(db: DB) {
+  const s = stores.get(db) as SqliteVectorStore | undefined;
+  s?.cache.clear();
 }

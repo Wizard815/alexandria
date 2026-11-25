@@ -707,6 +707,7 @@ const PLAYER_ROUTES = [
   'POST /stage/cards/:cid/buy', 'POST /screen/media/ended',
   'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
   'POST /minerva/me/journal', 'POST /minerva/me/capture', 'POST /minerva/me/goals', 'POST /minerva/me/share',
+  'POST /libshare/seen',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */

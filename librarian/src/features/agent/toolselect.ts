@@ -5,6 +5,7 @@
 // the caller keeps the keyword selection, so nothing changes without a model.
 import type { Deps } from '../../app.ts';
 import { embed, hasJob, jobConfig } from '../../core/ai.ts';
+import { embedCached } from '../../core/embedcache.ts';
 import type { McpTool } from '../types.ts';
 
 const BATCH = 64;
@@ -33,7 +34,7 @@ export async function toolVectors(d: Deps, tools: { name: string; description: s
   try {
     for (let i = 0; i < todo.length; i += BATCH) {
       const part = todo.slice(i, i + BATCH);
-      const got = await embed(d, part.map(toolText));
+      const got = await embedCached(d, part.map(toolText));
       if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) return null;
       part.forEach((t, j) => m!.set(key(t), unit(got[j])));
     }
