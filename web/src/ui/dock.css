@@ -1,7 +1,7 @@
 /* The overlay dock: one row of round buttons in the bottom-right corner. */
 .dock { position: fixed; right: var(--dock-right, 12px); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 700; display: flex; flex-direction: row; flex-wrap: wrap-reverse; justify-content: flex-end; align-items: center; gap: 8px; max-width: calc(100vw - 24px); pointer-events: none; }
 /* Where the dock steps aside for a map or other canvas (class set by Dock.tsx): top right, then bottom left. */
-.dock.at-top { bottom: auto; top: calc(72px + env(safe-area-inset-top, 0px)); flex-wrap: wrap; }
+.dock.at-top { bottom: auto; top: calc(72px + var(--safe-top)); flex-wrap: wrap; }
 .dock.at-left { right: auto; left: 12px; justify-content: flex-start; }
 body:has(.bottomnav) .dock.at-top { bottom: auto; }
 .dock > * { pointer-events: auto; }
