@@ -17,7 +17,7 @@ structure of the towns already written.
 | **Generator template** | the generator (town, NPC, tavern, shop…), fields with hints, sections, instructions, folder | read by the assistant like a guide when a request matches |
 | **Macro template** | a prompt with `{{blanks}}`, the blanks, mode (propose or do), allowed tools | **Make a macro**: a Minerva macro step (`minerva.run`) the DM fills in when it runs ([MACROS.md](MACROS.md)) |
 | **Assist panel** | a workspace layout, its panes and a request for the assistant | **Open**: the workspace with those panes, the request waiting in the assistant's box |
-| **Shop generation** | shop type, a guide, typical stock, price notes | **Make a shop**, when the shop generator is installed (below); the assistant reads it for shop requests |
+| **Shop generation** | shop type, a guide, typical stock, price notes | **Make a shop**: a draft from the shop generator following the guide (below); the assistant reads it for shop requests |
 | **Library page** | folder, title pattern, tags, sections, a page skeleton | **New page from this**: a DM-only page from the skeleton; the assistant reads it like a guide |
 
 Every template is per world, has a name and a short description, and is **on or
@@ -112,10 +112,13 @@ DM's choice per world and **off by default**: Templates & guides → Web researc
 
 ## Shop generator
 
-A shop generation template passes its guide to the shop generator,
-`generateShop(d, worldId, opts, guide?)` in `features/shop`, through
-`features/templates/shop.ts`. While that feature is not installed the
-**Make a shop** button says so and `POST /templates/:id/shop` answers 501.
+A shop generation template passes its whole text (type, guide, stock, prices) to
+the shop generator, `generateShop(d, worldId, opts, guide)` in
+`features/shop/gen.ts`. Without a model the guide weights the item picks and the
+generator reads directives in it: "12 items", "markup 20%", "no magic", "max
+rarity rare"; with a chat model it is the brief. The shop type picks the
+generator's kind ("apothecary" is an alchemist). **Make a shop** shows the draft;
+the DM makes and stocks shops on the Shops page.
 
 ## API (DM only)
 
@@ -134,7 +137,7 @@ All under `/api/worlds/:world/templates`:
 | `GET/PUT /web` | web research settings |
 | `POST /web/check` `{queries}` | would these words be sent? |
 | `POST /web/search` `{queries}` | search (1 to 3 queries) |
-| `POST /:id/shop` `{options?}` | a shop with this template's guide |
+| `POST /:id/shop` `{options?}` | a shop draft from the shop generator with this template's guide |
 
 MCP (DM only): `list_dm_templates`, `get_dm_template`, `create_dm_template`
 (write), `update_dm_template` (write), `web_research` (write).

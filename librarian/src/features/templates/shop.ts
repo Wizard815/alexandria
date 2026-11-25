@@ -1,31 +1,24 @@
-// The shop generator is its own feature (features/shop, `generateShop(d, worldId, opts, guide?)`). A shop generation
-// template passes its guide to it. When that feature is not installed the adapter says so and nothing else happens.
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+// A shop generation template passes its guide to the shop generator (features/shop/gen.ts). The guide text weights the
+// item picks without a model and understands directives such as "12 items", "markup 20%", "no magic", "max rarity rare";
+// with a chat model it is the brief. Imported from gen.ts, not the shop feature's index.ts (that would be an import cycle).
 import type { Deps } from '../../app.ts';
+import { generateShop, type ShopDraft, type ShopOpts } from '../shop/gen.ts';
 import { guideText } from './spec.ts';
 import type { Template } from './store.ts';
 
-type GenerateShop = (d: Deps, worldId: string, opts: Record<string, unknown>, guide?: string) => Promise<unknown>;
-const CANDIDATES = ['../shop/index.ts', '../shop/generate.ts', '../shop/gen.ts', '../shop/generator.ts'];
+const KINDS: [RegExp, string][] = [
+  [/\b(smith|forge|armou?r|weapon)/i, 'blacksmith'], [/\b(alchem|apothec|herb|potion|remed)/i, 'alchemist'], [/\b(magic|arcane|wizard|enchant|curio)/i, 'magic'],
+  [/\b(tavern|inn|alehouse)/i, 'tavern'], [/\b(fence|pawn|black ?market|second-hand|salvage)/i, 'fence'], [/\b(general|store|provision|supply|trading)/i, 'general'],
+];
+/** The shop generator's kind for a template's free-text shop type ("apothecary" is alchemist); undefined lets it choose. */
+export const shopKindFor = (type: string): string | undefined => KINDS.find(([re]) => re.test(type))?.[1];
 
-/** The shop feature's generateShop, or null when it is not there. */
-export async function shopGenerator(): Promise<GenerateShop | null> {
-  for (const rel of CANDIDATES) {
-    const url = new URL(rel, import.meta.url);
-    if (!fs.existsSync(fileURLToPath(url))) continue;
-    try {
-      const m: any = await import(url.href);
-      if (typeof m.generateShop === 'function') return m.generateShop as GenerateShop;
-    } catch { /* a broken module counts as missing */ }
-  }
-  return null;
-}
+/** The guide the shop generator reads: the template's whole text (type, guide, stock, prices). */
+export const shopGuide = (t: Template): string => guideText(t);
 
-/** Generate a shop with the template's guide, or null when the shop generator is not installed. */
-export async function generateShopWithTemplate(d: Deps, worldId: string, t: Template, opts: Record<string, unknown> = {}): Promise<{ result: unknown } | null> {
-  const gen = await shopGenerator();
-  if (!gen) return null;
+/** A shop draft made with the template's guide. Nothing is saved: the DM saves or stocks it on the Shops page. */
+export async function generateShopWithTemplate(d: Deps, worldId: string, t: Template, opts: ShopOpts = {}): Promise<ShopDraft> {
   const sp: any = t.spec;
-  return { result: await gen(d, worldId, { ...(sp.shopType ? { type: sp.shopType } : {}), ...opts }, guideText(t)) };
+  const kind = opts.kind ?? shopKindFor(String(sp.shopType ?? ''));
+  return generateShop(d, worldId, { ...(kind ? { kind } : {}), ...opts }, shopGuide(t));
 }
