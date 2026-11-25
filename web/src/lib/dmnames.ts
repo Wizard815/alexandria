@@ -31,6 +31,7 @@ export const DM_NAMES: Record<string, DMName> = {
   party: { group: 'players', label: 'Players', icon: 'fa-sack-dollar', desc: 'Each player’s gold and pack, then the party’s: give or take in one tap.' },
   broker: { group: 'players', label: 'Broker', icon: 'fa-scale-balanced', desc: 'Information players can buy, and your price tiers.' },
   shops: { group: 'players', label: 'Shops', icon: 'fa-store', desc: 'Shops players can buy from: open, close, stock and price them, and approve purchases.' },
+  encounters: { group: 'players', label: 'Encounters', icon: 'fa-person-walking', desc: 'An NPC walks up to a player: talk, small gifts, a shop or a game of chance in their app.' },
   chat: { group: 'players', label: 'Table chat', icon: 'fa-comments', desc: 'Live chat for the whole table or just the party.' },
   messages: { group: 'players', label: 'Messages', icon: 'fa-envelope', desc: 'Private chats between people in this world.' },
   calendar: { group: 'players', label: 'Game nights', icon: 'fa-calendar-days', desc: 'Real-life sessions: RSVPs and rescheduling.' },
