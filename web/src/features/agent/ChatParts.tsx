@@ -1,7 +1,7 @@
 // The pieces of the assistant chat that both layouts draw: the chat switcher, the messages with their approval cards
 // and sources, and the dictation button. `phone` swaps the desktop classes for the DM phone's big-target ones; the
 // state and behaviour live in Chat.tsx, so there is one chat, not a desktop one and a phone copy.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Markdown } from '../../ui/index.tsx';
 import { useAuth } from '../../lib/auth.tsx';
@@ -9,9 +9,9 @@ import { useAuth } from '../../lib/auth.tsx';
 export interface Citation { kind: string; id: string; title: string; path?: string; snippet?: string }
 export interface Timings { totalMs: number; firstTokenMs?: number; modelMs: number; toolMs: number; gatewayMs: number; rounds: number; toolCalls: number; fast?: boolean }
 export interface Msg { id: string; role: 'user' | 'assistant'; text: string; status: 'done' | 'working' | 'error'; citations: Citation[]; at: string; timings?: Timings | null }
-export interface Act { id: string; tool: string; summary: string; call: unknown; status: string; result: string | null; createdAt: string }
+export interface Act { id: string; tool: string; summary: string; call: unknown; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
 export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
-export interface Live { text: string; status: string }
+export interface Live { text: string; status: string; queue?: string }
 export interface ChatRow { id: string; title: string; updatedAt: string }
 export type Item = { t: 'msg'; m: Msg } | { t: 'act'; a: Act };
 
@@ -70,45 +70,92 @@ export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
   );
 }
 
+const clock = (iso: string) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+
+/** What the assistant is doing while no text has come yet: waiting in the model's queue, using a tool, or thinking (with the seconds so far). */
+function WorkingNote({ live, since, className }: { live: Live | null; since: string; className?: string }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.round((Date.now() - new Date(since).getTime()) / 1000));
+  const what = live?.queue ? live.queue : live?.status ? `Using ${live.status}` : 'Thinking';
+  return <span className={className} role="status" data-testid="ag-working">{what}…{secs >= 3 ? ` ${secs} s` : ''}</span>;
+}
+
+/**
+ * One change the assistant proposed or made. Waiting: what will change, with Approve and Reject. After that the same card
+ * shows the outcome (applying, done, did not work, rejected), so the chat reads as a record of what happened.
+ */
+export function ActionCard({ a, phone, auto, decide }: { a: Act; phone?: boolean; auto?: boolean; decide: (a: Act, d: 'approve' | 'reject') => void }) {
+  const title = a.summary.replace(/\s*·\s*Visible to players.*$/, '');
+  const visible = /Visible to players/.test(a.summary) ? a.summary.slice(a.summary.indexOf('Visible to players')) : '';
+  const exact = <details className={phone ? 'tiny' : 'tiny muted'}><summary style={phone ? { minHeight: 32 } : undefined}>Exact call</summary><code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{a.tool} {JSON.stringify(a.call)}</code></details>;
+  if (a.status === 'pending') {
+    return phone ? (
+      <div className="c" style={{ borderColor: 'var(--accent)' }} role="group" aria-label="Waiting for your approval" data-testid="action-card" data-status="pending">
+        <b className="tx">{title}</b>
+        {visible && <span className="pill red" role="status">{visible}</span>}
+        {a.alwaysAsk && auto && <span className="sub">Always asks first, even in Auto</span>}
+        {exact}
+        <div className="grid g2">
+          <button type="button" className="b ok big" onClick={() => decide(a, 'approve')}>Approve</button>
+          <button type="button" className="b danger big" onClick={() => decide(a, 'reject')}>Reject</button>
+        </div>
+      </div>
+    ) : (
+      <div className="card gold" style={{ padding: '10px 12px' }} role="group" aria-label="Waiting for your approval" data-testid="action-card" data-status="pending">
+        <strong>{title}</strong>
+        {visible && <span className="chip red" role="status">{visible}</span>}
+        {a.alwaysAsk && auto && <div className="tiny muted">Always asks first, even in Auto</div>}
+        {exact}
+        <div className="row"><button type="button" className="btn small primary" onClick={() => decide(a, 'approve')}>Approve</button><button type="button" className="btn small" onClick={() => decide(a, 'reject')}>Reject</button></div>
+      </div>
+    );
+  }
+  const st = a.status;
+  const label = st === 'done' ? (a.auto ? 'Applied automatically' : 'Done') : st === 'running' ? 'Applying…' : st === 'failed' ? 'That did not work' : 'Rejected';
+  const icon = st === 'done' ? 'fa-circle-check' : st === 'running' ? 'fa-spinner fa-spin' : st === 'failed' ? 'fa-triangle-exclamation' : 'fa-ban';
+  const result = a.result && a.result !== '{}' ? a.result : '';
+  return (
+    <div className={phone ? 'c' : 'card'} style={{ padding: phone ? undefined : '8px 12px', opacity: st === 'rejected' ? 0.7 : 1, borderColor: st === 'failed' ? 'var(--danger-text)' : undefined }} role="group" aria-label={`Action ${st}`} data-testid="action-card" data-status={st}>
+      <div className={phone ? 'tx' : undefined}><i className={`fa-solid ${icon}`} aria-hidden="true" /> <strong>{label}</strong> <span className="muted">· {title}</span></div>
+      {visible && <span className={phone ? 'pill red' : 'chip red'}>{visible}</span>}
+      {(result || st === 'failed') && st !== 'running' && <details className={phone ? 'tiny' : 'tiny muted'} open={st === 'failed' && result.length < 200}><summary>Result</summary><pre className="ag-result">{result.slice(0, 1500) || 'No details.'}</pre></details>}
+    </div>
+  );
+}
+
+/** Say a tool name the way the DM would ("lore_delete" -> "lore delete", "publish_*" -> "publish"). */
+const plain = (t: string) => t.replace(/[_*]+$/, '').replace(/_/g, ' ');
+
+/** The chat's mode: "Ask first" (every change waits for a card) or "Auto" (changes are applied at once, except the tools that always ask). */
+export function AutoSwitch({ phone, on, saving, onToggle, alwaysAsk }: { phone?: boolean; on: boolean; saving: boolean; onToggle: () => void; alwaysAsk: string[] }) {
+  return (
+    <div className={`ag-mode${on ? ' on' : ''}`} data-testid="ag-mode" data-mode={on ? 'auto' : 'ask'}>
+      <button type="button" role="switch" aria-checked={on} aria-label="Auto mode" className={`${phone ? 'b chip' : 'btn small'}${on ? ' on' : ''}`} disabled={saving} onClick={onToggle} data-testid="ag-auto"
+        title={on ? 'Auto: the assistant applies its changes without asking. Tap to ask first again.' : 'Ask first: every change waits for your Approve. Tap to let the assistant apply changes itself.'}>
+        <i className={`fa-solid ${on ? 'fa-bolt' : 'fa-hand'}`} aria-hidden="true" /> {on ? 'Auto' : 'Ask first'}
+      </button>
+      <span className={phone ? 'sub' : 'tiny muted'} role="status">{on ? 'Changes are applied without asking.' : 'Changes wait for your approval.'}</span>
+      {on && alwaysAsk.length > 0 && <details className={phone ? 'sub' : 'tiny muted'}><summary>Always asks first</summary>{[...new Set(alwaysAsk.map(plain))].join(', ')}.</details>}
+    </div>
+  );
+}
+
 /** Messages and the actions waiting on the DM, in the order they happened. */
-export function ChatMessages({ phone, items, live, isDM, busy, libraryHref, onLink, onNavigate, decide }: {
-  phone?: boolean; items: Item[]; live: Live | null; isDM: boolean; busy: boolean;
+export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLink, onNavigate, decide, retry }: {
+  phone?: boolean; items: Item[]; live: Live | null; isDM: boolean; auto?: boolean; retry?: () => void;
   libraryHref: (id: string) => string; onLink: (e: React.MouseEvent) => void; onNavigate: (href: string) => void;
   decide: (a: Act, d: 'approve' | 'reject') => void;
 }) {
+  const lastAssistant = [...items].reverse().find((x): x is { t: 'msg'; m: Msg } => x.t === 'msg' && x.m.role === 'assistant');
+  const lastErr = lastAssistant?.m.status === 'error' ? lastAssistant.m.id : '';
   return (
     <>
       {items.map((it) => {
-        if (it.t === 'act') {
-          const a = it.a;
-          const title = a.summary.replace(/\s*·\s*Visible to players.*$/, '');
-          const visible = /Visible to players/.test(a.summary) ? a.summary.slice(a.summary.indexOf('Visible to players')) : '';
-          const off = busy || a.status !== 'pending';
-          if (phone) {
-            return (
-              <div key={a.id} className="c" style={{ borderColor: 'var(--accent)' }} role="group" aria-label="Waiting for your approval">
-                <b className="tx">{title}</b>
-                {visible && <span className="pill red" role="status">{visible}</span>}
-                <details className="tiny"><summary style={{ minHeight: 32 }}>Exact call</summary><code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{a.tool} {JSON.stringify(a.call)}</code></details>
-                <div className="grid g2">
-                  <button type="button" className="b ok big" disabled={off} onClick={() => decide(a, 'approve')}>Approve</button>
-                  <button type="button" className="b danger big" disabled={off} onClick={() => decide(a, 'reject')}>Reject</button>
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div key={a.id} className="card gold" style={{ padding: '10px 12px' }} role="group" aria-label="Waiting for your approval">
-              <strong>{title}</strong>
-              {visible && <span className="chip red" role="status">{visible}</span>}
-              <details className="tiny muted"><summary>Exact call</summary><code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{a.tool} {JSON.stringify(a.call)}</code></details>
-              <div className="row"><button type="button" className="btn small primary" disabled={off} onClick={() => decide(a, 'approve')}>Approve</button><button type="button" className="btn small" disabled={off} onClick={() => decide(a, 'reject')}>Reject</button></div>
-            </div>
-          );
-        }
+        if (it.t === 'act') return <ActionCard key={it.a.id} a={it.a} phone={phone} auto={auto} decide={decide} />;
         const m = it.m;
         const shown = m.status === 'working' ? (live && live.text.length >= m.text.length ? live.text : m.text) : m.text;
-        const body = m.status === 'working' && !shown ? <span className={phone ? 'sub' : 'muted'}>{live?.status ? `Using ${live.status}…` : 'Thinking…'}</span>
+        const body = m.status === 'working' && !shown ? <WorkingNote live={live} since={m.at} className={phone ? 'sub' : 'muted'} />
           : m.role === 'assistant' ? <><Markdown text={linkCitations(shown, m.citations)} linkTo={(title) => { const c = m.citations.find((x) => x.kind === 'page' && x.title.toLowerCase() === title.toLowerCase()); return c ? libraryHref(c.id) : '#'; }} />{m.status === 'working' && <span className="ag-cursor" aria-hidden="true" />}</>
             : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>;
         const sources = m.citations.length > 0 && m.status !== 'working' && (
@@ -121,15 +168,16 @@ export function ChatMessages({ phone, items, live, isDM, busy, libraryHref, onLi
             ))}
           </ul>
         );
-        const timing = isDM && m.role === 'assistant' && m.timings && m.status !== 'working' && <span className="tiny muted" title={timingTitle(m.timings)}>{timingText(m.timings)}</span>;
+        const timing = isDM && m.role === 'assistant' && m.timings && m.status !== 'working' ? <span title={timingTitle(m.timings)}>{timingText(m.timings)}</span> : null;
+        const stamp = m.status === 'working' ? null : <time dateTime={m.at} title={new Date(m.at).toLocaleString()} className={phone ? 'sub' : undefined}>{clock(m.at)}</time>;
         if (phone) {
           return (
             <div key={m.id} className={`msg ag-msg${m.role === 'user' ? ' me' : ''}`} onClick={onLink}>
               {body}
               {m.status === 'working' && shown && live?.status && <span className="sub"> Using {live.status}…</span>}
-              {m.status === 'error' && <div className="sub" style={{ color: 'var(--danger-text)' }}>That did not work.</div>}
+              {m.status === 'error' && retry && it.m.id === lastErr && <div><button type="button" className="b" onClick={retry} data-testid="ag-retry"><i className="fa-solid fa-rotate-right" aria-hidden="true" /> Try again</button></div>}
               {sources}
-              {timing}
+              <div className="sub ag-stamp">{stamp}{timing ? <> · {timing}</> : null}</div>
             </div>
           );
         }
@@ -138,10 +186,10 @@ export function ChatMessages({ phone, items, live, isDM, busy, libraryHref, onLi
             <div className="card ag-msg" style={{ padding: '8px 12px', maxWidth: '92%', borderColor: m.role === 'user' ? 'var(--accent)' : undefined }} onClick={onLink}>
               {body}
               {m.status === 'working' && shown && live?.status && <span className="tiny muted"> Using {live.status}…</span>}
-              {m.status === 'error' && <span className="tiny" style={{ color: 'var(--danger-text)' }}>That did not work.</span>}
+              {m.status === 'error' && retry && it.m.id === lastErr && <div><button type="button" className="btn small" onClick={retry} data-testid="ag-retry"><i className="fa-solid fa-rotate-right" aria-hidden="true" /> Try again</button></div>}
             </div>
             {sources}
-            {timing}
+            <span className="tiny muted">{stamp}{timing ? <> · {timing}</> : null}</span>
           </div>
         );
       })}
