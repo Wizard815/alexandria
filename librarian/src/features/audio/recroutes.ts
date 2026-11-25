@@ -14,8 +14,12 @@ import { serveFile } from '../sound/files.ts';
 import { engine } from './engine.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
 import {
-  type SessionRow, type TrackRow, buildProgress, chunkFiles, deleteSessionAudio, deletesAt, effectiveDays, enqueueBuild, ffmpegAvailable, isBuilding, localDate,
+  type SessionRow, type TrackRow, buildProgress, chunkFiles, cleanFileName, deleteSessionAudio, deletesAt, effectiveDays, enqueueBuild, ffmpegAvailable, fmtTime, isBuilding, localDate,
+  sessionJsonDoc, transcriptMarkdown,
 } from './recordings.ts';
+import { sessionLines } from './api.ts';
+import { getSummary } from './summary.ts';
+import { writeZip, type ZipEntry } from '../../core/zipstream.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string, action: string, detail = '') => { run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 
@@ -50,6 +54,73 @@ function send(req: any, res: Response, d: Deps, t: TrackRow & { rec_dir: string 
   if (download) res.setHeader('Content-Disposition', `attachment; filename="${ascii(t.file)}"; filename*=UTF-8''${encodeURIComponent(t.file)}`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   serveFile(req, res, abs, t.mime);
+}
+
+/** "Download all": one .zip of the session, streamed. A signed ticket names the session and the account; who gets what is decided again on every use. */
+export const zipUrl = (worldId: string, sessionId: string, accountId: string) => `/api/media/recording-zip/${mintTicket({ w: worldId, k: 'recording-zip', f: sessionId, a: accountId })}`;
+
+/** Was this player recorded in this session (a track or a chunk from a mic of theirs)? */
+const recordedIn = (d: Deps, sessionId: string, accountId: string) => !!one(d.db, `SELECT 1 FROM audio_sessions s WHERE s.id = ? AND (
+    EXISTS (SELECT 1 FROM audio_tracks t WHERE t.session_id = s.id AND t.kind = 'mic' AND t.account_id = ?)
+    OR EXISTS (SELECT 1 FROM audio_chunks k JOIN audio_mics m ON m.id = k.mic_id WHERE k.session_id = s.id AND m.account_id = ?))`, sessionId, accountId, accountId);
+
+const linesMd = (title: string, sub: string, lines: { start: number; speaker: string; text: string; audience?: string }[], dm: boolean) => [
+  `# ${title}`, '', sub, '', ...(dm ? ['Lines marked **DM only** were not shown to the players.', ''] : []),
+  ...lines.map((l) => `- \`${fmtTime(l.start)}\` **${l.speaker || 'Someone'}**${dm && l.audience === 'dm' ? ' (**DM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`), '',
+].join('\n');
+
+/** The DM's approved summary: the hand-off approved on Recordings or in Minerva's queue (the newest). Never one still pending. */
+function approvedSummary(d: Deps, s: SessionRow): string | null {
+  const card = one<any>(d.db, "SELECT text, decided_at FROM audio_handoffs WHERE session_id = ? AND status = 'approved' ORDER BY decided_at DESC LIMIT 1", s.id);
+  let draft: any;
+  try { draft = one<any>(d.db, "SELECT op, decided_at FROM minerva_drafts WHERE world_id = ? AND review = ? AND status = 'approved' ORDER BY decided_at DESC LIMIT 1", s.world_id, `handoff-${s.id}`); } catch { draft = undefined; }
+  const fromDraft = (() => { try { return draft ? String(JSON.parse(draft.op)?.text ?? '') : ''; } catch { return ''; } })();
+  if (card && (!fromDraft || String(card.decided_at) >= String(draft.decided_at))) return String(card.text);
+  return fromDraft || null;
+}
+
+/**
+ * What "Download all" holds for this viewer. The DM: the full recording, every mic track, Transcript.md (the final
+ * transcript when there is one), the live transcript it replaced, the approved summary and session.json. A player:
+ * only the tracks of their own mics, the players' transcript and the players' summary. Anyone else: nothing (null).
+ */
+export function zipEntries(d: Deps, s: SessionRow, accountId: string): { name: string; entries: ZipEntry[] } | null {
+  const role = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', s.world_id, accountId)?.role;
+  if (role !== 'dm' && !(role === 'player' && recordedIn(d, s.id, accountId))) return null;
+  const dm = role === 'dm';
+  const world = one<{ name: string }>(d.db, 'SELECT name FROM worlds WHERE id = ?', s.world_id)?.name ?? '';
+  const base = `${localDate(s.started_at)} ${cleanFileName(s.name, 'Session')}`;
+  const sub = `${world} - ${localDate(s.started_at)}`;
+  const entries: ZipEntry[] = [];
+  const text = (name: string, body: string) => entries.push({ name: `${base}/${name}`, data: Buffer.from(body, 'utf8') });
+  if (!s.audio_deleted_at) {
+    for (const t of sessionTracks(d, s.id)) {
+      const full = { ...t, world_id: s.world_id, rec_dir: s.rec_dir } as TrackRow & { world_id: string; rec_dir: string | null };
+      if (!mayHear(d, s.world_id, accountId, full)) continue;
+      const abs = trackPath(d, full);
+      if (!abs) continue;
+      const st = fs.statSync(abs);
+      entries.push({ name: `${base}/${t.file}`, file: abs, size: st.size, mtime: st.mtime });
+    }
+  }
+  if (dm) {
+    text('Transcript.md', transcriptMarkdown(d, s, world));
+    const eng = engine(d);
+    const f = eng.finalView(s.id);
+    if (f?.status === 'done' && f.hasLive) {
+      const nm = eng.nameOf(s.world_id);
+      const live = eng.liveLines(s.id).sort((a, b) => a.start_ms - b.start_ms).map((l) => ({ start: l.start_ms, speaker: l.speaker_account ? nm(l.speaker_account) : l.speaker_label, text: l.text, audience: l.audience }));
+      text('Live transcript.md', linesMd(`${s.name} (live transcript)`, `${sub} - as it was written during the session, before the final transcript replaced it.`, live, true));
+    }
+    const sum = approvedSummary(d, s);
+    if (sum) text('Summary.md', `# ${s.name}: summary\n\n${sub} - approved by the DM.\n\n${sum.trim()}\n`);
+    text('session.json', JSON.stringify(sessionJsonDoc(d, s, world), null, 2) + '\n');
+  } else {
+    text('Transcript (players).md', linesMd(s.name, sub, sessionLines(d.db, s.world_id, s.id, { includeDm: false }), false));
+    const party = getSummary(d, s.id, 'party').text.trim();
+    if (party) text('Summary (players).md', `# ${s.name}: summary\n\n${sub}\n\n${party}\n`);
+  }
+  return { name: base, entries };
 }
 
 export const ticketUrl = (worldId: string, trackId: string, accountId: string) => `/api/media/recording/${mintTicket({ w: worldId, k: 'recording', f: trackId, a: accountId })}`;
@@ -87,6 +158,7 @@ function sessionView(d: Deps, s: SessionRow, accountId: string, dm: boolean, wit
     retention: { mode: s.retention_mode, days: s.retention_mode === 'days' ? s.retention_days : null, effectiveDays: days, deletesAt: at, daysLeft: at ? Math.max(0, Math.ceil((Date.parse(at) - Date.now()) / 864e5)) : null },
     audioDeleted: !!s.audio_deleted_at, audioDeletedAt: s.audio_deleted_at,
     canBuild: !!s.stopped_at && !s.audio_deleted_at && chunks.n > 0 && !isBuilding(d, s.id),
+    zipUrl: s.stopped_at && withTracks ? zipUrl(s.world_id, s.id, accountId) : null,
     ...(withTracks ? { tracks: tracks.filter((t) => (dm ? true : t.kind === 'mic' && t.account_id === accountId)).map((t) => trackOut(s.world_id, accountId, t)) } : {}),
   };
 }
@@ -116,7 +188,7 @@ export function recordingRoutes(r: Router, d: Deps) {
         const v = sessionView(d, s, me(res), false, true);
         // A player sees what is theirs only: no folder, no other people, no sizes of the rest.
         return { id: v.id, name: v.name, date: v.date, startedAt: v.startedAt, stoppedAt: v.stoppedAt, active: v.active, status: v.status === 'ready' || v.status === 'deleted' ? v.status : v.active ? 'recording' : 'preparing', durationMs: v.durationMs,
-          audioDeleted: v.audioDeleted, deletesAt: v.retention.deletesAt, daysLeft: v.retention.daysLeft, tracks: v.tracks };
+          audioDeleted: v.audioDeleted, deletesAt: v.retention.deletesAt, daysLeft: v.retention.daysLeft, tracks: v.tracks, zipUrl: v.zipUrl };
       }),
     });
   });
@@ -176,5 +248,24 @@ export function recordingMedia(app: Express, d: Deps) {
     const track = trackById(d, t.f);
     if (!track || !mayHear(d, t.w, t.a, track)) throw new HttpError(404, 'File not found');
     send(req, res, d, track, req.query.download === '1');
+  });
+
+  // "Download all": streamed as it is read, so a long session's audio never sits in memory.
+  app.get('/api/media/recording-zip/:ticket', async (req, res) => {
+    const t = readTicket(String(req.params.ticket));
+    if (!t || t.k !== 'recording-zip') throw new HttpError(404, 'File not found');
+    const s = one<SessionRow>(d.db, 'SELECT * FROM audio_sessions WHERE id = ? AND world_id = ?', t.f, t.w);
+    const z = s && s.stopped_at ? zipEntries(d, s, t.a) : null;
+    if (!s || !z) throw new HttpError(404, 'File not found');
+    const file = `${z.name}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${ascii(file)}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    audit(d, s.world_id, t.a, 'audio.download_all', `${s.id} ${z.entries.length} files`);
+    try { await writeZip(res, z.entries); res.end(); } catch (e) {
+      // The person cancelled, or a file went away mid-read: the zip is cut short (the browser shows the download failed).
+      if (!res.destroyed) res.destroy(e as Error);
+    }
   });
 }
