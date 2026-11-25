@@ -10,9 +10,9 @@ import type { Viewer } from '../../core/policy.ts';
 import { getClock } from '../clock/api.ts';
 import type { ItemRow } from './items.ts';
 
-export const SHOP_KINDS = ['general', 'blacksmith', 'alchemist', 'magic', 'tavern', 'fence'] as const;
+export const SHOP_KINDS = ['general', 'blacksmith', 'weaponsmith', 'armorer', 'alchemist', 'enchanter', 'magic', 'curio', 'tavern', 'fence'] as const;
 export type ShopKind = (typeof SHOP_KINDS)[number];
-export const KIND_LABEL: Record<ShopKind, string> = { general: 'General store', blacksmith: 'Blacksmith', alchemist: 'Alchemist', magic: 'Magic shop', tavern: 'Tavern shop', fence: 'Fence' };
+export const KIND_LABEL: Record<ShopKind, string> = { general: 'General store', blacksmith: 'Blacksmith', weaponsmith: 'Weaponsmith', armorer: 'Armorer', alchemist: 'Alchemist (potions)', enchanter: 'Enchanter', magic: 'Magic shop', curio: 'Trinkets and curios', tavern: 'Tavern shop', fence: 'Fence' };
 export const STATUSES = ['hidden', 'closed', 'open'] as const;
 export type ShopStatus = (typeof STATUSES)[number];
 export const RESTOCK_RULES = ['manual', 'days'] as const;
@@ -83,15 +83,29 @@ export interface ShopRow {
   id: string; world_id: string; name: string; kind: string; description: string; keeper: string; location_page_id: string | null;
   markup_pct: number; haggle: string; dm_notes: string; status: string; restock_rule: string; restock_days: number; restocked_min: number | null;
   restocked_at: string | null; sell_pct: number | null; gen: string; created_at: string; updated_at: string;
+  /** Added later (market.ts migrate): the town, the keeper's purse (null: never runs out) and how far they will haggle. */
+  town_id?: string | null; gold_cp?: number | null; barter_pct?: number;
 }
 export interface StockRow { id: string; shop_id: string; world_id: string; item_id: string; price_cp: number | null; qty: number | null; base_qty: number | null; hidden: number; dm_note: string; sort: number }
 
-/** The price of one, in copper: the line's own price, else the item's cost with the shop's markup. null: not for sale. */
-export const unitPrice = (shop: Pick<ShopRow, 'markup_pct'>, st: Pick<StockRow, 'price_cp'>, it: Pick<ItemRow, 'cost_cp'>): number | null => {
+/** The list price of one, in copper: a line's own price, else the item's cost x the town's price level x the shop's markup. null: not for sale. */
+export function listPrice(townPct: number, shop: Pick<ShopRow, 'markup_pct'>, st: Pick<StockRow, 'price_cp'>, it: Pick<ItemRow, 'cost_cp'>): number | null {
   if (st.price_cp !== null && st.price_cp !== undefined) return st.price_cp;
   if (it.cost_cp === null || it.cost_cp === undefined) return null;
-  return Math.max(0, Math.round((it.cost_cp * (100 + shop.markup_pct)) / 100));
-};
+  return Math.max(0, Math.round((it.cost_cp * (100 + townPct) * (100 + shop.markup_pct)) / 10_000));
+}
+/** The price of one with the shop's markup (and the town's level when given). */
+export const unitPrice = (shop: Pick<ShopRow, 'markup_pct'>, st: Pick<StockRow, 'price_cp'>, it: Pick<ItemRow, 'cost_cp'>, townPct = 0): number | null => listPrice(townPct, shop, st, it);
+
+/** A town's price level in words, for players (the numbers are already in the prices they see). */
+export const priceWord = (pct: number) => (pct <= -15 ? 'cheap' : pct < -4 ? 'a little cheap' : pct <= 4 ? 'fair' : pct <= 15 ? 'a little dear' : pct <= 40 ? 'dear' : 'steep');
+
+/** The shop's town (id, name, price level), or null. */
+export function townFor(db: DB, s: Pick<ShopRow, 'world_id'> & { town_id?: string | null }): { id: string; name: string; description: string; price_pct: number } | null {
+  if (!s.town_id) return null;
+  return one<any>(db, 'SELECT id, name, description, price_pct FROM shop_towns WHERE id = ? AND world_id = ?', s.town_id, s.world_id) ?? null;
+}
+export const townPctOf = (db: DB, s: Pick<ShopRow, 'world_id'> & { town_id?: string | null }) => townFor(db, s)?.price_pct ?? 0;
 
 export const keeperOf = (s: ShopRow): Keeper => parseJson<Keeper>(s.keeper, {});
 
@@ -127,11 +141,11 @@ export function locationFor(d: Deps, s: ShopRow, viewer: Viewer): { id: string; 
 export const playerVisible = (s: Pick<ShopRow, 'status'>) => s.status === 'open' || s.status === 'closed';
 
 /** One stock line as a player sees it. */
-export function playerLine(shop: ShopRow, st: StockRow, it: ItemRow) {
+export function playerLine(shop: ShopRow, st: StockRow, it: ItemRow, townPct = 0) {
   return {
     id: st.id, name: it.name, type: it.type, category: it.category, rarity: it.rarity, weight: it.weight,
     description: it.description, properties: it.properties, attunement: !!it.attunement, source: it.source_label, attribution: it.attribution,
-    priceCp: unitPrice(shop, st, it), qty: st.qty, unlimited: st.qty === null,
+    priceCp: unitPrice(shop, st, it, townPct), qty: st.qty, unlimited: st.qty === null,
   };
 }
 
@@ -142,12 +156,16 @@ export function playerLine(shop: ShopRow, st: StockRow, it: ItemRow) {
 export function playerShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer, withStock = true) {
   if (!playerVisible(s)) return null;
   const k = keeperOf(s);
+  const town = townFor(db, s);
   const out: any = {
     id: s.id, name: s.name, kind: s.kind, kindLabel: KIND_LABEL[s.kind as ShopKind] ?? s.kind, description: s.description, status: s.status,
     keeper: k.name ? { name: k.name ?? '', race: k.race ?? '', role: k.role ?? '', look: k.look ?? '', voice: k.voice ?? '', personality: k.personality ?? '' } : null,
     location: locationFor(d, s, viewer), sellPct: null as number | null,
+    // The town's name, its public description and its prices in words; never its DM notes or the exact level.
+    town: town ? { name: town.name, description: town.description, prices: priceWord(town.price_pct) } : null,
+    haggles: (s.barter_pct ?? 0) > 0,
   };
-  if (withStock && s.status === 'open') out.stock = stockRows(db, s.id).filter((r) => !r.hidden).map((r) => playerLine(s, r, r.item));
+  if (withStock && s.status === 'open') out.stock = stockRows(db, s.id).filter((r) => !r.hidden).map((r) => playerLine(s, r, r.item, town?.price_pct ?? 0));
   else out.stock = [];
   return out;
 }
@@ -155,11 +173,14 @@ export function playerShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer, withStoc
 /** The whole shop for the DM. */
 export function dmShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer) {
   const k = keeperOf(s);
+  const town = townFor(db, s);
+  const tp = town?.price_pct ?? 0;
   return {
     id: s.id, name: s.name, kind: s.kind, kindLabel: KIND_LABEL[s.kind as ShopKind] ?? s.kind, description: s.description, status: s.status,
     keeper: k, locationPageId: s.location_page_id, location: locationFor(d, s, viewer), markupPct: s.markup_pct, haggle: s.haggle, dmNotes: s.dm_notes,
     restock: { rule: s.restock_rule, days: s.restock_days, at: s.restocked_at }, sellPct: s.sell_pct, gen: parseJson<Record<string, unknown>>(s.gen, {}),
-    stock: stockRows(db, s.id).map((r) => ({ ...playerLine(s, r, r.item), itemId: r.item_id, priceOverrideCp: r.price_cp, costCp: r.item.cost_cp, baseQty: r.base_qty, hidden: !!r.hidden, dmNote: r.dm_note, dmNotes: r.item.dm_notes })),
+    townId: s.town_id ?? null, town: town ? { id: town.id, name: town.name, pricePct: town.price_pct, prices: priceWord(town.price_pct) } : null, goldCp: s.gold_cp ?? null, barterPct: s.barter_pct ?? 0,
+    stock: stockRows(db, s.id).map((r) => ({ ...playerLine(s, r, r.item, tp), itemId: r.item_id, priceOverrideCp: r.price_cp, costCp: r.item.cost_cp, baseQty: r.base_qty, hidden: !!r.hidden, dmNote: r.dm_note, dmNotes: r.item.dm_notes })),
     createdAt: s.created_at, updatedAt: s.updated_at,
   };
 }
