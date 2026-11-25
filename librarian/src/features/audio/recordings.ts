@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
+import type { JobCtx } from '../../core/jobs.ts';
 import { all, one, run } from '../../core/db.ts';
 import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
 import { id as newId, now, parseJson } from '../../core/util.ts';
@@ -163,9 +164,9 @@ function mixTracks(files: string[], out: string, mp3: boolean) {
 
 // ---- the build queue ---------------------------------------------------------------------
 
-interface Q { chain: Promise<void>; waiting: Set<string>; progress: Map<string, { pct: number; step: string }> }
+interface Q { chain: Promise<void>; waiting: Set<string>; progress: Map<string, { pct: number; step: string }>; jobCtx: Map<string, JobCtx> }
 const queues = new WeakMap<DB, Q>();
-const queueOf = (d: Deps): Q => { let q = queues.get(d.db); if (!q) { q = { chain: Promise.resolve(), waiting: new Set(), progress: new Map() }; queues.set(d.db, q); } return q; };
+const queueOf = (d: Deps): Q => { let q = queues.get(d.db); if (!q) { q = { chain: Promise.resolve(), waiting: new Set(), progress: new Map(), jobCtx: new Map() }; queues.set(d.db, q); } return q; };
 
 export const buildProgress = (d: Deps, sessionId: string) => queueOf(d).progress.get(sessionId) ?? null;
 /** Resolves when every queued build has finished (tests). */
@@ -182,7 +183,12 @@ export function enqueueBuild(d: Deps, sessionId: string): boolean {
   q.waiting.add(sessionId);
   run(d.db, "UPDATE audio_sessions SET rec_status = 'queued', rec_error = NULL WHERE id = ?", sessionId);
   q.chain = q.chain.then(async () => {
-    try { await buildRecording(d, sessionId); } catch (e) { console.error('audio: recording build crashed', e); } finally { q.waiting.delete(sessionId); q.progress.delete(sessionId); }
+    // Shown in the admin's jobs bar; not stoppable (ffmpeg is half way through files) and not resumed by the job runner (the sweep queues it again).
+    const work = async () => { try { await buildRecording(d, sessionId); } catch (e) { console.error('audio: recording build crashed', e); } };
+    try {
+      if (d.jobs) await d.jobs.track({ kind: 'recording', title: `Building a session recording`, worldId: sessionRow(d.db, sessionId)?.world_id ?? null, cancellable: false }, (ctx) => { q.jobCtx.set(sessionId, ctx); return work(); });
+      else await work();
+    } finally { q.waiting.delete(sessionId); q.progress.delete(sessionId); q.jobCtx.delete(sessionId); }
   });
   return true;
 }
@@ -216,7 +222,12 @@ export function cleanChunks(d: Deps, sessionId: string): number {
   return n;
 }
 
-function setProgress(d: Deps, sid: string, pct: number, step: string) { queueOf(d).progress.set(sid, { pct: Math.max(0, Math.min(100, Math.round(pct))), step }); }
+function setProgress(d: Deps, sid: string, pct: number, step: string) {
+  const q = queueOf(d);
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  q.progress.set(sid, { pct: p, step });
+  q.jobCtx.get(sid)?.progress(p, 100, step);
+}
 
 const fmtTime = (ms: number) => { const s = Math.floor(ms / 1000); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`; };
 
