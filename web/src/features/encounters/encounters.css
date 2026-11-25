@@ -1,0 +1,28 @@
+/* NPC encounters: the player's popup and the DM's page. */
+.modal.enc { border-color: var(--accent); border-width: 2px; }
+.enc-kicker { letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.enc-npc { display: flex; gap: 12px; align-items: center; }
+.enc-avatar { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-bg); color: var(--accent-strong); border: 1px solid var(--accent); font-size: 20px; font-weight: 700; }
+.enc-log { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--bg); border-radius: 8px; border: 1px solid var(--line); font-size: 14px; }
+.enc-line { display: flex; flex-direction: column; gap: 1px; }
+.enc-line .enc-who { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.enc-line.you { align-items: flex-end; text-align: right; color: var(--accent-strong); }
+.enc-line.game, .enc-line.note { color: var(--muted); font-style: italic; }
+.enc-line.gain { color: var(--ok-text); font-weight: 600; }
+.enc-line.loss { color: var(--danger-text); font-weight: 600; }
+.enc-line.dm .enc-who { color: var(--teal); }
+.enc-say { font-size: 18px; margin: 0; }
+.enc-game { background: var(--bg); }
+.enc-shells { gap: 10px; }
+.enc-shell { flex-direction: column; min-width: 72px; min-height: 64px; gap: 4px; font-size: 22px; }
+.enc-opt { min-height: 46px; justify-content: flex-start; text-align: left; font-size: 16px; }
+.enc-chip { position: fixed; left: 16px; bottom: calc(var(--dock-reserve, 16px) + 8px); z-index: 45; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--accent); background: var(--panel); color: var(--accent-strong); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4); cursor: pointer; display: inline-flex; gap: 8px; align-items: center; max-width: calc(100vw - 32px); }
+.enc-h { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin: 4px 0 0; }
+.enc-pick { text-align: left; cursor: pointer; }
+.enc-pick.on { border-color: var(--accent); }
+.enc-node { background: var(--panel-2); }
+.enc-gamebox { padding: 8px 10px; border-left: 3px solid var(--accent); }
+.enc-opt-edit { padding: 8px 0; border-top: 1px dashed var(--line); }
+.enc-fx { padding-left: 16px; align-items: flex-end; }
+.enc-watch .enc-log { max-height: 260px; }
+.enc-draft summary { cursor: pointer; }
