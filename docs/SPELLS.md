@@ -243,6 +243,37 @@ The plan's open questions, answered as settings:
 | Gifted spells count toward line mastery | yes | `lines.giftsCountForMastery` |
 | Scrolls and memories | a scroll is a study aid (adds study points; the spell is still studied and checked); a full memory of learning a spell (e.g. taken by a memory spell) teaches it at once | `learning.scroll`, `learning.memory` (`save: true` adds a WIS save) |
 
+### Spell lines
+
+The DM defines lines (World → Codex, or the API): a name (unique, up to 40
+characters), a colour (`#e25822`) and a short theme. A spell can be in more
+than one line; one in two or more is a hybrid. Line mastery (how many known
+spells a character has in a line) comes from `lineMastery` in `rules.ts`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/spells/lines` | Every line with its spell ids; a player gets only the spells they may read |
+| POST | `/spells/lines` | DM: `{name, color, theme, spells: [names or ids]}` |
+| PUT | `/spells/lines/:lid` | DM: change any of those; `spells` replaces the list |
+| DELETE | `/spells/lines/:lid` | DM |
+| PUT | `/spells/s/:id/lines` | DM: `{lines: [line ids or names]}` replaces a spell's lines |
+
+### The spell rules profile
+
+Everything a world's spell rules are made of, by spell name so it moves
+between worlds: the mana settings (`spellManaCosts`, `spellManaPool`,
+`spellManaRest`, `spellManaMaxLevel`, `spellManaOverdraw`), `spellRules` (only
+what the world changed), the lines with their spells, and the recipes.
+
+- `GET /spells/profile/export` (DM): `{format: "alexandria-spell-rules", version: 1, settings, lines, recipes}`.
+- `POST /spells/profile/import/preview` (DM), body `{profile, replace?}`:
+  which settings would change, the lines added and updated, the spells this
+  world lacks (skipped), the tags and the recipes added and skipped. Nothing is
+  written.
+- `POST /spells/profile/import` (DM): the same, done. A bad setting, a setting
+  a profile does not carry or a bad line refuses the whole import. Lines merge
+  by name; `replace: true` clears the world's lines and recipes first.
+
 The engine is not wired into casting or the Codex UI yet: `POST /spells/cast`
 still uses the mana rules above. Characters have no caster type or study
 state yet; those come with the cast panel and the Study panel (plan steps

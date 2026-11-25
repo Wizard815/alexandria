@@ -4,7 +4,7 @@ import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { all, one, run } from '../core/db.ts';
 import { type Auth, bearer, requireDM } from '../core/auth.ts';
-import { mergeSettings } from '../core/policy.ts';
+import { mergeSettings, settingsFor } from '../core/policy.ts';
 import { HttpError, int, now, oneOf, sha256 } from '../core/util.ts';
 import { ctx, isDM, me, settings } from './_shared.ts';
 
@@ -18,14 +18,7 @@ export function listMyWorlds(d: Deps) {
 }
 
 /** Settings only the DM reads: where the WorldLore folder lives and what the DM's agent may do without asking. */
-const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove', 'agentAuto', 'agentName'] as const;
-/** The settings as a viewer may read them (a player, a guest or a model asking as one gets no DM-only key). */
-export function settingsFor<T extends object>(s: T, role: string): Partial<T> {
-  if (role === 'dm') return s;
-  const out: Record<string, unknown> = { ...(s as Record<string, unknown>) };
-  for (const k of DM_ONLY_SETTINGS) delete out[k];
-  return out as Partial<T>;
-}
+export { settingsFor } from '../core/policy.ts';
 
 export default function worldRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
