@@ -5,6 +5,8 @@ import { PageHead, ErrorBox, Field, Switch, Loading, useAction, useToast } from 
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { engine, healMic, useEngine, type MicSetting, type Mode } from './engine.ts';
 import { KeyButton, Meter, MODE_LABELS, useAttach, useInputs } from './shared.tsx';
+import { STT_MODE_LABELS, sttCapability, sttLine, useDeviceStt, type SttMode } from './stt.ts';
+import { DeviceSttNote } from './SttStatus.tsx';
 
 const MODES: Mode[] = ['always', 'hold-to-talk', 'hold-to-mute', 'off'];
 
@@ -15,6 +17,10 @@ export default function AudioSetup() {
   const status = useLoad(() => w.call<any>('GET', '/audio/status'), [w], ['recording']);
   const consents = useLoad(() => w.call<any[]>('GET', '/audio/consents'), [w], ['recording']);
   const mics = useLoad(() => w.call<any[]>('GET', '/audio/mics'), [w], []);
+  const stt = useDeviceStt();
+  const [sttMode, setSttMode] = useState<SttMode>('server');
+  const [gpu, setGpu] = useState<boolean | null>(null);
+  useEffect(() => { void sttCapability().then((c) => setGpu(c.webgpu)); }, []);
   const { inputs, labelled, error: devError, reload } = useInputs();
   const [settings, setSettings] = useState<MicSetting[]>(() => engine.loadMics());
   const [asideKey, setAsideKey] = useState(() => engine.loadAsideKey());
@@ -27,7 +33,7 @@ export default function AudioSetup() {
   const { toast, toastNode } = useToast();
   const textRef = useRef(false);
 
-  useEffect(() => { if (status.data && !textRef.current) { textRef.current = true; setText(status.data.consent.text); setDays(status.data.retentionDays === null ? '' : String(status.data.retentionDays)); setHintOn(status.data.transcription?.hint !== 'off'); setRefine(status.data.transcription?.refine === 'on'); } }, [status.data]);
+  useEffect(() => { if (status.data && !textRef.current) { textRef.current = true; setText(status.data.consent.text); setDays(status.data.retentionDays === null ? '' : String(status.data.retentionDays)); setHintOn(status.data.transcription?.hint !== 'off'); setRefine(status.data.transcription?.refine === 'on'); setSttMode(status.data.transcription?.stt ?? 'server'); } }, [status.data]);
   // The aside key is read by the engine; load it once the world is attached.
   useEffect(() => { setSettings(engine.loadMics()); setAsideKey(engine.loadAsideKey()); }, [info.id]);
 
@@ -44,6 +50,10 @@ export default function AudioSetup() {
   }, [inputs, labelled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recording = !!status.data?.recording;
+  // While recording, each mic's speech to text (where it runs and how fast) is refreshed every few seconds.
+  const reloadMics = useRef(mics.reload);
+  reloadMics.current = mics.reload;
+  useEffect(() => { if (!recording) return; const t = setInterval(() => void reloadMics.current(), 5000); return () => clearInterval(t); }, [recording]);
   const setFor = (deviceId: string): MicSetting => settings.find((s) => s.deviceId === deviceId) ?? { deviceId, label: inputs.find((i) => i.deviceId === deviceId)?.label ?? 'Microphone', deviceLabel: inputs.find((i) => i.deviceId === deviceId)?.label, enabled: false, mode: 'always', playersTranscript: true, aside: false, key: '' };
 
   async function update(deviceId: string, patch: Partial<MicSetting>) {
@@ -80,6 +90,10 @@ export default function AudioSetup() {
       if (status.data?.session) await w.call('POST', `/audio/sessions/${status.data.session.id}/stop`);
       await status.reload();
     });
+  }
+  async function saveStt(m: SttMode) {
+    setSttMode(m);
+    await run(async () => { await w.updateSettings({ speechToText: m }); toast('Saved'); });
   }
   async function saveWorld() {
     await run(async () => {
@@ -141,6 +155,24 @@ export default function AudioSetup() {
         })}
       </section>
 
+      <section className="card stack" aria-label="Speech to text">
+        <h2 style={{ margin: 0 }}>Speech to text</h2>
+        <p className="small muted" style={{ margin: 0 }}>Where the audio is turned into text. On a device, each phone or laptop runs its own Whisper model in the browser (graphics card with WebGPU, else the CPU), so the server does not have to transcribe every mic at once. Whatever a device cannot do in time, the server transcribes, so nothing is missed. After the session every mic is synced into one final transcript.</p>
+        <div className="row wrap" role="radiogroup" aria-label="Where speech to text runs" style={{ gap: 6 }}>
+          {(['server', 'device', 'auto'] as SttMode[]).map((m) => (
+            <label key={m} className={`btn small${sttMode === m ? ' primary' : ''}`} style={{ cursor: 'pointer' }}>
+              <input type="radio" name="stt-mode" value={m} checked={sttMode === m} disabled={busy} onChange={() => void saveStt(m)} style={{ marginRight: 6 }} />{STT_MODE_LABELS[m]}
+            </label>
+          ))}
+        </div>
+        <p className="tiny muted" style={{ margin: 0 }}>
+          {sttMode === 'server' ? 'The server’s audio model transcribes every mic.' : sttMode === 'device' ? 'Every recording device transcribes its own mic: GPU when it has one, else the CPU (slower; a slow device hands chunks to the server).' : 'Devices with a usable GPU transcribe their own mic; the rest are done by the server.'}
+          {' '}Devices pick up a change when they next start recording.
+        </p>
+        <p className="tiny" style={{ margin: 0 }}>This computer: {gpu === null ? 'checking…' : gpu ? 'has a GPU the browser can use (WebGPU).' : 'no usable GPU found (the CPU can still transcribe in “On each device”).'}</p>
+        <DeviceSttNote view={stt} />
+      </section>
+
       <section className="card">
         <h2>DM aside key</h2>
         <p className="small muted">Hold it while you say something the players must not read. Everything every mic hears in that time stays in your transcript only.</p>
@@ -167,7 +199,16 @@ export default function AudioSetup() {
 
       <section className="card">
         <h2>Mics in this world</h2>
-        <ul className="au-list">{(mics.data ?? []).map((m) => <li key={m.id}><span>{m.label} <span className="tiny faint">({m.owner})</span></span><span className="tiny faint">{MODE_LABELS[m.mode as Mode]}{m.playersTranscript ? '' : ' · DM only'}{m.aside ? ' · aside' : ''}</span></li>)}</ul>
+        <ul className="au-list">{(mics.data ?? []).map((m) => {
+          const line = sttLine(m.stt);
+          return (
+            <li key={m.id} className="au-mic-row">
+              <span>{m.label} <span className="tiny faint">({m.owner})</span></span>
+              <span className="tiny faint">{MODE_LABELS[m.mode as Mode]}{m.playersTranscript ? '' : ' · DM only'}{m.aside ? ' · aside' : ''}</span>
+              {line.text && <span className={`tiny au-stt ${line.where}`} data-stt={line.where}><i className={`fa-solid ${line.where === 'device' ? 'fa-microchip' : line.where === 'loading' ? 'fa-spinner' : 'fa-server'}`} aria-hidden="true" /> {line.text}</span>}
+            </li>
+          );
+        })}</ul>
         <div className="row"><button type="button" className="btn small" onClick={() => void run(async () => { const r = await w.call<any>('POST', '/audio/retry'); toast(`${r.transcribed} transcribed, ${r.pending} still waiting`); })}>Transcribe audio that was waiting for the model</button></div>
       </section>
       {toastNode}
