@@ -27,7 +27,7 @@ export interface Match {
 interface LibRow { id: string; title: string; path: string; aliases: string; kind: string | null; visibility: string }
 
 /** Library pages by name, never the vault's own and never classified. */
-function libraryByName(d: Deps, worldId: string, q: string, partial: boolean): LibRow[] {
+export function libraryByName(d: Deps, worldId: string, q: string, partial: boolean): LibRow[] {
   const rows = all<LibRow>(d.db, `SELECT id, title, path, aliases, kind, visibility FROM pages WHERE world_id = ? AND path NOT LIKE 'Minerva/%' AND visibility <> 'classified'`, worldId);
   const n = norm(q);
   if (!n) return [];

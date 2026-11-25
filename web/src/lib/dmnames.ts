@@ -48,6 +48,7 @@ export const DM_NAMES: Record<string, DMName> = {
   sculpt: { group: 'prep', label: 'Sculpting', icon: 'fa-wand-magic-sparkles', desc: 'Fill a few blanks; the rest is made to fit your world.' },
   generators: { group: 'prep', label: 'Generators', icon: 'fa-dice', desc: 'NPCs, monsters, maps, taverns and names.' },
   templates: { group: 'prep', label: 'Templates & guides', icon: 'fa-compass-drafting', desc: 'Guides the assistant follows for a kind of task, and templates for generators, macros, panels, shops and pages.' },
+  knowledge: { group: 'prep', label: 'Knowledge', icon: 'fa-arrows-rotate', desc: 'How current the AI’s knowledge of the world is; refresh it all in one step.' },
   bible: { group: 'prep', label: 'Story bible', icon: 'fa-book-open', desc: 'What the library says about the world, as facts.' },
   minerva: { group: 'prep', label: 'Minerva', icon: 'fa-brain', desc: 'The campaign’s memory: status, arc, who knows what.' },
   worldlore: { group: 'prep', label: 'WorldLore', icon: 'fa-feather-pointed', desc: 'The AI’s own wiki for this world.' },
