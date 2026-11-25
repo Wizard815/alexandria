@@ -71,15 +71,19 @@ function system(audience: Audience): string {
 
 /**
  * Bring one session's summary up to date for one audience. `force` folds in whatever is new now (the session ended,
- * or someone asked); otherwise only when enough has come in. Never throws for a model problem.
+ * or someone asked); otherwise only when enough has come in. `rebuild` makes it again from every line the session has
+ * now (the final transcript replaced the live lines, or the DM undid it): the old summary is kept unless the whole
+ * rebuild succeeds. Never throws for a model problem.
  */
-export async function updateSummary(d: Deps, worldId: string, sessionId: string, audience: Audience, opts: { force?: boolean; at?: number } = {}): Promise<{ ran: boolean; reason?: string; lines: number }> {
+export async function updateSummary(d: Deps, worldId: string, sessionId: string, audience: Audience, opts: { force?: boolean; at?: number; rebuild?: boolean } = {}): Promise<{ ran: boolean; reason?: string; lines: number }> {
   if (!hasJob(d, 'chat')) return { ran: false, reason: 'No chat model', lines: 0 };
   const key = `${sessionId}|${audience}`;
+  // A rebuild waits for a pass already running (it must not be lost); an ordinary pass just skips.
+  for (let i = 0; opts.rebuild && busy.has(key) && i < 600; i++) await new Promise((r) => setTimeout(r, 100));
   if (busy.has(key)) return { ran: false, reason: 'Already running', lines: 0 };
   busy.add(key);
   try {
-    const cur = one<any>(d.db, 'SELECT * FROM audio_summaries WHERE session_id = ? AND audience = ?', sessionId, audience);
+    const cur = opts.rebuild ? undefined : one<any>(d.db, 'SELECT * FROM audio_summaries WHERE session_id = ? AND audience = ?', sessionId, audience);
     const upto: string = cur?.upto ?? '';
     // The same test the outgoing screen uses (any classified page, by shared word runs), so a line that would make the
     // whole request refused is left out instead and the summary still runs.
@@ -91,7 +95,7 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
     // The first summary waits like the rest: from the start of the session.
     const since = cur?.updated_at ?? one<any>(d.db, 'SELECT started_at FROM audio_sessions WHERE id = ?', sessionId)?.started_at;
     const ago = since ? (opts.at ?? Date.now()) - Date.parse(since) : Infinity;
-    if (!opts.force && fresh.length < SUMMARY_LINES && ago < SUMMARY_EVERY_MS) return { ran: false, reason: 'Too soon', lines: fresh.length };
+    if (!opts.force && !opts.rebuild && fresh.length < SUMMARY_LINES && ago < SUMMARY_EVERY_MS) return { ran: false, reason: 'Too soon', lines: fresh.length };
     let text: string = cur?.text ?? '';
     let done = 0;
     let newest = upto;
@@ -114,6 +118,14 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
       for (const l of step) if (l.updatedAt > newest) newest = l.updatedAt;
     }
     if (!done) return { ran: false, reason: 'The model gave nothing', lines: 0 };
+    if (opts.rebuild) {
+      if (done < fresh.length) return { ran: false, reason: 'The model stopped part way; the old summary is kept', lines: 0 };
+      run(d.db, `INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, audience) DO UPDATE SET text = excluded.text, upto = excluded.upto, lines = excluded.lines, updated_at = excluded.updated_at`,
+        sessionId, audience, worldId, text, newest, done, now());
+      d.hub.emit(worldId, 'audio-summary', { sessionId, audience }, (v) => audience === 'party' || v.role === 'dm');
+      return { ran: true, lines: done };
+    }
     run(d.db, `INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id, audience) DO UPDATE SET text = excluded.text, upto = excluded.upto, lines = audio_summaries.lines + ?, updated_at = excluded.updated_at`,
       sessionId, audience, worldId, text, newest, done, now(), done);
@@ -123,7 +135,7 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
 }
 
 /** Both summaries of one session. */
-export async function updateBoth(d: Deps, worldId: string, sessionId: string, opts: { force?: boolean } = {}) {
+export async function updateBoth(d: Deps, worldId: string, sessionId: string, opts: { force?: boolean; rebuild?: boolean } = {}) {
   const dm = await updateSummary(d, worldId, sessionId, 'dm', opts);
   const party = await updateSummary(d, worldId, sessionId, 'party', opts);
   return { dm, party };
