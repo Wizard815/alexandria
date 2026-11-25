@@ -17,6 +17,9 @@ import { HttpError, int, now, oneOf, str } from '../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
 import { applyChange, rejectChange, revertChange } from './inventory.ts';
 
+/** Coin held by a pending shop purchase (features/shop) is not a coin request: it is decided with the purchase. */
+const NOT_SHOP = 'id NOT IN (SELECT ledger_id FROM shop_orders WHERE ledger_id IS NOT NULL)';
+
 export default function approvalsRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
@@ -40,7 +43,7 @@ export default function approvalsRoutes(d: Deps) {
     const w = ctx(res).world.id;
     const ch = all<any>(db, `SELECT * FROM item_changes WHERE world_id = ? AND status IN ('pending', 'disputed', 'alert') ORDER BY at`, w).map((x) => parse(x, true));
     res.json({
-      coin: all<any>(db, `SELECT * FROM ledger WHERE world_id = ? AND status = 'pending' ORDER BY at`, w).map(coin),
+      coin: all<any>(db, `SELECT * FROM ledger WHERE world_id = ? AND status = 'pending' AND ${NOT_SHOP} ORDER BY at`, w).map(coin),
       items: ch.filter((x) => x.status === 'pending'),
       disputes: ch.filter((x) => x.status === 'disputed'),
       alerts: ch.filter((x) => x.status === 'alert'),
@@ -48,7 +51,7 @@ export default function approvalsRoutes(d: Deps) {
       // Free gives between players: nothing to approve, shown so the DM knows.
       transfers: all<any>(db, 'SELECT * FROM transfers WHERE world_id = ? ORDER BY at DESC LIMIT 30', w).map((t) => ({ ...t, seen: !!t.seen })),
       counts: {
-        coin: one<any>(db, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending'`, w)!.n,
+        coin: one<any>(db, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending' AND ${NOT_SHOP}`, w)!.n,
         items: ch.filter((x) => x.status === 'pending').length,
         disputes: ch.filter((x) => x.status === 'disputed').length,
         transfers: one<any>(db, 'SELECT COUNT(*) AS n FROM transfers WHERE world_id = ? AND seen = 0', w)!.n,
@@ -96,6 +99,8 @@ export default function approvalsRoutes(d: Deps) {
     if (rid.startsWith('led_')) {
       const e = one<any>(db, `SELECT * FROM ledger WHERE id = ? AND world_id = ? AND status = 'pending'`, rid, w);
       if (!e) throw new HttpError(404, 'Nothing waiting with that id');
+      // Coin held for a shop purchase is decided with the purchase (Shops page), so the item and the stock move with it.
+      if (one(db, 'SELECT 1 FROM shop_orders WHERE ledger_id = ?', e.id)) throw new HttpError(409, 'This is a shop purchase: approve or reject it on the Shops page');
       if (action === 'reject') run(db, `UPDATE ledger SET status = 'rejected', decided_by = ?, decided_at = ? WHERE id = ?`, me(res), now(), e.id);
       else if (action === 'approve' || action === 'edit') {
         const amount = req.body?.amountCp !== undefined ? int(req.body.amountCp, 'amountCp', { min: -100_000_000, max: 100_000_000 })! : e.amount_cp;

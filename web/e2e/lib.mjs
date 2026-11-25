@@ -34,8 +34,8 @@ export async function signIn(browser, base, user, pass, viewport, mobile, landin
   return { ctx, page };
 }
 
-export const DM_ROUTES = ['', 'combat', 'quick', 'party', 'inbox', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'recordings', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect', 'phone'];
-export const PLAYER_ROUTES = ['', 'live', 'library', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect', 'rules', 'chat', 'sessionlog', 'bible', 'stage', 'audio', 'recordings', 'journal'];
+export const DM_ROUTES = ['', 'combat', 'quick', 'party', 'inbox', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'recordings', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect', 'phone', 'shops', 'items'];
+export const PLAYER_ROUTES = ['', 'live', 'library', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect', 'rules', 'chat', 'sessionlog', 'bible', 'stage', 'audio', 'recordings', 'journal', 'shop'];
 
 /** Console noise that is expected: permission checks (403/404), fonts, ResizeObserver. */
 export const quiet = (t) => /Failed to load resource.*(40[34])|fonts\.g|net::ERR_|ResizeObserver/.test(t);
