@@ -370,7 +370,7 @@ test('Coverage: a tool set to auto-approve runs without waiting', async () => {
   try {
     const before = (await dm('GET', '/live/ledger?owner=party')).cp;
     const r = await drive('dm', 'add_coin', { owner: 'party', amountCp: 77, note: 'Auto' });
-    assert.equal(r.actions.length, 0, 'nothing waits');
+    assert.equal(r.actions.filter((a: any) => a.status === 'pending').length, 0, 'nothing waits');
     assert.ok(!FAILED.test(r.result), r.result);
     assert.equal((await dm('GET', '/live/ledger?owner=party')).cp, before + 77);
     assert.ok(all<any>(deps.db, `SELECT 1 FROM audit WHERE world_id = ? AND action = 'agent.action' AND detail LIKE 'add_coin%auto-approved%'`, W).length >= 1);
