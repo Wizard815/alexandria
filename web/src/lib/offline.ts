@@ -72,7 +72,61 @@ export async function available(): Promise<boolean> {
   return (await open()) !== null;
 }
 
-export async function savePage(world: string, account: string, page: any): Promise<boolean> {
+/** A picture this server stores for a page (its signed media address). Those expire and are never cached, so an offline copy keeps the file. */
+const LOCAL_MEDIA = /^\/api\/media\/intake\/[\w.-]+$/;
+/** The most picture bytes one saved page keeps, and the largest single picture. */
+const OFFLINE_PICTURE_BUDGET = 25 * 1024 * 1024;
+const OFFLINE_PICTURE_MAX = 8 * 1024 * 1024;
+
+function blobToDataUrl(b: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const r = new FileReader();
+      r.onload = () => resolve(typeof r.result === 'string' ? r.result : null);
+      r.onerror = () => resolve(null);
+      r.readAsDataURL(b);
+    } catch { resolve(null); }
+  });
+}
+
+/**
+ * The page with the pictures this server holds for it (banner, gallery, pictures in the text, map pictures) turned into data addresses, so
+ * the saved copy shows them with no connection. A picture that cannot be fetched now, is not an image, or does not fit the budget keeps its
+ * address (it shows while online). Never throws.
+ */
+export async function withOfflinePictures(page: any): Promise<any> {
+  const urls = new Set<string>();
+  const note = (u: unknown) => { if (typeof u === 'string' && LOCAL_MEDIA.test(u)) urls.add(u); };
+  note(page?.banner);
+  for (const p of Array.isArray(page?.pictures) ? page.pictures : []) note(p?.url);
+  const walk = (bs: any[]) => { for (const b of Array.isArray(bs) ? bs : []) { if (!b || typeof b !== 'object') continue; if (b.kind === 'image') note(b.url); if (b.kind === 'map') note(b.image); walk(b.children); } };
+  walk(page?.blocks);
+  if (!urls.size || typeof fetch !== 'function') return page;
+  const data = new Map<string, string>();
+  let budget = OFFLINE_PICTURE_BUDGET;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok || !/^image\/(png|jpeg|gif|webp)$/.test(String(r.headers.get('content-type') ?? '').split(';')[0].trim())) continue;
+      const b = await r.blob();
+      if (b.size > OFFLINE_PICTURE_MAX || b.size > budget) continue;
+      const d = await blobToDataUrl(b);
+      if (d && d.startsWith('data:image/')) { data.set(u, d); budget -= b.size; }
+    } catch { /* offline now: keep the address */ }
+  }
+  if (!data.size) return page;
+  const swap = (u: unknown) => (typeof u === 'string' && data.has(u) ? data.get(u)! : u);
+  const map = (bs: any[]): any[] => (Array.isArray(bs) ? bs.map((b) => {
+    if (!b || typeof b !== 'object') return b;
+    const out = b.kind === 'image' ? { ...b, url: swap(b.url) } : b.kind === 'map' ? { ...b, image: swap(b.image) } : { ...b };
+    if (Array.isArray(b.children)) out.children = map(b.children);
+    return out;
+  }) : bs);
+  return { ...page, banner: swap(page.banner), pictures: Array.isArray(page.pictures) ? page.pictures.map((p: any) => ({ ...p, url: swap(p?.url) })) : page.pictures, blocks: map(page.blocks) };
+}
+
+export async function savePage(world: string, account: string, page0: any): Promise<boolean> {
+  const page = await withOfflinePictures(page0);
   const json = JSON.stringify(page);
   const rec: SavedPage = {
     key: keyOf(world, page.id, account), world, account, pageId: page.id, title: page.title, folder: page.folder ?? [],

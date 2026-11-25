@@ -14,6 +14,8 @@ import type { SyncRecord, TierState } from './connector.ts';
 import { connectorFor } from './registry.ts';
 import { connectorContext, isRunning, prefixFor, prepareImages, type SyncDeps } from './sync.ts';
 import { saveRecords } from './records.ts';
+import { entryPictures, withoutDuplicatePictures } from './images.ts';
+import { drainPictures, waitingPictures } from './imagequeue.ts';
 import { Bucket, addDetailCalls, budgetBucket, budgetDefaultOf, budgetOf, depthCounts, detailQueue, ensureTierSchema, getState, markWanted, queueLength, setSettings, storeEntry, tieredOf } from './tiers.ts';
 import { limitKeyOf, limiterState, limitsOf } from './ratelimit.ts';
 
@@ -61,6 +63,8 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
   const levelBefore = new Map<string, string>();
   const readIds: string[] = [];
   const pictures: SyncRecord[] = [];
+  const withPictures = made.c.capabilities.includes('images');
+  const pictureOwners = new Set<string>();
   try {
     for (const p of pages) {
       if (ctl.signal.aborted || (opts.maxCalls !== undefined && counter.detail >= opts.maxCalls)) break;
@@ -81,6 +85,8 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
           const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
           if (before) levelBefore.set(before.id, before.visibility);
           const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
+          // Its portrait and the pictures in its text, queued; together they are every picture the page has (the rest are removed below).
+          if (withPictures && (e as any).externalId) { pictures.push(...entryPictures(e as any)); pictureOwners.add((e as any).externalId); }
           if (r.id) { if (r.changed !== false) readIds.push(r.id); out.read++; if (r.id === p.id) gotIt = true; }
         }
         // This page did not come back (gone at the source, or its document could not be read), even if other tabs of its resource did:
@@ -104,11 +110,12 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
     made.close();
     addDetailCalls(d.db, src.id, counter.detail);
   }
-  if (pictures.length) {
-    // Only these pictures are saved: every other kind of record (and every other picture) is left as it is.
+  if (pictures.length || pictureOwners.size) {
+    // Only these pictures are saved, and only the pages read here lose the pictures they no longer have: every other kind of record (and every
+    // other page's pictures) is left as it is.
     const audience = normAudience(src.audience);
     if (audience !== 'auto') for (const r of pictures as any[]) r.visibility = audience;
-    try { saveRecords(d.db, src.world_id, src.id, pictures, new Set(['relation', 'timeline', 'calendar', 'mapMarker', 'image'])); } catch { /* the pictures come back with the next run */ }
+    try { saveRecords(d.db, src.world_id, src.id, withoutDuplicatePictures(pictures), new Set(['relation', 'timeline', 'calendar', 'mapMarker', 'image']), { relationOwners: new Set(), mapRefs: new Set(), pictureOwners }); } catch { /* the pictures come back with the next run */ }
   }
   if (readIds.length) {
     // A page whose level changed changes what other pages may say about it: rebuild the world. Otherwise only the pages that were read.
@@ -174,12 +181,14 @@ export interface TickResult { sourceId: string; calls: number; read: number; wai
  * and not syncing may spend its budget (calls a minute, as a token bucket) on
  * the pages most worth reading. `at` is the clock (tests move it).
  */
-export async function detailTick(d: SyncDeps, opts: { at?: number } = {}): Promise<TickResult[]> {
+export async function detailTick(d: SyncDeps, opts: { at?: number; pictures?: boolean } = {}): Promise<TickResult[]> {
   ensureTierSchema(d.db);
   const at = opts.at ?? Date.now();
   const out: TickResult[] = [];
   for (const src of all<any>(d.db, `SELECT * FROM sources WHERE enabled = 1 AND kind <> 'push'`)) {
     if (busy.has(src.id) || isRunning(src.id)) continue;
+    // A few queued pictures each turn (from the picture hosts, not the API: no call budget is spent).
+    if (opts.pictures !== false && waitingPictures(d.db, { sourceId: src.id })) await drainPictures(d, src.id, { max: 5 }).catch(() => {});
     const cfg = effectiveConfig(d.db, src);
     const tier = tieredOf(src.kind, cfg);
     if (!tier) continue;

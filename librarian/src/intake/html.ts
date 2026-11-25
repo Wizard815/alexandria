@@ -8,6 +8,13 @@ export function htmlToMarkdown(html: string): string {
   // href="…/w/<campaign>/entities/<entity id>">, or data-entity-id on older pages.
   s = s.replace(/<a\b[^>]*?(?:data-entity-id="(\d+)"|href="[^"]*\/entities\/(\d+)[^"]*"|class="[^"]*\bentity-mention\b[^"]*"[^>]*?\bdata-id="(\d+)")[^>]*>([\s\S]*?)<\/a>/gi, (_m, a, b, c, label) => `[[@kanka:${a ?? b ?? c}|${strip(label)}]]`);
   s = s.replace(/<a\b[^>]*href="(https?:[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href, t) => `[${strip(t)}](${href})`);
+  // Pictures (Kanka's inline images): kept as Markdown images, http(s) only, so they become image blocks (and are stored here, intake/images.ts).
+  s = s.replace(/<img\b[^>]*>/gi, (tag) => {
+    const src = /\bsrc\s*=\s*"(https?:\/\/[^"\s]+)"/i.exec(tag)?.[1] ?? /\bsrc\s*=\s*'(https?:\/\/[^'\s]+)'/i.exec(tag)?.[1];
+    if (!src) return '';
+    const alt = strip(/\balt\s*=\s*"([^"]*)"/i.exec(tag)?.[1] ?? '').replace(/[[\]\n]/g, ' ').slice(0, 200);
+    return `\n\n![${alt}](${decode(src).replace(/[()\s]/g, encodeURIComponent)})\n\n`;
+  });
   s = s.replace(/<br\s*\/?>/gi, '\n');
   s = s.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, n, t) => `\n\n${'#'.repeat(Number(n))} ${strip(t)}\n\n`);
   s = s.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, '**$2**');
