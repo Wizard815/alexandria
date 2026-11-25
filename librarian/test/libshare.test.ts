@@ -337,3 +337,55 @@ test('TestLibShare_WholeSourceIsSharedOnlyWhenAskedForByName', async () => {
     assert.deepEqual(await e.titles('tom'), []);
   } finally { e.close(); }
 });
+
+test('TestLibShare_LiveEventsNameOnlyPagesThePlayerCanOpenOrJustLost', async () => {
+  const e = await boot();
+  try {
+    const inn = await e.page('Town/Inn.md', 'dm', 'The inn.');
+    const cave = await e.page('Town/Cave.md', 'dm', 'The cave.');
+    const hidden = await e.page('lore/Hidden.md', 'dm', 'Hidden.');
+    const f = await e.up(`page=${hidden.id}&name=handout.png&level=dm`, PNG('ev'));
+    const hub = e.deps.hub as any;
+    let seen: { type: string; data: any; aud: (v: any) => boolean }[] = [];
+    const real = hub.emit.bind(hub);
+    hub.emit = (w: string, type: string, data: any, aud: (v: any) => boolean) => { seen.push({ type, data, aud }); return real(w, type, data, aud); };
+    const P = (who: string) => ({ accountId: e.ID[who], role: 'player' });
+    const idsFor = (v: any) => seen.filter((x) => x.aud(v)).flatMap((x) => [x.data?.id, x.data?.pageId]).filter(Boolean).sort();
+    const gotAny = (v: any) => seen.filter((x) => x.aud(v)).length;
+    try {
+      // A page shared to Jess: Jess hears its id, Tom hears no id at all, the DM hears it.
+      await e.share({ kind: 'page', id: inn.id, mode: 'players', players: [e.ID.jess] });
+      assert.deepEqual(idsFor(P('jess')), [inn.id, inn.id]);
+      assert.deepEqual(idsFor(P('tom')), [], 'another player learns no page id');
+      assert.ok(seen.some((x) => x.type === 'libshare' && x.aud(P('tom')) && !Object.keys(x.data).length), 'only an id-free refresh');
+      assert.ok(idsFor({ accountId: e.ID.dm, role: 'dm' }).includes(inn.id));
+      assert.equal(gotAny({ accountId: '', role: 'guest' }), 0, 'a guest hears nothing');
+      // Moved from Jess to Tom: Jess hears the page she lost, Tom the page he gained, Ana nothing.
+      seen = [];
+      await e.share({ kind: 'page', id: inn.id, mode: 'players', players: [e.ID.tom] });
+      assert.deepEqual(idsFor(P('jess')), [inn.id, inn.id]);
+      assert.deepEqual(idsFor(P('tom')), [inn.id, inn.id]);
+      assert.deepEqual(idsFor(P('ana')), []);
+      // A folder rule for Ana: she hears both pages in it, the others none of them (Tom still has the Inn).
+      seen = [];
+      await e.share({ kind: 'folder', sourceId: '', path: 'Town', mode: 'players', players: [e.ID.ana], confirm: true });
+      assert.deepEqual(idsFor(P('ana')), [cave.id, cave.id, inn.id, inn.id].sort());
+      assert.ok(!idsFor(P('jess')).length);
+      assert.ok(!idsFor(P('tom')).includes(cave.id), 'tom never learns the cave id');
+      // A file given alone: its hidden page id is never sent, only an id-free file signal.
+      seen = [];
+      await e.share({ kind: 'file', id: f.body.id, mode: 'players', players: [e.ID.jess] });
+      assert.ok(!JSON.stringify(seen.filter((x) => x.aud(P('jess'))).map((x) => x.data)).includes(hidden.id), 'the file page stays unnamed');
+      assert.ok(seen.some((x) => x.type === 'libfile' && x.aud(P('jess')) && !x.data.pageId));
+      assert.deepEqual(idsFor(P('tom')), []);
+      // Fail closed: if who can see what cannot be worked out, players get no ids at all.
+      seen = [];
+      const lib = e.deps.library as any;
+      const lifted = lib.liftedPages;
+      lib.liftedPages = () => { throw new Error('broken'); };
+      try { await e.share({ kind: 'page', id: cave.id, mode: 'party' }); } finally { lib.liftedPages = lifted; }
+      for (const p of ['jess', 'tom', 'ana']) assert.deepEqual(idsFor(P(p)), [], `${p} gets no ids when reach is unknown`);
+      assert.ok(seen.some((x) => x.type === 'libshare' && x.aud(P('jess'))), 'still told to refresh');
+    } finally { hub.emit = real; }
+  } finally { e.close(); }
+});
