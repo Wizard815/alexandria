@@ -61,7 +61,7 @@ function Queue({ list, reload }: { list: BrokerRequest[] | null; reload: () => P
           <div className="row between" style={{ alignItems: 'flex-start' }}>
             <div className="stack tight grow">
               <strong>{q.question}</strong>
-              <span className="tiny faint">{q.asker_name} · {q.tier_name} · {q.cost_cp === null ? 'unpriced' : q.cost_cp === 0 ? 'free' : coins(q.cost_cp, info.settings.coins)}{q.payer === 'party' ? ' (party pouch)' : ''} · {when(q.created_at)}</span>
+              <span className="tiny faint">{q.asker_name} · {q.tier_name} · {q.cost_cp === null ? 'unpriced' : q.cost_cp === 0 ? 'free' : coins(q.cost_cp, info.settings.coins)}{q.paid_from ? ` · paid by ${q.paid_by_name ?? q.asker_name} from ${q.paid_from === 'party' ? 'the party pouch' : 'their own coin'}` : ''} · {when(q.created_at)}</span>
               {q.status === 'waiting' && <span className="small muted"><ReadyLabel q={q} />{q.needs_review ? ' · waiting for your approval' : ''}</span>}
             </div>
             <StatusChip s={q.status} />
@@ -207,7 +207,7 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
           </select>
         </Field>
         <p className="tiny faint">Rules and item questions are "Other": always free and answered at once. They are not a tier.</p>
-        <p className="tiny faint">Payer: {c.payer === 'party' && info.settings.partyPurse ? 'the party pouch' : "each player's own coin"} (Settings).</p>
+        <p className="tiny faint">Players choose how to pay once a price is set: {c.partyPay ? 'their own coin or the party pouch' : 'their own coin (the party pouch is off for the broker)'}. Change it in Settings.</p>
         <ErrorBox error={act.error} />
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save prices and persona</button></div>
       </section>
@@ -351,7 +351,7 @@ function Offers() {
             <div className="row between" style={{ alignItems: 'flex-start' }}>
               <div className="stack tight grow">
                 <strong>{o.title} · {coins(o.price_cp, info.settings.coins)}</strong>
-                <span className="tiny faint">To {o.target_names?.join(', ')} · {o.status === 'open' ? offerExpiry(o) : when(o.paid_at ?? o.created_at)}{o.paid_by_name ? ` · paid by ${o.paid_by_name}${o.paid_from === 'party' ? ' (party pouch)' : ''}` : ''}{o.declined_by?.length ? ` · ${o.declined_by.length} declined` : ''}</span>
+                <span className="tiny faint">To {o.target_names?.join(', ')} · {o.status === 'open' ? offerExpiry(o) : when(o.paid_at ?? o.created_at)}{o.paid_by_name ? ` · paid by ${o.paid_by_name} from ${o.paid_from === 'party' ? 'the party pouch' : 'their own coin'}` : ''}{o.declined_by?.length ? ` · ${o.declined_by.length} declined` : ''}</span>
               </div>
               <StatusChip s={o.status} />
             </div>

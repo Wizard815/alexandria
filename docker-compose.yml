@@ -19,3 +19,7 @@ services:
       - ./data:/data
       - ${VAULTS_DIR:-./vaults}:/vaults:ro
     restart: unless-stopped
+    # Give the server time to close the database cleanly on `docker compose stop`.
+    stop_grace_period: 30s
+    # Recommended: 2 GB of RAM for the container (4 GB for a library of several thousand pages with embeddings). Uncomment to enforce:
+    # mem_limit: 3g

@@ -33,5 +33,6 @@ const fogw = `/api/worlds/${S.W}`;
 await http.ok('PUT', `${fogw}/fog/map/fogmap/enabled`, S.T.dm, { pic: 'none', enabled: true });
 await http.ok('POST', `${fogw}/map/fogmap/marks`, S.T.dm, { kind: 'pin', x: 50, y: 50, label: mark('mark_fogged', ['dm'], 'a party pin under fog on the table map'), visibility: 'party' });
 await http.ok('PUT', `${fogw}/fog/table`, S.T.dm, { mapId: 'fogmap', pic: 'none' });
+// Library sharing seeds (per-player shares, folder rules, files added later) are in seedContent, so the API crawler covers them too.
 const slug = all(made.deps.db, 'SELECT slug FROM worlds WHERE id = ?', S.W)[0].slug;
 console.log('LEAKWORLD ' + JSON.stringify({ slug, markers: Object.values(markers), pages: S.pages }));

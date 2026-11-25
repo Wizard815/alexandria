@@ -16,7 +16,7 @@ export interface WorldSettings {
   mapPins: boolean; mapDraw: boolean; mapStops: boolean; whiteboardWipe: 'dm' | 'all';
   messageDays: number | null; captions: boolean; rules: string; requestDefault: 'dm' | 'party';
   quickEventTimer: number | null; themeEffects: boolean; calendar: 'builtin' | 'off';
-  playerChangesNeedApproval?: boolean; dmChangeReason?: boolean; brokerEnabled?: boolean; brokerPayer?: 'self' | 'party';
+  playerChangesNeedApproval?: boolean; dmChangeReason?: boolean; brokerEnabled?: boolean; brokerPayer?: 'self' | 'party'; brokerPartyPay?: boolean;
   playerTransfers?: boolean;
 }
 

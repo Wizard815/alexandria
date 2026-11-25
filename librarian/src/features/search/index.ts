@@ -112,16 +112,29 @@ const feature: Feature = {
   start: (d: Deps) => {
     const every = Math.max(1000, Number(d.env.ALX_SEARCH_EMBED_MS ?? 20_000) || 20_000);
     let busy = false;
+    // A model that fails is not asked again every tick: the wait doubles up to half an hour, and a good pass resets it.
+    let failures = 0;
+    let notBefore = 0;
     const tick = async () => {
-      if (busy || !hasJob(d, 'extra')) return;
+      if (busy || !hasJob(d, 'extra') || d.jobs.pressure || Date.now() < notBefore) return;
       busy = true;
       try {
         // While there is a backlog (a re-embed), keep going for a while instead of one small batch every tick.
+        // Nothing to read is a few small queries and no model call; reading is a job the admin page shows.
         const until = Date.now() + 45_000;
-        for (;;) {
-          const r = await syncEmbeddings(d);
-          if (!r.remaining || r.error || r.pages === 0 || Date.now() > until) break;
+        let r = await syncEmbeddings(d);
+        if (r.pages > 0 && r.remaining && !r.error) {
+          await d.jobs.track({ kind: 'embeddings', title: 'Reading new and changed pages (embeddings)', cancellable: true }, async (job) => {
+            let pages = r.pages;
+            while (!job.signal.aborted && !d.jobs.pressure) {
+              job.progress(pages, pages, `${pages} pages read`);
+              if (!r.remaining || r.error || r.pages === 0 || Date.now() > until) break;
+              r = await syncEmbeddings(d, { signal: job.signal });
+              pages += r.pages;
+            }
+          });
         }
+        if (r.error) { failures++; notBefore = Date.now() + Math.min(30 * 60_000, every * 2 ** Math.min(failures, 7)); } else { failures = 0; notBefore = 0; }
       } catch { /* retried next time */ } finally { busy = false; }
     };
     const first = setTimeout(() => void tick(), 5000);
