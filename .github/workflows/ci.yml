@@ -38,3 +38,4 @@ jobs:
           node e2e/sculpt.mjs
           node e2e/buttons.mjs
           node e2e/leaks.mjs
+          node e2e/thoughts.mjs
