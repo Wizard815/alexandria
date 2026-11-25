@@ -5,7 +5,7 @@
 // save offline is that copy too.
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { zipSync, strToU8 } from 'fflate';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
@@ -167,6 +167,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
     <div className={embedded ? "lib-embedded" : "page wide"}>
       <style>{LIB_CSS + TREE_CSS + SHELL_CSS + FILES_CSS + SHARE_CSS}</style>
       {!embedded && <PageHead title="Library" lead={isDM ? `Every page in ${info.name}; players get the player copy.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
+        {!readOnly && <Link className="btn" to="../codex" relative="path"><i className="fa-solid fa-book-journal-whills" aria-hidden="true" /> Codex</Link>}
         {isDM && !readOnly && <button type="button" className="btn primary" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
       </PageHead>}
       {offline && <div className="lib-offline" role="status"><i className="fa-solid fa-plug-circle-xmark" aria-hidden="true" /> The library can't be reached. Showing pages saved on this device.</div>}
