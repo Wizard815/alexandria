@@ -236,7 +236,7 @@ try {
   await card2.getByRole('button', { name: /^Pay / }).click();
   await jess.page.waitForTimeout(1000);
   const afterLog = (await api(tomTok, 'GET', '/live/ledger?owner=party')).body;
-  check(afterLog.entries.some((e) => /Broker: A small favour \(paid by .* from the party pouch\)/.test(e.note)), 'the party log does not show the broker payment');
+  check(afterLog.entries.some((e) => /^Broker purchase \(paid by .* from the party pouch\)$/.test(e.note)) && !afterLog.entries.some((e) => /small favour/.test(e.note)), 'the party log does not show the broker payment');
   check(afterLog.cp === before.cp - 2500, `the party pouch did not drop by the price (${before.cp} -> ${afterLog.cp})`);
   const dmOffers = (await api(dmTok, 'GET', '/broker/offers')).body;
   check(dmOffers.find((o) => o.id === offer2.id)?.paid_from === 'party', 'the DM does not see the offer was paid from the party pouch');
