@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ErrorBox, Field, Loading, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import GameNightCard from './GameNightCard.tsx';
 import VramCard from './VramCard.tsx';
+import GatewayLogCard from './GatewayLogCard.tsx';
 import EmbeddingsCard from '../bible/EmbeddingsCard.tsx';
 
 type Kind = 'argos' | 'openai' | 'ollama' | 'lmstudio' | 'openai-compatible';
@@ -339,8 +340,8 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   );
 }
 
-type Tab = 'setup' | 'session' | 'memory' | 'embeddings';
-const TABS: [Tab, string][] = [['setup', 'Providers & jobs'], ['session', 'Game night'], ['memory', 'GPU & queue'], ['embeddings', 'Embeddings']];
+type Tab = 'setup' | 'session' | 'memory' | 'embeddings' | 'calls';
+const TABS: [Tab, string][] = [['setup', 'Providers & jobs'], ['session', 'Game night'], ['memory', 'GPU & queue'], ['embeddings', 'Embeddings'], ['calls', 'Gateway calls']];
 
 export default function ModelsPage() {
   const { client } = useAuth();
@@ -404,6 +405,7 @@ export default function ModelsPage() {
             </>
           )}
           {tab === 'embeddings' && <EmbeddingsCard />}
+          {tab === 'calls' && <GatewayLogCard />}
         </div>
       )}
     </div>
