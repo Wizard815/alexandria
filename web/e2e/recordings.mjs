@@ -1,11 +1,32 @@
 // Recordings, end to end: the DM records a short session with Chromium's fake microphone, stops it, waits
 // for the build, then plays the full recording and each mic track, clicks a transcript line to seek,
-// downloads files, changes retention, and a player sees only their own track and the players' transcript.
+// downloads files (one by one, and "Download all" as one .zip), shows where the session summary went, changes retention,
+// and a player sees only their own track and the players' transcript (and their zip holds nothing more).
 // Needs ffmpeg. Run from web/: npm run build && node e2e/recordings.mjs   (REC_PORT, REC_SHOTS=<dir>)
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { crc32 } from 'node:zlib';
 import { chromium, root, startScript, tmpDir, quiet } from './lib.mjs';
+
+/** The files in a zip (from its central directory), each checked against its CRC. */
+function unzip(buf) {
+  const out = new Map();
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0) throw new Error('not a zip');
+  let p = buf.readUInt32LE(eocd + 16);
+  for (let i = 0, n = buf.readUInt16LE(eocd + 10); i < n; i++) {
+    const crc = buf.readUInt32LE(p + 16); const size = buf.readUInt32LE(p + 24);
+    const nl = buf.readUInt16LE(p + 28); const xl = buf.readUInt16LE(p + 30); const cl = buf.readUInt16LE(p + 32); const off = buf.readUInt32LE(p + 42);
+    const name = buf.subarray(p + 46, p + 46 + nl).toString('utf8');
+    const at = off + 30 + buf.readUInt16LE(off + 26) + buf.readUInt16LE(off + 28);
+    const data = buf.subarray(at, at + size);
+    if ((crc32(data) >>> 0) !== crc) throw new Error(`bad CRC for ${name}`);
+    out.set(name.split('/').slice(1).join('/'), data);
+    p += 46 + nl + xl + cl;
+  }
+  return out;
+}
 
 if (spawnSync('ffmpeg', ['-version']).status !== 0) { console.log('recordings e2e: skipped (ffmpeg is not installed)'); process.exit(0); }
 
@@ -86,6 +107,8 @@ try {
   // the demo's session, built from its tones
   const s21 = await waitReady('Session 21');
   check(s21.status === 'ready', `Session 21 (demo) was built (${s21.status}${s21.error ? ': ' + s21.error : ''})`);
+  const s21detail = (await api(tokDM, 'GET', `/audio/recordings/${s21.id}`)).body;
+  const detail0 = () => s21detail;
   await page.getByRole('button', { name: /Session 21/ }).click();
   await page.getByRole('heading', { name: /Session 21/ }).waitFor();
   const main = page.locator('.rec-track.main audio');
@@ -125,6 +148,20 @@ try {
   const [dl3] = await Promise.all([page.waitForEvent('download', { timeout: 15000 }), page.getByRole('button', { name: /\.md$/ }).click()]);
   const md = fs.readFileSync(await dl3.path(), 'utf8');
   check(/Remember Velmira/.test(md) && /DM only/.test(md), 'the transcript downloads as Markdown, DM-only lines marked');
+  // Download all: one zip with everything
+  const [dz] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.getByTestId('rec-download-all').click()]);
+  const dmZip = unzip(fs.readFileSync(await dz.path()));
+  const dmNames = [...dmZip.keys()];
+  check(/Session 21\.zip$/.test(dz.suggestedFilename()), `Download all is one zip named for the session (${dz.suggestedFilename()})`);
+  check(dmNames.includes('Full session.mp3') && dmNames.filter((n) => n.endsWith('.mp3')).length === 4 && dmNames.includes('Transcript.md') && dmNames.includes('session.json'), `the DM's zip has the full session, every mic, Transcript.md and session.json (${dmNames.join(', ')})`);
+  check(/Remember Velmira/.test(dmZip.get('Transcript.md')?.toString() ?? ''), "the DM's zip transcript has the DM-only lines");
+  check(dmZip.get('Full session.mp3').length === detail0().tracks.find((x) => x.kind === 'full').bytes, 'the full session in the zip is the whole file');
+  // where the session summary went
+  const sumBox = page.getByTestId('rec-summary');
+  await sumBox.waitFor({ timeout: 10000 });
+  const where = await sumBox.getAttribute('data-where');
+  const sumText = await sumBox.innerText();
+  check(['minerva', 'recordings', 'none'].includes(where) && (where !== 'minerva' || /Minerva/.test(sumText)) && (where !== 'recordings' || /Summary ready|Approved|Discarded/.test(sumText)), `the page says where the session summary went (${where}: "${sumText.replace(/\s+/g, ' ').slice(0, 120)}")`);
 
   // retention
   await page.getByLabel('How long to keep the audio').selectOption('days');
@@ -167,6 +204,16 @@ try {
   await sleep(500);
   check((await p.locator('.rec-track audio').evaluate((a) => a.currentTime)) >= 0, 'the player can click a line to seek their track');
   await p.screenshot({ path: path.join(SHOTS, 'player.png'), fullPage: true });
+  // the player's Download all: their own track, the players' transcript and summary, nothing else
+  const [pz] = await Promise.all([p.waitForEvent('download', { timeout: 30000 }), p.getByTestId('rec-download-all').click()]);
+  const pZip = unzip(fs.readFileSync(await pz.path()));
+  const pNames = [...pZip.keys()];
+  check(pNames.filter((n) => n.endsWith('.mp3')).length === 1 && pNames.some((n) => /^Tomas's phone/.test(n)) && pNames.includes('Transcript (players).md') && !pNames.includes('session.json') && !pNames.includes('Summary.md') && !pNames.includes('Transcript.md'), `the player's zip has only their track and the players' side (${pNames.join(', ')})`);
+  const pAll = [...pZip.values()].map((b) => b.toString('latin1')).join('\n');
+  check(!/Velmira|DM only|DM headset|Full session/.test(pAll), "the player's zip holds no DM-only line and no one else's audio");
+  const pz2 = (await api(tokTom, 'GET', '/audio/recordings/mine')).body.sessions.find((x) => x.id === s21.id);
+  const forged = pz2.zipUrl.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A'));
+  check((await fetch(base + forged)).status === 404, 'a tampered zip ticket is refused');
   // the API agrees: the full mix and other mics are 403 for the player
   const detail = (await api(tokDM, 'GET', `/audio/recordings/${s21.id}`)).body;
   const full = detail.tracks.find((x) => x.kind === 'full');

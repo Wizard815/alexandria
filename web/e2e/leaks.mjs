@@ -211,8 +211,28 @@ async function crawlTable(browser) {
   await ctx.close();
 }
 
+/** "Download all": each player's zip of each session they were recorded in, byte for byte (stored, so its text is plain). */
+async function crawlZips() {
+  const login = async (u, p) => (await (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
+  for (const [who, user, pass] of [['jess', 'jess', 'player pass 123'], ['tom', 'tom', 'player pass 123'], ['guest', 'visitor', 'guest pass 1234']]) {
+    const tok = await login(user, pass);
+    const r = await fetch(`${base}/api/worlds/${world.slug}/audio/recordings/mine`, { headers: { Authorization: `Bearer ${tok}` } });
+    if (who === 'guest') { if (r.status !== 403) hits.set(`guest: /audio/recordings/mine answered ${r.status}, not 403`, true); continue; }
+    const sessions = (await r.json()).sessions ?? [];
+    const withZip = sessions.filter((s) => s.zipUrl);
+    if (!withZip.length) hits.set(`${who}: no session offers Download all, so the zip is not checked`, true);
+    for (const s of withZip) {
+      const z = await fetch(base + s.zipUrl);
+      const buf = Buffer.from(await z.arrayBuffer());
+      scanned[who] = (scanned[who] ?? 0) + 1;
+      check(who, `Download all ${s.name} [zip]`, buf.toString('latin1'));
+      if (!buf.toString('latin1').includes(world.markers.find((m) => m.id === `zip_${who}`)?.token ?? '\0')) hits.set(`${who}: their own track is not in their Download all zip`, true);
+    }
+  }
+}
+
 const browser = await chromium.launch();
-try { await Promise.all([...PEOPLE.map((p) => crawl(browser, p)), crawlScreen(browser), crawlTable(browser)]); }
+try { await Promise.all([...PEOPLE.map((p) => crawl(browser, p)), crawlScreen(browser), crawlTable(browser), crawlZips()]); }
 catch (e) { hits.set('crawler crashed: ' + (e.stack || e), true); }
 finally { await browser.close(); srv.kill(); }
 
