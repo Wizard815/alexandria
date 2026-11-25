@@ -22,6 +22,7 @@ import { allCues, layersOf, norm, wakeCommand, type CueCtx, type Intent, type Li
 import { execCalls, callOne, dmAuth, portOf } from './exec.ts';
 import { addLog, addRule, effectiveMode, expireCards, getLog, getState, hasRule, listLog, setLog, undoOf, type LogRow } from './store.ts';
 import { parseCommand, runCommand } from './commands.ts';
+import { think, type Thought } from './thoughts.ts';
 
 // ---- tunables --------------------------------------------------------------------------
 export const SETTLE_MS = 700;
@@ -129,9 +130,11 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
     const cmd = line.role === 'dm' && line.dmMic ? wakeCommand(line.text, state.wakeWord) : null;
     if (cmd) { hideWake(d, worldId, r); await handleWake(d, worldId, line, cmd, sess.id, mode); continue; }
     if (mode !== 'active') continue;
+    think(d, worldId, { source: 'active', kind: 'heard', text: `${line.speaker || 'Table'}${line.aside ? ' (DM aside)' : ''}: “${line.text.slice(0, 160)}”` });
     const cues = allCues(line, ctx);
     stat.rulesMs.push(performance.now() - t0);
     const cands = cues.map((c) => build(d, worldId, ctx, c, line.text)).filter((c): c is Candidate => !!c);
+    if (cands.length) think(d, worldId, { source: 'active', kind: 'plan', runId: line.id, text: `${line.speaker || 'Table'} said “${line.text.slice(0, 120)}”. That sounds like: ${cands.map((c) => `${c.summary}${c.confidence < 0.8 || c.borderline ? ' (not sure)' : ''}`).join('; ')}` });
     for (const c of cands) if (c.kind === 'combat_start') W.initiativeUntil = Date.now() + 90_000;
     // A line already acted on that is revised: only what it did not already do.
     const done = W.acted.get(line.id) ?? new Set<string>();
@@ -151,7 +154,7 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
   const later: Item[] = items.map((it) => ({ line: it.line, cands: [] as Candidate[] }));
   if (model) {
     for (const [i, it] of items.entries()) { later[i].cands = it.cands.filter(unsure); it.cands = it.cands.filter((c) => !unsure(c)); }
-  } else for (const it of items) for (const c of it.cands) if (unsure(c)) c.forceAsk = true;
+  } else for (const it of items) for (const c of it.cands) if (unsure(c)) { c.forceAsk = true; c.why ??= 'I am not sure of it and no audit model is set to check'; }
   for (const it of items) for (const c of it.cands) await act(d, worldId, sess.id, state, c, it.line, 'line');
   if (model) {
     const known = items.map((it, i) => [...it.cands, ...later[i].cands].map((c) => c.category));
@@ -197,6 +200,7 @@ async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   const unsure: { it: Item; c: Candidate }[] = [];
   for (const it of items) for (const c of it.cands) if (c.borderline || c.confidence < 0.8) unsure.push({ it, c });
   if (!unsure.length) return;
+  think(d, worldId, { source: 'active', kind: 'look', text: `Not sure about ${unsure.length === 1 ? `“${unsure[0].c.summary}”` : `${unsure.length} ideas`}: asking the audit model whether it was meant to happen now.` });
   const ctxLines = items.map((x) => x.line);
   const j = await modelJson(d, worldId,
     'You check actions that a tabletop RPG assistant drafted from a transcript line, using simple rules. Say ok:true only when the speaker clearly means this to happen now, at the table. Say ok:false for a question, a hypothetical, a plan, something that already happened, a price or an offer, or something the players only discuss. Reply with JSON only: {"verdicts":[{"i":0,"ok":true}]}',
@@ -204,9 +208,9 @@ async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   const v: any[] = Array.isArray(j?.verdicts) ? j.verdicts : [];
   unsure.forEach((u, i) => {
     const x = v.find((y) => Number(y?.i) === i);
-    if (!x) { u.c.forceAsk = true; return; }
-    if (x.ok === true) { u.c.confidence = Math.max(u.c.confidence, 0.9); u.c.borderline = false; u.c.source = 'model'; }
-    else u.it.cands = u.it.cands.filter((c) => c !== u.c);
+    if (!x) { u.c.forceAsk = true; u.c.why = j ? 'the audit model did not say' : 'the audit model did not answer'; return; }
+    if (x.ok === true) { u.c.confidence = Math.max(u.c.confidence, 0.9); u.c.borderline = false; u.c.source = 'model'; think(d, worldId, { source: 'active', kind: 'plan', runId: u.it.line.id, text: `The audit model agrees: ${u.c.summary}.` }); }
+    else { u.it.cands = u.it.cands.filter((c) => c !== u.c); think(d, worldId, { source: 'active', kind: 'skip', runId: u.it.line.id, text: `Letting it go: ${u.c.summary}. The audit model reads it as talk, a plan or a question, not something happening now.` }); }
   });
 }
 
@@ -218,6 +222,7 @@ async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wst
   W.lastScan = Date.now();
   const batch = cand.slice(-6).map((c) => c.x);
   const batchKnown = cand.slice(-6).map((c) => c.i);
+  think(d, worldId, { source: 'active', kind: 'look', text: `Reading your narration for scene changes (${batch.length} line${batch.length === 1 ? '' : 's'}).` });
   const snap = one<any>(d.db, 'SELECT music, ambience FROM sound_state WHERE world_id = ?', worldId);
   const cur = snap?.music ? parseJson<any>(snap.music, {}) : null;
   const layers = [...new Set(indexOf(d).ambience.map((a) => a.layer))].slice(0, 20);
@@ -251,7 +256,7 @@ Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
     else if (a.cat === 'clock') { if (['short-rest', 'long-rest', 'next-day'].includes(a.preset)) intent = mk({ kind: 'clock', preset: a.preset, why: it.line.text.slice(0, 60) }, 0.8); else if (Number(a.minutes) > 0 && Number(a.minutes) <= 10080) intent = mk({ kind: 'clock', minutes: Math.round(Number(a.minutes)), why: it.line.text.slice(0, 60) }, 0.8); }
     else if (a.cat === 'event' && typeof a.skill === 'string') intent = mk({ kind: 'event', skill: a.skill.slice(0, 20), dc: Number(a.dc) || undefined, save: /save/i.test(it.line.text), why: it.line.text.slice(0, 60) }, 0.8);
     const c = intent && build(d, worldId, ctx, intent, it.line.text);
-    if (c && !(known[batchKnown[Number(a?.line)]] ?? []).includes(c.category)) { c.source = 'model'; c.borderline = false; let o = out.find((y) => y.line === it.line); if (!o) { o = { line: it.line, cands: [] }; out.push(o); } o.cands.push(c); }
+    if (c && !(known[batchKnown[Number(a?.line)]] ?? []).includes(c.category)) { c.source = 'model'; c.borderline = false; think(d, worldId, { source: 'active', kind: 'plan', runId: it.line.id, text: `From “${it.line.text.slice(0, 100)}”: ${c.summary}.` }); let o = out.find((y) => y.line === it.line); if (!o) { o = { line: it.line, cands: [] }; out.push(o); } o.cands.push(c); }
   }
   return out;
 }
@@ -264,28 +269,42 @@ export async function act(d: Deps, worldId: string, sessionId: string | null, st
   const W = ws(d, worldId);
   stat.cands++;
   const base = { sessionId, trigger, lineId: line.id, speaker: line.speaker, cue: c.cue, category: c.category, tool: c.calls[0]?.tool ?? '', args: c.calls[0]?.args, calls: c.calls, summary: c.summary, source: c.source, confidence: c.confidence, visible: c.visible, ruleKey: c.ruleKey } as const;
-  const block = (why: string) => { stat.blocked++; return addLog(d, worldId, { ...base, status: 'blocked', result: why }); };
-  if (hasRule(d, worldId, c.ruleKey)) { stat.blocked++; return null; }
+  const src = trigger === 'wake' ? 'wake' : 'active';
+  const note = (kind: Thought['kind'], text: string, logId?: string, undoable?: boolean) => { think(d, worldId, { source: src, kind, text, runId: line.id, logId, undoable }); };
+  const block = (why: string) => { stat.blocked++; note('skip', `Not doing “${c.summary}”: ${why}`); return addLog(d, worldId, { ...base, status: 'blocked', result: why }); };
+  if (hasRule(d, worldId, c.ruleKey)) { stat.blocked++; note('skip', `Not doing “${c.summary}”: you told me "Not this" for that cue before (Active page, rules).`); return null; }
   // A DM aside is for the DM: only the DM's side (music, the tracker) may follow, and only on the DM's own say-so.
   if (line.aside && !opts.explicit && !ASIDE_OK.has(c.category)) return block('Said in a DM-only aside: nothing the players see follows from it.');
   if (c.playerSource && c.category === 'items' && c.calls.some((x) => !['inventory_patch'].includes(x.tool))) return block('A player cannot add things.');
   const setting = state.cats[c.category];
-  if (setting === 'off' && !opts.explicit) { stat.blocked++; return null; }
+  if (setting === 'off' && !opts.explicit) { stat.blocked++; note('skip', `Not doing “${c.summary}”: ${catName(c.category)} is set to Off.`); return null; }
   // De-dup: the same thing within its window (the speech model repeats itself), and one pending card per cue.
   const key = c.dedupeKey;
   const last = W.recent.get(key);
-  if (last && Date.now() - last < c.dedupeMs) { stat.blocked++; return null; }
+  if (last && Date.now() - last < c.dedupeMs) { stat.blocked++; note('skip', `Not doing “${c.summary}” again: I already did or asked about it ${Math.round((Date.now() - last) / 1000)} s ago.`); return null; }
   W.recent.set(key, Date.now());
   const latency = line.at ? Math.max(0, Date.now() - Date.parse(line.at)) : null;
-  let mustAsk = !opts.explicit && (setting !== 'auto' || c.forceAsk || c.playerSource || c.confidence < 0.8 || !!c.borderline);
-  if (!mustAsk && recentAuto(d, worldId) >= AUTO_PER_MINUTE) mustAsk = true;
-  if (mustAsk) {
+  const askWhy = opts.explicit ? null
+    : setting !== 'auto' ? `${catName(c.category)} is set to Ask`
+    : c.forceAsk ? (c.why ?? 'I want you to check this one')
+    : c.playerSource ? 'a player said it, not you'
+    : c.confidence < 0.8 || c.borderline ? `I am not sure (${Math.round(c.confidence * 100)}%)`
+    : recentAuto(d, worldId) >= AUTO_PER_MINUTE ? `I already did ${AUTO_PER_MINUTE} things by myself in the last minute`
+    : null;
+  if (askWhy) {
     stat.ask++;
-    return addLog(d, worldId, { ...base, status: 'pending', expiresAt: new Date(Date.now() + state.askTtlMin * 60_000).toISOString(), latencyMs: latency });
+    const row = addLog(d, worldId, { ...base, status: 'pending', expiresAt: new Date(Date.now() + state.askTtlMin * 60_000).toISOString(), latencyMs: latency });
+    note('ask', `Asking you: ${c.summary} (${askWhy}).`, row.id);
+    return row;
   }
   stat.auto++;
-  return runAndLog(d, worldId, base, c.calls, latency);
+  const row = await runAndLog(d, worldId, base, c.calls, latency);
+  note(row.status === 'done' ? 'do' : row.status === 'failed' ? 'error' : 'skip', row.status === 'done' ? `Did it: ${c.summary}${row.reversible ? ' (you can undo it)' : ''}.` : row.status === 'failed' ? `Tried “${c.summary}” but it did not work: ${row.result.slice(0, 160)}` : `Nothing to do for “${c.summary}”: ${row.result}`, row.id, row.reversible);
+  return row;
 }
+
+const CAT_NAMES: Record<string, string> = { music: 'Music and ambience', sfx: 'Sound effects', stage: 'Stage', events: 'Quick events', combat: 'Combat tracker', combatAdd: 'Monsters in and out', items: 'Items and coins', clock: 'World clock', notes: 'Notes' };
+const catName = (c: string) => CAT_NAMES[c] ?? c;
 
 async function runAndLog(d: Deps, worldId: string, base: any, calls: Call[], latency: number | null): Promise<LogRow> {
   const out = await execCalls(d, worldId, calls);
@@ -303,6 +322,7 @@ export async function approveCard(d: Deps, worldId: string, logId: string): Prom
   setLog(d, worldId, logId, { status: 'dismissed' }); // claim it first: a second tap never runs it twice
   const out = await execCalls(d, worldId, row.calls);
   setLog(d, worldId, logId, { status: out.ok ? 'done' : 'failed', result: out.ok ? out.results.join(' | ') : out.error ?? '', undo: out.undo ? { calls: out.undo } : null, decided: true });
+  think(d, worldId, { source: row.trigger === 'wake' ? 'wake' : 'active', kind: out.ok ? 'do' : 'error', logId, text: out.ok ? `You said do it: ${row.summary}.` : `You said do it, but it did not work: ${row.summary}. ${(out.error ?? '').slice(0, 160)}` });
   return getLog(d, worldId, logId)!;
 }
 export function dismissCard(d: Deps, worldId: string, logId: string, rejected = false): LogRow {
@@ -341,6 +361,7 @@ function hideWake(d: Deps, worldId: string, r: LineRow) {
 // ---- the wake word ------------------------------------------------------------------------------
 async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof lineOf>, cmd: string, sessionId: string, mode: 'assistant' | 'active'): Promise<void> {
   const state = getState(d, worldId);
+  think(d, worldId, { source: 'wake', kind: 'plan', runId: line.id, text: `You asked me: “${cmd.slice(0, 160)}”` });
   const log = (summary: string, extra: Partial<Parameters<typeof addLog>[2]> = {}) => addLog(d, worldId, { sessionId, mode, trigger: 'wake', lineId: line.id, speaker: line.speaker, cue: line.text, category: 'command', tool: 'command', summary, status: 'done', visible: 'dm', ...extra });
   // A short command first.
   const c = parseCommand(cmd);
@@ -356,7 +377,8 @@ async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof line
   const cands = asked.map((x) => build(d, worldId, ctx, x, cmd)).filter((x): x is Candidate => !!x);
   if (cands.length) { for (const k of cands) await act(d, worldId, sessionId, state, k, { id: line.id, speaker: line.speaker, aside: false, at: line.at }, 'wake', { explicit: true }); return; }
   // Anything else goes to the assistant, which proposes what it would do.
-  if (!hasJob(d, 'chat')) { log('No chat model is set, so I could not work out that request.', { status: 'failed' }); return; }
+  if (!hasJob(d, 'chat')) { think(d, worldId, { source: 'wake', kind: 'error', runId: line.id, text: 'No chat model is set, so I could not work out that request.' }); log('No chat model is set, so I could not work out that request.', { status: 'failed' }); return; }
+  think(d, worldId, { source: 'wake', kind: 'plan', runId: line.id, text: 'No quick rule or macro fits, so I am handing it to the assistant. Anything it wants to change waits for you.' });
   const a = dmAuth(d, worldId);
   if (!a) return;
   const { runTask } = await import('./task.ts');

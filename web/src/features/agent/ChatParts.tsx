@@ -28,7 +28,7 @@ export function GuideBox({ guides, phone }: { guides: GuideNote[]; phone?: boole
     </div>
   );
 }
-export interface Act { id: string; tool: string; summary: string; call: unknown; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
+export interface Act { id: string; tool: string; summary: string; call: unknown; args?: Record<string, unknown>; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
 export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
 export interface Live { text: string; status: string; queue?: string }
 export interface ChatRow { id: string; title: string; updatedAt: string }
@@ -104,21 +104,64 @@ function WorkingNote({ live, since, className }: { live: Live | null; since: str
  * One change the assistant proposed or made. Waiting: what will change, with Approve and Reject. After that the same card
  * shows the outcome (applying, done, did not work, rejected), so the chat reads as a record of what happened.
  */
-export function ActionCard({ a, phone, auto, decide }: { a: Act; phone?: boolean; auto?: boolean; decide: (a: Act, d: 'approve' | 'reject') => void }) {
+export interface CardTools {
+  /** Change the card's arguments before deciding it. Throws with the reason when they are refused. */
+  edit?: (a: Act, args: Record<string, unknown>) => Promise<void>;
+  /** Approve this card and let this tool run without asking from now on. */
+  trust?: (a: Act) => void;
+}
+
+/** The card's arguments as editable JSON, checked by the server against the tool's own schema. */
+function EditArgs({ a, phone, edit, done }: { a: Act; phone?: boolean; edit: NonNullable<CardTools['edit']>; done: () => void }) {
+  const [text, setText] = useState(() => JSON.stringify(a.args ?? {}, null, 2));
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    let args: unknown;
+    try { args = JSON.parse(text); } catch { setErr('That is not valid JSON.'); return; }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) { setErr('Give one JSON object.'); return; }
+    setBusy(true); setErr('');
+    try { await edit(a, args as Record<string, unknown>); done(); } catch (e: any) { setErr(e?.message ?? 'Could not change it'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="stack tight" data-testid="action-edit">
+      <label className={phone ? 'sub' : 'tiny muted'}>What it will do (the tool's arguments)
+        <textarea rows={Math.min(10, text.split('\n').length + 1)} style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
+      </label>
+      {err && <div className="tiny" role="alert" style={{ color: 'var(--danger-text)' }}>{err}</div>}
+      <div className="row">
+        <button type="button" className={phone ? 'b ok' : 'btn small primary'} disabled={busy} onClick={() => void save()}>Save changes</button>
+        <button type="button" className={phone ? 'b' : 'btn small'} disabled={busy} onClick={done}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+export function ActionCard({ a, phone, auto, decide, tools = {} }: { a: Act; phone?: boolean; auto?: boolean; decide: (a: Act, d: 'approve' | 'reject') => void; tools?: CardTools }) {
+  const [editing, setEditing] = useState(false);
   const title = a.summary.replace(/\s*·\s*Visible to players.*$/, '');
   const visible = /Visible to players/.test(a.summary) ? a.summary.slice(a.summary.indexOf('Visible to players')) : '';
   const exact = <details className={phone ? 'tiny' : 'tiny muted'}><summary style={phone ? { minHeight: 32 } : undefined}>Exact call</summary><code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{a.tool} {JSON.stringify(a.call)}</code></details>;
   if (a.status === 'pending') {
+    const edit = tools.edit && editing ? <EditArgs a={a} phone={phone} edit={tools.edit} done={() => setEditing(false)} /> : null;
+    const extra = !editing && (
+      <>
+        {tools.edit && <button type="button" className={phone ? 'b' : 'btn small ghost'} onClick={() => setEditing(true)} data-testid="action-edit-open" title="Change what it will do before you approve it"><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
+        {tools.trust && !a.alwaysAsk && <button type="button" className={phone ? 'b' : 'btn small ghost'} onClick={() => tools.trust?.(a)} data-testid="action-trust" title={`Approve this, and let ${a.tool.replace(/_/g, ' ')} run without asking from now on (undo it under Ask first / Auto)`}><i className="fa-solid fa-shield-halved" aria-hidden="true" /> Always allow</button>}
+      </>
+    );
     return phone ? (
       <div className="c" style={{ borderColor: 'var(--accent)' }} role="group" aria-label="Waiting for your approval" data-testid="action-card" data-status="pending">
         <b className="tx">{title}</b>
         {visible && <span className="pill red" role="status">{visible}</span>}
         {a.alwaysAsk && auto && <span className="sub">Always asks first, even in Auto</span>}
         {exact}
-        <div className="grid g2">
+        {edit}
+        {!editing && <div className="grid g2">
           <button type="button" className="b ok big" onClick={() => decide(a, 'approve')}>Approve</button>
           <button type="button" className="b danger big" onClick={() => decide(a, 'reject')}>Reject</button>
-        </div>
+        </div>}
+        {extra && <div className="row">{extra}</div>}
       </div>
     ) : (
       <div className="card gold" style={{ padding: '10px 12px' }} role="group" aria-label="Waiting for your approval" data-testid="action-card" data-status="pending">
@@ -126,7 +169,8 @@ export function ActionCard({ a, phone, auto, decide }: { a: Act; phone?: boolean
         {visible && <span className="chip red" role="status">{visible}</span>}
         {a.alwaysAsk && auto && <div className="tiny muted">Always asks first, even in Auto</div>}
         {exact}
-        <div className="row"><button type="button" className="btn small primary" onClick={() => decide(a, 'approve')}>Approve</button><button type="button" className="btn small" onClick={() => decide(a, 'reject')}>Reject</button></div>
+        {edit}
+        {!editing && <div className="row"><button type="button" className="btn small primary" onClick={() => decide(a, 'approve')}>Approve</button><button type="button" className="btn small" onClick={() => decide(a, 'reject')}>Reject</button>{extra}</div>}
       </div>
     );
   }
@@ -147,7 +191,7 @@ export function ActionCard({ a, phone, auto, decide }: { a: Act; phone?: boolean
 const plain = (t: string) => t.replace(/[_*]+$/, '').replace(/_/g, ' ');
 
 /** The chat's mode: "Ask first" (every change waits for a card) or "Auto" (changes are applied at once, except the tools that always ask). */
-export function AutoSwitch({ phone, on, saving, onToggle, alwaysAsk }: { phone?: boolean; on: boolean; saving: boolean; onToggle: () => void; alwaysAsk: string[] }) {
+export function AutoSwitch({ phone, on, saving, onToggle, alwaysAsk, trusted = [], untrust }: { phone?: boolean; on: boolean; saving: boolean; onToggle: () => void; alwaysAsk: string[]; trusted?: string[]; untrust?: (tool: string) => void }) {
   return (
     <div className={`ag-mode${on ? ' on' : ''}`} data-testid="ag-mode" data-mode={on ? 'auto' : 'ask'}>
       <button type="button" role="switch" aria-checked={on} aria-label="Auto mode" className={`${phone ? 'b chip' : 'btn small'}${on ? ' on' : ''}`} disabled={saving} onClick={onToggle} data-testid="ag-auto"
@@ -156,13 +200,21 @@ export function AutoSwitch({ phone, on, saving, onToggle, alwaysAsk }: { phone?:
       </button>
       <span className={phone ? 'sub' : 'tiny muted'} role="status">{on ? 'Changes are applied without asking.' : 'Changes wait for your approval.'}</span>
       {on && alwaysAsk.length > 0 && <details className={phone ? 'sub' : 'tiny muted'}><summary>Always asks first</summary>{[...new Set(alwaysAsk.map(plain))].join(', ')}.</details>}
+      {!on && trusted.length > 0 && (
+        <details className={phone ? 'sub' : 'tiny muted'} data-testid="ag-trusted"><summary>Runs without asking ({trusted.length})</summary>
+          <span className="row" style={{ flexWrap: 'wrap', gap: 4 }}>{trusted.map((t) => (untrust
+            // The whole chip is the button, so it is a real touch target on the phone.
+            ? <button key={t} type="button" className={phone ? 'b chip' : 'chip'} aria-label={`Ask first for ${plain(t)} again`} title="Ask first again" onClick={() => untrust(t)}>{plain(t)} <i className="fa-solid fa-xmark" aria-hidden="true" /></button>
+            : <span key={t} className="chip">{plain(t)}</span>))}</span>
+        </details>
+      )}
     </div>
   );
 }
 
 /** Messages and the actions waiting on the DM, in the order they happened. */
-export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLink, onNavigate, decide, retry }: {
-  phone?: boolean; items: Item[]; live: Live | null; isDM: boolean; auto?: boolean; retry?: () => void;
+export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLink, onNavigate, decide, retry, cardTools }: {
+  phone?: boolean; items: Item[]; live: Live | null; isDM: boolean; auto?: boolean; retry?: () => void; cardTools?: CardTools;
   libraryHref: (id: string) => string; onLink: (e: React.MouseEvent) => void; onNavigate: (href: string) => void;
   decide: (a: Act, d: 'approve' | 'reject') => void;
 }) {
@@ -171,7 +223,7 @@ export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLi
   return (
     <>
       {items.map((it) => {
-        if (it.t === 'act') return <ActionCard key={it.a.id} a={it.a} phone={phone} auto={auto} decide={decide} />;
+        if (it.t === 'act') return <ActionCard key={it.a.id} a={it.a} phone={phone} auto={auto} decide={decide} tools={cardTools} />;
         const m = it.m;
         const shown = m.status === 'working' ? (live && live.text.length >= m.text.length ? live.text : m.text) : m.text;
         const body = m.status === 'working' && !shown ? <WorkingNote live={live} since={m.at} className={phone ? 'sub' : 'muted'} />
