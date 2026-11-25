@@ -5,6 +5,7 @@
 //   GET  /api/worlds/:world/search?q=&kinds=&limit=&semantic=
 //   GET  /api/worlds/:world/search/status        (embedding progress)
 //   POST /api/worlds/:world/search/reindex       (DM: embed what is stale now)
+//   POST /api/worlds/:world/search/build         (DM: one bulk pass over the whole world, embeddings and story bible, as a job)
 //   MCP  search_world
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
@@ -19,6 +20,7 @@ import { vectorStore } from './vectorstore.ts';
 import { jobConfig } from '../../core/ai.ts';
 import { all, run } from '../../core/db.ts';
 import { bibleCoverage } from '../bible/assemble.ts';
+import { bulkRunning, startBulkBuild } from './bulkbuild.ts';
 
 const feature: Feature = {
   id: 'search',
@@ -48,12 +50,24 @@ const feature: Feature = {
       res.json(await syncEmbeddings(d, { maxPages: 200 }));
     });
 
-    // DM: drop every vector of this world and read it all again in the background (the next ticks, or Library > pull all).
+    // DM: drop every vector of this world and read it all again, in one bulk pass (a job).
     r.post('/reembed', requireDM, async (_req, res) => {
       const c = ctx(res);
       vectorStore(d.db).deleteWorld(c.world.id);
       d.library.changed(c.world.id);
-      res.json({ ok: true, ...embeddingCoverage(d, c.world.id) });
+      const cov = embeddingCoverage(d, c.world.id);
+      res.json({ ok: true, ...cov, started: startBulkBuild(d, c.world.id, { embeddings: true }) });
+    });
+
+    // DM: embed and read into the story bible everything that is waiting, in one fast pass (a job), instead of a few pages a tick.
+    // Body: { embeddings?: boolean, bible?: boolean } (both by default). 202 when it started, 200 with started: false when it was already running.
+    r.post('/build', requireDM, (req, res) => {
+      const c = ctx(res);
+      const b = req.body ?? {};
+      const what = { embeddings: b.embeddings !== false, bible: b.bible !== false };
+      if (!(what.embeddings && hasJob(d, 'extra')) && !(what.bible && hasJob(d, 'bible'))) throw new HttpError(503, 'No embeddings or story bible model is set (Admin → Models)');
+      const started = startBulkBuild(d, c.world.id, what);
+      res.status(started ? 202 : 200).json({ ok: true, started, running: bulkRunning(d, c.world.id) });
     });
 
     return r;
@@ -77,7 +91,15 @@ const feature: Feature = {
       run(d.db, 'DELETE FROM bible_facts WHERE world_id = ?', w.id);
       run(d.db, 'DELETE FROM bible_state WHERE world_id = ?', w.id);
       d.library.changed(w.id);
-      res.json({ ok: true, embeddings: embeddingCoverage(d, w.id), bible: bibleCoverage(d, w.id) });
+      const out = { ok: true, embeddings: embeddingCoverage(d, w.id), bible: bibleCoverage(d, w.id) };
+      // Made again in one bulk pass (a job), not a few pages a tick.
+      res.json({ ...out, started: startBulkBuild(d, w.id, { embeddings: true, bible: true }) });
+    });
+    // One bulk pass over the world (embeddings, then the story bible), as a job.
+    r.post('/:world/build', (req, res) => {
+      const w = worldRow(String(req.params.world));
+      const started = startBulkBuild(d, w.id, { embeddings: true, bible: true });
+      res.status(started ? 202 : 200).json({ ok: true, started, running: bulkRunning(d, w.id) });
     });
     r.post('/:world/run', async (req, res) => {
       const w = worldRow(String(req.params.world));
