@@ -2,7 +2,7 @@
 
 The plan for Alexandria's spell system: the spell list, mana, casting limits, dual casting, spell trees and learning new spells by combining spells you already know. Everything here becomes a per-world setting with these numbers as defaults; a world can import its own numbers as a "spell rules profile".
 
-Status: **planned, not built yet.** The Codex (spell list, mana, spell crafting recipes, spell sheets) is on main; see [docs/SPELLS.md](docs/SPELLS.md). This plan extends it. The research behind the learning rule is in [docs/SPELL_LEARNING_RESEARCH.md](docs/SPELL_LEARNING_RESEARCH.md).
+Status: **step 1 (the rules engine) is built** in `librarian/src/features/spells/rules.ts`; the rest is planned. The Codex (spell list, mana, spell crafting recipes, spell sheets) is on main; see [docs/SPELLS.md](docs/SPELLS.md). This plan extends it. The research behind the learning rule is in [docs/SPELL_LEARNING_RESEARCH.md](docs/SPELL_LEARNING_RESEARCH.md).
 
 Words: plain terms only (mana, fire, frost, lightning, earth, air, light, shadow, Arcana check, Dual cast, fatigue, coin).
 
@@ -156,9 +156,9 @@ Compared with an earlier draft (3 days per spell level alone): low spells get a 
 7. **Security:** players never see DM notes, hidden recipes, other characters' progress or DM-only spells (fail closed); seeds in the leak tests.
 8. **Tests and docs:** unit tests, an e2e that studies → checks → learns on a phone, a dual cast revealing a recipe, a gift to a non-caster and a settings import; update docs/SPELLS.md.
 
-## 8. Open questions
+## 8. Open questions (answered as settings)
 
-- Keep the third-caster pool, or let each world set its own?
-- Dual cast at level 5, or tie it to a feat?
-- Should failed final checks cost coin as well as time?
-- Do spells learned by gift count toward line mastery?
+- Keep the third-caster pool, or let each world set its own? **Both: the plan's table is the default and every pool table is editable per world (`spellRules.pools`).**
+- Dual cast at level 5, or tie it to a feat? **Level 5 by default; `spellRules.dualCast.unlock: "feat"` makes it a feat the DM grants.**
+- Should failed final checks cost coin as well as time? **No by default; `learning.failCoinLoss` and `learning.setbackCoinLoss` set a share of the materials lost.**
+- Do spells learned by gift count toward line mastery? **Yes by default; `lines.giftsCountForMastery: false` turns it off.**

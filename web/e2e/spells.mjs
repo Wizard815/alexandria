@@ -123,10 +123,10 @@ try {
   const before = await mana.innerText();
   check(/13 \/ 13/.test(before), `a full pool of 13 (level 3 × 4 + INT mod 1): ${before.replace(/\s+/g, ' ')}`);
   await pl.getByRole('button', { name: 'Cast Scorching Ray' }).click();
-  await pl.getByTestId('mana').first().getByText('9 / 13').waitFor({ timeout: 8000 });
-  note('player: cast Scorching Ray, mana 13 -> 9');
+  await pl.getByTestId('mana').first().getByText('10 / 13').waitFor({ timeout: 8000 });
+  note('player: cast Scorching Ray, mana 13 -> 10');
   const me = await api(jessLogin.token, 'GET', '/spells/characters/me');
-  check(me.known.some((x) => x.name === 'Scorching Ray' && x.how === 'crafted') && me.mana.now === 9, 'the server agrees: known, crafted, 9 mana');
+  check(me.known.some((x) => x.name === 'Scorching Ray' && x.how === 'crafted') && me.mana.now === 10, 'the server agrees: known, crafted, 10 mana');
   const pc = await pl.content();
   check(!pc.includes('ZQX-E2E-RECIPENOTE'), 'still no DM note on the player page');
 } catch (e) {

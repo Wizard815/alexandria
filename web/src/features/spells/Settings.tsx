@@ -12,7 +12,7 @@ export default function SpellSettings() {
   const s: any = info.settings;
   const act = useAction();
   const { toast, toastNode } = useToast();
-  const [costs, setCosts] = useState<string[]>(() => (s.spellManaCosts ?? [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]).map(String));
+  const [costs, setCosts] = useState<string[]>(() => (s.spellManaCosts ?? [0, 2, 3, 5, 6, 7, 9, 11, 13, 15]).map(String));
   const pool0 = s.spellManaPool ?? { mode: 'formula', formula: 'level * 4 + mod', table: [] };
   const [pool, setPool] = useState<any>(() => ({ ...pool0, table: (pool0.table ?? []).join(', ') }));
   const max0 = s.spellManaMaxLevel ?? { on: false, table: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 9, 9] };

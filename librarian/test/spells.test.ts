@@ -137,9 +137,9 @@ test('Spells: mana formulas, costs, upcasting and rests', () => {
   assert.equal(poolMax(c, { ...rules, pool: { ...DEFAULT_POOL, formula: 'max(level * 2, intMod * 5)' } }), 15);
   assert.equal(poolMax(c, { ...rules, pool: { ...DEFAULT_POOL, mode: 'table' } }), 12);
   assert.equal(castCost({ level: 1 }, 1, rules), 2);
-  assert.equal(castCost({ level: 1 }, 3, rules), 6);
+  assert.equal(castCost({ level: 1 }, 3, rules), 5);
   assert.equal(castCost({ level: 1, manaOverride: 5 }, 1, rules), 5);
-  assert.equal(castCost({ level: 1, manaOverride: 5 }, 2, rules), 7);
+  assert.equal(castCost({ level: 1, manaOverride: 5 }, 2, rules), 6);
   assert.equal(restGain('half', 3, 10), 8);
   assert.equal(restGain('full', 3, 10), 10);
   assert.equal(restGain('none', 3, 10), 3);
@@ -274,12 +274,12 @@ test('Spells: mana pool, casting, upcasting, overdraw, DM adjustments, max level
   let c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands' });
   assert.deepEqual([c.cost, c.mana], [2, 7]);
   c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands', level: 3 });
-  assert.deepEqual([c.cost, c.mana], [6, 1]);
-  const over = await call('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands' });
+  assert.deepEqual([c.cost, c.mana], [5, 2]);
+  const over = await call('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands', level: 2 });
   assert.equal(over.status, 409);
   assert.match(over.body.error, /Not enough mana/);
   await settings({ spellManaOverdraw: true });
-  c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands' });
+  c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands', level: 2 });
   assert.equal(c.mana, -1);
   await settings({ spellManaOverdraw: false });
   // The DM adjusts and sets a maximum by hand.

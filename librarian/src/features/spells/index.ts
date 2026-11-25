@@ -19,6 +19,7 @@ import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { ABILITIES, ABILITY_NAMES, componentsText, normalizeSpell, spellLine, toCsv, type Ability } from './format.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST, castCost, checkCosts, checkMaxLevel, checkPool, checkRest, maxCastLevel, poolMax, poolNow, restGain, type ManaRules, type RestGain } from './mana.ts';
+import { checkSpellRules, preview, resolveRules } from './rules.ts';
 import { eligibility, holding, normalizeRecipe, recipeById, recipes, tiers, type Eligibility, type Recipe } from './craft.ts';
 import { readImport, saveImport } from './importers.ts';
 import { facets, queryFrom, search } from './search.ts';
@@ -130,6 +131,13 @@ function routes(d: Deps) {
       playerStats: featureSetting<boolean>(s, 'spellPlayerStats') !== false,
       publicSrd: publicSrd(s),
     });
+  });
+
+  // The spell rules engine's settings (Spell_Plan.md) and the preview tables. Nothing secret: players read it too.
+  r.get('/rules', (_req, res) => {
+    const s = S(res);
+    const rules = resolveRules(featureSetting(s, 'spellRules'));
+    res.json({ rules, preview: preview(R(res).costs, rules) });
   });
 
   r.get('/list', (req, res) => {
@@ -693,6 +701,7 @@ const feature: Feature = {
     spellManaRest: { type: 'json', default: DEFAULT_REST, validate: checkRest },
     spellManaMaxLevel: { type: 'json', default: DEFAULT_MAX_LEVEL, validate: checkMaxLevel },
     spellManaOverdraw: { type: 'boolean', default: false },
+    spellRules: { type: 'json', default: {}, validate: checkSpellRules },
     spellCrafting: { type: 'boolean', default: false },
     spellCraftApproval: { type: 'enum', values: ['dm', 'auto'], default: 'dm' },
     spellCraftHidden: { type: 'enum', values: ['mystery', 'hide'], default: 'mystery' },

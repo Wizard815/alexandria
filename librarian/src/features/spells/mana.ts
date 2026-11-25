@@ -3,11 +3,14 @@
 // by character level (or the DM sets it by hand); casting a spell costs mana
 // from the DM's cost table (per spell level) unless the spell has its own
 // cost. Rests give mana back as the world's settings say. The default cost
-// table and pool formula are this app's own simple numbers, editable.
+// table is Spell_Plan.md's; the pool formula is this app's own simple one.
+// The rest of the plan (caster-type pools, casting limits, dual cast,
+// learning) is in rules.ts.
 import { ABILITIES, type Ability } from './format.ts';
 import type { Character } from './store.ts';
 
-export const DEFAULT_COSTS = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
+// The cost table of Spell_Plan.md: what 5e spell slots are worth, editable per world.
+export const DEFAULT_COSTS = [0, 2, 3, 5, 6, 7, 9, 11, 13, 15];
 export const DEFAULT_POOL = { mode: 'formula' as 'formula' | 'table', formula: 'level * 4 + mod', table: [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80] };
 export const DEFAULT_REST = { long: 'full' as RestGain, short: 'none' as RestGain };
 export const DEFAULT_MAX_LEVEL = { on: false, table: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 9, 9] };
