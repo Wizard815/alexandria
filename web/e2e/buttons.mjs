@@ -30,6 +30,7 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   const st = (stats[tag] = { pages: 0, clicks: 0, forms: 0, dead: 0, skipped: 0 });
   const { ctx, page } = await signIn(browser, base, user, PASS[user], viewport, mobile);
   await ctx.addInitScript(INIT);
+  await ctx.addInitScript((v) => { try { localStorage.setItem('alx.thoughts.prefs', v); } catch { /* blocked */ } }, THOUGHTS_FOLDED);
   let reqs = 0, dialogs = 0, downloads = 0, popups = 0;
   let here = '';
   const bad = (m) => problems.push(`${tag} ${here}: ${m}`);
@@ -192,6 +193,8 @@ async function throwaways() {
   await ctx.close();
 }
 
+// Minerva's thoughts opens by itself when the crawl switches Active mode on; here it stays in the dock so it never covers the page under test.
+const THOUGHTS_FOLDED = JSON.stringify({ open: false, autoOpen: false });
 const browser = await chromium.launch();
 try {
   await throwaways();

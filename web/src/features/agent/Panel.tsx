@@ -4,7 +4,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { DockButton, useDockShift } from '../../ui/Dock.tsx';
 import { useMainPrefs } from '../screens/prefs.ts';
-import Chat from './Chat.tsx';
+import Chat, { ACTIONS_CHANGED } from './Chat.tsx';
 import { SpokenNotice } from './aloud.tsx';
 import Statblock from './Statblock.tsx';
 import { PREFILL_EVENT } from './prefill.ts';
@@ -20,7 +20,19 @@ export default function AgentPanel() {
   return isDM && !main.hideAssistant ? <Panel /> : null;
 }
 
+/** How many of the assistant's changes wait for the DM: shown on the folded assistant's dock button. */
+function usePendingCount(): number {
+  const { w, on } = useWorld();
+  const [n, setN] = useState(0);
+  const load = useCallback(() => { void w.call<{ actions: unknown[] }>('GET', '/agent/actions?status=pending').then((r) => setN(r.actions?.length ?? 0)).catch(() => {}); }, [w]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => on(['agent'], (e) => { const k = (e.data as any)?.kind; if (k === 'action' || k === 'message') load(); }), [on, load]);
+  useEffect(() => { window.addEventListener(ACTIONS_CHANGED, load); return () => window.removeEventListener(ACTIONS_CHANGED, load); }, [load]);
+  return n;
+}
+
 function Panel() {
+  const pending = usePendingCount();
   const [open, setOpen] = useState(wasOpen);
   const [tab, setTab] = useState<'chat' | 'statblock'>('chat');
   const loc = useLocation();
@@ -54,7 +66,7 @@ function Panel() {
   useDockShift(open);
   // Heard even with the panel folded away; clicking it unfolds the panel on the chat it names.
   const notice = <SpokenNotice onOpen={() => { setTab('chat'); set(true); }} />;
-  if (!open) return <>{notice}<DockButton order={20} icon="fa-wand-magic-sparkles" label="Open the assistant (Ctrl+K)" title="Assistant (Ctrl+K)" text="Assistant" onClick={() => { set(true); focusInput(); }} testId="dock-agent" /></>;
+  if (!open) return <>{notice}<DockButton order={20} icon="fa-wand-magic-sparkles" label="Open the assistant (Ctrl+K)" title="Assistant (Ctrl+K)" text="Assistant" badge={pending || undefined} onClick={() => { set(true); focusInput(); }} testId="dock-agent" /></>;
   return (
     <>{notice}<aside className="ag-panel" aria-label="Assistant">
       <header className="ag-head">
