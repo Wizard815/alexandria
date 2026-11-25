@@ -69,7 +69,7 @@ export function SourceFields({ d, set, connectors, connections, parts = ['kind',
       )}
       {parts.includes('connection') && c?.hasConnection && (
         <div className="stack">
-          <Field label="Connection" help={<>The account this source reads with. Manage them in <Link to="/admin/connections">Connections</Link>.</>}>
+          <Field label="Connection" help={<>The account this source reads with. Manage them in <Link to="/admin/sources?tab=connections">Connections</Link>.</>}>
             <select value={d.connectionId} onChange={(e) => up({ connectionId: e.target.value })}>
               {mine.map((x) => <option key={x.id} value={x.id}>{x.name} · used by {x.sources} source{x.sources === 1 ? '' : 's'}</option>)}
               <option value="">New connection…</option>

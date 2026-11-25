@@ -58,10 +58,10 @@ export default function AdminOverview() {
       <ErrorBox error={o.error || backup.error || gw.error} />
       {g?.leak && g.leak.leaks > 0 && (
         <Callout tone="bad">
-          <strong>The leak check found {g.leak.leaks} place{g.leak.leaks === 1 ? '' : 's'} where hidden text reached a player view.</strong> {when(g.leak.at)}. <Link to="/admin/permissions">See where</Link>. Nothing is shown here but the pages and kinds of read involved.
+          <strong>The leak check found {g.leak.leaks} place{g.leak.leaks === 1 ? '' : 's'} where hidden text reached a player view.</strong> {when(g.leak.at)}. <Link to="/admin/access?tab=permissions">See where</Link>. Nothing is shown here but the pages and kinds of read involved.
         </Callout>
       )}
-      {g?.leak?.status === 'error' && <Callout tone="warn">The last leak check did not finish{g.leak.error ? `: ${g.leak.error}` : ''}. <Link to="/admin/permissions">Run it again</Link>.</Callout>}
+      {g?.leak?.status === 'error' && <Callout tone="warn">The last leak check did not finish{g.leak.error ? `: ${g.leak.error}` : ''}. <Link to="/admin/access?tab=permissions">Run it again</Link>.</Callout>}
       {g?.security.defaultAdminPassword && (
         <Callout tone="bad">
           <strong>An admin account still uses a default or easy-to-guess password.</strong> Change it now: anyone who guesses it can reach every world's settings and keys. <Link to="/admin/accounts">Accounts</Link>
@@ -101,7 +101,7 @@ export default function AdminOverview() {
 
           <div className="adm-two">
             <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-            <Section title="Connections" lead="Logins to services, shared by any world that uses them." actions={<Link className="btn small" to="/admin/connections">Manage</Link>}>
+            <Section title="Connections" lead="Logins to services, shared by any world that uses them." actions={<Link className="btn small" to="/admin/sources?tab=connections">Manage</Link>}>
               {conns.data?.length ? (
                 <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
                   <thead><tr><th>Connection</th><th>Status</th><th className="num">Today</th><th>Last hour</th><th>Used by</th></tr></thead>
@@ -118,7 +118,7 @@ export default function AdminOverview() {
                     );
                   })}</tbody>
                 </table></div></div>
-              ) : <p className="muted">No connections yet. <Link to="/admin/connections">Make one</Link>, or <Link to="/admin/worlds/setup">set up a world</Link>.</p>}
+              ) : <p className="muted">No connections yet. <Link to="/admin/sources?tab=connections">Make one</Link>, or <Link to="/admin/worlds/setup">set up a world</Link>.</p>}
             </Section>
             </div>
             <Section title="Gateway devices" lead="Hosted here, so any world's table can use them." actions={<Link className="btn small" to="/admin/integrations">Integrations</Link>}>
@@ -138,7 +138,7 @@ export default function AdminOverview() {
             </Section>
           </div>
 
-          <Section title="Recent syncs" actions={<Link className="btn small" to="/admin/sources">World sources</Link>} flush>
+          <Section title="Recent syncs" actions={<Link className="btn small" to="/admin/sources?tab=worlds">World sources</Link>} flush>
             {d.runs.length ? (
               <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
                 <thead><tr><th>Source</th><th>World</th><th>Started</th><th>Status</th><th>Pages</th></tr></thead>
@@ -150,7 +150,7 @@ export default function AdminOverview() {
                   </tr>
                 ))}</tbody>
               </table></div></div>
-            ) : <p className="muted">No syncs yet. <Link to="/admin/sources">Add a source</Link> to fill a world's library.</p>}
+            ) : <p className="muted">No syncs yet. <Link to="/admin/sources?tab=worlds">Add a source</Link> to fill a world's library.</p>}
           </Section>
 
           <Section title="This server">
