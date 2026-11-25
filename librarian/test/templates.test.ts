@@ -240,6 +240,16 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   await dm('PUT', '/templates/web', { enabled: false });
 });
 
+test('Templates: a shop generation template steers the shop generator', async () => {
+  const t = await dm('POST', '/templates', { kind: 'shop', name: 'Herb shops', spec: { shopType: 'apothecary', guide: '6 items, no magic, markup 20%', stock: ['healing herbs'] } });
+  const r = await dm('POST', `/templates/${t.id}/shop`, {});
+  assert.equal(r.draft.kind, 'alchemist', 'the free-text type picks the generator kind');
+  assert.equal(r.draft.guided, true);
+  assert.ok(r.draft.stock.length > 0 && r.draft.stock.length <= 6, `stock follows the guide: ${r.draft.stock.length}`);
+  assert.equal(r.draft.markupPct, 20);
+  assert.equal((await call('POST', w(`/templates/${t.id}/shop`), T.jess, {})).status, 403);
+});
+
 test('Templates: the agent tools list, read, create and update templates', async () => {
   const names = (await import('../src/routes/mcpServer.ts')).toolsFor(true).map((t: any) => t.name);
   for (const n of ['list_dm_templates', 'get_dm_template', 'create_dm_template', 'update_dm_template', 'web_research']) assert.ok(names.includes(n), n);
