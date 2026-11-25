@@ -8,11 +8,13 @@
 //   POST /active/log/:id/approve|dismiss|reject|undo|wrong
 //   GET/DELETE /active/rules         "don't do this again" rules
 //   POST /active/task                { prompt, mode, tools } one task for the assistant (macro Minerva step)
+//   GET  /active/thoughts            Minerva's thoughts: the live feed of what she heard, did, asked and let go
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { requireDM } from '../../core/auth.ts';
 import { HttpError, int, str } from '../../core/util.ts';
-import { ctx, me } from '../../routes/_shared.ts';
+import { ctx, me, settings } from '../../routes/_shared.ts';
+import { featureSetting } from '../../core/policy.ts';
 import { hasJob } from '../../core/ai.ts';
 import { listSessions } from '../audio/api.ts';
 import { dmOnly } from '../../core/events.ts';
@@ -22,6 +24,7 @@ import { approveCard, dismissCard, flushActive, markWrong, statsOf, undoEntry } 
 import { parseCommand, runCommand } from './commands.ts';
 import { setPort, dmAuth } from './exec.ts';
 import { runTask } from './task.ts';
+import { lastHeard, recentThoughts } from './thoughts.ts';
 
 function routes(d: import('../../app.ts').Deps) {
   const r = Router({ mergeParams: true });
@@ -89,6 +92,12 @@ function routes(d: import('../../app.ts').Deps) {
   r.post('/log/:id/wrong', (req, res, next) => wrap((id) => markWrong(d, W(res), id))(req, res).catch(next));
   r.get('/rules', (_req, res) => res.json({ rules: listRules(d, W(res)) }));
   r.delete('/rules', (req, res) => { dropRule(d, W(res), str(req.body?.key ?? req.query.key, 'key', { max: 200 })); res.json({ ok: true }); });
+  r.get('/thoughts', (req, res) => {
+    const w = W(res);
+    const sess = listSessions(d.db, w)[0];
+    const auto = featureSetting<boolean>(settings(res), 'agentAuto') === true;
+    res.json({ thoughts: recentThoughts(d, w, int(req.query.limit, 'limit', { min: 1, max: 500, optional: true }) ?? 120), heard: lastHeard(d, w), recording: !!sess?.active, mode: effectiveMode(d, w, sess?.active ? sess.id : null), auto });
+  });
   r.post('/flush', async (_req, res) => { await flushActive(d, W(res)); res.json({ ok: true }); });
 
   r.post('/task', async (req, res) => {
