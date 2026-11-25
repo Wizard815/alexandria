@@ -189,6 +189,17 @@ try {
   const liveLines = (await api(tokDM, 'GET', `/audio/sessions/${sid}/lines`)).body.lines;
   check(liveLines.some((l) => SENTENCES.some((s) => l.text.includes(s.split(' ').slice(1, 4).join(' ')))), `lines come from the devices' text (${liveLines.length} lines)`);
 
+  // A mode change reaches the recording phone live: no reload, no restart of the recording.
+  const tomUrl = tom.url();
+  check((await api(tokDM, 'PATCH', '/settings', { speechToText: 'server' })).status === 200, 'the DM switches speech to text to the server mid-session');
+  await tom.locator('.au-stt-note.on').waitFor({ state: 'detached', timeout: 15000 }).then(() => check(true, 'the phone stops transcribing on the device at once'), () => check(false, 'the phone still transcribes on the device after the switch to the server'));
+  const offMic = await waitFor(async () => { const m = (await micsDM()).find((x) => x.owner && /tom/i.test(x.owner)); return m && (!m.stt?.device || m.stt.device.state === 'off') ? m : null; }, 15000, 'the phone reports off').catch(() => null);
+  check(!!offMic, 'the phone told the server it stopped transcribing');
+  check((await api(tokDM, 'PATCH', '/settings', { speechToText: 'device' })).status === 200, 'and back to "On each device"');
+  await tom.locator('.au-stt-note.on').waitFor({ timeout: REAL ? 240000 : 30000 }).then(() => check(true, 'the phone transcribes on the device again without a restart'), () => check(false, 'the phone did not switch back to the device'));
+  check(tom.url() === tomUrl && (await api(tokDM, 'GET', '/audio/status')).body.session?.id === sid, 'the same page and the same recording session throughout');
+  await sleep(6000);
+
   await dmStop(dm);
   const fin = await waitFor(async () => { const s = await sessionByName('E2E device session'); return s?.final?.status === 'done' ? s : null; }, 90000, 'the final transcript');
   check(fin.final.stats.mics >= 2, `the final pass synced ${fin.final.stats.mics} mics`);

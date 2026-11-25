@@ -355,6 +355,7 @@ class Engine {
     let assets: { lib: string; models: string } | null = null;
     try { const r = await this.api<any>('GET', '/stt/assets'); mode = r.mode; assets = r.assets; } catch { /* older server: server mode */ }
     if (!this.state.recording) return;
+    this.sttApplied = mode;
     clearInterval(this.sttTimer);
     this.sttUnsub?.();
     if (mode !== 'server') {
@@ -362,13 +363,29 @@ class Engine {
       this.sttUnsub = deviceStt.subscribe(() => { const v = deviceStt.view; if (v.state !== this.sttLast) { this.sttLast = v.state; this.reportStt(); } });
       this.sttTimer = setInterval(() => this.reportStt(), 5000);
     }
-    await deviceStt.start(mode, assets);
-    this.reportStt();
+    // Not awaited: loading a model can take minutes, and a mode change meanwhile must not wait for it (stopStt frees it).
+    void deviceStt.start(mode, assets).then(() => this.reportStt());
   }
   private reportStt() {
     const v = deviceStt.view;
     if (v.mode === 'server' || !this.state.recording) return;
     for (const id of this.runners.keys()) void this.api('POST', `/mics/${id}/stt`, { state: v.state, model: v.model, backend: v.backend, rtf: v.rtf ?? undefined, backlog: v.backlog, progress: v.progress ?? undefined, note: v.note }).catch(() => {});
+  }
+  private sttChain: Promise<void> = Promise.resolve();
+  /** The mode the server gave when speech to text last started here (null: not started this session). */
+  private sttApplied: SttMode | null = null;
+  /**
+   * The world's speech to text mode changed (the 'stt-mode' live event). A device that is recording switches now: it frees its
+   * model (chunks waiting for it go to the server) and starts again, reading the mode from the server. One switch at a time, in
+   * order, so a quick server-then-device change ends on the last one; a repeat of the mode already running is ignored.
+   */
+  sttModeChanged(mode: SttMode) {
+    if (!this.state.recording || !this.runners.size) return;
+    this.sttChain = this.sttChain.then(async () => {
+      if (!this.state.recording || !this.runners.size || this.sttApplied === mode) return;
+      this.stopStt([...this.runners.keys()]);
+      await this.startStt();
+    }).catch(() => {});
   }
   /** The session stopped here: free the model and tell the server, which takes over anything still owed. */
   private stopStt(ids: string[]) {
@@ -376,6 +393,7 @@ class Engine {
     this.sttUnsub?.();
     this.sttUnsub = null;
     this.sttLast = '';
+    this.sttApplied = null;
     if (deviceStt.view.mode !== 'server' && deviceStt.view.state !== 'off') for (const id of ids) void this.api('POST', `/mics/${id}/stt`, { state: 'off' }).catch(() => {});
     deviceStt.stop();
   }
