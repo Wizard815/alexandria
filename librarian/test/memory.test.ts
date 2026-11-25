@@ -356,9 +356,14 @@ test('TestMemory_AdminSeesCoverageAndCanReembedAWorld', async () => {
   assert.equal((await call('GET', '/api/admin/embeddings', T.dm)).status >= 400, true, 'not for a DM');
   const re = await ok('POST', `/api/admin/embeddings/${W}/reembed`, T.admin);
   assert.equal(re.embeddings.chunks, 0);
-  assert.equal(rows('SELECT 1 FROM bible_facts WHERE world_id = ?', W).length, 0);
-  await ok('POST', `/api/admin/embeddings/${W}/run`, T.admin);
+  assert.ok(Object.values(re.bible.scopes).every((x: any) => x.facts === 0), 'every fact is forgotten');
+  // Made again at once, in one bulk pass (a job), not left to the background ticks.
+  assert.equal(re.started, true);
+  for (let i = 0; i < 200 && deps.jobs.running('index-build', W); i++) await new Promise((r) => setTimeout(r, 25));
+  assert.equal(deps.jobs.running('index-build', W), false, 'the bulk build finished');
   assert.ok((await ok('GET', '/api/admin/embeddings', T.admin)).worlds.find((x: any) => x.id === W).embeddings.chunks > 0);
+  assert.ok(rows('SELECT 1 FROM bible_facts WHERE world_id = ?', W).length > 0, 'the story bible was read again');
+  await ok('POST', `/api/admin/embeddings/${W}/run`, T.admin);
   // The DM's own re-embed and the player's refusal.
   assert.equal((await call('POST', `/api/worlds/${W}/search/reembed`, T.jess)).status >= 400, true);
   assert.equal((await call('POST', `/api/worlds/${W}/bible/rebuild`, T.jess)).status >= 400, true);

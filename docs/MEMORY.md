@@ -72,14 +72,47 @@ somehow survives is never returned.
 ## Background jobs and the admin page
 
 - `search` feature: embeds stale pages every 20 s (`ALX_SEARCH_EMBED_MS`),
-  in the order party, lifted, broker, dm; budgeted per tick.
+  in the order party, lifted, broker, dm; budgeted per tick. Small edits are
+  handled here: one changed page is one small request.
 - `bible` feature: extracts facts for pages whose copy changed, every 30 s
-  (`ALX_BIBLE_MS`), 10 pages per tick. A crawl (Library pull all) triggers
-  both after fetching.
+  (`ALX_BIBLE_MS`), a few pages per tick, only when "When it reads" allows.
 - Admin > Models shows the embeddings job state and, per world and scope,
-  pages read, chunks and facts, with a "Re-embed world" action
-  (`GET /api/admin/embeddings`, `POST /api/admin/embeddings/:world/reembed`).
-  DMs have `POST /worlds/:w/search/reembed`, `/bible/rebuild`, `/bible/refresh`.
+  pages read, chunks and facts, with "Index all now" and "Re-embed world"
+  (`GET /api/admin/embeddings`, `POST /api/admin/embeddings/:world/build`,
+  `POST /api/admin/embeddings/:world/reembed`).
+  DMs have `POST /worlds/:w/search/build`, `/search/reembed`, `/bible/rebuild`,
+  `/bible/refresh` and `/bible/read-now` (`{ "all": true }` for everything).
+
+## Bulk builds (first import, re-embed, rebuild)
+
+A whole world is not left to the ticks above. A bulk build
+(`features/search/bulkbuild.ts`) embeds every waiting page copy, then reads
+every waiting copy into the story bible, in one pass. It is a job (`index-build`:
+Admin > Jobs shows its progress, it can be stopped, a restart resumes it), and
+its model calls go in at background priority so the table's requests still go
+first.
+
+It starts on its own after a crawl (Library > pull all; the crawl embeds inline
+and starts the bible part), after "Re-embed world", after a story bible
+rebuild, and on `POST /worlds/:w/search/build` (body `{ "embeddings": false }`
+or `{ "bible": false }` to do only one part) or "Index all now". One per world
+at a time; asking again while it runs answers `started: false`.
+
+How wide it goes (`features/search/batching.ts`):
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `ALX_EMBED_BATCH` | 64 | Chunks (or story bible facts) per embeddings request. Chunks of many pages share a request; each request's pages are written in one transaction. |
+| `ALX_EMBED_PARALLEL` | the model's `maxConcurrent` | Embeddings requests in flight at once. |
+| `ALX_BIBLE_PARALLEL` | the model's `maxConcurrent` | Pages the story bible reads at once. |
+
+The model queue still has the last word: a local model takes 2 calls at a time
+unless its job option `maxConcurrent` says more. To go faster on a local server,
+raise `maxConcurrent` on the embeddings and story bible models to match the
+server's parallel slots (llama.cpp `-np`, for example) and, for embeddings,
+make sure the server's batch size takes `ALX_EMBED_BATCH` inputs of about 500
+characters each. A page the classified guard refuses is sent on its own, so it
+never holds back the pages around it.
 
 ## Vector store
 
