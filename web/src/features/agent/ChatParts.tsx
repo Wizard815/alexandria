@@ -8,7 +8,26 @@ import { useAuth } from '../../lib/auth.tsx';
 
 export interface Citation { kind: string; id: string; title: string; path?: string; snippet?: string }
 export interface Timings { totalMs: number; firstTokenMs?: number; modelMs: number; toolMs: number; gatewayMs: number; rounds: number; toolCalls: number; fast?: boolean }
-export interface Msg { id: string; role: 'user' | 'assistant'; text: string; status: 'done' | 'working' | 'error'; citations: Citation[]; at: string; timings?: Timings | null }
+export interface GuideStep { kind: string; label: string; status: 'done' | 'waiting' | 'skipped' | 'blocked'; detail?: string }
+export interface GuideNote { id: string; name: string; version: number; why: string; steps: GuideStep[] }
+export interface Msg { id: string; role: 'user' | 'assistant'; text: string; status: 'done' | 'working' | 'error'; citations: Citation[]; at: string; timings?: Timings | null; guides?: GuideNote[] }
+
+const STEP_ICON: Record<GuideStep['status'], string> = { done: 'fa-circle-check', waiting: 'fa-hourglass-half', skipped: 'fa-circle-minus', blocked: 'fa-ban' };
+/** "Using guide: Towns" above a reply, with what each of the guide's steps did. */
+export function GuideBox({ guides, phone }: { guides: GuideNote[]; phone?: boolean }) {
+  return (
+    <div className={`ag-guide${phone ? ' phone' : ''}`} data-testid="ag-guide">
+      <strong><i className="fa-solid fa-compass" aria-hidden="true" /> Using guide: {guides.map((g) => g.name).join(', ')}</strong>
+      {guides.map((g) => g.steps.length > 0 && (
+        <ul key={g.id} aria-label={`Steps of the guide ${g.name}`}>
+          {g.steps.map((s, i) => (
+            <li key={i} data-status={s.status} data-kind={s.kind}><i className={`fa-solid ${STEP_ICON[s.status] ?? 'fa-circle'}`} aria-hidden="true" /> {s.label}{s.detail ? <span className="muted">: {s.detail}</span> : null}</li>
+          ))}
+        </ul>
+      ))}
+    </div>
+  );
+}
 export interface Act { id: string; tool: string; summary: string; call: unknown; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
 export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
 export interface Live { text: string; status: string; queue?: string }
@@ -162,7 +181,8 @@ export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLi
           <ul className={`tiny ${phone ? '' : 'muted '}ag-sources`} aria-label="Sources">
             {m.citations.map((c) => (
               <li key={`${c.kind}${c.id}`}>
-                {c.kind === 'page' ? <a href={libraryHref(c.id)} className="wikilink" onClick={(e) => { e.preventDefault(); onNavigate(libraryHref(c.id)); }}>{c.title}</a> : <strong>{c.kind === 'transcript' ? `Transcript, ${c.title}` : c.title}</strong>}
+                {c.kind === 'page' ? <a href={libraryHref(c.id)} className="wikilink" onClick={(e) => { e.preventDefault(); onNavigate(libraryHref(c.id)); }}>{c.title}</a>
+                  : c.kind === 'web' && /^https?:\/\//.test(c.path ?? '') ? <a href={c.path} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-globe" aria-hidden="true" /> {c.title}</a> : <strong>{c.kind === 'transcript' ? `Transcript, ${c.title}` : c.title}</strong>}
                 {c.snippet ? `: ${c.snippet}` : ''}
               </li>
             ))}
@@ -173,6 +193,7 @@ export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLi
         if (phone) {
           return (
             <div key={m.id} className={`msg ag-msg${m.role === 'user' ? ' me' : ''}`} onClick={onLink}>
+              {m.guides?.length ? <GuideBox guides={m.guides} phone /> : null}
               {body}
               {m.status === 'working' && shown && live?.status && <span className="sub"> Using {live.status}…</span>}
               {m.status === 'error' && retry && it.m.id === lastErr && <div><button type="button" className="b" onClick={retry} data-testid="ag-retry"><i className="fa-solid fa-rotate-right" aria-hidden="true" /> Try again</button></div>}
@@ -184,6 +205,7 @@ export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLi
         return (
           <div key={m.id} className="stack tight" style={{ alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
             <div className="card ag-msg" style={{ padding: '8px 12px', maxWidth: '92%', borderColor: m.role === 'user' ? 'var(--accent)' : undefined }} onClick={onLink}>
+              {m.guides?.length ? <GuideBox guides={m.guides} /> : null}
               {body}
               {m.status === 'working' && shown && live?.status && <span className="tiny muted"> Using {live.status}…</span>}
               {m.status === 'error' && retry && it.m.id === lastErr && <div><button type="button" className="btn small" onClick={retry} data-testid="ag-retry"><i className="fa-solid fa-rotate-right" aria-hidden="true" /> Try again</button></div>}

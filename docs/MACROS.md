@@ -34,6 +34,9 @@ step's argument. Trigger URLs and `run` calls may override only those.
 Example, "Combat starts": `lights.scene` Red alert, `sound.mood` x 0.9 y 0.9,
 `stage.show` combat, `combat.start`.
 
+A **macro template** (DM → Templates & guides) is a Minerva prompt with `{{blanks}}`; **Make a macro**
+turns it into a macro whose blanks are its parameters. See [TEMPLATES.md](TEMPLATES.md).
+
 ## Key bindings
 
 A binding is a key combination for a macro, with a scope: `web` (this web app,
