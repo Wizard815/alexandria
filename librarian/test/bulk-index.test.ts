@@ -168,3 +168,24 @@ test('TestBulk_PoolStopsAtTheFirstErrorAndRunsInParallel', async () => {
   await assert.rejects(pool(2, () => (i < items.length ? items[i++] : null), async (x) => { ran++; await sleep(2); if (x === 3) throw new Error('down'); }), /down/);
   assert.ok(ran < items.length, 'the rest were not started');
 });
+
+test('TestBulk_WrongKeyStopsThePassInsteadOfBackingOffEveryPage', async () => {
+  const h = await boot('bulk-badkey', { ALX_EMBED_BATCH: '8' });
+  await seed(h, 20);
+  let calls = 0;
+  const real = h.deps.fetch;
+  h.deps.fetch = (async (url: any, init?: any) => {
+    if (String(url).endsWith('/embeddings')) { calls++; return new Response(JSON.stringify({ error: { message: 'User not found.', code: 401 } }), { status: 401, headers: { 'Content-Type': 'application/json' } }); }
+    return real(url, init);
+  }) as typeof fetch;
+  const r = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 1_000_000 });
+  assert.ok(r.error, 'the pass reports the error');
+  assert.equal(r.refused, undefined, 'no page is blamed for a wrong key');
+  assert.ok(calls <= 2, `stops early (${calls} requests)`);
+  assert.equal(embeddingCoverage(h.deps, h.world).progress.refused ?? 0, 0);
+  // With the key fixed, every page goes at once, with no wait.
+  h.deps.fetch = real;
+  const ok = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 1_000_000 });
+  assert.equal(ok.error, undefined);
+  assert.equal(ok.pages, 20);
+});
