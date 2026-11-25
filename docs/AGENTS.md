@@ -132,3 +132,12 @@ tested with a fake model but were not measured on the real model: off by default
   session under the open arc and drafts status, codex, journal and hook updates, now from the
   players' recap and the DM's running notes together.
 
+## 10. Guides and web research
+
+The DM's **guides** (DM → Prep → Templates & guides) tell the assistant how to do a kind of task: "Towns: research the
+real town it is based on, my own lore and the towns around it". A request that matches one (its trigger words in a
+request to make something, or "use guide Towns") gets the guide, and its steps run before the model is asked: the
+library, neighbouring places, the exemplar pages and, when the DM turned it on for the world, **web research** of a
+real-world reference (a card with the exact search words in Ask first; refused before anything is sent when a query
+holds a DM-only or classified word). The chat shows "Using guide: Towns" and each step. See [TEMPLATES.md](TEMPLATES.md).
+

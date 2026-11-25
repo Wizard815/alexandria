@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS agent_messages (
   context TEXT,
   blocked INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
-  timings TEXT
+  timings TEXT,
+  guides TEXT
 );
 CREATE INDEX IF NOT EXISTS agent_messages_chat ON agent_messages (chat_id, created_at);
 CREATE TABLE IF NOT EXISTS agent_actions (
@@ -58,7 +59,7 @@ CREATE TABLE IF NOT EXISTS agent_leaks (
 );
 `;
 
-export interface Citation { kind: 'page' | 'transcript' | 'term'; id: string; title: string; path?: string; snippet?: string; sessionId?: string }
+export interface Citation { kind: 'page' | 'transcript' | 'term' | 'web'; id: string; title: string; path?: string; snippet?: string; sessionId?: string }
 
 export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '') => {
   const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), created_at: now(), updated_at: now() };
@@ -114,7 +115,11 @@ export const clearPartial = (msgId: string) => { partials.delete(msgId); };
 export const messageView = (m: any) => ({
   id: m.id, role: m.role, text: m.status === 'working' ? partials.get(m.id) ?? m.content : m.content, status: m.status, citations: parseJson<Citation[]>(m.citations, []), at: m.created_at,
   timings: m.timings ? parseJson<Timings | null>(m.timings, null) : null,
+  guides: m.guides ? parseJson<unknown[]>(m.guides, []) : [],
 });
+
+/** The guides a reply follows ("Using guide: Towns") and what each step did, shown above the reply. */
+export const setGuideNotes = (db: DB, msgId: string, notes: unknown[]) => { run(db, 'UPDATE agent_messages SET guides = ? WHERE id = ?', JSON.stringify(notes), msgId); };
 
 /** A chat with its messages and the actions waiting on the DM. */
 export function chatView(db: DB, chatId: string) {
