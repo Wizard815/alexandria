@@ -71,6 +71,11 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
 - The screen stays awake while the app is open; the back button goes back in the web app and
   leaves the app at the first page. Plain `http://` servers are allowed (home network);
   https is recommended.
+- **Status bar:** the app draws edge to edge (`MainActivity.kt`), pads the status bar, navigation
+  bar and keyboard once in the native view over the web app's bar colour (`#171C26`) and hands
+  the page no inset of its own, so the page's top bar sits snugly under the status bar. Change
+  that colour in `MainActivity.kt` together with `--side` in `web/src/theme.css`. A change here
+  needs a rebuilt APK; the web part updates with the server.
 - **Signing:** `gen/android/keystore.properties` (never committed) names the key; without it
   the release APK is signed with the debug key so it still installs. An update installs over
   an earlier build only if it was signed with the same key. The release workflow reads the
