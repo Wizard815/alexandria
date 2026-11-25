@@ -193,8 +193,11 @@ export function BrokerTeaser() {
 
 // ---- Choosing how to pay, after the price is known ----
 
-export interface PayOptions { self: { cp: number }; party: { cp: number | null; allowed: boolean; reason: string | null }; default: 'self' | 'party' }
+export interface PayOptions { self: { cp: number; available?: number }; party: { cp: number | null; available?: number | null; allowed: boolean; reason: string | null }; default: 'self' | 'party' }
 export type PayFrom = 'self' | 'party';
+
+/** What a purse can spend now: its balance less coin promised to debits still waiting for the DM. */
+export const spendableOf = (opts: PayOptions, f: PayFrom): number => (f === 'self' ? opts.self.available ?? opts.self.cp : opts.party.available ?? opts.party.cp ?? 0);
 
 /** Both purses and whether the party pouch may pay; fresh whenever coin moves. */
 export function usePayOptions(enabled = true) {
@@ -210,9 +213,10 @@ export function PayChoice({ cost, value, onChange, opts }: { cost: number; value
   const { info } = useWorld();
   if (!opts) return null;
   const money = (cp: number) => coins(cp, info.settings.coins);
+  const short = (f: PayFrom) => { const have = spendableOf(opts, f); return have < cost ? `${money(cost - have)} short${have < (f === 'self' ? opts.self.cp : opts.party.cp ?? 0) ? ' (some is promised to requests waiting for the DM)' : ''}` : null; };
   const choices: { id: PayFrom; label: string; cp: number | null; off: string | null }[] = [
-    { id: 'self', label: 'My coin', cp: opts.self.cp, off: opts.self.cp < cost ? `${money(cost - opts.self.cp)} short` : null },
-    ...(opts.party.allowed ? [{ id: 'party' as PayFrom, label: 'Party pouch', cp: opts.party.cp, off: (opts.party.cp ?? 0) < cost ? `${money(cost - (opts.party.cp ?? 0))} short` : null }] : []),
+    { id: 'self', label: 'My coin', cp: opts.self.cp, off: short('self') },
+    ...(opts.party.allowed ? [{ id: 'party' as PayFrom, label: 'Party pouch', cp: opts.party.cp, off: short('party') }] : []),
   ];
   return (
     <fieldset className="pay-choice" aria-label="Pay from">
@@ -235,7 +239,7 @@ export function PayChoice({ cost, value, onChange, opts }: { cost: number; value
 /** The purse to preselect: the one asked for, unless it cannot cover the price and the other can. */
 export function pickPayFrom(opts: PayOptions | null, cost: number, wanted?: PayFrom): PayFrom {
   if (!opts) return 'self';
-  const ok = (f: PayFrom) => (f === 'self' ? opts.self.cp >= cost : opts.party.allowed && (opts.party.cp ?? 0) >= cost);
+  const ok = (f: PayFrom) => (f === 'self' || opts.party.allowed) && spendableOf(opts, f) >= cost;
   const first = wanted ?? opts.default;
   if (ok(first)) return first;
   const other: PayFrom = first === 'self' ? 'party' : 'self';

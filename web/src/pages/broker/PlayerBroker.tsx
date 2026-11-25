@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Field, Tabs, useAction, useToast } from '../../ui/index.tsx';
-import { type BrokerConfig, type BrokerRequest, type Offer, type PayFrom, type PayOptions, type Quote, PayChoice, ReadyLabel, StatusChip, extra, offerExpiry, pickPayFrom, usePayOptions, waitLabel } from './shared.tsx';
+import { type BrokerConfig, type BrokerRequest, type Offer, type PayFrom, type PayOptions, type Quote, PayChoice, ReadyLabel, StatusChip, extra, offerExpiry, pickPayFrom, spendableOf, usePayOptions, waitLabel } from './shared.tsx';
 import { AskCoinModal, CoinRequestsCard, givingOn } from '../inventory/giving.tsx';
 
 export default function PlayerBroker() {
@@ -85,7 +85,7 @@ function AskCard({ cfg, opts, onAsked }: { cfg: BrokerConfig; opts: PayOptions |
   const { toast, toastNode } = useToast();
   const [from, setFrom] = useState<PayFrom>('self');
   const cost = quote?.cost_cp ?? 0;
-  const have = opts ? (from === 'party' ? opts.party.cp ?? 0 : opts.self.cp) : null;
+  const have = opts ? spendableOf(opts, from) : null;
   const short = !!quote && quote.cost_cp !== null && quote.cost_cp > 0 && have !== null && have < quote.cost_cp;
   const showChoice = !!quote && !quote.refused && !quote.secret && quote.kind !== 'offtopic' && cost > 0;
 
@@ -212,7 +212,7 @@ function Offers({ list, error, reload, opts }: { list: Offer[] | null; error: st
     <>
       {open.map((o) => {
         const from = picked[o.id] ?? pickPayFrom(opts, o.price_cp);
-        const have = opts ? (from === 'party' ? opts.party.cp ?? 0 : opts.self.cp) : 0;
+        const have = opts ? spendableOf(opts, from) : 0;
         const short = opts ? Math.max(0, o.price_cp - have) : 0;
         return (
           <section key={o.id} className="card gold" aria-labelledby={`of-${o.id}`} style={{ borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent) inset' }}>
