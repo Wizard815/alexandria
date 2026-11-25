@@ -53,7 +53,7 @@ export async function assembleBible(d: Deps, worldId: string, viewer: Viewer, f:
     const w = wordsOf(f.q);
     let qv: Float32Array | null = null;
     if (hasJob(d, 'extra') && rows.some((r) => r.vec)) {
-      try { const got = await embed(d, [f.q.slice(0, 300)]); if (got[0]?.length) qv = normalize(got[0]); } catch { /* keywords only */ }
+      try { const got = await embed(d, [f.q.slice(0, 300)], undefined, 'query'); if (got[0]?.length) qv = normalize(got[0]); } catch { /* keywords only */ }
     }
     const min = Number(d.env.ALX_SEARCH_MIN_SIM ?? 0.2);
     for (const r of rows) {

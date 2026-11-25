@@ -23,7 +23,7 @@ import { effectiveConfig } from '../../intake/connections.ts';
 import { runSync, stopSync } from '../../intake/sync.ts';
 import { budgetOf, depthCounts, getState, tieredOf } from '../../intake/tiers.ts';
 import { embeddingCoverage, pruneChunks, syncEmbeddings } from '../search/embeddings.ts';
-import { syncBible } from '../bible/extract.ts';
+import { startBulkBuild } from '../search/bulkbuild.ts';
 
 export const CRAWL_SCHEMA = `
 CREATE TABLE IF NOT EXISTS connections_crawls (
@@ -247,7 +247,8 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
         else { P.embedding.state = 'done'; log(`Embedded ${res.embedded} chunks from ${donePages.size} pages`); }
       }
       // The story bible reads new and changed pages too (in the background, with the chat model; nothing happens without one).
-      if (!ctl.signal.aborted && hasJob(d, 'chat')) { log('Reading the library into the story bible in the background'); void syncBible(d, { maxPages: 1_000_000, worldId }).catch(() => {}); }
+      // One bulk pass (several pages at once, as wide as the model allows), tracked as a job: not left to the slow background ticks.
+      if (!ctl.signal.aborted && hasJob(d, 'bible')) { log('Reading the library into the story bible in the background (Admin > Jobs shows how far it is)'); startBulkBuild(d, worldId, { bible: true }); }
       if (status === 'running') status = sources.length && succeeded === 0 && P.errors > 0 ? 'error' : 'ok';
     }
   } catch (err: any) {
