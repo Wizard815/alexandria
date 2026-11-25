@@ -21,6 +21,8 @@ import { speakable } from './speakable.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
 import { tryChatCommand } from '../active/commands.ts';
 import { addMessage, actionView, chatView, newChat, ownChat, SCHEMA } from './store.ts';
+import { researchNote } from '../templates/web.ts';
+import { getTemplate } from '../templates/store.ts';
 import { buildStatblock, mod, normalizeStatblock, rollInitiative, saveStatblockPage, statblockFromBody, type Statblock } from './statblock.ts';
 
 const audit = (db: any, worldId: string, accountId: string | null, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -198,6 +200,25 @@ function routes(d: import('../../app.ts').Deps) {
     }
     const token = bearer(req);
     const port = req.socket.localPort ?? 0;
+    // An approved web search feeds the draft it was for: the results go in the chat and the assistant carries on from them.
+    const who = a.tool === 'web_research' && a.account_id === accountId ? caller(req, res) : null;
+    const carryOn = async () => {
+      if (!who || !hasJob(d, 'chat')) return;
+      const chat = ownChat(d.db, worldId, accountId, a.chat_id);
+      if (!chat) return;
+      // Approved while the reply that proposed it is still being written: carry on once that reply is done (two minutes at most).
+      const busy = () => !!one(d.db, `SELECT 1 FROM agent_messages WHERE chat_id = ? AND status = 'working' AND created_at > ?`, chat.id, new Date(Date.now() - 10 * 60_000).toISOString());
+      for (let i = 0; i < 240 && busy(); i++) await new Promise((r) => setTimeout(r, 500));
+      if (busy()) return;
+      const gid = String(JSON.parse(a.args)?.guide ?? '');
+      const g = gid ? getTemplate(d.db, worldId, gid) : null;
+      const text = g ? `Continue with the web research results above, using guide ${g.name}.` : 'Continue with the web research results above.';
+      const { messages: history, summary } = historyFor(d, chat.id, budgetFor(d).history);
+      addMessage(d.db, chat.id, 'user', text, {});
+      const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
+      d.hub.emit(worldId, 'agent', { kind: 'message', chatId: chat.id }, only(accountId));
+      void withPriority(2, () => runAgent(d, who, { chatId: chat.id, replyId: reply.id, text, context: {}, history, summary, fast: null }));
+    };
     // The work never blocks the answer for long: a tool that needs a model (a statblock, a generator) can wait behind other model
     // work, so after a moment the DM gets "running" and the card finishes by itself when the event arrives. The DM's approval jumps
     // the model queue (priority 3) so it is not held behind chat turns.
@@ -216,8 +237,9 @@ function routes(d: import('../../app.ts').Deps) {
       run(d.db, 'UPDATE agent_actions SET status = ?, result = ? WHERE id = ?', ok ? 'done' : 'failed', out.slice(0, 8000), a.id);
       logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok, result: out, via: 'approved', actionId: a.id });
       audit(d.db, worldId, accountId, 'agent.action', `${a.tool} ${a.args} -> ${ok ? 'done' : 'failed'}`);
-      note(ok ? `Done: ${a.summary}.` : `That did not work: ${a.summary}. ${out.slice(0, 200)}`);
+      note(ok ? (a.tool === 'web_research' ? researchNote(out) : `Done: ${a.summary}.`) : `That did not work: ${a.summary}. ${out.slice(0, 200)}`);
       emitAction(d, worldId, a.account_id, a.id);
+      if (ok && a.tool === 'web_research') void carryOn().catch((e) => console.error('agent: carrying on after web research failed', e));
       return ok;
     }).catch((e) => { console.error('agent: approved action failed', e); return false; });
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -293,6 +315,8 @@ const feature: Feature = {
     // Replies keep their timings; a chat keeps a running summary of its older messages.
     const mcols = (db.prepare('PRAGMA table_info(agent_messages)').all() as any[]).map((c) => c.name);
     if (!mcols.includes('timings')) db.exec('ALTER TABLE agent_messages ADD COLUMN timings TEXT');
+    // The guides a reply followed (features/templates).
+    if (!mcols.includes('guides')) db.exec('ALTER TABLE agent_messages ADD COLUMN guides TEXT');
     const ccols = (db.prepare('PRAGMA table_info(agent_chats)').all() as any[]).map((c) => c.name);
     if (!ccols.includes('summary')) db.exec(`ALTER TABLE agent_chats ADD COLUMN summary TEXT NOT NULL DEFAULT ''`);
     if (!ccols.includes('summary_upto')) db.exec('ALTER TABLE agent_chats ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0');

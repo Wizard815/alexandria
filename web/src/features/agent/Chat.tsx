@@ -13,6 +13,7 @@ import { useAuth } from '../../lib/auth.tsx';
 import { buzz } from '../dmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
 import { AutoSwitch, ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
+import { PREFILL_EVENT, takePrefill } from './prefill.ts';
 import './agent.css';
 
 export { linkCitations } from './ChatParts.tsx';
@@ -161,6 +162,15 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     w.call<any>('GET', `/library/pages/${encodeURIComponent(page)}`).then((p) => { if (alive) setPageTitle(p?.title ?? ''); }).catch(() => {});
     return () => { alive = false; };
   }, [w, page]);
+  // A request put in the box from elsewhere (a template's "Ask the assistant"): shown, not sent.
+  useEffect(() => {
+    if (harness !== 'dm') return;
+    const fill = (t: string) => { if (!t) return; setText(t); setTimeout(() => { box.current?.focus(); box.current?.setSelectionRange(t.length, t.length); }, 30); };
+    fill(takePrefill());
+    const onFill = (e: Event) => { takePrefill(); fill(String((e as CustomEvent).detail ?? '')); };
+    window.addEventListener(PREFILL_EVENT, onFill);
+    return () => window.removeEventListener(PREFILL_EVENT, onFill);
+  }, [harness]);
   const loadCombat = useCallback(() => { if (isDM) w.call<any>('GET', '/live/combat').then((c) => setCombat({ active: !!c.active, round: c.round })).catch(() => {}); }, [w, isDM]);
   useEffect(() => { loadCombat(); return on(['combat'], loadCombat); }, [on, loadCombat]);
 

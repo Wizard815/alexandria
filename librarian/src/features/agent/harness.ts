@@ -51,6 +51,9 @@ import { minervaBrief, minervaPrep } from '../minerva/context.ts';
 import { liveLines } from '../minerva/live.ts';
 import { readTemplate } from '../sculpt/schema.ts';
 import { logAgentCall, logAgentProposal } from '../active/log.ts';
+import { applyGuides } from '../templates/guides.ts';
+import { webPrecheck } from '../templates/web.ts';
+import { setGuideNotes } from './store.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 /** Tool calls one message may make; past it the model must answer from what it has. */
@@ -118,6 +121,12 @@ export function describeCall(tool: string, a: any): string {
     case 'add_item': return `Give ${n(a.qty ?? 1)} x ${n(a.name)} to ${n(a.owner)}`;
     case 'add_coin': return `Change ${n(a.owner)} coin by ${n(a.amountCp)} cp`;
     case 'advance_world_time': return `Advance the world clock: ${JSON.stringify(a)}`;
+    case 'web_research': {
+      const qs = (Array.isArray(a.queries) ? a.queries : [a.queries ?? a.query]).filter(Boolean).map((q: unknown) => `"${n(q).slice(0, 120)}"`);
+      return `Search the web for ${qs.join(', ') || '(nothing)'}${a.purpose ? ` (${n(a.purpose).slice(0, 80)})` : ''}. Only these words leave Alexandria`;
+    }
+    case 'create_dm_template': return `Save the ${n(a.kind || 'guide')} template "${n(a.name)}"${Array.isArray(a.triggers) && a.triggers.length ? ` (used for: ${a.triggers.slice(0, 6).join(', ')})` : ''}`;
+    case 'update_dm_template': return `Update the template "${n(a.id)}"${a.enabled === false ? ' (turn it off)' : a.enabled === true ? ' (turn it on)' : ''}`;
     default: return describeMinerva(tool, a) ?? `Run ${tool} ${JSON.stringify(a ?? {}).slice(0, 200)}`;
   }
 }
@@ -614,6 +623,8 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     if (!tool) return { content: `Unknown tool "${name}".`, cites: [] };
     // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
     if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
+    // A web search that would not run (off, or a query with a DM-only or classified word) never becomes a card: nothing is sent.
+    if (name === 'web_research') { const why = webPrecheck(d, c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (tool.write && !auto(name)) {
       const aid = proposeAction(d, c, chatId, tool, args);
       return { content: `Proposed to the DM as action ${aid}: ${describeCall(name, args)}. It has NOT run; it waits for the DM to approve it.`, proposed: aid, cites: [], summary: describeCall(name, args) };
@@ -760,6 +771,17 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     T.snippets = hits.length;
     if (c.harness === 'dm') T.hits = hits.map((x) => x.title);
     const dmHarness = c.harness === 'dm';
+    // The DM's guides: a request that matches one (its triggers, or "use guide X") gets the guide and what its steps found.
+    if (dmHarness) {
+      const g = await applyGuides(d, { worldId: c.worldId, viewer: c.viewer, chatId: input.chatId, text: input.text, exec: (n, a) => execCall(d, c, input.chatId, byName, auto, n, a) }).catch((e) => { console.error('agent: guides failed', e); return null; });
+      if (g) {
+        setGuideNotes(d.db, input.replyId, g.notes);
+        live.status(`guide ${g.notes.map((x) => x.name).join(', ')}`);
+        tell();
+        if (g.context) built.text += `\n\n${g.context}`;
+        addCites(g.cites as Citation[]);
+      }
+    }
     const names = tools.map((t) => t.name);
     const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
     const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
