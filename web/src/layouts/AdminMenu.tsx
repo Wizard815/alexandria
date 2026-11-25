@@ -62,7 +62,9 @@ export function AdminMenu({ onNavigate }: { onNavigate: () => void }) {
   );
 
   const query = q.trim();
-  const found = query ? entries.filter((e) => matches(e, query)) : [];
+  // Pages whose name matches come before pages that only mention the words in their description.
+  const named = (e: AdminEntry) => (e.label.toLowerCase().includes(query.toLowerCase()) ? 0 : 1);
+  const found = query ? entries.filter((e) => matches(e, query)).sort((a, b) => named(a) - named(b)) : [];
   const top = entries.filter((e) => e.group === 'top');
 
   return (
