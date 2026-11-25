@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all } from '../src/core/db.ts';
-import { embeddingCoverage, syncEmbeddings } from '../src/features/search/embeddings.ts';
+import { embeddingCoverage, semanticPages, syncEmbeddings } from '../src/features/search/embeddings.ts';
 import { forgetRefusals } from '../src/features/search/copies.ts';
 import { syncBible } from '../src/features/bible/extract.ts';
 import { bibleCoverage } from '../src/features/bible/assemble.ts';
@@ -19,6 +19,7 @@ after(() => { for (const c of cleanups) c(); });
 const stats = { embedCalls: 0, embedInputs: 0, chatCalls: 0, inFlight: 0, maxEmbedInFlight: 0, maxChatInFlight: 0 };
 const reset = () => Object.assign(stats, { embedCalls: 0, embedInputs: 0, chatCalls: 0, inFlight: 0, maxEmbedInFlight: 0, maxChatInFlight: 0 });
 let chatIn = 0;
+const sentInputs: string[] = [];
 let embedIn = 0;
 const json = (o: unknown) => new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -28,6 +29,7 @@ const fake = (async (url: any, init?: any) => {
   if (u.endsWith('/embeddings')) {
     stats.embedCalls++;
     stats.embedInputs += body.input.length;
+    sentInputs.push(...body.input);
     embedIn++;
     stats.maxEmbedInFlight = Math.max(stats.maxEmbedInFlight, embedIn);
     await sleep(15);
@@ -188,4 +190,47 @@ test('TestBulk_WrongKeyStopsThePassInsteadOfBackingOffEveryPage', async () => {
   const ok = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 1_000_000 });
   assert.equal(ok.error, undefined);
   assert.equal(ok.pages, 20);
+});
+
+test('TestBulk_IdenticalCopiesOfAPageAreReadOnce', async () => {
+  const h = await boot('bulk-twins', { ALX_BIBLE_PARALLEL: '4' });
+  // Party pages: the party, broker and DM copies hold the same text.
+  await seed(h, 10);
+  for (let i = 0; i < 10; i++) await h.put(`Open/Open ${i}`, `# Open ${i}\n\nOpen ${i} is a ferry landing where everyone may go, with tar barrels and gulls.\n`, 'party');
+  reset();
+  const e = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 1_000_000 });
+  assert.equal(e.error, undefined);
+  const copies = embeddingCoverage(h.deps, h.world).progress.eligible;
+  assert.ok(copies >= 30, `the party pages have several copies (${copies})`);
+  assert.equal(e.pages, copies, 'every copy is indexed');
+  assert.equal(stats.embedInputs, 20, 'each distinct text is embedded once');
+  assert.equal(e.reused, copies - 20);
+  // The twins hold the very same vectors as the copy that was embedded.
+  const vecs = all<any>(h.deps.db, `SELECT c.scope, hex(c.vec) AS v FROM search_chunks c JOIN pages p ON p.id = c.page_id WHERE p.path LIKE 'Open/Open 3%'`);
+  assert.ok(vecs.length >= 2 && new Set(vecs.map((x) => x.v)).size === 1, JSON.stringify(vecs.map((x) => x.scope)));
+  reset();
+  const b = await syncBible(h.deps, { worldId: h.world, maxPages: 1_000_000 });
+  assert.ok((b.reused ?? 0) >= 10, `facts reused for the twin copies (${b.reused})`);
+  assert.equal(stats.chatCalls, 20, 'one chat call per distinct text');
+  assert.equal(bibleCoverage(h.deps, h.world).progress.pending, 0, 'every copy has its facts');
+  // An edit that changes one copy only: that copy alone is read again, the others keep theirs.
+  await h.put('Open/Open 3', '# Open 3\n\nThe ferry landing burned down.\n', 'party');
+  reset();
+  await syncEmbeddings(h.deps, { worldId: h.world });
+  assert.equal(stats.embedInputs, 1, 'one new text, embedded once for all its copies');
+});
+
+test('TestBulk_DocumentAndQueryPrefixesFromTheModelOptions', async () => {
+  const h = await boot('bulk-prefix', { ALX_MODEL_EXTRA_OPTIONS: JSON.stringify({ docPrefix: 'search_document: ', queryPrefix: 'search_query: ' }) });
+  await seed(h, 3);
+  sentInputs.length = 0;
+  await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 1_000_000 });
+  assert.ok(sentInputs.length > 0 && sentInputs.every((t) => t.startsWith('search_document: Place ')), sentInputs[0]);
+  sentInputs.length = 0;
+  await semanticPages(h.deps, h.world, 'dm', 'lanterns by the harbour');
+  assert.deepEqual(sentInputs, ['search_query: lanterns by the harbour']);
+  // The prefix is part of what the chunks were made with: changing it embeds the world again.
+  const state = all<any>(h.deps.db, 'SELECT DISTINCT model FROM search_chunk_state WHERE world_id = ?', h.world).map((x) => x.model);
+  assert.equal(state.length, 1);
+  assert.match(state[0], /^fake-embed\|p:[0-9a-f]{8}\|lv1$/);
 });
