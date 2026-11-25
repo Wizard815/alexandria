@@ -25,3 +25,4 @@
 .enc-opt-edit { padding: 8px 0; border-top: 1px dashed var(--line); }
 .enc-fx { padding-left: 16px; align-items: flex-end; }
 .enc-watch .enc-log { max-height: 260px; }
+.enc-draft summary { cursor: pointer; }

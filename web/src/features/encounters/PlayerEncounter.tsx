@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins } from '../../lib/format.ts';
-import { ErrorBox, useAction } from '../../ui/index.tsx';
+import { Empty, ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
+import { when } from '../../lib/format.ts';
 import { GAME_HELP, type Encounter, type EncounterConfig, type Line } from './types.ts';
 import './encounters.css';
 
@@ -171,5 +172,36 @@ export function WanderCard() {
         {wait > 0 && <span className="small faint">Nothing stirs yet. Try again in {wait} min.</span>}
       </div>
     </section>
+  );
+}
+
+/** Player page: every NPC who has talked to me, and what was said, to look back on. */
+export function MyEncounters() {
+  const { w, info } = useWorld();
+  const list = useLoad<Encounter[]>(() => w.call('GET', '/encounters'), [w], ['encounter']);
+  if (info.role !== 'player') return <div className="page"><PageHead title="Encounters" /><Empty>Encounters are between an NPC and one player. As the DM, use the Encounters page.</Empty></div>;
+  return (
+    <div className="page">
+      <PageHead title="Encounters" lead="NPCs who stopped to talk with you, and what was said." />
+      <ErrorBox error={list.error} />
+      {!list.data ? <Loading /> : !list.data.length ? <Empty>Nobody has stopped you yet.</Empty> : (
+        <div className="stack loose">
+          {list.data.map((e) => (
+            <section key={e.id} className="card" data-testid="enc-history">
+              <div className="row between">
+                <strong>{e.npc.name}</strong>
+                <span className="row" style={{ gap: 6 }}>
+                  {e.status === 'open' && <span className="chip gold">Still talking</span>}
+                  <span className="tiny faint">{when(e.createdAt)}</span>
+                </span>
+              </div>
+              {e.npc.blurb && <span className="small muted">{e.npc.blurb}</span>}
+              <div className="enc-log">{e.log.map((l, i) => <LogLine key={i} l={l} npc={e.npc.name} />)}</div>
+              {e.shop && <Link className="small" to={`/w/${info.slug}/shop?shop=${encodeURIComponent(e.shop.id)}`}>Browse {e.shop.name} →</Link>}
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
