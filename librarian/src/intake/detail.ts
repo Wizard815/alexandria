@@ -73,7 +73,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
       // Already read in full by an earlier page of the same resource (LegendKeeper tabs): nothing to fetch.
       const now = one<any>(d.db, `SELECT depth, visibility, (depth <> 'index' AND source_updated_at IS NOT NULL AND source_updated_at <> COALESCE(held_updated_at, '')) AS stale FROM pages WHERE id = ?`, p.id);
       if (!now || (now.depth === 'full' && !now.stale)) continue;
-      const readBefore = out.read;
+      let gotIt = false;
       try {
         for await (const e of tier.detail(cfg, made.ctx, [p.external_id])) {
           // Records come with the listing, except the pictures of a page (a map's image): they are saved with the page.
@@ -81,10 +81,11 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
           const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
           if (before) levelBefore.set(before.id, before.visibility);
           const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
-          if (r.id) { readIds.push(r.id); out.read++; failures.delete(p.id); }
+          if (r.id) { readIds.push(r.id); out.read++; if (r.id === p.id) gotIt = true; }
         }
-        // Nothing came back for this page (gone at the source, or its document could not be read): leave it alone for a while.
-        if (out.read === readBefore) noteFailure(p.id, Date.now());
+        // This page did not come back (gone at the source, or its document could not be read), even if other tabs of its resource did:
+        // leave it alone for a while. Counting the other tabs as a success asked for it again every few seconds, for ever.
+        if (gotIt) failures.delete(p.id); else if (!ctl.signal.aborted) noteFailure(p.id, Date.now());
       } catch (err: any) {
         if (ctl.signal.aborted) break;
         out.failed++;
