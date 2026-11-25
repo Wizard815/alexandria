@@ -22,7 +22,7 @@ const player = { accountId: 'p', role: 'player' as const };
 
 // ---- a fake LegendKeeper project ---------------------------------------------------------------------------------
 
-interface LkRes { blank?: boolean; id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string }
+interface LkRes { blank?: boolean; id: string; name: string; parentId: string | null; isHidden: boolean; updatedAt: string; tags: string[]; text: string; perms: Record<string, number>; links?: string[]; map?: string; tabs?: string[] }
 const lk = {
   res: [] as LkRes[],
   calls: { list: 0, calendars: 0, detail: 0, blocks: 0, other: 0 },
@@ -43,7 +43,7 @@ const lkReset = (n: number) => {
   lk.blocks404 = new Set();
   resetAncestorMemo();
 };
-const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page' }], hasChildren: false });
+const lkListItem = (r: LkRes) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: [], rank: `r${r.id.length}${r.id}`, isHidden: r.isHidden, updatedAt: r.updatedAt, documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page' }, ...(r.tabs ?? []).map((x) => ({ id: x, name: x, type: 'page' }))], hasChildren: false });
 const lkFetch = (url: string): Response | null => {
   if (!url.startsWith(LK_BASE)) return null;
   const u = new URL(url);
@@ -63,7 +63,7 @@ const lkFetch = (url: string): Response | null => {
   if (m) {
     lk.calls.blocks++;
     if (lk.blocks401) return json({ code: 'UNAUTHENTICATED', message: 'Unauthorized' }, 401);
-    if (lk.blocks404.has(m![1])) return json({ code: 'NOT_FOUND' }, 404);
+    if (lk.blocks404.has(m![1]) || lk.blocks404.has(m![2])) return json({ code: 'NOT_FOUND' }, 404);
     const r = lk.res.find((x) => x.id === m![1]);
     if (!r) return json({ code: 'NOT_FOUND' }, 404);
     const mention = (r.links ?? []).map((l) => ({ mention: { resourceId: l, name: `Page ${l.slice(1)}` } }));
@@ -75,7 +75,7 @@ const lkFetch = (url: string): Response | null => {
     lk.detailIds.push(m[1]);
     const r = lk.res.find((x) => x.id === m![1]);
     if (!r) return json({ code: 'NOT_FOUND' }, 404);
-    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }] });
+    return json({ ...lkListItem(r), permissions: r.perms, ancestors: [], properties: [], documents: [{ id: `d-${r.id}`, name: 'Main', type: r.blank ? 'blank' : r.map ? 'map' : 'page', isHidden: false, rank: 'a', ...(r.map ? { mapImage: { url: r.map, width: 100, height: 80 } } : {}) }, ...(r.tabs ?? []).map((x, i) => ({ id: x, name: x, type: 'page', isHidden: false, rank: `b${i}` }))] });
   }
   lk.calls.other++;
   return json({ code: 'NOT_FOUND' }, 404);
@@ -671,6 +671,26 @@ test('CrawlTiers_RefusedKeyStopsTheBackgroundAndABadPageDoesNotBlockTheQueue', a
   await detailTick(dep, { at: now + 2_000_000 });
   assert.ok(lk.calls.detail + lk.calls.blocks - before <= 2, 'the bad page is not tried again straight away');
   void wid;
+});
+
+test('CrawlTiers_ATabThatCannotBeReadIsNotAskedForAgainAndAgainBecauseItsOtherTabsCanBe', async () => {
+  const t = await boot();
+  resetFailures(); resetBuckets();
+  const { wid, sid } = await lkWorld(t, 3);
+  lk.res[1].tabs = ['tab-ok', 'tab-gone'];
+  lk.blocks404.add('tab-gone');
+  await sync(t, sid);
+  const gone = one<any>(t.deps.db, "SELECT id, depth FROM pages WHERE world_id = ? AND external_id = 'r2#tab-gone'", wid);
+  assert.equal(gone.depth, 'index');
+  const dep = t.sd();
+  await ensureFull(dep, wid, gone.id);
+  assert.equal(one<any>(t.deps.db, "SELECT depth FROM pages WHERE world_id = ? AND external_id = 'r2#tab-ok'", wid).depth, 'full', 'its other tabs were read with it');
+  const spent = lk.calls.detail + lk.calls.blocks;
+  const now = Date.now();
+  for (let i = 1; i <= 10; i++) await detailTick(dep, { at: now + i * 5000 });
+  assert.equal(lk.calls.detail + lk.calls.blocks, spent, 'no calls for it in the next minute');
+  await detailTick(dep, { at: now + 400_000 });
+  assert.ok(lk.calls.detail + lk.calls.blocks > spent, 'it is tried again later');
 });
 
 test('CrawlTiers_PagesReadOneByOneAskForTheirSharedFolderOnlyOnce', async () => {
