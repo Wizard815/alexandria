@@ -21,14 +21,14 @@
 // keyword only.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { ClassifiedRefused, ModelUnavailable, embed, hasJob, jobConfig, rerankItems, wouldBeRefused } from '../../core/ai.ts';
+import { ClassifiedRefused, type JobConfig, ModelUnavailable, embed, embedPrefix, hasJob, jobConfig, rerankItems, wouldBeRefused } from '../../core/ai.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { type PageHit, type ParsedQuery, type Scope, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
-import { type Pending, backedOffCount, bindBackoff, eligibleIds, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
+import { type Pending, backedOffCount, bindBackoff, eligibleIds, hashOf, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
 import { libraryOf as libraryFor } from '../../core/library.ts';
 import { type Reach, type VecScope, VEC_SCOPES, openable, reachOf, reachOfScope, reachScopes } from './scopes.ts';
 import { noteDone, progress } from './pace.ts';
-import { normalize, vectorStore } from './vectorstore.ts';
+import { fromBlob, normalize, vectorStore } from './vectorstore.ts';
 import { embedBatch, parallelFor, pool } from './batching.ts';
 
 export const SCHEMA = `
@@ -83,8 +83,11 @@ export function migrateSearch(db: DB) {
 }
 
 export const CHUNK_CHARS = 500;
-/** Chunks are tagged with the level scheme they were cut under; older ones (cut from the full text) are never read. */
-const tagged = (model: string) => `${model}|lv1`;
+/**
+ * Chunks are tagged with the level scheme they were cut under; older ones (cut from the full text) are never read.
+ * A document prefix (job option docPrefix) is part of the tag, so changing it embeds the world again.
+ */
+const tagged = (cfg: JobConfig) => { const pre = embedPrefix(cfg, 'document'); return `${cfg.model}${pre ? `|p:${hashOf(pre).slice(0, 8)}` : ''}|lv1`; };
 const MAX_CHUNKS_PER_PAGE = 40;
 /** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so no scope waits for the others to finish. */
 const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
@@ -137,12 +140,17 @@ function pruneIfChanged(db: DB) {
   pruneChunks(db);
 }
 
-export interface SyncResult { embedded: number; pages: number; remaining: boolean; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
+export interface SyncResult { embedded: number; pages: number; remaining: boolean; /** Copies whose text another scope of the same page already had: its vectors were reused, no model call. */ reused?: number; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
 
-/** A refusal about this page's text (the classified guard, or a 4xx about the request): back off from the page, carry on with the rest. */
-const isRefusal = (e: unknown) => e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429 && e.status !== 404 && e.status !== 408);
+/**
+ * A refusal about this page's text (the classified guard, or a 4xx about the request): back off from the page, carry on with the rest.
+ * A wrong key (401) or an account out of credit (402) is about the server, not the page: the pass stops instead of backing off from every page.
+ */
+const NOT_ABOUT_THE_PAGE = new Set([401, 402, 404, 408, 429]);
+const isRefusal = (e: unknown) => e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && !NOT_ABOUT_THE_PAGE.has(e.status));
 
-interface Item { r: Pending; scope: VecScope; chunks: string[]; alone?: boolean }
+/** `twins`: other scopes' copies of the same page with the very same text, written with this item's vectors. */
+interface Item { r: Pending; scope: VecScope; chunks: string[]; alone?: boolean; twins: Pending[] }
 
 /**
  * Embed pages whose chunks are missing or out of date. Safe to call again at
@@ -165,7 +173,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
   if (!cfg) return res;
   pruneIfChanged(d.db);
   const store = vectorStore(d.db);
-  const model = tagged(cfg.model);
+  const model = tagged(cfg);
   const batch = embedBatch(d);
   const parallel = parallelFor(d, 'extra', 'ALX_EMBED_PARALLEL');
   let budget = opts.maxPages ?? 25;
@@ -190,6 +198,25 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
   // Pages are picked in scope turns (a few of the party's copy, then the DM's, ...) so no scope waits for the others,
   // and packed into requests of up to `batch` chunks. Picking is synchronous: each worker takes the next request when it is free.
   const picked: Item[] = [];
+  const leaders = new Map<string, Item>();
+  const counted = (r: Pending, chunks: number, reused: boolean) => {
+    settled++;
+    res.embedded += chunks;
+    res.pages++;
+    if (reused) res.reused = (res.reused ?? 0) + 1;
+    noteDone('embeddings', r.world_id);
+    opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: r.id, scope: r.scope });
+  };
+  // Another scope of this page already holds current vectors of exactly this text (same hash, same model): copy them.
+  const copyStored = (r: Pending): boolean => {
+    if (!r.hash) return false;
+    const src = one<{ scope: VecScope }>(d.db, 'SELECT scope FROM search_chunk_state WHERE page_id = ? AND scope <> ? AND hash = ? AND model = ? LIMIT 1', r.id, r.scope, r.hash, model);
+    if (!src) return false;
+    const chunks = all<any>(d.db, 'SELECT text, vec FROM search_chunks WHERE page_id = ? AND scope = ? ORDER BY idx', r.id, src.scope).map((x) => ({ text: String(x.text), v: fromBlob(x.vec) }));
+    const [ok] = store.replacePages([{ worldId: r.world_id, pageId: r.id, scope: r.scope, chunks, state: { updatedAt: r.updated_at, sig: r.sig, model, hash: r.hash } }], () => isCurrent(d, r));
+    if (ok) counted(r, 0, true);
+    return ok;
+  };
   let turn = 0;
   let dry = 0;
   const fill = () => {
@@ -202,7 +229,14 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
         // The page may have changed while the queue waited: skip what is no longer what was read.
         if (!isCurrent(d, r)) continue;
         budget--;
-        picked.push({ r, scope, chunks: chunkText(r.full).map((c) => plainText(c)).filter(Boolean) });
+        // The same text as another scope's copy of this page (the broker copy is often the party copy): embed it once.
+        const key = `${r.id}|${r.hash}`;
+        const lead = leaders.get(key);
+        if (lead) { lead.twins.push(r); continue; }
+        if (copyStored(r)) continue;
+        const it: Item = { r, scope, chunks: chunkText(r.full).map((c) => plainText(c)).filter(Boolean), twins: [] };
+        if (r.hash) leaders.set(key, it);
+        picked.push(it);
       }
     }
   };
@@ -228,7 +262,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
     const out: Float32Array[] = [];
     for (let i = 0; i < texts.length; i += batch) {
       const part = texts.slice(i, i + batch);
-      const got = await embed(d, part, opts.signal);
+      const got = await embed(d, part, opts.signal, 'document');
       if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
       for (const v of got) out.push(normalize(v));
     }
@@ -243,27 +277,27 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
       if (!isRefusal(e)) throw e;
       // The guard or the model refused this text: leave the page for later (longer each time) and carry on with the others.
       // In a request of several pages, ask again page by page so only the refused one waits.
-      if (g.length === 1) { noteRefused(g[0].r); settled++; res.refused = (res.refused ?? 0) + 1; return; }
+      if (g.length === 1) { for (const r of [g[0].r, ...g[0].twins]) { noteRefused(r); settled++; res.refused = (res.refused ?? 0) + 1; } return; }
       for (const it of g) { if (opts.signal?.aborted) return; await runGroup([it]); }
       return;
     }
     if (opts.signal?.aborted) return;
     let at = 0;
-    const items = g.map((it) => {
+    // Each page's own copy, then its twins (the same text in other scopes) with the same vectors.
+    const rows: { r: Pending; twin: boolean; n: number }[] = [];
+    const items = g.flatMap((it) => {
       const chunks = it.chunks.map((text, i) => ({ text, v: vecs[at + i] }));
       at += it.chunks.length;
-      return { worldId: it.r.world_id, pageId: it.r.id, scope: it.scope, chunks, state: { updatedAt: it.r.updated_at, sig: it.r.sig, model, hash: it.r.hash } };
+      return [it.r, ...it.twins].map((r, k) => {
+        rows.push({ r, twin: k > 0, n: it.chunks.length });
+        return { worldId: r.world_id, pageId: r.id, scope: r.scope, chunks, state: { updatedAt: r.updated_at, sig: r.sig, model, hash: r.hash } };
+      });
     });
     // The page may have changed while the model worked: write only what still matches its copy now (the next round sees the rest).
-    const wrote = store.replacePages(items, (i) => isCurrent(d, g[i].r));
-    g.forEach((it, i) => {
-      if (!wrote[i]) return;
-      settled++;
-      res.embedded += it.chunks.length;
-      res.pages++;
-      noteDone('embeddings', it.r.world_id);
-      opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: it.r.id, scope: it.scope });
-    });
+    // A twin that turns up later copies the stored vectors instead (copyStored).
+    for (const it of g) if (it.r.hash) leaders.delete(`${it.r.id}|${it.r.hash}`);
+    const wrote = store.replacePages(items, (i) => isCurrent(d, rows[i].r));
+    rows.forEach((x, i) => { if (wrote[i]) counted(x.r, x.twin ? 0 : x.n, x.twin); });
     // Between requests the event loop breathes: the model's answer and the write are the only waits otherwise.
     await new Promise<void>((resolve) => setImmediate(resolve));
   };
@@ -306,7 +340,7 @@ export function scopeAndPageCoverage(d: Deps, worldId: string, stateTable: 'sear
 export function embeddingCoverage(d: Deps, worldId: string) {
   const cfg = jobConfig(d, 'extra');
   const stats = embeddingStats(d.db, worldId);
-  const { scopes, pages } = scopeAndPageCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg.model) : null);
+  const { scopes, pages } = scopeAndPageCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg) : null);
   return {
     configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, scopes,
     // Distinct pages (a page with a DM copy and a party copy counts once); `scopes` counts copies, one scope at a time.
@@ -362,7 +396,7 @@ export function nearestPages(d: Deps, worldId: string, reach: Reach, qv: Float32
 export async function semanticPages(d: Deps, worldId: string, scopeIn: Scope, q: string, limit = 20, viewer?: Viewer): Promise<SemanticHit[]> {
   if (!hasJob(d, 'extra')) return [];
   const reach = viewer ? reachOf(d, worldId, viewer) : reachOfScope(scopeIn);
-  const got = await embed(d, [q.slice(0, 500)]);
+  const got = await embed(d, [q.slice(0, 500)], undefined, 'query');
   if (!got[0]?.length) return [];
   return nearestPages(d, worldId, reach, normalize(got[0]), limit, Number(d.env.ALX_SEARCH_MIN_SIM ?? 0.2));
 }
