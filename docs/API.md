@@ -71,6 +71,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Whiteboard | `GET/PUT /whiteboard` (send `baseVersion`), `POST /whiteboard/wipe`, `GET /whiteboard/history[/:v]` |
 | Broker | `/broker/*`: see below |
 | Approvals | `/approvals/*`: see below |
+| Spells | `/spells/*`: the Codex (search every field), mana, spell crafting; see [SPELLS.md](SPELLS.md) |
 
 ### Information broker (`/api/worlds/:world/broker`)
 
