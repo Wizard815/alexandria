@@ -12,7 +12,9 @@ import { HttpError, id, now } from '../core/util.ts';
 import { tick } from '../core/yield.ts';
 import { CallCounter, isRecord, type ConnectorContext, type SyncRecord, type TierState } from './connector.ts';
 import { connectorFor, makeMcpFactory } from './registry.ts';
-import { RECORD_CAPABILITY, heldImages, saveRecords } from './records.ts';
+import { RECORD_CAPABILITY, heldImages, pruneOrphanImages, saveRecords } from './records.ts';
+import { entryPictures, withoutDuplicatePictures } from './images.ts';
+import { drainPictures } from './imagequeue.ts';
 import { effectiveConfig, normAudience } from './connections.ts';
 import { addDetailCalls, depthCounts, getState, needsFullListing, saveIndexState, storeEntry, tieredOf } from './tiers.ts';
 import { callSinkOf, limiterFor, limitedFetch, limitKeyOf, limitsOf, projectOf, projectWindow, type Limiter, type Limits } from './ratelimit.ts';
@@ -92,7 +94,7 @@ export function prepareImages(d: SyncDeps, ctx: ConnectorContext, c: { capabilit
   if (!c.capabilities.includes('images')) return;
   ctx.heldImages = heldImages(d.db, src.world_id, src.id);
   const num = (v: string | undefined, dflt: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== undefined && v !== '' ? Number(v) : dflt);
-  ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 20 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 500), maxMapBytes: num(d.env.ALX_MAP_MAX_BYTES, 60 * 1024 * 1024) };
+  ctx.imageLimits = { maxBytes: num(d.env.ALX_IMAGE_MAX_BYTES, 20 * 1024 * 1024), perRun: num(d.env.ALX_IMAGES_PER_RUN, 20), maxHeld: num(d.env.ALX_IMAGES_MAX, 2000), maxMapBytes: num(d.env.ALX_MAP_MAX_BYTES, 60 * 1024 * 1024) };
 }
 
 /** Sync one source. Resolves with the finished run. */
@@ -147,6 +149,8 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
     const demoted: string[] = [];
     // Pictures already held (so they are not downloaded again) and the limits on downloading more.
     prepareImages(d, made.ctx, made.c, src);
+    const withPictures = made.c.capabilities.includes('images');
+    let partialPictures = false;
     for await (const e of tier ? tier.index(cfg, made.ctx) : made.c.sync(cfg, made.ctx)) {
       if (ctl.signal.aborted) throw new Error('Sync stopped');
       if (isRecord(e)) {
@@ -156,6 +160,9 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
       }
       if (!e?.externalId || seen.has(e.externalId)) { stats.skipped++; continue; }
       seen.add(e.externalId);
+      // The page's portrait and the pictures in its text are queued to be stored here. A page held only at index depth has not given its
+      // pictures yet, so this listing cannot say which pictures are gone: none is removed.
+      if (withPictures) { if (e.depth && e.depth !== 'full') partialPictures = true; else records.push(...entryPictures(e)); }
       try {
         const out = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e, by);
         if (out.how === 'demote') demoted.push(out.id!);
@@ -196,13 +203,21 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
         for (const g of r.groups ?? []) for (const ev of g.events ?? []) ev.visibility = audience;
       }
     }
-    const saved = saveRecords(d.db, src.world_id, src.id, records, made.ctx.incomplete, made.ctx.refreshed);
+    if (partialPictures) made.ctx.incomplete.add('image');
+    const saved = saveRecords(d.db, src.world_id, src.id, withoutDuplicatePictures(records), made.ctx.incomplete, made.ctx.refreshed);
+    if (!ts || ts.complete) pruneOrphanImages(d.db, src.world_id, src.id);
     stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers + saved.images;
     if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers, ${saved.images} pictures`);
     log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} DM-only), removed ${stats.removed}`);
     if (tier) {
       const dc = depthCounts(d.db, sourceId);
       log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}${counter.detail ? ` · ${counter.detail} picture downloads` : ''}`);
+    }
+    // A few of the queued pictures now (the background reader and "Refresh world" fetch the rest).
+    if (withPictures && !ctl.signal.aborted) {
+      const perRun = made.ctx.imageLimits?.perRun ?? 20;
+      const pics = await drainPictures(d, src.id, { max: perRun, signal: ctl.signal, log });
+      if (pics.downloaded || pics.failed || pics.waiting) log(`Pictures: ${pics.downloaded} stored, ${pics.failed} failed, ${pics.waiting} waiting${pics.stoppedAt ? ` (stopped at ${pics.stoppedAt})` : ''}`);
     }
     save('ok');
     limiter.outcome(true);

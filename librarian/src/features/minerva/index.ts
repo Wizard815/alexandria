@@ -264,6 +264,11 @@ function routes(d: import('../../app.ts').Deps) {
 const feature: Feature = {
   id: 'minerva',
   schema: SCHEMA,
+  migrate(db) {
+    // The live pass remembers which lines it read at its last millisecond (live.ts, isFresh).
+    const cols = (db.prepare('PRAGMA table_info(minerva_live)').all() as any[]).map((c) => c.name);
+    if (cols.length && !cols.includes('seen_ids')) db.exec(`ALTER TABLE minerva_live ADD COLUMN seen_ids TEXT NOT NULL DEFAULT '[]'`);
+  },
   settings: {
     // What the DM calls the assistant. Only the DM side ever sees or uses it.
     agentName: { type: 'string', default: 'Minerva', max: 60 },

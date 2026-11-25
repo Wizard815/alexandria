@@ -577,7 +577,7 @@ to, as in its own list), `updatedField`, `visibilityField`.
   **detail calls** (the tier line and `connections_source_state`). The lists
   that find them are index calls.
 - Limits: 4 MB a picture (`ALX_IMAGE_MAX_BYTES`), 20 downloads a run
-  (`ALX_IMAGES_PER_RUN`; the rest follow on later runs) and 500 held per source
+  (`ALX_IMAGES_PER_RUN`; the rest follow on later runs) and 2,000 held per source
   (`ALX_IMAGES_MAX`). A picture whose address and update time are unchanged is
   not downloaded again; one the server refused is not asked for again until it
   changes or the next complete listing. A busy server (429, 5xx) is retried.
@@ -625,6 +625,45 @@ may open (the DM all; a player only maps whose picture is shared and whose
 page has a player copy), each with a signed `url`, its `name` and `page`. The
 Map page (DM and player) offers them under "Imported map"; the choice is
 kept in that browser, like the pasted image URL.
+
+### Portraits and pictures in page text
+
+Kanka's and LegendKeeper's pages show pictures by address: an entity's
+portrait or a page's banner, pictures in the text, and infobox images. Those
+are stored here too, so the apps show them from this server, also when the
+source or the internet is out of reach, and a saved offline copy keeps them.
+This works for any connector with the `images` capability.
+
+- **Queued, not downloaded in the sync.** Every page read in full queues its
+  banner (`kind = 'picture'`, the page's primary picture) and each picture in
+  its text (`kind = 'inline'`), at most 40 a page, as `intake_images` rows
+  with a `url` and a `want_marker`. A row is waiting while `want_marker`
+  differs from `marker`; one never downloaded has no file and is never served.
+- **The picture downloader** (`intake/imagequeue.ts`) fetches them, one at a
+  time and portraits first: a few at the end of every sync
+  (`ALX_IMAGES_PER_RUN`), five per source on each turn of the background
+  reader, and all of them in **Refresh world** (see `docs/MEMORY.md`). They
+  come from the sources' picture hosts, not their APIs, so they spend no call
+  budget and never carry a token. The same rules as above apply: PNG, JPEG, GIF
+  and WebP only, no private addresses, `ALX_IMAGE_MAX_BYTES` a picture and
+  `ALX_IMAGES_MAX` held per source. A picture that fails 5 times is left alone
+  until its address changes (Refresh world gives it another chance).
+- **Served in place of the address.** A page is answered with each picture it
+  holds here swapped in: `banner`, image blocks and a map block's `image` become
+  the viewer's signed `/api/media/intake/<ticket>`. A picture that is not stored
+  (yet) keeps the source's address. Pictures in text are not listed in
+  `pictures` (the gallery).
+- **Visibility.** A picture follows its page like any picture. One inside a
+  secret block is the DM's even on a shared page (the player copy leaves its
+  block out, and its file is refused to players).
+- **Changes.** An unchanged address is not downloaded again; a new portrait is
+  queued and the old file is served until the new one arrives. A page read in
+  full drops the pictures it no longer shows; a complete listing drops those of
+  pages the source no longer has. A listing that only holds pages at index
+  depth (LegendKeeper's tier 1) removes none, since it has not read them.
+- **Offline copies.** "Save for offline" in the library fetches the page's
+  stored pictures and keeps them inside the copy (up to 8 MB a picture, 25 MB
+  a page), so it shows them with no connection.
 
 ### Opening a page you cannot see
 
