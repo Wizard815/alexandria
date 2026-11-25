@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
+import { crc32 } from 'node:zlib';
 import { createApp } from '../src/app.ts';
 import { one, run } from '../src/core/db.ts';
 import { engine } from '../src/features/audio/engine.ts';
@@ -372,6 +373,77 @@ test('Recordings_access: DM-only list; a player gets only their own track; the f
   const pl = (await ok('GET', `${A()}/sessions/${sid}/lines`, T.jess)).lines.map((l: any) => l.text);
   assert.deepEqual(pl, ['I open the door', 'We follow Tom']);
   assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.dm)).lines.length, 3);
+});
+
+/** The files in a zip, read from its central directory, each checked against its CRC. */
+function unzip(buf: Buffer): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  assert.ok(eocd >= 0, 'an end of central directory');
+  const n = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  for (let i = 0; i < n; i++) {
+    assert.equal(buf.readUInt32LE(p), 0x02014b50);
+    const crc = buf.readUInt32LE(p + 16);
+    const size = buf.readUInt32LE(p + 24);
+    const nl = buf.readUInt16LE(p + 28); const xl = buf.readUInt16LE(p + 30); const cl = buf.readUInt16LE(p + 32);
+    const off = buf.readUInt32LE(p + 42);
+    const name = buf.subarray(p + 46, p + 46 + nl).toString('utf8');
+    const lnl = buf.readUInt16LE(off + 26); const lxl = buf.readUInt16LE(off + 28);
+    const data = buf.subarray(off + 30 + lnl + lxl, off + 30 + lnl + lxl + size);
+    assert.equal(crc32(data) >>> 0, crc, `CRC of ${name}`);
+    out.set(name, data);
+    p += 46 + nl + xl + cl;
+  }
+  return out;
+}
+
+test('Recordings_zip: Download all streams one zip: the DM gets everything, a player only their own and the players\' side', needFfmpeg, async () => {
+  const sid = await recorded('Zipped');
+  await built(sid);
+  run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'party', ?, 'PARTY-SUMMARY the door opens', '', 1, ?)", sid, W, new Date().toISOString());
+  run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'dm', ?, 'DM-SUMMARY the duke is the lich', '', 1, ?)", sid, W, new Date().toISOString());
+  run(deps.db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at, decided_at) VALUES ('ah_a', ?, ?, 'approved', 'APPROVED-SUMMARY of the night', 'live', ?, ?, ?)", sid, W, new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+  run(deps.db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at) VALUES ('ah_p', ?, ?, 'pending', 'PENDING-SUMMARY not yet approved', 'final', ?, ?)", sid, W, new Date(Date.now() + 1000).toISOString(), new Date().toISOString());
+  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.dm);
+  assert.match(detail.zipUrl, /^\/api\/media\/recording-zip\//);
+  const r = await call('GET', detail.zipUrl);
+  assert.equal(r.status, 200, 'a ticket needs no header');
+  assert.equal(r.headers.get('content-type'), 'application/zip');
+  assert.match(r.headers.get('content-disposition') ?? '', /^attachment; filename=".*Zipped\.zip"/);
+  assert.equal(r.headers.get('content-length'), null, 'streamed, not buffered');
+  const files = unzip(r.buf);
+  const names = [...files.keys()].map((k) => k.split('/').slice(1).join('/')).sort();
+  for (const t of detail.tracks) assert.ok(names.includes(t.file), `the DM's zip has ${t.file}`);
+  for (const want of ['Transcript.md', 'Summary.md', 'session.json']) assert.ok(names.includes(want), `the DM's zip has ${want}`);
+  const get = (m: Map<string, Buffer>, n: string) => [...m.entries()].find(([k]) => k.endsWith('/' + n))?.[1]?.toString('utf8') ?? '';
+  assert.ok(get(files, 'Transcript.md').includes('the duke is the lich'), 'the DM transcript has DM lines');
+  assert.ok(get(files, 'Summary.md').includes('APPROVED-SUMMARY') && !get(files, 'Summary.md').includes('PENDING'), 'only the approved summary');
+  assert.equal(JSON.parse(get(files, 'session.json')).sessionId, sid);
+  const fullT = detail.tracks.find((t: any) => t.kind === 'full');
+  assert.equal([...files.entries()].find(([k]) => k.endsWith('/' + fullT.file))![1].length, fullT.bytes, 'the full mix, byte for byte');
+
+  // Jess: her own track, the players' transcript and summary; nothing of the DM's.
+  const jl = (await ok('GET', `${A()}/recordings/mine`, T.jess)).sessions.find((s: any) => s.id === sid);
+  assert.ok(jl.zipUrl);
+  const jz = unzip((await call('GET', jl.zipUrl)).buf);
+  const jn = [...jz.keys()].map((k) => k.split('/').slice(1).join('/')).sort();
+  const jessFile = detail.tracks.find((t: any) => t.label === 'Jess phone').file;
+  assert.deepEqual(jn, [jessFile, 'Summary (players).md', 'Transcript (players).md'].sort());
+  const all = [...jz.values()].map((b) => b.toString('latin1')).join('\n');
+  for (const secret of ['the duke is the lich', 'DM-SUMMARY', 'APPROVED-SUMMARY', 'PENDING-SUMMARY', 'Tom phone', 'sessionId']) assert.ok(!all.includes(secret), `a player's zip never holds "${secret}"`);
+  assert.ok(get(jz, 'Transcript (players).md').includes('I open the door'));
+  assert.ok(get(jz, 'Summary (players).md').includes('PARTY-SUMMARY'));
+
+  // A forged ticket, another kind, someone not recorded, a bad signature: 404.
+  const forged = (who: string, k = 'recording-zip') => `/api/media/recording-zip/${mintTicket({ w: W, k, f: sid, a: ID[who] })}`;
+  assert.equal((await call('GET', forged('zed'))).status, 404, 'Zed was never recorded');
+  assert.equal((await call('GET', forged('jess', 'recording'))).status, 404, 'a track ticket is not a zip ticket');
+  assert.equal((await call('GET', `${detail.zipUrl}x`)).status, 404);
+  assert.equal((await call('GET', `/api/media/recording-zip/${mintTicket({ w: 'other', k: 'recording-zip', f: sid, a: ID.dm })}`)).status, 404, 'another world');
+  // Someone who left the world loses it.
+  run(deps.db, "UPDATE members SET role = 'guest' WHERE world_id = ? AND account_id = ?", W, ID.tom);
+  try { assert.equal((await call('GET', forged('tom'))).status, 404, 'a guest gets nothing'); } finally { run(deps.db, "UPDATE members SET role = 'player' WHERE world_id = ? AND account_id = ?", W, ID.tom); }
 });
 
 test('Recordings_range: seeking works (206, Content-Range, 416) and the file is not changed by it', needFfmpeg, async () => {
