@@ -13,7 +13,7 @@ import type { Deps } from '../../app.ts';
 import { one, all, run, tx } from '../../core/db.ts';
 import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
 import { dmAnd } from '../../core/events.ts';
-import { balance, money } from '../../core/coin.ts';
+import { balance, money, spendable } from '../../core/coin.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { HttpError, id as newId, int, now, oneOf, parseJson, str } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
@@ -366,15 +366,14 @@ const feature: Feature = {
       const qty = int(b.qty, 'qty', { min: 1, max: 99, optional: true }) ?? 1;
       const total = want.priceCp * qty;
       const mine = me(res);
-      // Coin already promised to other waiting purchases is not available again.
-      const waiting = one<any>(db, `SELECT COALESCE(SUM(amount_cp), 0) AS cp FROM ledger WHERE world_id = ? AND owner = ? AND status = 'pending' AND amount_cp < 0`, w, mine)!.cp as number;
-      const have = balance(db, w, mine) + waiting;
-      if (have < total) throw new HttpError(402, `Not enough coin: ${total > 0 ? money(total) : ''} needed, you have ${money(Math.max(0, have))}`);
       const pending = settings(res).playerChangesNeedApproval;
       const shopName = String((data.page as any).title ?? 'the shop');
       const lid = newId('led_'), iid = newId('itm_'), chg = newId('chg_');
       const itemName = want.name.slice(0, 120);
       tx(db, () => {
+        // Coin already promised to other waiting debits is not available again; read and spent in one step.
+        const have = spendable(db, w, mine);
+        if (have < total) throw new HttpError(402, `Not enough coin: ${total > 0 ? money(total) : ''} needed, you have ${money(Math.max(0, have))}`);
         run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, lid, w, mine, -total, `Bought ${itemName} x${qty} at ${shopName}`.slice(0, 200), mine, now(), pending ? 'pending' : 'approved');
         run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, NULL, ?, '', NULL, NULL, ?, ?, ?)`, iid, w, mine, itemName, qty, `Bought at ${shopName}`.slice(0, 500), now(), mine, pending ? 'pending' : 'approved');
         if (pending) {
