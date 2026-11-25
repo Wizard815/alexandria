@@ -16,6 +16,7 @@ import { groupUtterances, MAX_UTTERANCE_MS, mergeGroup, similarity, token, utter
 import { cleanWords, echoesPrompt, junkReason, QUIET_LEVEL, type Pw } from './clean.ts';
 import { buildHint, containsTerm, dmOnlyTerms } from './hint.ts';
 import { notifyLine } from './hooks.ts';
+import { runRecordingRetention } from './recordings.ts';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS audio_consent (
@@ -258,9 +259,15 @@ export class Engine {
   /** Glue chunk files (each minus the start it repeats from the one before) into one wav. Null when it cannot (no ffmpeg). */
   joiner: (files: { path: string; trimMs: number }[]) => Promise<Buffer | null> = ffmpegJoin;
 
+  /** The refine pass that is waiting or running for a session (the recording is built after it, which needs the same chunks). */
+  refining = new Map<string, Promise<unknown>>();
+
   scheduleRefine(sessionId: string) {
     const n = Number(this.d.env.ALX_AUDIO_REFINE_DELAY_MS ?? 20_000);
-    const t = setTimeout(() => { void this.refine(sessionId).catch((e) => console.error('audio: refine failed', e)); }, Number.isFinite(n) ? n : 20_000);
+    let go!: () => void;
+    const p = new Promise<void>((resolve) => { go = resolve; }).then(() => this.refine(sessionId)).catch((e) => console.error('audio: refine failed', e)).finally(() => { this.refining.delete(sessionId); });
+    this.refining.set(sessionId, p);
+    const t = setTimeout(go, Number.isFinite(n) ? n : 20_000);
     t.unref?.();
   }
 
@@ -525,25 +532,9 @@ export class Engine {
 
   // ---- retention -----------------------------------------------------------
 
-  /** Delete raw audio older than each world's audioRetentionDays. Transcripts stay. */
+  /** Delete each session's audio when its own days are up (its setting, else the world's audioRetentionDays). Transcripts stay. */
   runRetention(nowMs = Date.now()): number {
-    const { db, dataDir } = this.d;
-    if (!dataDir) return 0;
-    let n = 0;
-    for (const w of all<any>(db, 'SELECT id, settings FROM worlds')) {
-      const s = { ...DEFAULT_SETTINGS, ...parseJson<any>(w.settings, {}) };
-      const days = featureSetting<number | null>(s, 'audioRetentionDays');
-      if (!days) continue;
-      const cutoff = new Date(nowMs - days * 864e5).toISOString();
-      const rows = all<any>(db, 'SELECT c.id, c.file, c.status FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE s.world_id = ? AND c.file IS NOT NULL AND c.created_at < ?', w.id, cutoff);
-      for (const r of rows) {
-        try { fs.rmSync(path.join(dataDir, r.file), { force: true }); } catch { /* already gone */ }
-        run(db, 'UPDATE audio_chunks SET file = NULL, status = ? WHERE id = ?', r.status === 'pending' ? 'expired' : r.status, r.id);
-        n++;
-      }
-      if (rows.length) prune(path.join(dataDir, 'audio', w.id));
-    }
-    return n;
+    return runRecordingRetention(this.d, nowMs);
   }
 }
 
