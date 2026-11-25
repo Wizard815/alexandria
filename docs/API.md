@@ -162,7 +162,7 @@ Notes on special offers:
 Settings:
 - `brokerEnabled`: off fails closed.
 - `brokerPayer`: `self` or `party`: the purse preselected for payments (the player chooses when paying).
-- `brokerPartyPay` (default on): players may pay the broker from the party pouch. A party payment is logged on the pouch as `Broker: <title> (paid by <name> from the party pouch)`.
+- `brokerPartyPay` (default on): players may pay the broker from the party pouch. A party payment is logged on the pouch as `Broker purchase (paid by <name> from the party pouch)`, never with what was bought.
 - `brokerTopics`: list of allowed real-world topics, e.g.
   `["Feudal Japan: history, folklore, customs"]`.
 - `brokerSiteUrl`, `brokerSiteLabel`: an optional link to the world's site,
