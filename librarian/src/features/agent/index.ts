@@ -17,6 +17,8 @@ import { sessionLines, listSessions } from '../audio/api.ts';
 import { budgetFor, describeCall, emitAction, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
 import { ALWAYS_ASK } from './auto.ts';
 import { fastPlan } from './intent.ts';
+import { checkArgs } from './toolargs.ts';
+import { think } from '../active/thoughts.ts';
 import { speakable } from './speakable.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
 import { tryChatCommand } from '../active/commands.ts';
@@ -180,6 +182,30 @@ function routes(d: import('../../app.ts').Deps) {
     res.json({ actions: rows.map(actionView) });
   });
 
+  // Change a card before approving it: the DM fixes an amount, a name or a target instead of rejecting and asking again.
+  // The new arguments are checked against the tool's schema like the model's are; the card's words follow the change.
+  r.patch('/actions/:id', requireDM, async (req, res) => {
+    const worldId = W(res);
+    const a = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ? AND world_id = ?', String(req.params.id), worldId);
+    if (!a) throw new HttpError(404, 'Action not found');
+    if (a.status !== 'pending') throw new HttpError(409, `That action is already ${a.status}`);
+    const raw = req.body?.args;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'args must be an object');
+    if (JSON.stringify(raw).length > 20_000) throw new HttpError(400, 'args is too large');
+    const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
+    if (!tool) throw new HttpError(409, 'That tool is no longer available');
+    const chk = checkArgs(tool, raw);
+    if (chk.problems.length) throw new HttpError(400, chk.problems.join('; '));
+    for (const k of tool.required ?? []) if (chk.args[k] === undefined) throw new HttpError(400, `${k} is required`);
+    const summary = describeCall(tool.name, chk.args);
+    if (!run(d.db, `UPDATE agent_actions SET args = ?, call = ?, summary = ? WHERE id = ? AND status = 'pending'`, JSON.stringify(chk.args), JSON.stringify(tool.call(chk.args)), summary, a.id)) throw new HttpError(409, 'That action was already decided');
+    audit(d.db, worldId, me(res), 'agent.edit', `${a.tool} ${a.args} -> ${JSON.stringify(chk.args)}`.slice(0, 500));
+    // The Active page's log row for this proposal says what will now run.
+    run(d.db, "UPDATE active_log SET summary = ?, args = ?, calls = ? WHERE world_id = ? AND rule_key = ? AND status = 'pending'", summary.slice(0, 400), JSON.stringify(chk.args).slice(0, 4000), JSON.stringify([{ tool: a.tool, args: chk.args }]).slice(0, 8000), worldId, `agent:${a.id}`);
+    emitAction(d, worldId, a.account_id, a.id);
+    res.json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
+  });
+
   r.post('/actions/:id', requireDM, async (req, res) => {
     const decision = oneOf(req.body?.decision, 'decision', ['approve', 'reject'] as const);
     const worldId = W(res);
@@ -196,6 +222,7 @@ function routes(d: import('../../app.ts').Deps) {
       audit(d.db, worldId, accountId, 'agent.reject', `${a.tool} ${a.args}`);
       logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok: false, result: 'rejected by the DM', via: 'rejected', actionId: a.id, rejected: true });
       note(`Rejected: ${a.summary}.`);
+      think(d, worldId, { source: 'assistant', kind: 'skip', actionId: a.id, chatId: a.chat_id, text: `You rejected: ${a.summary}.` });
       return res.json(view());
     }
     const token = bearer(req);
@@ -238,6 +265,7 @@ function routes(d: import('../../app.ts').Deps) {
       logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok, result: out, via: 'approved', actionId: a.id });
       audit(d.db, worldId, accountId, 'agent.action', `${a.tool} ${a.args} -> ${ok ? 'done' : 'failed'}`);
       note(ok ? (a.tool === 'web_research' ? researchNote(out) : `Done: ${a.summary}.`) : `That did not work: ${a.summary}. ${out.slice(0, 200)}`);
+      think(d, worldId, { source: 'assistant', kind: ok ? 'do' : 'error', actionId: a.id, chatId: a.chat_id, text: ok ? `Approved and done: ${a.summary}.` : `Approved, but it did not work: ${a.summary}. ${out.slice(0, 160)}` });
       emitAction(d, worldId, a.account_id, a.id);
       if (ok && a.tool === 'web_research') void carryOn().catch((e) => console.error('agent: carrying on after web research failed', e));
       return ok;
