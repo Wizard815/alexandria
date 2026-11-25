@@ -12,9 +12,10 @@ import { featureSetting } from '../../core/policy.ts';
 import { HttpError, id, int, now, oneOf, str } from '../../core/util.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
-import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, type LineRow, type MicRow } from './engine.ts';
+import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, migrateStt, type LineRow, type MicRow } from './engine.ts';
 import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
 import { RULES_SCHEMA, ruleNotes, rulesPass } from './rulescheck.ts';
+import { sttAssetRoutes, sttAssetsFor } from './sttassets.ts';
 import { REC_SCHEMA, enqueueBuild, migrateRecordings, resetStuckBuilds, sweepRecordings } from './recordings.ts';
 import { recordingMedia, recordingRoutes } from './recroutes.ts';
 
@@ -50,7 +51,7 @@ function scheduleBuild(d: Deps, eng: ReturnType<typeof engine>, sessionId: strin
 const feature: Feature = {
   id: 'audio',
   schema: SCHEMA + SUMMARY_SCHEMA + RULES_SCHEMA + REC_SCHEMA,
-  migrate: migrateRecordings,
+  migrate: (db) => { migrateRecordings(db); migrateStt(db); },
   settings: {
     recordingConsentText: { type: 'string', default: DEFAULT_CONSENT_TEXT, max: 2000 },
     audioRetentionDays: { type: 'int', default: 30, min: 1, max: 3650, nullable: true },
@@ -62,10 +63,15 @@ const feature: Feature = {
     transcriptContext: { type: 'enum', values: ['on', 'off'], default: 'off' },
     // After a recording stops, listen again in 60 s windows with the audio job's `refineModel` (off unless the job names one).
     transcriptRefine: { type: 'enum', values: ['on', 'off'], default: 'off' },
+    // Where speech to text runs: the server's audio model, each recording device's own model (WebGPU, else WASM), or
+    // auto (a device with a usable GPU does its own). The server always transcribes what a device did not send text for.
+    speechToText: { type: 'enum', values: ['server', 'device', 'auto'], default: 'server' },
+    // After a recording stops, sync every mic into one clean transcript that replaces the live one (the live one is kept for undo).
+    finalTranscript: { type: 'enum', values: ['on', 'off'], default: 'on' },
   },
   worldMount: 'audio',
   dataDirs: ['audio', 'recordings'],
-  appRoutes: (app, d) => recordingMedia(app, d),
+  appRoutes: (app, d) => { recordingMedia(app, d); sttAssetRoutes(app, d); },
 
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
@@ -95,7 +101,7 @@ const feature: Feature = {
         serverNow: now(),
         consent: { text: String(featureSetting(settings(res), 'recordingConsentText') ?? ''), agreed: dm || consentOf(c.world.id, me(res)), required: !dm },
         retentionDays: featureSetting(settings(res), 'audioRetentionDays'),
-        transcription: { hint: featureSetting(settings(res), 'transcriptHint'), context: featureSetting(settings(res), 'transcriptContext'), refine: featureSetting(settings(res), 'transcriptRefine') },
+        transcription: { stt: eng.sttMode(c.world.id), hint: featureSetting(settings(res), 'transcriptHint'), context: featureSetting(settings(res), 'transcriptContext'), refine: featureSetting(settings(res), 'transcriptRefine') },
         ...(dm ? { dropped: eng.dropped } : {}),
       });
     });
@@ -119,11 +125,54 @@ const feature: Feature = {
     });
 
     // ---- mics ----------------------------------------------------------------
+    // Where each mic's speech to text happens: what its device reports, and what its chunks of the running (else the latest) session turned out to be.
+    const sttOf = (worldId: string, m: MicRow) => {
+      const st = eng.sttStatus.get(m.id);
+      const sess = activeSession(worldId) ?? one<any>(db, 'SELECT * FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC', worldId);
+      const chunks = { device: 0, server: 0, awaiting: 0, pending: 0 };
+      if (sess) for (const x of all<any>(db, 'SELECT source, status, COUNT(*) AS n FROM audio_chunks WHERE session_id = ? AND mic_id = ? GROUP BY source, status', sess.id, m.id)) {
+        if (x.status === 'awaiting') chunks.awaiting += x.n; else if (x.status === 'pending' || x.status === 'queued') chunks.pending += x.n;
+        else if (x.source === 'device') chunks.device += x.n; else if (x.status === 'done') chunks.server += x.n;
+      }
+      const last = one<any>(db, "SELECT source, stt FROM audio_chunks WHERE mic_id = ? AND status = 'done' ORDER BY end_ms DESC", m.id);
+      const info = last?.stt ? JSON.parse(last.stt) : null;
+      return { mode: eng.sttMode(worldId), device: st && Date.now() - st.at < 120_000 ? { model: st.model, backend: st.backend, state: st.state, rtf: st.rtf, backlog: st.backlog, progress: st.progress, note: st.note } : null, chunks, last: last?.source ?? null, lastModel: info?.model || null, lastBackend: info?.backend || null, lastRtf: info?.rtf ?? null };
+    };
     r.get('/mics', (_req, res) => {
       const w = ctx(res).world.id;
       const eng2 = eng.nameOf(w);
       const rows = isDM(res) ? all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? ORDER BY created_at', w) : all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? AND account_id = ? ORDER BY created_at', w, me(res));
-      res.json(rows.map((m) => micOut(m, eng2)));
+      res.json(rows.map((m) => ({ ...micOut(m, eng2), stt: sttOf(w, m) })));
+    });
+
+    // A device says how its own speech to text is going (every few seconds while it records).
+    r.post('/mics/:id/stt', (req, res) => {
+      const m = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(req.params.id), ctx(res).world.id);
+      if (!m || m.account_id !== me(res)) throw new HttpError(403, 'That mic is not yours');
+      const b = req.body ?? {};
+      const state = oneOf(b.state, 'state', ['off', 'unsupported', 'loading', 'ready', 'running', 'behind', 'error'] as const);
+      const n = (v: unknown, lo: number, hi: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : null; };
+      eng.sttStatus.set(m.id, {
+        at: Date.now(), state, model: typeof b.model === 'string' ? b.model.slice(0, 60) : '', backend: typeof b.backend === 'string' ? b.backend.slice(0, 20) : '',
+        rtf: n(b.rtf, 0, 1000), backlog: Math.round(n(b.backlog, 0, 100000) ?? 0), progress: n(b.progress, 0, 1), note: typeof b.note === 'string' ? b.note.slice(0, 120) : '',
+      });
+      // A device that cannot keep up or whose model failed: what it still owes is done by the server now, not in 45 s.
+      if (state === 'behind' || state === 'error' || state === 'unsupported' || state === 'off') void eng.expireAwaiting(undefined, 0, m.id).catch((e) => console.error('audio: fallback failed', e));
+      res.json({ ok: true, mode: eng.sttMode(ctx(res).world.id) });
+    });
+
+    // Where this device loads its own speech model from: the librarian serves (and caches) the library and the model
+    // files, so no page ever talks to another site. The ticket in the path stands in for the sign-in header that a
+    // module import cannot send. Null when this server does not serve them (ALX_STT_ASSETS=off).
+    r.get('/stt/assets', (_req, res) => {
+      const c = ctx(res);
+      res.json({ mode: eng.sttMode(c.world.id), assets: sttAssetsFor(d, c.world.id, me(res)) });
+    });
+
+    // The vocabulary prompt for a device's own speech model: names every player may read (never a DM-only or classified title).
+    r.get('/hint', (_req, res) => {
+      const c = ctx(res);
+      res.json({ hint: featureSetting(settings(res), 'transcriptHint') === 'off' ? '' : eng.hint(c.world.id) });
     });
 
     r.post('/mics', (req, res) => {
@@ -233,14 +282,36 @@ const feature: Feature = {
 
       const dup = one<any>(db, 'SELECT id, status FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND seq = ?', s.id, mic.id, seq);
       if (dup) return res.json({ id: dup.id, status: dup.status, duplicate: true });
+      // The device's own clock reading at sending (session ms): the server's minus this is that device's clock error plus its upload time.
+      const sent = req.query.sent === undefined ? null : Number(req.query.sent);
+      const skew = sent !== null && Number.isFinite(sent) ? Math.max(-6e5, Math.min(6e5, Math.round(Date.now() - Date.parse(s.started_at) - sent))) : null;
+      // `wait=1`: the device is transcribing this chunk and will send its text next.
+      const wait = req.query.wait === '1' || req.query.wait === 'true';
 
       const rel = path.join('audio', c.world.id, s.id, mic.id, `${seq}.${fmt.ext}`);
       fs.mkdirSync(path.dirname(path.join(d.dataDir, rel)), { recursive: true });
       fs.writeFileSync(path.join(d.dataDir, rel), body);
       const cid = id('chk_');
-      run(db, "INSERT INTO audio_chunks (id, session_id, mic_id, seq, start_ms, end_ms, level, status, file, mime, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)", cid, s.id, mic.id, seq, start, end, level, rel, fmt.mime, now());
-      const outcome = await eng.process(cid);
+      run(db, "INSERT INTO audio_chunks (id, session_id, mic_id, seq, start_ms, end_ms, level, status, file, mime, created_at, skew_ms) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)", cid, s.id, mic.id, seq, start, end, level, rel, fmt.mime, now(), skew);
+      const outcome = await eng.intake(cid, wait);
       res.status(201).json({ id: cid, status: one<any>(db, 'SELECT status FROM audio_chunks WHERE id = ?', cid)!.status, outcome });
+    });
+
+    // The text a device made of a chunk it uploaded (same rules as the upload: its own mic, consent, a running or just-stopped session).
+    r.post('/sessions/:sid/chunks/:seq/text', express.json({ limit: '1mb' }), async (req, res) => {
+      const c = ctx(res);
+      const s = sessionOf(res, String(req.params.sid));
+      if (s.stopped_at && Date.now() - Date.parse(s.stopped_at) > 5 * 60_000) throw new HttpError(409, 'This recording session has ended');
+      const mic = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(req.query.mic ?? ''), c.world.id);
+      if (!mic || mic.account_id !== me(res)) throw new HttpError(403, 'That mic is not yours');
+      if (!isDM(res) && !consentOf(c.world.id, me(res))) throw new HttpError(403, 'Agree to recording first');
+      const owner = one<any>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', c.world.id, mic.account_id);
+      if (owner?.role === 'player' && !consentOf(c.world.id, mic.account_id)) throw new HttpError(403, 'Agree to recording first');
+      if (mic.mode === 'off') throw new HttpError(409, 'This mic is turned off');
+      const seq = int(req.params.seq, 'seq', { min: 0, max: 10_000_000 })!;
+      const ch = one<any>(db, 'SELECT id FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND seq = ?', s.id, mic.id, seq);
+      if (!ch) throw new HttpError(404, 'Upload the chunk first');
+      res.json(await eng.acceptText(ch.id, req.body));
     });
 
     // ---- holds: key pressed and released ------------------------------------------------
@@ -297,6 +368,12 @@ const feature: Feature = {
       const s = sessionOf(res, String(req.params.sid));
       const since = req.query.since === undefined ? '' : String(req.query.since);
       const dm = isDM(res);
+      // The DM can read the live version the final transcript replaced.
+      if (req.query.version === 'live') {
+        if (!dm) throw new HttpError(403, 'Only the DM can read the live version');
+        const nm0 = eng.nameOf(c.world.id);
+        return res.json({ session: sessionOut(s), version: 'live', lines: eng.liveLines(s.id).sort((a, b) => a.start_ms - b.start_ms).map((l) => lineView(l, true, nm0)) });
+      }
       const rows = all<LineRow>(db, `SELECT * FROM audio_lines WHERE session_id = ? ${dm ? '' : "AND audience = 'players'"} ${since ? 'AND updated_at > ?' : ''} ORDER BY start_ms, id`, s.id, ...(since ? [since] : []));
       const nm = eng.nameOf(c.world.id);
       res.json({ session: sessionOut(s), lines: rows.map((l) => lineView(l, dm, nm)) });
@@ -310,6 +387,29 @@ const feature: Feature = {
       const next = eng.setAudience(l, to, c.world.id);
       audit(db, c.world.id, me(res), 'audio.line_audience', `${l.id} ${next.audience}`);
       res.json(lineView(next, true, eng.nameOf(c.world.id)));
+    });
+
+    // ---- the final transcript ----------------------------------------------------------------------
+    r.get('/sessions/:sid/final', requireDM, (req, res) => {
+      const s = sessionOf(res, String(req.params.sid));
+      res.json({ final: eng.finalView(s.id), serverNow: now() });
+    });
+    r.post('/sessions/:sid/final', requireDM, (req, res) => {
+      const c = ctx(res);
+      const s = sessionOf(res, String(req.params.sid));
+      if (!s.stopped_at) throw new HttpError(409, 'Stop the recording first');
+      if (req.body?.retranscribe !== undefined && typeof req.body.retranscribe !== 'boolean') throw new HttpError(400, 'retranscribe must be true or false');
+      if (eng.isFinalizing(s.id)) return res.status(202).json({ final: eng.finalView(s.id) });
+      audit(db, c.world.id, me(res), 'audio.final', s.id);
+      void eng.finalize(s.id, { retranscribe: req.body?.retranscribe === true }).catch((e) => console.error('audio: final transcript failed', e));
+      res.status(202).json({ final: eng.finalView(s.id) ?? { status: 'running', step: 'Starting', pct: 0 } });
+    });
+    r.post('/sessions/:sid/final/undo', requireDM, (req, res) => {
+      const c = ctx(res);
+      const s = sessionOf(res, String(req.params.sid));
+      const n = eng.undoFinal(s.id);
+      audit(db, c.world.id, me(res), 'audio.final_undo', s.id);
+      res.json({ restored: n, final: eng.finalView(s.id) });
     });
 
     // Re-send chunks that were waiting for a model.
@@ -331,6 +431,8 @@ const feature: Feature = {
   start: (d: Deps) => {
     const eng = engine(d);
     const retry = setInterval(() => { void eng.retryPending().catch((e) => console.error('audio: retry failed', e)); }, 60_000);
+    // Chunks whose device text did not come in time: the server takes them (checked often, so the live transcript has no long hole).
+    const late = setInterval(() => { void eng.expireAwaiting().catch((e) => console.error('audio: fallback failed', e)); }, 10_000);
     const keep = setInterval(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } }, 60 * 60_000);
     // The running summaries of sessions recording now (each folds in new lines only when enough have come in).
     const summ = setInterval(() => { for (const x of recordingSessions(d)) void updateBoth(d, x.worldId, x.sessionId).catch((e) => console.error('audio: summary pass failed', e)); }, 30_000);
@@ -341,8 +443,8 @@ const feature: Feature = {
     resetStuckBuilds(d.db);
     const sweep = setInterval(() => { try { sweepRecordings(d); } catch (e) { console.error('audio: recording sweep failed', e); } }, 30 * 60_000);
     const first = setTimeout(() => { try { eng.runRetention(); sweepRecordings(d); } catch (e) { console.error('audio: retention failed', e); } void eng.retryPending().catch(() => {}); }, 10_000);
-    for (const t of [retry, keep, first, sweep]) t.unref();
-    return () => { clearInterval(retry); clearInterval(keep); clearInterval(sweep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
+    for (const t of [retry, late, keep, first, sweep]) t.unref();
+    return () => { clearInterval(retry); clearInterval(late); clearInterval(keep); clearInterval(sweep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
   },
 };
 

@@ -27,7 +27,8 @@ const GROUPS: [string, string, Row[]][] = [
     T('dmChangeReason', 'Ask me why when I change a player’s things', 'Your reason shows to the owner, who can confirm or dispute it.'),
     T('playerTransfers', 'Players can give coin and items freely', 'On: players hand each other coin and items, and move things in and out of the party stash, without asking. You see every give in Party & inventory.'),
     T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on the broker page.'),
-    C('brokerPayer', 'Who pays the broker', 'The party pouch needs “Shared party pouch” on.', [['self', 'The player who asks'], ['party', 'The party pouch']]),
+    T('brokerPartyPay', 'Players may pay the broker from the party pouch', 'On: after a price is set, each player chooses to pay from their own coin or the party pouch (it needs “Shared party pouch”). Party payments are logged for everyone to see.'),
+    C('brokerPayer', 'Which purse is picked first', 'Only the one preselected on the payment choice; the player can still switch.', [['self', 'The player’s own coin'], ['party', 'The party pouch']]),
   ]],
   ['combat', 'Combat & quick events', [
     C('monsterHealth', 'Monster health shown to players', 'The party’s own health is never shown.', [['none', 'Hidden'], ['words', 'Words (Bloodied…)'], ['bar', 'Bar'], ['exact', 'Exact numbers']]),

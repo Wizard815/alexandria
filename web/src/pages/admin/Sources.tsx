@@ -58,7 +58,7 @@ export default function AdminSources() {
       <PageHead title="World sources" lead="Where a world's library comes from. The librarian only reads from a source; nothing is ever written back. Anything hidden there stays DM-only here, and anything without a clear mark is DM-only too.">
         {!!worlds.data?.length && <button type="button" className="btn primary" onClick={() => setEditing('new')}>Add a source</button>}
       </PageHead>
-      <div className="note">Tokens, keys and addresses now live in <Link to="/admin/connections">Connections</Link>, and each world has its own page with its sources, audience and crawl under <Link to="/admin/worlds">Worlds</Link>. This page keeps working.</div>
+      <div className="note">Tokens, keys and addresses now live in <Link to="/admin/sources?tab=connections">Connections</Link>, and each world has its own page with its sources, audience and crawl under <Link to="/admin/worlds">Worlds</Link>. This page keeps working.</div>
       <ErrorBox error={worlds.error || sources.error || connectors.error} />
       {worlds.loading && !worlds.data ? <Loading /> : !worlds.data?.length ? <div className="card"><p className="muted">Make a world first.</p></div> : (
         <>

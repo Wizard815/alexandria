@@ -43,7 +43,7 @@ function SharedPages() {
           <span className="stack tight grow"><Link to={`/w/${info.slug}/dm/library?page=${encodeURIComponent(id)}`}>{p.title}</Link>
             <span className="share-chips">{p.rows.map((s) => <span key={`${s.from}-${s.to}`} className="chip teal" title={`By ${s.fromName}, ${when(s.createdAt)}`}>{s.toName} <button type="button" className="btn ghost small" style={{ minHeight: 0, padding: '0 2px' }} aria-label={`Stop sharing ${p.title} with ${s.toName}`} disabled={act.busy} onClick={() => void act.run(async () => { await w.call('DELETE', `/library/pages/${encodeURIComponent(id)}/share?to=${encodeURIComponent(s.to)}`); await data.reload(); })}>✕</button></span>)}</span>
           </span>
-          <button type="button" className="btn small" onClick={() => openShare([id])}>Change</button>
+          <button type="button" className="btn small" onClick={() => openShare({ id, title: p.title })}>Change</button>
         </div>
       ))}
     </section>

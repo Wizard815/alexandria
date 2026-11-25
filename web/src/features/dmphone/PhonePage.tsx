@@ -64,6 +64,8 @@ export default function PhonePage() {
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const made: Element[] = [];
+    // In a workspace pane it fills only its pane: the menu and the other panes stay usable.
+    if (rootRef.current?.closest('.ws-body')) return;
     for (let node: Element | null = rootRef.current; node && node !== document.body; node = node.parentElement) {
       for (const sib of Array.from(node.parentElement?.children ?? [])) {
         if (sib !== node && !sib.hasAttribute('inert') && !['SCRIPT', 'STYLE'].includes(sib.tagName)) { sib.setAttribute('inert', ''); made.push(sib); }

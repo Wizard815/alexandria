@@ -5,7 +5,7 @@
 // the environment (ALX_MODEL_<JOB>_URL ...). API keys are write-only.
 //
 //   GET    /api/admin/models                      { jobs, providers }
-//   PUT    /api/admin/models                      { jobs: { chat: { providerId, model, options, enabled, keepWarm, fallback } } }
+//   PUT    /api/admin/models                      { jobs: { chat: { providerId, model, options, enabled, gameNight, fallback } } } (keepWarm: old name for gameNight)
 //   GET    /api/admin/models/status               loaded / unloaded per job and provider (asks the servers)
 //   POST   /api/admin/models/providers            add a provider
 //   PUT    /api/admin/models/providers/:id        change one (apiKey "••••" or missing keeps the key)
@@ -14,10 +14,12 @@
 //   GET    /api/admin/models/providers/:id/voices preset voices (Argos GET /v1/audio/voices)
 //   POST   /api/admin/models/:job/test            ?which=fallback tests the fallback
 //   POST   /api/admin/models/:job/warm            a tiny request so the model is loaded
-//   GET    /api/admin/models/session              session mode settings + warm progress of the local jobs
-//   PUT    /api/admin/models/session              { loadOnStart, keepLoaded, unloadOnEnd }
-//   POST   /api/admin/models/warm-all             "Load all now": a tiny request to every local job, in parallel (202; poll GET session)
-//   POST   /api/admin/models/unload-all           "Unload all now": Argos POST /api/models/unload/{model} for each job model on an Argos provider
+//   GET    /api/admin/models/lifecycle            game night: phase, why it is live, held models, per provider backend (probed once, cached), per job policy
+//   PUT    /api/admin/models/lifecycle            { graceMinutes, policies: { chat: 'hold' | 'ondemand' } }
+//   POST   /api/admin/models/game-night/start     the DM's "Start game night" (also what the Start test button does)
+//   POST   /api/admin/models/game-night/end       { now: true } skips the grace period
+//   POST   /api/admin/models/providers/:id/detect probe the backend type again (PUT a provider with { backend } to override)
+//   POST   /api/admin/models/unload-all           "Release models now": each job model on a backend that can unload
 //   GET    /api/admin/models/vram                 per Argos provider: GET /api/pool + /running, the job-model budget, the config snippets
 //   GET    /api/worlds/:world/models/ready        DM only: which local jobs are ready (for the table page card)
 import { Router } from 'express';
@@ -30,7 +32,8 @@ import { ALL_JOBS, CHAT_PARTS, JOBS, activeJobs, ownJobConfig, chat, chainFor, g
 import { argosWebUrl, discover, fetchVoices, listModels, type ModelStatus } from './argos.ts';
 import { testJob } from './probe.ts';
 import { argosSnippets, budgetFor, readArgos } from './pool.ts';
-import { attachSessionEvents, gameSessionRunning, getSessionSettings, localJobs, setSessionSettings, unloadAll, warmAll, warmSnapshot } from './session.ts';
+import { attachSessionEvents, getLifecycleSettings, getPolicy, lifecycleTick, lifecycleView, localJobs, releaseNow, setLifecycleSettings, setManual, setPolicy, startLifecycle, targetsFor, unloadEverything, warmSnapshot, POLICY_DEFAULTS, sessionLive } from './lifecycle.ts';
+import { BACKENDS, backendOf, cachedBackend, describeBackend, isHosted, providerSettings, setProviderSettings } from './backends.ts';
 import { KINDS, MASK, createProvider, getProvider, guessKind, listProviders, metaGet, metaSet, migrateJobsToProviders, normalizeBase, type Kind, type ProviderRow } from './providers.ts';
 
 export { MASK };
@@ -96,6 +99,7 @@ function providerView(d: Deps, p: ProviderRow) {
     id: p.id, name: p.name, kind: p.kind, baseUrl: p.base_url, apiKey: p.api_key ? MASK : '', location: p.location,
     ...(p.kind === 'argos' ? { webUrl: argosWebUrl(p.base_url) } : {}),
     usedBy: usedBy(d, p.id),
+    backend: { ...describeBackend(cachedBackend(d, p.id, p.base_url)?.backend ?? (p.location === 'cloud' || p.kind === 'openai' ? 'hosted' : 'generic'), providerSettings(d, p.id)), detected: cachedBackend(d, p.id, p.base_url)?.backend ?? null, override: providerSettings(d, p.id).backend, ttl: providerSettings(d, p.id).ttl, pingMinutes: providerSettings(d, p.id).pingMinutes },
   };
 }
 
@@ -130,7 +134,7 @@ function view(d: Deps, job: Job) {
     apiKey: key ? MASK : '',
     options: r ? parseOptions(r.options) : {},
     enabled: r ? !!r.enabled : true,
-    keepWarm: !!r?.keep_warm,
+    gameNight: getPolicy(d.db, job),
     fallback: fp ? { providerId: fp.id, model: r!.fallback_model, options: parseOptions(r!.fallback_options), allowCloud: !!r!.allow_cloud_fallback, location: fp.location } : null,
     location: (p?.location ?? (effective ? effective.location ?? inferLocation(effective.baseUrl) : null)) as Location | null,
     lastChoice: lastChoices(d, job),
@@ -186,31 +190,6 @@ async function statusOf(d: Deps) {
   return { providers, jobs };
 }
 
-// ---- keep warm -----------------------------------------------------------------
-
-/** A session is live while a recording runs or someone was on a world page in the last ten minutes. */
-export function sessionIsLive(d: Deps): boolean {
-  try { if (one(d.db, 'SELECT 1 FROM audio_sessions WHERE stopped_at IS NULL')) return true; } catch { /* no audio feature */ }
-  try { return !!one(d.db, 'SELECT 1 FROM presence WHERE at > ?', new Date(Date.now() - 10 * 60_000).toISOString()); } catch { return false; }
-}
-
-/**
- * One keep-warm round: a tiny request to each job that has its own keep-warm switch (while a session is live),
- * and, with "keep loaded" on in the session mode, to every local job while a game session runs.
- */
-export async function keepWarmTick(d: Deps): Promise<Job[]> {
-  const want = new Set<Job>();
-  if (sessionIsLive(d)) for (const r of all<Row>(d.db, 'SELECT job FROM models_jobs WHERE keep_warm = 1 AND enabled = 1')) want.add(r.job as Job);
-  if (getSessionSettings(d.db).keepLoaded && gameSessionRunning(d)) for (const j of localJobs(d)) want.add(j);
-  const warmed: Job[] = [];
-  for (const job of activeJobs(d)) {
-    if (!want.has(job) || !jobConfig(d, job)) continue;
-    await testJob(pinned(d, 'primary'), job, 20_000);
-    warmed.push(job);
-  }
-  return warmed;
-}
-
 /** Preset voice names for the voice job from Argos (GET /v1/audio/voices); [] when the voice job is not on an Argos provider or it lists none. */
 export async function listVoiceNames(d: Deps): Promise<string[]> {
   const r = saved(d, 'voice');
@@ -261,8 +240,8 @@ const feature: Feature = {
   worldRoutes: (d) => {
     const r = Router();
     r.get('/ready', requireDM, (_req, res) => {
-      const s = getSessionSettings(d.db);
-      res.json({ enabled: s.loadOnStart, jobs: warmSnapshot(d) });
+      const v = lifecycleView(d);
+      res.json({ enabled: v.live || v.phase !== 'off', phase: v.phase, jobs: warmSnapshot(d) });
     });
     return r;
   },
@@ -297,6 +276,7 @@ const feature: Feature = {
       if (b.apiKey !== undefined && b.apiKey !== MASK) next.api_key = String(b.apiKey).trim().slice(0, 500);
       if (b.location !== undefined) next.location = parseLocation(b.location);
       run(d.db, 'UPDATE models_providers SET name=?, kind=?, base_url=?, api_key=?, location=?, updated_at=? WHERE id=?', next.name, next.kind, next.base_url, next.api_key, next.location, next.updated_at, next.id);
+      if (b.backend !== undefined || b.ttl !== undefined || b.pingMinutes !== undefined) setProviderSettings(d, next.id, b);
       audit(d, who(res), 'models.provider.update', `${next.name}${b.apiKey !== undefined && b.apiKey !== MASK ? ' (key changed)' : ''}`);
       res.json({ provider: providerView(d, next), ...all6() });
     });
@@ -343,14 +323,14 @@ const feature: Feature = {
     });
 
     // ---- jobs
-    // Body: { jobs: { chat: { providerId, model, options, enabled, keepWarm, fallback: { providerId, model, options, allowCloud } | null } } }.
+    // Body: { jobs: { chat: { providerId, model, options, enabled, gameNight: 'hold' | 'ondemand', fallback: { providerId, model, options, allowCloud } | null } } }.
     // The old shape { baseUrl, apiKey } still works: it finds or makes a provider for that URL.
     // Only the jobs and fields sent change. apiKey "••••" or missing keeps the saved key; "" clears it.
     r.put('/', (req, res) => {
       const body = req.body?.jobs;
       if (!body || typeof body !== 'object') throw new HttpError(400, 'Send { jobs: { chat: {...} } }');
       const entries: [string, any][] = Array.isArray(body) ? body.map((b: any) => [String(b?.job), b]) : Object.entries(body);
-      const plan: { job: Job; row: Row; setKeyOn?: { id: string; key: string }; cloudOn?: boolean }[] = [];
+      const plan: { job: Job; row: Row; setKeyOn?: { id: string; key: string }; cloudOn?: boolean; policy?: 'hold' | 'ondemand' }[] = [];
       for (const [name, b] of entries) {
         if (!(ALL_JOBS as string[]).includes(name)) throw new HttpError(400, `Unknown job "${name.slice(0, 20)}"`);
         const job = name as Job;
@@ -392,7 +372,10 @@ const feature: Feature = {
         if (b.model !== undefined) row.model = String(b.model).trim().slice(0, 200);
         if (b.options !== undefined) row.options = parseOpts(b.options);
         if (b.enabled !== undefined) row.enabled = b.enabled ? 1 : 0;
-        if (b.keepWarm !== undefined) row.keep_warm = b.keepWarm ? 1 : 0;
+        if (b.gameNight !== undefined) {
+          if (b.gameNight !== 'hold' && b.gameNight !== 'ondemand') throw new HttpError(400, 'gameNight must be "hold" or "ondemand"');
+          step.policy = b.gameNight;
+        } else if (b.keepWarm !== undefined) step.policy = b.keepWarm ? 'hold' : 'ondemand'; // the old per-job switch
         if (b.fallback !== undefined) {
           const f = b.fallback;
           if (f === null || f === '' || f.providerId === '' ) { row.fallback_provider_id = ''; row.fallback_model = ''; row.fallback_options = '{}'; row.allow_cloud_fallback = 0; }
@@ -417,7 +400,8 @@ const feature: Feature = {
         row.updated_at = now();
         plan.push(step);
       }
-      for (const { job, row, setKeyOn, cloudOn } of plan) {
+      for (const { job, row, setKeyOn, cloudOn, policy } of plan) {
+        if (policy) setPolicy(d.db, job, policy);
         if (setKeyOn) run(d.db, 'UPDATE models_providers SET api_key = ?, updated_at = ? WHERE id = ?', setKeyOn.key, now(), setKeyOn.id);
         run(d.db, `INSERT INTO models_jobs (job, base_url, model, api_key, options, enabled, updated_at, provider_id, fallback_provider_id, fallback_model, fallback_options, allow_cloud_fallback, keep_warm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(job) DO UPDATE SET base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, options=excluded.options, enabled=excluded.enabled, updated_at=excluded.updated_at,
@@ -432,24 +416,52 @@ const feature: Feature = {
     });
 
     // ---- session mode, load/unload all, the VRAM view
-    const sessionView = () => ({ settings: getSessionSettings(d.db), warm: warmSnapshot(d), sessionRunning: gameSessionRunning(d), localJobs: localJobs(d) });
-    r.get('/session', (_req, res) => res.json(sessionView()));
-    r.put('/session', (req, res) => {
+    const providerLife = async (p: ProviderRow, force = false) => {
+      const jobs = targetsFor(d).filter((t) => t.providerId === p.id);
+      const t = jobs[0] ?? { key: '', providerId: p.id, provider: p.name, baseUrl: p.base_url, apiKey: p.api_key || undefined, location: p.location, kind: p.kind, model: '', jobs: [] };
+      const b = await backendOf(d, t, force);
+      const set = providerSettings(d, p.id);
+      return { id: p.id, ...b, override: set.backend, ttl: set.ttl, pingMinutes: set.pingMinutes, hosted: isHosted(t), ...describeBackend(b.backend, set), probedAt: cachedBackend(d, p.id, p.base_url)?.at ?? null };
+    };
+    const lifeView = async () => {
+      const providers = await Promise.all(listProviders(d.db).map((p) => providerLife(p)));
+      return { ...lifecycleView(d), settings: getLifecycleSettings(d.db), providers, defaults: POLICY_DEFAULTS, backends: BACKENDS };
+    };
+    r.get('/lifecycle', async (_req, res) => res.json(await lifeView()));
+    r.put('/lifecycle', async (req, res) => {
       const b = req.body ?? {};
-      for (const k of ['loadOnStart', 'keepLoaded', 'unloadOnEnd']) if (b[k] !== undefined && typeof b[k] !== 'boolean') throw new HttpError(400, `${k} must be true or false`);
-      const next = setSessionSettings(d.db, b);
-      audit(d, who(res), 'models.session_mode', JSON.stringify(next));
-      res.json(sessionView());
+      if (b.graceMinutes !== undefined && !(Number.isFinite(Number(b.graceMinutes)) && Number(b.graceMinutes) >= 0)) throw new HttpError(400, 'graceMinutes must be a number of minutes, 0 or more');
+      for (const [j, p] of Object.entries(b.policies ?? {})) {
+        if (!(ALL_JOBS as string[]).includes(j)) throw new HttpError(400, `Unknown job "${j.slice(0, 20)}"`);
+        if (p !== 'hold' && p !== 'ondemand') throw new HttpError(400, 'A policy is "hold" or "ondemand"');
+        setPolicy(d.db, j as Job, p);
+      }
+      const next = setLifecycleSettings(d.db, b);
+      audit(d, who(res), 'models.game_night_settings', JSON.stringify({ ...next, policies: b.policies ?? {} }));
+      res.json(await lifeView());
     });
-    r.post('/warm-all', (_req, res) => {
-      const round = warmAll(d);
-      round.catch(() => {});
-      res.status(202).json(sessionView());
+    r.post('/game-night/start', async (_req, res) => {
+      setManual(d, true);
+      audit(d, who(res), 'models.game_night_start', 'manual');
+      const p = lifecycleTick(d);
+      p.catch(() => {});
+      res.status(202).json(await lifeView());
+    });
+    r.post('/game-night/end', async (req, res) => {
+      setManual(d, false);
+      audit(d, who(res), 'models.game_night_end', req.body?.now ? 'now' : 'after the grace period');
+      if (req.body?.now) await releaseNow(d); else await lifecycleTick(d);
+      res.json(await lifeView());
+    });
+    r.post('/providers/:id/detect', async (req, res) => {
+      const p = getProvider(d.db, String(req.params.id));
+      if (!p) throw new HttpError(404, 'No such provider');
+      res.json(await providerLife(p, true));
     });
     r.post('/unload-all', async (_req, res) => {
-      const results = await unloadAll(d);
+      const results = await unloadEverything(d);
       audit(d, who(res), 'models.unload_all', results.map((x) => `${x.model}:${x.ok ? 'ok' : 'failed'}`).join(', ').slice(0, 400));
-      res.json({ results, ...sessionView() });
+      res.json({ results, ...(await lifeView()) });
     });
     r.get('/vram', async (_req, res) => {
       const byProvider = new Map<string, { job: string; model: string }[]>();
@@ -502,17 +514,7 @@ const feature: Feature = {
     return r;
   },
 
-  // While a session is live, jobs with "keep warm" get a tiny request every few minutes so the model stays loaded.
-  start: (d: Deps) => {
-    const every = Math.max(1000, Number(d.env.ALX_MODELS_KEEPWARM_MS ?? 240_000) || 240_000);
-    let busy = false;
-    const t = setInterval(() => {
-      if (busy) return;
-      busy = true;
-      keepWarmTick(d).catch(() => { /* next round */ }).finally(() => { busy = false; });
-    }, every);
-    t.unref?.();
-    return () => clearInterval(t);
-  },
+  // Game night: holds the models while a session is live, releases them after (lifecycle.ts). Idle: no requests.
+  start: (d: Deps) => startLifecycle(d),
 };
 export default feature;

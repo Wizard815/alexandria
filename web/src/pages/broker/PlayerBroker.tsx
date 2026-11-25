@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Field, Tabs, useAction, useToast } from '../../ui/index.tsx';
-import { type BrokerConfig, type BrokerRequest, type Offer, type Quote, ReadyLabel, StatusChip, extra, offerExpiry, waitLabel } from './shared.tsx';
+import { type BrokerConfig, type BrokerRequest, type Offer, type PayFrom, type PayOptions, type Quote, PayChoice, ReadyLabel, StatusChip, extra, offerExpiry, pickPayFrom, usePayOptions, waitLabel } from './shared.tsx';
 import { AskCoinModal, CoinRequestsCard, givingOn } from '../inventory/giving.tsx';
 
 export default function PlayerBroker() {
@@ -15,8 +15,8 @@ export default function PlayerBroker() {
   const enabled = extra(info.settings).brokerEnabled;
   const cfg = useLoad(() => (enabled ? w.call<BrokerConfig>('GET', '/broker/config') : Promise.resolve(null)), [w, enabled], ['broker-config', 'broker-clock', 'settings']);
   const list = useLoad(() => (enabled ? w.call<{ requests: BrokerRequest[]; clock: { label: string } }>('GET', '/broker') : Promise.resolve(null)), [w, enabled], ['broker', 'broker-clock']);
-  const payer = cfg.data?.payer === 'party' && info.settings.partyPurse ? 'party' : 'me';
-  const coin = useLoad(() => w.coin(payer) as Promise<{ cp: number }>, [w, payer], ['coin']);
+  const opts = usePayOptions(enabled);
+  const coin = useLoad(() => w.coin('me') as Promise<{ cp: number }>, [w], ['coin']);
   const offers = useLoad(() => (enabled ? w.call<Offer[]>('GET', '/broker/offers') : Promise.resolve(null)), [w, enabled], ['broker-offer']);
 
   if (!enabled) return <div className="page"><PageHead title="Information broker" /><Empty>The broker's door is shut. Your DM has not opened the information broker in this world.</Empty></div>;
@@ -41,16 +41,19 @@ export default function PlayerBroker() {
             </div>
             {p.greeting && <blockquote className="read" style={{ margin: '10px 0 0', fontStyle: 'italic' }}>“{p.greeting}”</blockquote>}
           </section>
-          <Offers list={offers.data} error={offers.error} reload={async () => { await offers.reload(); await coin.reload(); }} />
-          <AskCard cfg={c} balance={coin.data?.cp ?? null} payer={payer} onAsked={async () => { await list.reload(); await coin.reload(); }} />
-          <History list={list.data?.requests ?? null} error={list.error} reload={async () => { await list.reload(); await coin.reload(); }} />
+          <Offers list={offers.data} error={offers.error} opts={opts.data} reload={async () => { await offers.reload(); await coin.reload(); await opts.reload(); }} />
+          <AskCard cfg={c} opts={opts.data} onAsked={async () => { await list.reload(); await coin.reload(); await opts.reload(); }} />
+          <History list={list.data?.requests ?? null} error={list.error} opts={opts.data} reload={async () => { await list.reload(); await coin.reload(); await opts.reload(); }} />
         </div>
         <aside className="col-1 stack loose">
           {givingOn(info.settings) && <CoinRequestsCard onChanged={() => void coin.reload()} />}
           <section className="card" aria-labelledby="coin-h">
-            <h2 id="coin-h">{payer === 'party' ? 'Party pouch' : 'Your coin'}</h2>
-            <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-strong)' }}>{coin.data ? coins(coin.data.cp, info.settings.coins) : '…'}</span>
-            <span className="tiny faint">{payer === 'party' ? 'The broker is paid from the party pouch.' : 'You pay the broker from your own coin.'}</span>
+            <h2 id="coin-h">What you can pay with</h2>
+            <div className="stack tight">
+              <div className="row between"><span>My coin</span><strong style={{ fontSize: 20, color: 'var(--accent-strong)' }}>{opts.data ? coins(opts.data.self.cp, info.settings.coins) : coin.data ? coins(coin.data.cp, info.settings.coins) : '…'}</strong></div>
+              {opts.data?.party.cp !== null && opts.data?.party.cp !== undefined && <div className="row between"><span>Party pouch</span><strong style={{ fontSize: 20, color: 'var(--accent-strong)' }}>{coins(opts.data.party.cp, info.settings.coins)}</strong></div>}
+            </div>
+            <span className="tiny faint">{opts.data?.party.allowed ? 'When a price is set, you choose which one pays.' : 'You pay the broker from your own coin.'}</span>
           </section>
           <section className="card" aria-labelledby="prices-h">
             <div className="card-head"><h2 id="prices-h">Prices</h2><span className="chip">Set by your DM</span></div>
@@ -72,7 +75,7 @@ export default function PlayerBroker() {
   );
 }
 
-function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance: number | null; payer: string; onAsked: () => Promise<void> }) {
+function AskCard({ cfg, opts, onAsked }: { cfg: BrokerConfig; opts: PayOptions | null; onAsked: () => Promise<void> }) {
   const { w, info } = useWorld();
   const [question, setQuestion] = useState('');
   const [length, setLength] = useState(cfg.lengths[0]?.id ?? 'short');
@@ -80,7 +83,11 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
   const [free, setFree] = useState<{ question: string; answer: string; sources: { id: string | null; title: string }[] } | null>(null);
   const act = useAction();
   const { toast, toastNode } = useToast();
-  const short = quote && quote.cost_cp !== null && balance !== null && balance < quote.cost_cp;
+  const [from, setFrom] = useState<PayFrom>('self');
+  const cost = quote?.cost_cp ?? 0;
+  const have = opts ? (from === 'party' ? opts.party.cp ?? 0 : opts.self.cp) : null;
+  const short = !!quote && quote.cost_cp !== null && quote.cost_cp > 0 && have !== null && have < quote.cost_cp;
+  const showChoice = !!quote && !quote.refused && !quote.secret && quote.kind !== 'offtopic' && cost > 0;
 
   const getQuote = () => act.run(async () => {
     const asked = question.trim();
@@ -92,11 +99,11 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
       setFree({ question: asked, answer: qt.answer ?? '', sources: qt.sources ?? [] });
       setQuestion(''); setQuote(null);
       await onAsked();
-    } else setQuote(qt);
+    } else { setQuote(qt); if (qt.cost_cp) setFrom(pickPayFrom(opts, qt.cost_cp)); }
   });
   const pay = () => act.run(async () => {
     if (!quote) return;
-    const r = await w.call<BrokerRequest>('POST', '/broker/ask', { quoteId: quote.quoteId });
+    const r = await w.call<BrokerRequest>('POST', '/broker/ask', { quoteId: quote.quoteId, ...(showChoice ? { from } : {}) });
     setQuote(null); setQuestion('');
     toast(r.status === 'noted' ? 'The broker shrugs. Maybe word gets around.' : r.status === 'pricing' ? 'The broker will ask around. Your DM sets the price.' : r.status === 'answered' ? 'The broker answers.' : 'Paid. The broker will have your answer soon.');
     await onAsked();
@@ -131,11 +138,12 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
             {!quote.refused && <span className="chip">{quote.cost_cp === null ? 'Price: the DM decides' : quote.cost_cp === 0 ? 'Free' : coins(quote.cost_cp, info.settings.coins)}</span>}
             {!quote.refused && <span className="chip">{quote.secret ? 'Wait: the DM decides' : `Wait: ${quote.wait_text}`}</span>}
           </div>
-          {short && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{payer === 'party' ? 'The party pouch' : 'You'} can't cover that.</p>}
+          {showChoice && <PayChoice cost={cost} value={from} onChange={setFrom} opts={opts} />}
+          {short && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{from === 'party' ? 'The party pouch' : 'You'} can't cover that.</p>}
           <div className="row end">
             <button type="button" className="btn small ghost" onClick={() => setQuote(null)}>{quote.kind === 'offtopic' ? 'Fair enough' : 'Never mind'}</button>
             {quote.kind !== 'offtopic' && <button type="button" className="btn small primary" disabled={act.busy || !!short} onClick={() => void pay()}>
-              {quote.refused ? 'Leave word anyway' : quote.secret ? 'Ask them to look into it' : quote.cost_cp ? `Pay ${coins(quote.cost_cp, info.settings.coins)}` : 'Ask'}
+              {quote.refused ? 'Leave word anyway' : quote.secret ? 'Ask them to look into it' : quote.cost_cp ? `Pay ${coins(quote.cost_cp, info.settings.coins)}${opts?.party.allowed ? (from === 'party' ? ' from the pouch' : ' from my coin') : ''}` : 'Ask'}
             </button>}
           </div>
           {quote.kind !== 'offtopic' && <span className="tiny faint">This price holds for two minutes.</span>}
@@ -146,9 +154,10 @@ function AskCard({ cfg, balance, payer, onAsked }: { cfg: BrokerConfig; balance:
   );
 }
 
-function History({ list, error, reload }: { list: BrokerRequest[] | null; error: string | null; reload: () => Promise<void> }) {
+function History({ list, error, reload, opts }: { list: BrokerRequest[] | null; error: string | null; reload: () => Promise<void>; opts: PayOptions | null }) {
   const { w, info } = useWorld();
   const act = useAction();
+  const [pick, setPick] = useState<Record<string, PayFrom>>({});
   if (!list) return <section className="card"><ErrorBox error={error} />{!error && <Loading />}</section>;
   return (
     <section className="card" aria-labelledby="hist-h">
@@ -166,8 +175,9 @@ function History({ list, error, reload }: { list: BrokerRequest[] | null; error:
           {q.status === 'offered' && (
             <div className="stack tight" style={{ marginTop: 6 }}>
               <span className="small">The broker can find out, for {coins(q.cost_cp ?? 0, info.settings.coins)}.{q.reply ? ` “${q.reply}”` : ''}</span>
+              {(q.cost_cp ?? 0) > 0 && <PayChoice cost={q.cost_cp ?? 0} value={pick[q.id] ?? pickPayFrom(opts, q.cost_cp ?? 0)} onChange={(v) => setPick({ ...pick, [q.id]: v })} opts={opts} />}
               <div className="row">
-                <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/broker/${q.id}/accept`); await reload(); })}>Pay {coins(q.cost_cp ?? 0, info.settings.coins)}</button>
+                <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/broker/${q.id}/accept`, (q.cost_cp ?? 0) > 0 ? { from: pick[q.id] ?? pickPayFrom(opts, q.cost_cp ?? 0) } : {}); await reload(); })}>Pay {coins(q.cost_cp ?? 0, info.settings.coins)}</button>
                 <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/broker/${q.id}/decline`); await reload(); })}>No thanks</button>
               </div>
             </div>
@@ -187,24 +197,23 @@ function History({ list, error, reload }: { list: BrokerRequest[] | null; error:
 }
 
 /** Special offers from the DM: knowledge for a price, waiting here until paid, declined or out of time. */
-function Offers({ list, error, reload }: { list: Offer[] | null; error: string | null; reload: () => Promise<void> }) {
+function Offers({ list, error, reload, opts }: { list: Offer[] | null; error: string | null; reload: () => Promise<void>; opts: PayOptions | null }) {
   const { w, info } = useWorld();
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [asking, setAsking] = useState<{ offer: Offer; short: number } | null>(null);
-  const [from, setFrom] = useState<'me' | 'party'>('me');
-  const mine = useLoad(() => w.coin('me') as Promise<{ cp: number }>, [w], ['coin']);
-  const purse = useLoad(() => (info.settings.partyPurse ? w.coin('party') as Promise<{ cp: number }> : Promise.resolve(null)), [w, info.settings.partyPurse], ['coin']);
+  const [picked, setPicked] = useState<Record<string, PayFrom>>({});
   if (!list) return error ? <ErrorBox error={error} /> : null;
   const open = list.filter((o) => o.status === 'open');
   const bought = list.filter((o) => o.status === 'paid');
   if (!open.length && !bought.length) return null;
   const money = (cp: number) => coins(cp, info.settings.coins);
-  const have = from === 'party' ? purse.data?.cp ?? 0 : mine.data?.cp ?? 0;
   return (
     <>
       {open.map((o) => {
-        const short = Math.max(0, o.price_cp - have);
+        const from = picked[o.id] ?? pickPayFrom(opts, o.price_cp);
+        const have = opts ? (from === 'party' ? opts.party.cp ?? 0 : opts.self.cp) : 0;
+        const short = opts ? Math.max(0, o.price_cp - have) : 0;
         return (
           <section key={o.id} className="card gold" aria-labelledby={`of-${o.id}`} style={{ borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent) inset' }}>
             <div className="row between" style={{ alignItems: 'flex-start', gap: 8 }}>
@@ -213,14 +222,12 @@ function Offers({ list, error, reload }: { list: Offer[] | null; error: string |
             </div>
             {o.teaser && <blockquote className="read" style={{ margin: '6px 0', fontStyle: 'italic' }}>“{o.teaser}”</blockquote>}
             <span className="tiny faint">{o.for_party ? 'Offered to the party · ' : 'Offered to you · '}{offerExpiry(o)}</span>
-            {info.settings.partyPurse && (
-              <Tabs label="Pay from" value={from} onChange={setFrom} items={[['me', `My coin${mine.data ? ` (${money(mine.data.cp)})` : ''}`], ['party', `Party pouch${purse.data ? ` (${money(purse.data.cp)})` : ''}`]]} />
-            )}
+            {o.price_cp > 0 && <PayChoice cost={o.price_cp} value={from} onChange={(v) => setPicked({ ...picked, [o.id]: v })} opts={opts} />}
             {short > 0 && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{from === 'party' ? 'The party pouch' : 'You'} {from === 'party' ? 'is' : 'are'} {money(short)} short.</p>}
             <ErrorBox error={act.error} />
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              <button type="button" className="btn small primary" disabled={act.busy || short > 0} onClick={() => void act.run(async () => { await w.call('POST', `/broker/offers/${o.id}/pay`, { from }); toast('Paid. The broker tells you what they know.'); await reload(); await mine.reload(); await purse.reload(); })}>Pay {money(o.price_cp)}</button>
-              {short > 0 && from === 'me' && givingOn(info.settings) && <button type="button" className="btn small" onClick={() => setAsking({ offer: o, short })}>Ask the party for {money(short)}</button>}
+              <button type="button" className="btn small primary" disabled={act.busy || short > 0} onClick={() => void act.run(async () => { await w.call('POST', `/broker/offers/${o.id}/pay`, { from }); toast(from === 'party' ? 'Paid from the party pouch. The broker tells you what they know.' : 'Paid. The broker tells you what they know.'); await reload(); })}>Pay {money(o.price_cp)}</button>
+              {short > 0 && from === 'self' && givingOn(info.settings) && <button type="button" className="btn small" onClick={() => setAsking({ offer: o, short })}>Ask the party for {money(short)}</button>}
               <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/broker/offers/${o.id}/decline`); await reload(); })}>No thanks</button>
             </div>
           </section>
@@ -231,7 +238,7 @@ function Offers({ list, error, reload }: { list: Offer[] | null; error: string |
           <h2 id="bought-h">Knowledge you bought</h2>
           {bought.map((o) => (
             <details key={o.id} className="list-item" style={{ display: 'block' }} open={!!o.paid_at && Date.now() - Date.parse(o.paid_at) < 86400_000}>
-              <summary><strong>{o.title}</strong> <span className="tiny faint">· {money(o.price_cp)}{o.paid_by_name ? ` · paid by ${o.paid_by_name}` : ''} · {when(o.paid_at)}</span></summary>
+              <summary><strong>{o.title}</strong> <span className="tiny faint">· {money(o.price_cp)}{o.paid_by_name ? ` · paid by ${o.paid_by_name}${o.paid_from_party ? ' from the party pouch' : ''}` : ''} · {when(o.paid_at)}</span></summary>
               <div className="read" style={{ whiteSpace: 'pre-wrap', marginTop: 6, padding: 10, borderLeft: '3px solid var(--accent)', background: 'var(--panel-2)', borderRadius: 6 }}>{o.info}</div>
               {o.page && <div className="tiny">See: <Link to={`/w/${info.slug}/library?page=${encodeURIComponent(o.page.id)}`}>{o.page.title}</Link></div>}
             </details>

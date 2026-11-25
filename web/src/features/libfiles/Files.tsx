@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Empty, Loading, Field, useAction } from '../../ui/index.tsx';
 import { LEVELS, LEVEL_LABEL, LevelChip, type Level } from '../../pages/library/Levels.tsx';
+import { AudBadge, ShareControl, SHARE_CSS, useSharing } from '../libshare/Share.tsx';
 
 export interface LibFile {
   id: string; pageId: string; pageTitle?: string; name: string; kind: string; mime: string; family: 'image' | 'video' | 'pdf' | 'text' | 'json' | 'csv'; size: number; at: string; url: string;
@@ -96,9 +97,12 @@ export function UploadForm({ pageId, max, videoMax, onDone, onCancel }: { pageId
 function FileTools({ f, canUpload, reload }: { f: LibFile; canUpload: boolean; reload: () => void }) {
   const { w } = useWorld();
   const act = useAction();
+  const so = useSharing().data;
   if (!canUpload) return null;
   return (
     <div className="row wrap lf-tools">
+      <AudBadge level={f.level} entry={so?.files[f.id]} o={so} />
+      <ShareControl target={{ kind: 'file', id: f.id, title: f.name }} />
       <select aria-label={`Level of ${f.name}`} value={f.level} disabled={act.busy} onChange={(e) => void act.run(async () => { await w.call('PATCH', `/files/${f.id}`, { level: e.target.value }); reload(); })}>
         {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
       </select>
@@ -176,6 +180,7 @@ export function PageFiles({ pageId }: { pageId: string }) {
 /** The Files tab: every file the viewer may see, searchable, and (for a DM) a way to add a file as a new page. */
 export function FilesTab({ onOpen }: { onOpen: (pageId: string) => void }) {
   const files = useFiles();
+  const so = useSharing().data;
   const [q, setQ] = useState('');
   const [kind, setKind] = useState('');
   const [adding, setAdding] = useState(false);
@@ -194,11 +199,14 @@ export function FilesTab({ onOpen }: { onOpen: (pageId: string) => void }) {
       {list.length ? (
         <div className="lib-flat">
           {list.map((f) => (
-            <button key={f.id} type="button" className="list-item" onClick={() => onOpen(f.pageId)}>
-              {f.family === 'image' ? <img className="lf-thumb" src={f.url} alt="" loading="lazy" /> : <i className={`${icon(f)} lf-ico`} aria-hidden="true" />}
-              <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{f.name}</strong><span className="tiny faint lib-ellipsis">{f.pageTitle} · {KIND_LABEL[f.kind] ?? f.kind} · {size(f.size)}</span></span>
-              {f.level && f.level !== 'party' && <LevelChip level={f.level} />}
-            </button>
+            <div key={f.id} className="list-item lf-listrow">
+              <button type="button" className="lf-listbtn" disabled={!f.pageId} title={f.pageId ? undefined : 'Shared with you on its own'} onClick={() => f.pageId && onOpen(f.pageId)}>
+                {f.family === 'image' ? <img className="lf-thumb" src={f.url} alt="" loading="lazy" /> : <i className={`${icon(f)} lf-ico`} aria-hidden="true" />}
+                <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{f.name}</strong><span className="tiny faint lib-ellipsis">{f.pageTitle ? `${f.pageTitle} · ` : ''}{KIND_LABEL[f.kind] ?? f.kind} · {size(f.size)}</span></span>
+              </button>
+              {!f.pageId && <a className="btn small" href={f.url} target="_blank" rel="noopener noreferrer">Open</a>}
+              {d.canUpload ? <><AudBadge level={f.level} entry={so?.files[f.id]} o={so} /><ShareControl target={{ kind: 'file', id: f.id, title: f.name }} label="Share…" /></> : null}
+            </div>
           ))}
         </div>
       ) : <Empty>{d.files.length ? 'No files match.' : 'No files yet.'}</Empty>}
@@ -206,7 +214,10 @@ export function FilesTab({ onOpen }: { onOpen: (pageId: string) => void }) {
   );
 }
 
-export const FILES_CSS = `
+export const FILES_CSS = SHARE_CSS + `
+.lf-listrow { display: flex; align-items: center; gap: 8px; }
+.lf-listbtn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 0; }
+.lf-listbtn:disabled { cursor: default; }
 .lf-section { margin-top: 22px; display: flex; flex-direction: column; gap: 12px; }
 .lf-pic { margin: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
 .lf-pic img { max-width: 100%; max-height: 520px; object-fit: contain; border-radius: 6px; display: block; margin: 0 auto; background: var(--panel); }

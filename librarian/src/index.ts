@@ -2,13 +2,15 @@
 // session, calendar, messages and model access.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createApp } from './app.ts';
+import { startServer } from './server.ts';
 
 const dataDir = path.resolve(process.env.ALX_DATA_DIR || 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 const port = Number(process.env.LIBRARIAN_PORT || 8090);
 
-const { app } = createApp({
+// Listens first and finishes getting ready in the background (/health says "warming" meanwhile): see server.ts.
+const { server } = await startServer({
+  port,
   dbFile: process.env.ALX_DB || path.join(dataDir, 'librarian.db'),
   dataDir,
   vaultsDir: process.env.ALX_VAULTS_DIR ? path.resolve(process.env.ALX_VAULTS_DIR) : null,
@@ -16,7 +18,11 @@ const { app } = createApp({
   webDir: path.resolve(process.env.ALX_WEB_DIR || new URL('../../web/dist', import.meta.url).pathname),
 });
 
-app.listen(port, () => {
-  console.log(`Alexandria librarian on :${port} (data in ${dataDir})`);
-  console.log('First run? POST /api/setup with {username, password} to create the admin.');
-});
+// A stop (docker stop, Ctrl-C) closes the listener and lets the database settle.
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(sig, () => {
+    server.close();
+    server.closeAllConnections?.();
+    setTimeout(() => process.exit(0), 500).unref();
+  });
+}
