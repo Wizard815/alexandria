@@ -156,10 +156,11 @@ export function createApp(opts: AppOptions = {}) {
 
   if (opts.webDir && fs.existsSync(path.join(opts.webDir, 'index.html'))) {
     const webDir = opts.webDir;
-    const csp = "default-src 'self'; img-src 'self' https: data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    // 'wasm-unsafe-eval' lets a recording device run its own speech model (WebAssembly from this origin, audio/sttassets.ts); no eval.
+    const csp = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' https: data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     // The players' screen alone may embed YouTube (privacy-enhanced domain, nothing else) and load YouTube's IFrame Player API script
     // (so it can start and unmute each queued video after the one click that unlocks sound); every other page stays frame-free and script-free of it.
-    const screenCsp = csp.replace("frame-ancestors 'none'", "script-src 'self' https://www.youtube.com; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'");
+    const screenCsp = csp.replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' https://www.youtube.com").replace("frame-ancestors 'none'", "frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'");
     const cspFor = (p: string) => (/^\/w\/[^/]+\/screen\/players\/?$/.test(p) ? screenCsp : csp);
     app.use(express.static(webDir, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (f.endsWith('index.html')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Content-Security-Policy', csp); } } }));
     // Any other GET that is not an API path is a page of the app.

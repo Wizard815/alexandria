@@ -119,6 +119,7 @@ export function migrateStt(db: import('../../core/db.ts').DB) {
 
 export const DEFAULT_CONSENT_TEXT = 'This session is recorded and turned into a text transcript so everyone can follow it. Your microphone is only used while a session is recording, and only if you turn it on. You can withdraw your consent at any time.';
 
+export type SttMode = 'server' | 'device' | 'auto';
 export type Mode = 'always' | 'hold-to-talk' | 'hold-to-mute' | 'off';
 export const MODES: readonly Mode[] = ['always', 'hold-to-talk', 'hold-to-mute', 'off'];
 export const HOLD_KINDS = ['talk', 'mute', 'aside'] as const;
@@ -250,26 +251,37 @@ export class Engine {
 
   // ---- speech to text on the device ---------------------------------------------------
 
-  /** Where speech to text runs for a world: 'device', 'server' or 'device-first' (the device, the server for what it did not send). */
-  sttMode(worldId: string): 'device' | 'server' | 'device-first' {
+  /**
+   * Where speech to text runs for a world: 'server' (the server's speech model), 'device' (every recording device runs
+   * its own model, WebGPU or else WASM) or 'auto' (a device runs its own model when it has a GPU the browser can use).
+   * Whatever a device does not send text for, the server transcribes itself, so the transcript has no gaps.
+   */
+  sttMode(worldId: string): SttMode {
     const v = this.worldSetting(worldId, 'speechToText');
-    return v === 'device' || v === 'server' ? v : 'device-first';
+    return v === 'device' || v === 'auto' ? v : 'server';
   }
 
   /** How long a chunk waits for its device's text before the server (or nobody) takes it. */
   get textWaitMs() { const n = Number(this.d.env.ALX_AUDIO_TEXT_WAIT_MS ?? 45_000); return Number.isFinite(n) && n >= 0 ? n : 45_000; }
 
   /**
-   * A chunk was just stored. `wait`: its device says text is coming. With the server doing the speech to text (or the
-   * device not promising text) the server listens now; with 'device' only, a chunk with no text is kept as audio alone.
+   * A chunk was just stored. `wait`: its device says text is coming, so the chunk waits for it (the server takes it
+   * when the text does not come in time, or the device gives up). Otherwise the server listens now.
    */
   async intake(chunkId: string, wait: boolean): Promise<string> {
     const ch = one<any>(this.d.db, 'SELECT c.id, s.world_id FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE c.id = ?', chunkId);
     if (!ch) return 'skipped';
-    const mode = this.sttMode(ch.world_id);
-    if (mode !== 'server' && wait) { run(this.d.db, "UPDATE audio_chunks SET status = 'awaiting' WHERE id = ?", chunkId); return 'awaiting'; }
-    if (mode === 'device') { run(this.d.db, "UPDATE audio_chunks SET status = 'notext' WHERE id = ?", chunkId); return 'notext'; }
+    if (wait && this.sttMode(ch.world_id) !== 'server') { run(this.d.db, "UPDATE audio_chunks SET status = 'awaiting' WHERE id = ?", chunkId); return 'awaiting'; }
     return this.process(chunkId);
+  }
+
+  /** The device could not transcribe a chunk it promised text for (its model failed, or it fell behind): the server does it now. */
+  async giveUp(chunkId: string): Promise<{ status: string; accepted: boolean; words: number }> {
+    const ch = one<any>(this.d.db, 'SELECT status FROM audio_chunks WHERE id = ?', chunkId);
+    if (!ch) throw new HttpError(404, 'Chunk not found');
+    if (ch.status !== 'awaiting') return { status: ch.status, accepted: false, words: 0 };
+    const r = await this.process(chunkId);
+    return { status: r === 'done' ? 'done' : r, accepted: false, words: 0 };
   }
 
   /**
@@ -280,17 +292,19 @@ export class Engine {
   async acceptText(chunkId: string, body: any): Promise<{ status: string; accepted: boolean; words: number }> {
     const ch = one<any>(this.d.db, 'SELECT c.*, s.world_id FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE c.id = ?', chunkId);
     if (!ch) throw new HttpError(404, 'Chunk not found');
+    if (body?.giveUp === true) return this.giveUp(chunkId);
     if (this.sttMode(ch.world_id) === 'server') return { status: ch.status, accepted: false, words: 0 };
-    if (ch.status === 'done' && ch.source === 'server') return { status: ch.status, accepted: false, words: 0 };
+    // The server got there first (the text came too late), or the chunk is gone: the device's text is not needed.
+    if ((ch.status === 'done' && ch.source === 'server') || !['awaiting', 'pending', 'queued', 'done'].includes(ch.status)) return { status: ch.status, accepted: false, words: 0 };
+    if (this.inflight.has(chunkId)) return { status: ch.status, accepted: false, words: 0 };
     const num = (v: unknown, lo: number, hi: number, what: string) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw new HttpError(400, `${what} is out of range`); return n; };
     const span = (ch.end_ms - ch.start_ms) / 1000;
     const rawSegs: any[] | null = Array.isArray(body?.segments) ? body.segments : Array.isArray(body?.words) ? [{ start: 0, end: span, text: body.words.map((w: any) => String(w?.word ?? '')).join(' '), words: body.words }] : null;
     if (!rawSegs) throw new HttpError(400, 'Send segments or words');
-    let total = 0;
-    const segments = rawSegs.slice(0, 200).map((sg) => {
-      const words = (Array.isArray(sg?.words) ? sg.words : []).slice(0, 1500).map((w: any) => {
+    if (rawSegs.length > 200 || rawSegs.reduce((n, sg) => n + (Array.isArray(sg?.words) ? sg.words.length : 0), 0) > 3000) throw new HttpError(400, 'That is too many words for one chunk');
+    const segments = rawSegs.map((sg) => {
+      const words = (Array.isArray(sg?.words) ? sg.words : []).map((w: any) => {
         if (typeof w?.word !== 'string') throw new HttpError(400, 'Each word needs a word');
-        total++;
         return { word: w.word.slice(0, 80), start: num(w.start, -5, span + 5, 'start'), end: num(w.end, -5, span + 10, 'end'), probability: w.probability === undefined ? undefined : num(w.probability, 0, 1, 'probability') };
       });
       return {
@@ -299,7 +313,6 @@ export class Engine {
         compressionRatio: typeof sg?.compressionRatio === 'number' ? sg.compressionRatio : undefined, words: words.length ? words : undefined,
       };
     });
-    if (total > 3000) throw new HttpError(400, 'That is too many words for one chunk');
     const hint = this.worldSetting(ch.world_id, 'transcriptHint') !== 'off' && ch.level >= QUIET_LEVEL ? this.hint(ch.world_id) : '';
     const words = this.wordsOf(segments, ch.start_ms, hint);
     const s = body?.stt ?? {};
@@ -309,15 +322,12 @@ export class Engine {
     return { status: 'done', accepted: true, words: words.length };
   }
 
-  /** Chunks whose device text never came: the server takes them (or, with 'device' only, they stay audio alone). */
-  async expireAwaiting(sessionId?: string, olderThanMs = this.textWaitMs): Promise<number> {
+  /** Chunks whose device text never came (in time): the server takes them. Narrowed to a session or one mic. */
+  async expireAwaiting(sessionId?: string, olderThanMs = this.textWaitMs, micId?: string): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanMs).toISOString();
-    const rows = all<any>(this.d.db, `SELECT c.id, s.world_id FROM audio_chunks c JOIN audio_sessions s ON s.id = c.session_id WHERE c.status = 'awaiting' AND c.created_at <= ? ${sessionId ? 'AND c.session_id = ?' : ''} ORDER BY c.created_at LIMIT 100`, cutoff, ...(sessionId ? [sessionId] : []));
+    const rows = all<any>(this.d.db, `SELECT c.id FROM audio_chunks c WHERE c.status = 'awaiting' AND c.created_at <= ? ${sessionId ? 'AND c.session_id = ?' : ''} ${micId ? 'AND c.mic_id = ?' : ''} ORDER BY c.created_at LIMIT 200`, cutoff, ...(sessionId ? [sessionId] : []), ...(micId ? [micId] : []));
     let n = 0;
-    for (const r of rows) {
-      if (this.sttMode(r.world_id) === 'device') { run(this.d.db, "UPDATE audio_chunks SET status = 'notext' WHERE id = ?", r.id); continue; }
-      if ((await this.process(r.id)) === 'done') n++;
-    }
+    for (const r of rows) if ((await this.process(r.id)) === 'done') n++;
     return n;
   }
 
@@ -391,9 +401,9 @@ export class Engine {
     if (opts.force && !jobConfig(this.d, 'audio')) return 0;
     const hint = this.hint(session.world_id);
     let redone = 0;
-    const mics = all<any>(db, "SELECT DISTINCT mic_id FROM audio_chunks WHERE session_id = ? AND status IN ('done', 'notext') AND file IS NOT NULL", sessionId);
+    const mics = all<any>(db, "SELECT DISTINCT mic_id FROM audio_chunks WHERE session_id = ? AND status = 'done' AND file IS NOT NULL", sessionId);
     for (const { mic_id } of mics) {
-      const chunks = all<any>(db, "SELECT id, file, mime, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND status IN ('done', 'notext') AND file IS NOT NULL ORDER BY start_ms", sessionId, mic_id);
+      const chunks = all<any>(db, "SELECT id, file, mime, start_ms, end_ms FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND status = 'done' AND file IS NOT NULL ORDER BY start_ms", sessionId, mic_id);
       const windows: { chunk: any; trim: number; from: number }[][] = [];
       let cur: { chunk: any; trim: number; from: number }[] = [];
       let covered = 0;

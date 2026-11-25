@@ -15,6 +15,7 @@ import type { Feature } from '../types.ts';
 import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, migrateStt, type LineRow, type MicRow } from './engine.ts';
 import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
 import { RULES_SCHEMA, ruleNotes, rulesPass } from './rulescheck.ts';
+import { sttAssetRoutes, sttAssetsFor } from './sttassets.ts';
 import { REC_SCHEMA, enqueueBuild, migrateRecordings, resetStuckBuilds, sweepRecordings } from './recordings.ts';
 import { recordingMedia, recordingRoutes } from './recroutes.ts';
 
@@ -62,14 +63,15 @@ const feature: Feature = {
     transcriptContext: { type: 'enum', values: ['on', 'off'], default: 'off' },
     // After a recording stops, listen again in 60 s windows with the audio job's `refineModel` (off unless the job names one).
     transcriptRefine: { type: 'enum', values: ['on', 'off'], default: 'off' },
-    // Where speech to text runs: on each recording device, on the server's audio model, or the device first (the server for what it did not send).
-    speechToText: { type: 'enum', values: ['device-first', 'device', 'server'], default: 'device-first' },
+    // Where speech to text runs: the server's audio model, each recording device's own model (WebGPU, else WASM), or
+    // auto (a device with a usable GPU does its own). The server always transcribes what a device did not send text for.
+    speechToText: { type: 'enum', values: ['server', 'device', 'auto'], default: 'server' },
     // After a recording stops, sync every mic into one clean transcript that replaces the live one (the live one is kept for undo).
     finalTranscript: { type: 'enum', values: ['on', 'off'], default: 'on' },
   },
   worldMount: 'audio',
   dataDirs: ['audio', 'recordings'],
-  appRoutes: (app, d) => recordingMedia(app, d),
+  appRoutes: (app, d) => { recordingMedia(app, d); sttAssetRoutes(app, d); },
 
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
@@ -127,9 +129,9 @@ const feature: Feature = {
     const sttOf = (worldId: string, m: MicRow) => {
       const st = eng.sttStatus.get(m.id);
       const sess = activeSession(worldId) ?? one<any>(db, 'SELECT * FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC', worldId);
-      const chunks = { device: 0, server: 0, awaiting: 0, notext: 0, pending: 0 };
+      const chunks = { device: 0, server: 0, awaiting: 0, pending: 0 };
       if (sess) for (const x of all<any>(db, 'SELECT source, status, COUNT(*) AS n FROM audio_chunks WHERE session_id = ? AND mic_id = ? GROUP BY source, status', sess.id, m.id)) {
-        if (x.status === 'awaiting') chunks.awaiting += x.n; else if (x.status === 'notext') chunks.notext += x.n; else if (x.status === 'pending') chunks.pending += x.n;
+        if (x.status === 'awaiting') chunks.awaiting += x.n; else if (x.status === 'pending' || x.status === 'queued') chunks.pending += x.n;
         else if (x.source === 'device') chunks.device += x.n; else if (x.status === 'done') chunks.server += x.n;
       }
       const last = one<any>(db, "SELECT source, stt FROM audio_chunks WHERE mic_id = ? AND status = 'done' ORDER BY end_ms DESC", m.id);
@@ -154,7 +156,17 @@ const feature: Feature = {
         at: Date.now(), state, model: typeof b.model === 'string' ? b.model.slice(0, 60) : '', backend: typeof b.backend === 'string' ? b.backend.slice(0, 20) : '',
         rtf: n(b.rtf, 0, 1000), backlog: Math.round(n(b.backlog, 0, 100000) ?? 0), progress: n(b.progress, 0, 1), note: typeof b.note === 'string' ? b.note.slice(0, 120) : '',
       });
+      // A device that cannot keep up or whose model failed: what it still owes is done by the server now, not in 45 s.
+      if (state === 'behind' || state === 'error' || state === 'unsupported' || state === 'off') void eng.expireAwaiting(undefined, 0, m.id).catch((e) => console.error('audio: fallback failed', e));
       res.json({ ok: true, mode: eng.sttMode(ctx(res).world.id) });
+    });
+
+    // Where this device loads its own speech model from: the librarian serves (and caches) the library and the model
+    // files, so no page ever talks to another site. The ticket in the path stands in for the sign-in header that a
+    // module import cannot send. Null when this server does not serve them (ALX_STT_ASSETS=off).
+    r.get('/stt/assets', (_req, res) => {
+      const c = ctx(res);
+      res.json({ mode: eng.sttMode(c.world.id), assets: sttAssetsFor(d, c.world.id, me(res)) });
     });
 
     // The vocabulary prompt for a device's own speech model: names every player may read (never a DM-only or classified title).
@@ -419,6 +431,8 @@ const feature: Feature = {
   start: (d: Deps) => {
     const eng = engine(d);
     const retry = setInterval(() => { void eng.retryPending().catch((e) => console.error('audio: retry failed', e)); }, 60_000);
+    // Chunks whose device text did not come in time: the server takes them (checked often, so the live transcript has no long hole).
+    const late = setInterval(() => { void eng.expireAwaiting().catch((e) => console.error('audio: fallback failed', e)); }, 10_000);
     const keep = setInterval(() => { try { eng.runRetention(); } catch (e) { console.error('audio: retention failed', e); } }, 60 * 60_000);
     // The running summaries of sessions recording now (each folds in new lines only when enough have come in).
     const summ = setInterval(() => { for (const x of recordingSessions(d)) void updateBoth(d, x.worldId, x.sessionId).catch((e) => console.error('audio: summary pass failed', e)); }, 30_000);
@@ -429,8 +443,8 @@ const feature: Feature = {
     resetStuckBuilds(d.db);
     const sweep = setInterval(() => { try { sweepRecordings(d); } catch (e) { console.error('audio: recording sweep failed', e); } }, 30 * 60_000);
     const first = setTimeout(() => { try { eng.runRetention(); sweepRecordings(d); } catch (e) { console.error('audio: retention failed', e); } void eng.retryPending().catch(() => {}); }, 10_000);
-    for (const t of [retry, keep, first, sweep]) t.unref();
-    return () => { clearInterval(retry); clearInterval(keep); clearInterval(sweep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
+    for (const t of [retry, late, keep, first, sweep]) t.unref();
+    return () => { clearInterval(retry); clearInterval(late); clearInterval(keep); clearInterval(sweep); clearInterval(summ); clearInterval(rules); clearTimeout(first); eng.flushAll(); };
   },
 };
 

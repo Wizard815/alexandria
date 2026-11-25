@@ -207,7 +207,7 @@ export function sweepRecordings(d: Deps, nowMs = Date.now()) {
 /** Delete a built session's raw chunks (kept: any still waiting for the speech model). */
 export function cleanChunks(d: Deps, sessionId: string): number {
   let n = 0;
-  for (const c of all<any>(d.db, "SELECT id, file FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL AND status NOT IN ('pending', 'queued')", sessionId)) {
+  for (const c of all<any>(d.db, "SELECT id, file FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL AND status NOT IN ('pending', 'queued', 'awaiting')", sessionId)) {
     try { fs.rmSync(path.join(d.dataDir!, c.file), { force: true }); } catch { /* already gone */ }
     run(d.db, 'UPDATE audio_chunks SET file = NULL WHERE id = ?', c.id);
     n++;
@@ -389,7 +389,31 @@ export function rewriteTranscript(d: Deps, sessionId: string): boolean {
   const dir = path.join(d.dataDir, s.rec_dir);
   if (!fs.existsSync(dir)) return false;
   writeTranscript(d, s, dir);
+  if (fs.existsSync(path.join(dir, 'session.json'))) {
+    const world = one<{ name: string }>(d.db, 'SELECT name FROM worlds WHERE id = ?', s.world_id);
+    writeSessionJson(d, s, world?.name ?? '', dir);
+  }
   return true;
+}
+
+/**
+ * How the session's transcript was made, for session.json: per mic, where its speech to text ran (chunks done on the
+ * device and on the server) and the clock offset the final pass applied; and the final pass itself.
+ */
+export function transcriptInfo(d: Deps, s: SessionRow) {
+  const fin = one<{ status: string; finished_at: string | null; offsets: string; stats: string }>(d.db, 'SELECT status, finished_at, offsets, stats FROM audio_final WHERE session_id = ?', s.id);
+  const offsets = parseJson<Record<string, { ms: number; method: string }>>(fin?.offsets, {});
+  const mics: Record<string, { device: number; server: number; models: string[]; offsetMs: number | null; syncedBy: string | null }> = {};
+  for (const r of all<{ mic_id: string; source: string | null; stt: string; n: number }>(d.db, "SELECT mic_id, source, stt, COUNT(*) AS n FROM audio_chunks WHERE session_id = ? AND status = 'done' GROUP BY mic_id, source, stt", s.id)) {
+    const m = mics[r.mic_id] ??= { device: 0, server: 0, models: [], offsetMs: offsets[r.mic_id]?.ms ?? null, syncedBy: offsets[r.mic_id]?.method ?? null };
+    if (r.source === 'device') {
+      m.device += r.n;
+      const info = parseJson<{ model?: string; backend?: string }>(r.stt, {});
+      const name = [info.model, info.backend].filter(Boolean).join(' on ');
+      if (name && !m.models.includes(name)) m.models.push(name);
+    } else m.server += r.n;
+  }
+  return { final: fin ? { status: fin.status, finishedAt: fin.finished_at, ...parseJson<Record<string, unknown>>(fin.stats, {}) } : null, speechToText: mics };
 }
 
 function writeTranscript(d: Deps, s: SessionRow, dir: string) {
@@ -400,6 +424,7 @@ function writeTranscript(d: Deps, s: SessionRow, dir: string) {
 export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir: string, roles?: Map<string, string>) {
   const tracks = all<TrackRow>(d.db, "SELECT * FROM audio_tracks WHERE session_id = ? ORDER BY CASE kind WHEN 'full' THEN 0 ELSE 1 END, created_at, label", s.id);
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.username, a.display_name, m.character_name, m.role FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r]));
+  const info = transcriptInfo(d, s);
   const doc = {
     format: 'alexandria-recording/1',
     sessionId: s.id, worldId: s.world_id, world: worldName, name: s.name,
@@ -415,8 +440,10 @@ export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir:
     ],
     microphones: tracks.filter((t) => t.kind === 'mic').map((t) => {
       const p = t.account_id ? people.get(t.account_id) : null;
-      return { micId: t.mic_id, name: t.label, file: t.file, person: { accountId: t.account_id, username: p?.username ?? null, displayName: p?.display_name ?? t.person, character: p?.character_name || null, role: p?.role ?? roles?.get(t.account_id ?? '') ?? null } };
+      const stt = t.mic_id ? info.speechToText[t.mic_id] : undefined;
+      return { micId: t.mic_id, name: t.label, file: t.file, person: { accountId: t.account_id, username: p?.username ?? null, displayName: p?.display_name ?? t.person, character: p?.character_name || null, role: p?.role ?? roles?.get(t.account_id ?? '') ?? null }, ...(stt ? { speechToText: { deviceChunks: stt.device, serverChunks: stt.server, deviceModels: stt.models }, syncOffsetMs: stt.offsetMs, syncedBy: stt.syncedBy } : {}) };
     }),
+    transcript: info.final,
   };
   fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify(doc, null, 2) + '\n');
 }
@@ -449,7 +476,7 @@ export function deleteSessionAudio(d: Deps, s: SessionRow): number {
   let n = 0;
   for (const c of all<any>(d.db, 'SELECT id, file, status FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL', s.id)) {
     try { fs.rmSync(path.join(d.dataDir, c.file), { force: true }); } catch { /* already gone */ }
-    run(d.db, 'UPDATE audio_chunks SET file = NULL, status = ? WHERE id = ?', c.status === 'pending' ? 'expired' : c.status, c.id);
+    run(d.db, 'UPDATE audio_chunks SET file = NULL, status = ? WHERE id = ?', ['pending', 'queued', 'awaiting'].includes(c.status) ? 'expired' : c.status, c.id);
     n++;
   }
   const tracks = all<TrackRow>(d.db, 'SELECT * FROM audio_tracks WHERE session_id = ?', s.id);
