@@ -117,7 +117,7 @@ function WorldMembers({ world, card, accounts, onChange }: { world: any; card?: 
         </div>
       )}
       <hr />
-      <div className="row between"><span className="small muted">This world's sources, audience and crawl are on <Link to={`/admin/worlds/${world.id}`}>its page</Link>; the accounts they use are in <Link to="/admin/connections">Connections</Link>.</span><button type="button" className="btn small danger" onClick={del}>Delete world</button></div>
+      <div className="row between"><span className="small muted">This world's sources, audience and crawl are on <Link to={`/admin/worlds/${world.id}`}>its page</Link>; the accounts they use are in <Link to="/admin/sources?tab=connections">Connections</Link>.</span><button type="button" className="btn small danger" onClick={del}>Delete world</button></div>
     </div>
   );
 }

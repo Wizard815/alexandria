@@ -2,7 +2,7 @@ import type { WebFeature } from '../registry.ts';
 import AdminLibrary from './AdminLibrary.tsx';
 
 // Files in the library (see Files.tsx, used by the Library page) and the Library page of the gateway admin.
-// The admin sidebar entry is in layouts/AdminLayout.tsx (Library group, after Worlds).
+// The admin menu entry is in lib/adminnames.ts (People & worlds group).
 const feature: WebFeature = {
   id: 'libfiles',
   adminRoutes: [

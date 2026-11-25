@@ -19,7 +19,7 @@ export default function SourceFilesPage() {
   return (
     <div className="page">
       <PageHead title="Source files" lead="Pictures and maps fetched from sources, and files added to the library. A source's files are read again by its next sync; library files can be deleted here.">
-        <Link className="btn" to="/admin/sources">World sources</Link>
+        <Link className="btn" to="/admin/sources?tab=worlds">World sources</Link>
       </PageHead>
       <ErrorBox error={q.error} />
       {q.loading && !d ? <Loading /> : d && (
