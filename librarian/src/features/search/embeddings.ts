@@ -21,14 +21,15 @@
 // keyword only.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { ClassifiedRefused, ModelUnavailable, embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
+import { ClassifiedRefused, type JobConfig, ModelUnavailable, embed, embedPrefix, hasJob, jobConfig, rerankItems, wouldBeRefused } from '../../core/ai.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { type PageHit, type ParsedQuery, type Scope, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
-import { type Pending, backedOffCount, bindBackoff, eligibleIds, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
+import { type Pending, backedOffCount, bindBackoff, eligibleIds, hashOf, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
 import { libraryOf as libraryFor } from '../../core/library.ts';
 import { type Reach, type VecScope, VEC_SCOPES, openable, reachOf, reachOfScope, reachScopes } from './scopes.ts';
 import { noteDone, progress } from './pace.ts';
-import { normalize, vectorStore } from './vectorstore.ts';
+import { fromBlob, normalize, vectorStore } from './vectorstore.ts';
+import { embedBatch, parallelFor, pool } from './batching.ts';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS search_chunks (
@@ -82,10 +83,12 @@ export function migrateSearch(db: DB) {
 }
 
 export const CHUNK_CHARS = 500;
-/** Chunks are tagged with the level scheme they were cut under; older ones (cut from the full text) are never read. */
-const tagged = (model: string) => `${model}|lv1`;
+/**
+ * Chunks are tagged with the level scheme they were cut under; older ones (cut from the full text) are never read.
+ * A document prefix (job option docPrefix) is part of the tag, so changing it embeds the world again.
+ */
+const tagged = (cfg: JobConfig) => { const pre = embedPrefix(cfg, 'document'); return `${cfg.model}${pre ? `|p:${hashOf(pre).slice(0, 8)}` : ''}|lv1`; };
 const MAX_CHUNKS_PER_PAGE = 40;
-const BATCH = 16;
 /** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so no scope waits for the others to finish. */
 const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
 const PER_TURN = 3;
@@ -137,11 +140,27 @@ function pruneIfChanged(db: DB) {
   pruneChunks(db);
 }
 
-export interface SyncResult { embedded: number; pages: number; remaining: boolean; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
+export interface SyncResult { embedded: number; pages: number; remaining: boolean; /** Copies whose text another scope of the same page already had: its vectors were reused, no model call. */ reused?: number; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
+
+/**
+ * A refusal about this page's text (the classified guard, or a 4xx about the request): back off from the page, carry on with the rest.
+ * A wrong key (401) or an account out of credit (402) is about the server, not the page: the pass stops instead of backing off from every page.
+ */
+const NOT_ABOUT_THE_PAGE = new Set([401, 402, 404, 408, 429]);
+const isRefusal = (e: unknown) => e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && !NOT_ABOUT_THE_PAGE.has(e.status));
+
+/** `twins`: other scopes' copies of the same page with the very same text, written with this item's vectors. */
+interface Item { r: Pending; scope: VecScope; chunks: string[]; alone?: boolean; twins: Pending[] }
 
 /**
  * Embed pages whose chunks are missing or out of date. Safe to call again at
  * any time; stops quietly when no embeddings model answers.
+ *
+ * Bulk: the chunks of many pages go in one request (ALX_EMBED_BATCH, 64 by
+ * default) and several requests are in flight at once (the model's
+ * maxConcurrent, or ALX_EMBED_PARALLEL), and each request's pages are written
+ * in one transaction. A first import is one fast pass; a single edited page is
+ * one small request, as before.
  *
  * Idle costs nothing: with every page current there is no model call, and the
  * pass is a few small queries. A page the model keeps refusing or failing on
@@ -154,61 +173,137 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
   if (!cfg) return res;
   pruneIfChanged(d.db);
   const store = vectorStore(d.db);
-  const model = tagged(cfg.model);
+  const model = tagged(cfg);
+  const batch = embedBatch(d);
+  const parallel = parallelFor(d, 'extra', 'ALX_EMBED_PARALLEL');
   let budget = opts.maxPages ?? 25;
   // Each scope's waiting pages are read once, in batches, and taken a few at a time: not one query per three pages.
   const queues = new Map<VecScope, Pending[]>();
   const exhausted = new Set<VecScope>();
+  // Pages already taken this pass (their rows may not be written yet while their request is in flight): never taken twice.
+  const taken = new Set<string>();
+  let settled = 0; // taken pages that no longer show as waiting (written, or refused and backed off)
   const next = (scope: VecScope, n: number): Pending[] => {
     let q = queues.get(scope) ?? [];
     if (q.length < n && !exhausted.has(scope)) {
-      const batch = pendingCopies(d, scope, 'search_chunk_state', model, 40 + backedOffCount(), opts.worldId).filter((r) => !isBackedOff(r) && !q.some((x) => x.id === r.id));
-      if (!batch.length) exhausted.add(scope);
-      q = [...q, ...batch];
+      const more = pendingCopies(d, scope, 'search_chunk_state', model, Math.max(40, batch) + (taken.size - settled) + backedOffCount(), opts.worldId).filter((r) => !isBackedOff(r) && !taken.has(`${r.id}|${scope}`) && !q.some((x) => x.id === r.id));
+      if (!more.length) exhausted.add(scope);
+      q = [...q, ...more];
     }
     queues.set(scope, q.slice(n));
-    return q.slice(0, n);
+    const out = q.slice(0, n);
+    for (const r of out) taken.add(`${r.id}|${scope}`);
+    return out;
   };
-  try {
-    for (let more = true; more && budget > 0 && !opts.signal?.aborted;) {
-      more = false;
-      for (const scope of ORDER) {
-        if (budget <= 0 || opts.signal?.aborted) break;
-        const take = Math.min(budget, PER_TURN);
-        const rows = next(scope, take);
-        if (!rows.length) continue;
-        more = true;
-        for (const r of rows) {
-          if (opts.signal?.aborted) break;
-          // The page may have changed while the queue waited: skip what is no longer what was read.
-          if (!isCurrent(d, r)) continue;
-          const chunks = chunkText(r.full).map((c) => plainText(c)).filter(Boolean);
-          const vecs: Float32Array[] = [];
-          try {
-            for (let i = 0; i < chunks.length; i += BATCH) {
-              const part = chunks.slice(i, i + BATCH);
-              const got = await embed(d, part.map((c) => `${r.title}\n${c}`), opts.signal);
-              if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
-              for (const v of got) vecs.push(normalize(v));
-            }
-          } catch (e) {
-            // The guard refused this page's text, or the model refuses this page (a 4xx about the request): leave it for later (longer each time) and carry on with the others.
-            if (e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429 && e.status !== 404 && e.status !== 408)) { noteRefused(r); res.refused = (res.refused ?? 0) + 1; continue; }
-            throw e;
-          }
-          // The page may have changed while the model worked: write only what still matches its copy now (the next round sees the rest).
-          if (!isCurrent(d, r)) continue;
-          store.replacePage(r.world_id, r.id, scope, chunks.map((text, i) => ({ text, v: vecs[i] })), { updatedAt: r.updated_at, sig: r.sig, model, hash: r.hash });
-          res.embedded += chunks.length;
-          res.pages++;
-          budget--;
-          noteDone('embeddings', r.world_id);
-          opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: r.id, scope });
-          // Between pages the event loop breathes: the model's answer and the write are the only waits otherwise.
-          await new Promise<void>((resolve) => setImmediate(resolve));
-        }
+  // Pages are picked in scope turns (a few of the party's copy, then the DM's, ...) so no scope waits for the others,
+  // and packed into requests of up to `batch` chunks. Picking is synchronous: each worker takes the next request when it is free.
+  const picked: Item[] = [];
+  const leaders = new Map<string, Item>();
+  const counted = (r: Pending, chunks: number, reused: boolean) => {
+    settled++;
+    res.embedded += chunks;
+    res.pages++;
+    if (reused) res.reused = (res.reused ?? 0) + 1;
+    noteDone('embeddings', r.world_id);
+    opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: r.id, scope: r.scope });
+  };
+  // Another scope of this page already holds current vectors of exactly this text (same hash, same model): copy them.
+  const copyStored = (r: Pending): boolean => {
+    if (!r.hash) return false;
+    const src = one<{ scope: VecScope }>(d.db, 'SELECT scope FROM search_chunk_state WHERE page_id = ? AND scope <> ? AND hash = ? AND model = ? LIMIT 1', r.id, r.scope, r.hash, model);
+    if (!src) return false;
+    const chunks = all<any>(d.db, 'SELECT text, vec FROM search_chunks WHERE page_id = ? AND scope = ? ORDER BY idx', r.id, src.scope).map((x) => ({ text: String(x.text), v: fromBlob(x.vec) }));
+    const [ok] = store.replacePages([{ worldId: r.world_id, pageId: r.id, scope: r.scope, chunks, state: { updatedAt: r.updated_at, sig: r.sig, model, hash: r.hash } }], () => isCurrent(d, r));
+    if (ok) counted(r, 0, true);
+    return ok;
+  };
+  let turn = 0;
+  let dry = 0;
+  const fill = () => {
+    while (!picked.length && budget > 0 && dry < ORDER.length) {
+      const scope = ORDER[turn++ % ORDER.length];
+      const rows = next(scope, Math.min(budget, PER_TURN));
+      if (!rows.length) { dry++; continue; }
+      dry = 0;
+      for (const r of rows) {
+        // The page may have changed while the queue waited: skip what is no longer what was read.
+        if (!isCurrent(d, r)) continue;
+        budget--;
+        // The same text as another scope's copy of this page (the broker copy is often the party copy): embed it once.
+        const key = `${r.id}|${r.hash}`;
+        const lead = leaders.get(key);
+        if (lead) { lead.twins.push(r); continue; }
+        if (copyStored(r)) continue;
+        const it: Item = { r, scope, chunks: chunkText(r.full).map((c) => plainText(c)).filter(Boolean), twins: [] };
+        if (r.hash) leaders.set(key, it);
+        picked.push(it);
       }
     }
+  };
+  const nextGroup = (): Item[] | null => {
+    const g: Item[] = [];
+    let n = 0;
+    for (;;) {
+      if (!picked.length) fill();
+      const it = picked[0];
+      if (!it) break;
+      // A page the classified guard would refuse goes alone, so its refusal (and audit row) is about it only, never its neighbours.
+      it.alone ??= it.chunks.some((c) => wouldBeRefused(d, `${it.r.title}\n${c}`));
+      if (g.length && (it.alone || n + it.chunks.length > batch)) break;
+      picked.shift();
+      g.push(it);
+      n += it.chunks.length;
+      if (it.alone || n >= batch) break;
+    }
+    return g.length ? g : null;
+  };
+
+  const embedTexts = async (texts: string[]): Promise<Float32Array[]> => {
+    const out: Float32Array[] = [];
+    for (let i = 0; i < texts.length; i += batch) {
+      const part = texts.slice(i, i + batch);
+      const got = await embed(d, part, opts.signal, 'document');
+      if (got.length !== part.length || got.some((v) => !Array.isArray(v) || !v.length)) throw new Error('The embeddings model returned an unexpected answer');
+      for (const v of got) out.push(normalize(v));
+    }
+    return out;
+  };
+
+  const runGroup = async (g: Item[]): Promise<void> => {
+    let vecs: Float32Array[];
+    try {
+      vecs = await embedTexts(g.flatMap((it) => it.chunks.map((c) => `${it.r.title}\n${c}`)));
+    } catch (e) {
+      if (!isRefusal(e)) throw e;
+      // The guard or the model refused this text: leave the page for later (longer each time) and carry on with the others.
+      // In a request of several pages, ask again page by page so only the refused one waits.
+      if (g.length === 1) { for (const r of [g[0].r, ...g[0].twins]) { noteRefused(r); settled++; res.refused = (res.refused ?? 0) + 1; } return; }
+      for (const it of g) { if (opts.signal?.aborted) return; await runGroup([it]); }
+      return;
+    }
+    if (opts.signal?.aborted) return;
+    let at = 0;
+    // Each page's own copy, then its twins (the same text in other scopes) with the same vectors.
+    const rows: { r: Pending; twin: boolean; n: number }[] = [];
+    const items = g.flatMap((it) => {
+      const chunks = it.chunks.map((text, i) => ({ text, v: vecs[at + i] }));
+      at += it.chunks.length;
+      return [it.r, ...it.twins].map((r, k) => {
+        rows.push({ r, twin: k > 0, n: it.chunks.length });
+        return { worldId: r.world_id, pageId: r.id, scope: r.scope, chunks, state: { updatedAt: r.updated_at, sig: r.sig, model, hash: r.hash } };
+      });
+    });
+    // The page may have changed while the model worked: write only what still matches its copy now (the next round sees the rest).
+    // A twin that turns up later copies the stored vectors instead (copyStored).
+    for (const it of g) if (it.r.hash) leaders.delete(`${it.r.id}|${it.r.hash}`);
+    const wrote = store.replacePages(items, (i) => isCurrent(d, rows[i].r));
+    rows.forEach((x, i) => { if (wrote[i]) counted(x.r, x.twin ? 0 : x.n, x.twin); });
+    // Between requests the event loop breathes: the model's answer and the write are the only waits otherwise.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  try {
+    await pool(parallel, nextGroup, runGroup, () => !!opts.signal?.aborted);
     res.remaining = ORDER.some((s) => pendingCopies(d, s, 'search_chunk_state', model, 1 + backedOffCount(), opts.worldId).some((r) => !isBackedOff(r)));
   } catch (e: any) {
     res.error = String(e?.message ?? e).slice(0, 200);
@@ -245,7 +340,7 @@ export function scopeAndPageCoverage(d: Deps, worldId: string, stateTable: 'sear
 export function embeddingCoverage(d: Deps, worldId: string) {
   const cfg = jobConfig(d, 'extra');
   const stats = embeddingStats(d.db, worldId);
-  const { scopes, pages } = scopeAndPageCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg.model) : null);
+  const { scopes, pages } = scopeAndPageCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg) : null);
   return {
     configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, scopes,
     // Distinct pages (a page with a DM copy and a party copy counts once); `scopes` counts copies, one scope at a time.
@@ -301,7 +396,7 @@ export function nearestPages(d: Deps, worldId: string, reach: Reach, qv: Float32
 export async function semanticPages(d: Deps, worldId: string, scopeIn: Scope, q: string, limit = 20, viewer?: Viewer): Promise<SemanticHit[]> {
   if (!hasJob(d, 'extra')) return [];
   const reach = viewer ? reachOf(d, worldId, viewer) : reachOfScope(scopeIn);
-  const got = await embed(d, [q.slice(0, 500)]);
+  const got = await embed(d, [q.slice(0, 500)], undefined, 'query');
   if (!got[0]?.length) return [];
   return nearestPages(d, worldId, reach, normalize(got[0]), limit, Number(d.env.ALX_SEARCH_MIN_SIM ?? 0.2));
 }

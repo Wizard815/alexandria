@@ -316,7 +316,7 @@ test('Recordings_retention: a world with no retention days keeps audio forever; 
   } finally { await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: 30 }); }
 });
 
-test('Recordings_retention: raw chunks of a never-built session still go when its days are up', async () => {
+test('Recordings_retention: raw chunks of a never-built session still go when its days are up', needFfmpeg, async () => {
   const sid = await newSession('Raw only');
   assert.equal((await upload('jess', sid, 'jess', 0, 0, 3000)).status, 201);
   const f = one<any>(deps.db, 'SELECT file FROM audio_chunks WHERE session_id = ?', sid).file;
