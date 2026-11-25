@@ -51,7 +51,7 @@ export interface ConnectorContext {
    * A listing of changed pages (the connector read only some entities' records): which relation owners and map pages it read in full.
    * The records of those, and only those, are replaced; every other stored record is kept.
    */
-  refreshed?: { relationOwners: Set<string>; mapRefs: Set<string> };
+  refreshed?: { relationOwners: Set<string>; mapRefs: Set<string>; pictureOwners?: Set<string> };
   /** Pictures already stored for this source: externalId to the marker it was stored with (so an unchanged picture is not downloaded again). */
   heldImages?: Map<string, string>;
   /** Largest picture to download (bytes) and how many a run may download: the source's limits. `maxMapBytes`: the larger cap for map images. */
@@ -127,8 +127,10 @@ export type SyncRecord =
    * A picture of a page (`pageRef`: the source's own id of the page, or of the record the picture belongs to). `data` is the file when it was
    * downloaded now; without it the picture already stored under `externalId` is kept (and its link refreshed). `marker` says which version of the
    * picture was stored (its URL and update time). `visibility` `party` means the picture may follow its page; it never makes a DM-only page visible.
+   * `later`: not downloaded now but queued (with `url`) for the picture downloader (intake/imagequeue.ts). `inline`: a picture in the page's
+   * text (served in place of its address, not listed with the page's own pictures).
    */
-  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'dm' | 'party'; map?: boolean };
+  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'dm' | 'party'; map?: boolean; url?: string; inline?: boolean; later?: boolean };
 
 export interface TimelineEvent { id: string; name: string; date?: string | null; description?: Block[]; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
 export interface TimelineGroup { name: string; abbreviation?: string | null; description?: Block[]; events: TimelineEvent[] }

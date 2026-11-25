@@ -589,8 +589,8 @@ test('CrawlTiers_KankaMapPicturesAreStoredAsMapsWithTheirOwnSizeCapAndFollowThei
   const dmPage = (await getPage(t, wid, t.admin, pageId(t, wid, 'Realm Map'))).body;
   assert.equal(dmPage.pictures.length, 1);
   assert.equal(dmPage.pictures[0].map, true);
-  assert.equal(dmPage.banner, 'https://images.kanka.io/m1-3000.png', 'the page keeps the address Kanka gave it as its banner');
-  assert.equal(dmPage.pictures[0].primary, false);
+  assert.equal(dmPage.banner, dmPage.pictures[0].url, 'the banner Kanka gave the page is its map, served from here');
+  assert.equal(dmPage.pictures[0].primary, true);
   assert.equal((await fetch(t.base + dmPage.pictures[0].url)).status, 200);
   const playerPage = (await getPage(t, wid, tok, pageId(t, wid, 'Realm Map'))).body;
   assert.equal(playerPage.pictures.length, 1, 'a shared map follows its shared page');
@@ -621,6 +621,30 @@ test('CrawlTiers_KankaMapPicturesAreStoredAsMapsWithTheirOwnSizeCapAndFollowThei
   await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'dm' });
   await sync(t, src.id, { full: true });
   assert.deepEqual((await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body, []);
+});
+
+test('CrawlTiers_KankaPortraitsAndPicturesInTextAreStoredHere', async () => {
+  imgCalls.length = 0;
+  const t = await boot();
+  kkReset(2);
+  kk.chars[0] = { ...kk.chars[1], id: 1, entity_id: 1001, name: 'Mira', is_private: false, image_full: 'https://images.kanka.io/mira-300.png', has_custom_image: true,
+    entry: '<p>Hello</p><p><img src="https://images.kanka.io/gate-200.png" alt="Gate"></p>' };
+  const wid = await t.world('Kanka Portrait World');
+  const conn = await t.ok('POST', '/api/admin/connections', { kind: 'kanka-api', name: 'My Kanka', config: { token: 'kanka-token-aaaaaaaaaaaaaaaaaaaa' } });
+  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { connectionId: conn.id, kind: 'kanka-api', name: 'Kanka', config: { campaignId: '1' }, defaultVisibility: 'party' });
+  const first = await sync(t, src.id);
+  assert.deepEqual(imgCalls.sort(), ['images.kanka.io/gate-200.png', 'images.kanka.io/mira-300.png'], 'the portrait and the picture in the text, once each');
+  assert.equal(first.stats.detailCalls, 0, 'picture hosts are not the API: no call budget spent');
+  const tok = await t.addPlayer(wid);
+  for (const who of [t.admin, tok]) {
+    const pg = (await getPage(t, wid, who, pageId(t, wid, 'Mira'))).body;
+    assert.match(pg.banner, /^\/api\/media\/intake\//, 'the portrait is served from here');
+    assert.ok(!JSON.stringify(pg.blocks).includes('images.kanka.io'), 'so is the picture in the text');
+    assert.equal((await fetch(t.base + pg.banner)).status, 200);
+  }
+  imgCalls.length = 0;
+  await sync(t, src.id, { full: true });
+  assert.deepEqual(imgCalls, [], 'nothing is downloaded again');
 });
 
 test('CrawlTiers_LegendKeeperMapImagesComeWithTheMapPageWhenItIsReadAndStayDmOnlyForAHiddenOne', async () => {
