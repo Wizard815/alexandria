@@ -76,8 +76,10 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   noTemperature   true when the model rejects `temperature` (OpenAI reasoning models)
  *   jsonMode        'auto' | 'schema' | 'object' | 'off' (how structured output is asked for)
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
+ *   docPrefix       embeddings: put before every library text that is stored (nomic-embed-text: "search_document: ")
+ *   queryPrefix     embeddings: put before every search question (nomic-embed-text: "search_query: ")
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens', 'maxConcurrent'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens', 'maxConcurrent', 'docPrefix', 'queryPrefix'] as const;
 /**
  * `reasoning: 'on' | 'off'`: whether an OpenRouter model may think before it answers. The audit job (yes/no checks,
  * routing, Active mode) defaults to off: thinking made hy4-flash about three times slower there for no better answer.
@@ -866,9 +868,19 @@ async function speakOne(d: Deps, c: JobConfig, text: string, opts: { voice?: str
 
 // ---- extra: embeddings -----------------------------------------------------
 
-export async function embed(d: Deps, texts: string[], signal?: AbortSignal): Promise<number[][]> {
+/** What a text is to the embeddings model: a stored library text, a search question, or neither (no prefix). */
+export type EmbedRole = 'document' | 'query';
+/** The prefix a model's options ask for in front of texts of this role ('' for none). */
+export function embedPrefix(c: JobConfig | null | undefined, role?: EmbedRole): string {
+  const v = role === 'document' ? c?.options?.docPrefix : role === 'query' ? c?.options?.queryPrefix : undefined;
+  return typeof v === 'string' ? v.slice(0, 100) : '';
+}
+
+export async function embed(d: Deps, texts: string[], signal?: AbortSignal, role?: EmbedRole): Promise<number[][]> {
   return viaChain(d, 'extra', () => screenOutgoing(d, 'extra', texts), async (c) => {
-    const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: texts }, signal);
+    // The prefix is per model (a fallback model may want none), so it is added here, after the guard read the plain texts.
+    const pre = embedPrefix(c, role);
+    const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: pre ? texts.map((t) => pre + t) : texts }, signal);
     const j: any = await r.json().catch(() => ({}));
     return (j.data ?? []).map((x: any) => x.embedding as number[]);
   });
