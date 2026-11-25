@@ -319,11 +319,10 @@ export default function brokerRoutes(d: Deps) {
    * (partyPurse) and the DM must allow it (brokerPartyPay). Without a choice the old world setting (brokerPayer) says
    * who pays. Always run inside a transaction: the balance is read and spent in the same step, so two people paying at
    * once, or a pouch that changed since the price was shown, can never overspend. A party payment is logged on the
-   * pouch with who paid, so the whole party sees it. The party log names what was bought only when `shared` says every
-   * player may see it anyway (an offer to the whole party); a question is the asker's own and an offer to one player is
-   * theirs, so those read "Broker purchase" on the pouch (fail closed).
+   * pouch with who paid, so the whole party sees it. The party log never names what was bought: every pouch payment
+   * reads "Broker purchase" (guests can read the pouch log but not offers, and a question is the asker's own).
    */
-  function charge(res: Response, asker: string, cost: number, title: string, choice?: unknown, fallback: 'self' | 'party' | 'setting' = 'setting', shared = false): { payer: string; ledgerId: string | null; from: 'self' | 'party'; note: string } {
+  function charge(res: Response, asker: string, cost: number, title: string, choice?: unknown, fallback: 'self' | 'party' | 'setting' = 'setting', _shared = false): { payer: string; ledgerId: string | null; from: 'self' | 'party'; note: string } {
     const s = settings(res);
     const w = ctx(res).world.id;
     const partyOk = s.partyPurse && s.brokerPartyPay !== false;
@@ -341,7 +340,7 @@ export default function brokerRoutes(d: Deps) {
     const bal = spendable(db, w, payer);
     if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}${payer === 'party' ? '. Someone may have spent from it; pick again.' : ''}`);
     const who = names(db, w)[asker] ?? 'Someone';
-    const note = from === 'party' ? `${shared ? `Broker: ${title.slice(0, 110)}` : 'Broker purchase'} (paid by ${who} from the party pouch)` : `Broker: ${title}`;
+    const note = from === 'party' ? `Broker purchase (paid by ${who} from the party pouch)` : `Broker: ${title}`;
     const lid = id('led_');
     run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, lid, w, payer, -cost, note.slice(0, 200), asker, now());
     return { payer, ledgerId: lid, from, note: note.slice(0, 200) };
