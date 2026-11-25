@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS minerva_live (
   world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL,
   seen_at TEXT NOT NULL,
+  seen_ids TEXT NOT NULL DEFAULT '[]',
   last_at TEXT
 );
 `;

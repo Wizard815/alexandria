@@ -149,6 +149,11 @@ restock), `set_shop_status` (writes: proposed to the DM like every write
 tool; `set_shop_status` always asks, even in Auto mode). Players' agents only
 get `list_shops` and `read_shop`, with the player view.
 
+## Encounters
+
+An NPC encounter can end with "show me your wares" and open a shop for the
+player: see [ENCOUNTERS.md](ENCOUNTERS.md#shops).
+
 ## API
 
 See [API.md](API.md#shop-apiworldsworldshop).

@@ -50,6 +50,8 @@ export interface Candidate {
   playerSource?: boolean;
   /** Always a confirm card, whatever the setting. */
   forceAsk?: boolean;
+  /** Why it asks, in the DM's words (shown in Minerva's thoughts). */
+  why?: string;
   source: 'rules' | 'model';
   /** What is still unsure (the model may settle it). */
   borderline?: boolean;

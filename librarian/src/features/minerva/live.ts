@@ -12,7 +12,7 @@
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable, wouldBeRefused } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
-import { now } from '../../core/util.ts';
+import { now, parseJson } from '../../core/util.ts';
 import { listSessions, sessionLines, type TranscriptLine } from '../audio/api.ts';
 import { searchTerms } from '../agent/intent.ts';
 import { findCodex, promotionDraft, whoIs } from './codex.ts';
@@ -38,14 +38,22 @@ export function liveLines(d: Deps, worldId: string, includeDm: boolean, limit = 
   return { session: { id: s.id, name: s.name, active: s.active }, lines: lines.slice(-limit) };
 }
 
-interface Seen { sessionId: string; seenAt: string; lastAt: string | null }
+/**
+ * Where the pass got to: the newest line time it read, and which lines (id and revision) it read at exactly that
+ * time. Times are to the millisecond, so a line added in the same millisecond as the last one read is still new:
+ * "newer than seenAt" alone skipped it, and the DM's button then said "No new lines".
+ */
+interface Seen { sessionId: string; seenAt: string; seenIds: Set<string>; lastAt: string | null }
+const lineKey = (l: TranscriptLine) => `${l.id}:${l.rev}`;
 const seenOf = (d: Deps, worldId: string): Seen | null => {
-  const r = one<any>(d.db, 'SELECT session_id, seen_at, last_at FROM minerva_live WHERE world_id = ?', worldId);
-  return r ? { sessionId: r.session_id, seenAt: r.seen_at, lastAt: r.last_at } : null;
+  const r = one<any>(d.db, 'SELECT session_id, seen_at, seen_ids, last_at FROM minerva_live WHERE world_id = ?', worldId);
+  return r ? { sessionId: r.session_id, seenAt: r.seen_at, seenIds: new Set(parseJson<string[]>(r.seen_ids, [])), lastAt: r.last_at } : null;
 };
-const saveSeen = (d: Deps, worldId: string, sessionId: string, seenAt: string) =>
-  run(d.db, `INSERT INTO minerva_live (world_id, session_id, seen_at, last_at) VALUES (?, ?, ?, ?)
-    ON CONFLICT (world_id) DO UPDATE SET session_id = excluded.session_id, seen_at = excluded.seen_at, last_at = excluded.last_at`, worldId, sessionId, seenAt, now());
+const saveSeen = (d: Deps, worldId: string, sessionId: string, seenAt: string, seenIds: string[]) =>
+  run(d.db, `INSERT INTO minerva_live (world_id, session_id, seen_at, seen_ids, last_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (world_id) DO UPDATE SET session_id = excluded.session_id, seen_at = excluded.seen_at, seen_ids = excluded.seen_ids, last_at = excluded.last_at`, worldId, sessionId, seenAt, JSON.stringify(seenIds), now());
+/** A line the last pass did not read: newer than where it got to, or at that same millisecond but not among the lines it read. */
+export const isFresh = (l: TranscriptLine, seenAt: string, seenIds: Set<string>) => l.updatedAt > seenAt || (l.updatedAt === seenAt && !seenIds.has(lineKey(l)));
 
 export interface Suggestion { kind: 'clue' | 'npc' | 'goal' | 'hook'; title: string; op: Op; why: string }
 
@@ -127,16 +135,19 @@ export async function suggestionPass(d: Deps, worldId: string, opts: { force?: b
   const s = listSessions(d.db, worldId)[0];
   if (!s || !s.active) return { ran: false, reason: 'No session is recording', lines: 0, drafted: 0 };
   const seen = seenOf(d, worldId);
-  const since = seen && seen.sessionId === s.id ? seen.seenAt : '';
+  const same = !!seen && seen.sessionId === s.id;
+  const since = same ? seen!.seenAt : '';
+  const sinceIds = same ? seen!.seenIds : new Set<string>();
   const all_ = sessionLines(d.db, worldId, s.id, { includeDm: true }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
-  const fresh = all_.filter((l) => l.updatedAt > since);
+  const fresh = all_.filter((l) => isFresh(l, since, sinceIds));
   if (!fresh.length) return { ran: false, reason: 'No new lines', lines: 0, drafted: 0 };
   const ago = seen?.lastAt ? (opts.at ?? Date.now()) - Date.parse(seen.lastAt) : Infinity;
   if (!opts.force && fresh.length < LIVE_LINES && ago < LIVE_EVERY_MS) return { ran: false, reason: 'Too soon', lines: fresh.length, drafted: 0 };
 
   const recent = all_.slice(-Math.max(RECENT_LINES, fresh.length > 60 ? 60 : fresh.length));
   const newest = fresh.reduce((m, l) => (l.updatedAt > m ? l.updatedAt : m), since);
-  saveSeen(d, worldId, s.id, newest);
+  // Every line at that newest millisecond has now been read (this pass or an earlier one).
+  saveSeen(d, worldId, s.id, newest, all_.filter((l) => l.updatedAt === newest).map(lineKey));
   const found = await modelFilter(d, worldId, rulesSuggestions(d, worldId, recent, currentSession(d.db, worldId)), recent);
   // One suggestion once: not again while it waits, and not again after the DM decided on it.
   const known = new Set(all<any>(d.db, `SELECT title FROM minerva_drafts WHERE world_id = ? AND kind LIKE '${SUGGEST_PREFIX}%'`, worldId).map((r) => String(r.title)));

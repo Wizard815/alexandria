@@ -52,6 +52,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(which world|world settings|settings do we have|switched on)\b/i, tools: ['world_info', 'world_sources'] },
   { re: /\b(refresh (the )?world|resync|re-?sync|sync (everything|all|the sources)|update (the )?(index|knowledge)|rebuild (the )?(index|knowledge))\b/i, tools: ['refresh_world', 'world_sources'] },
   { re: /\b(quick events?|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['list_quick_events', 'send_quick_event', 'resolve_quick_event', 'cancel_quick_event'] },
+  { re: /\b(encounters?|npc (walks|comes) up|walks up to|approaches|wander(ing)?|street gambler|shell game|coin toss|dice duel|peddler|mini-?games?)\b/i, tools: ['list_encounters', 'list_encounter_templates', 'send_encounter', 'encounter_say', 'end_encounter'] },
   { re: /\b(arcs?|close the (current )?arc|new arc|start an arc)\b/i, tools: ['arc_close', 'arc_start', 'context_for', 'codex_upsert'] },
   { re: /\b(jot|jot down|note down|write (this |that |it )?down|an idea|idea:|log that|log this|file (this )?conversation|by speaker)\b/i, tools: ['memory_capture', 'conversation_log', 'memory_log'] },
   { re: /\b(broker|special offers?|offers?|information for sale|sell (this|that|the) (fact|info)|may sell)\b/i, tools: ['add_broker_note', 'send_broker_offer', 'list_broker_requests', 'broker_answer', 'list_broker_offers', 'ask_broker_quote', 'broker_pay_options', 'broker_deliver', 'broker_refuse'] },

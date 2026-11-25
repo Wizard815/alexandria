@@ -17,9 +17,11 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-e2e-'));
 const problems = [];
 const note = (m) => console.log('  ' + m);
 
+// The DM and every player run from 127.0.0.1 here, so the per-IP API limit (900 a minute) would count the whole
+// table as one client; it is off unless ALX_RATE_LIMIT is set.
 const srv = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: path.join(root, 'librarian'),
-  env: { ...process.env, ALX_DATA_DIR: tmp, LIBRARIAN_PORT: String(PORT), ALX_WEB_DIR: path.join(root, 'web/dist') },
+  env: { ...process.env, ALX_DATA_DIR: tmp, LIBRARIAN_PORT: String(PORT), ALX_WEB_DIR: path.join(root, 'web/dist'), ALX_RATE_LIMIT: process.env.ALX_RATE_LIMIT ?? '0' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stderr.on('data', (d) => process.stderr.write('[librarian] ' + d));
