@@ -21,7 +21,7 @@ import { normLevel } from '../../core/levels.ts';
 import { HttpError, id as newId, now } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, names } from '../../routes/_shared.ts';
 import { mintTicket } from '../sound/ticket.ts';
-import { mayRead } from '../libfiles/index.ts';
+import { mayRead, pageOpenable } from '../libfiles/index.ts';
 import { SCHEMA, type FolderRule, inRule, liftable, rulesOf } from './grants.ts';
 import type { McpTool } from '../types.ts';
 
@@ -242,13 +242,56 @@ function routes(d: Deps) {
 
   // ---- Changing who can see something ----
 
-  const touch = (w: string, pageIds: string[]) => {
-    const both = (v: any) => v.role === 'dm' || v.role === 'player';
-    for (const id of pageIds) {
-      d.hub.emit(w, 'page', { id }, both);
-      d.hub.emit(w, 'libfile', { pageId: id }, both);
+  /**
+   * What each player can reach among these pages: the pages they can open, and whether they hold a file on any of
+   * them (a file given alone, whose page they may not learn). Taken before and after a change, so the live events
+   * name only what a player can open now or just lost. Null when it cannot be worked out: then players get no ids.
+   */
+  type Reach = Map<string, { pages: Set<string>; files: boolean }>;
+  const reachOf = (w: string, pageIds: string[]): Reach | null => {
+    try {
+      const ids = [...new Set(pageIds)].slice(0, 200);
+      const out: Reach = new Map();
+      if (!ids.length) return out;
+      const marks = ids.map(() => '?').join(',');
+      const pgs = all<any>(db, `SELECT id, visibility FROM pages WHERE world_id = ? AND id IN (${marks})`, w, ...ids);
+      const fs = all<any>(db, `SELECT id, world_id, page_id, level FROM libfiles_files WHERE world_id = ? AND page_id IN (${marks})`, w, ...ids);
+      for (const acc of players(w)) {
+        const v = { accountId: acc, role: 'player' } as const;
+        const pages = new Set(pgs.filter((p) => pageOpenable(d, w, p.id, p.visibility, v as any)).map((p) => p.id as string));
+        out.set(acc, { pages, files: fs.some((f) => mayRead(d, f, v as any)) });
+      }
+      return out;
+    } catch { return null; }
+  };
+
+  /**
+   * Tell everyone a share changed. The DM hears every page. A player hears, by id, only the pages they can open now
+   * or just lost (sent to that player alone), an id-free libfile signal for a file they hold on a page they cannot
+   * open, and the id-free libshare signal. Guests and anyone else hear nothing. Fails closed: no reach, no ids.
+   */
+  const touch = (w: string, pageIds: string[], before: Reach | null) => {
+    const ids = pageIds.slice(0, 200);
+    const dmOnly = (v: any) => v.role === 'dm';
+    for (const id of ids) {
+      d.hub.emit(w, 'page', { id }, dmOnly);
+      d.hub.emit(w, 'libfile', { pageId: id }, dmOnly);
     }
-    d.hub.emit(w, 'libshare', {}, both);
+    const after = before ? reachOf(w, ids) : null;
+    if (before && after) {
+      for (const acc of players(w)) {
+        const was = before.get(acc), now_ = after.get(acc);
+        const only = (v: any) => v.role === 'player' && v.accountId === acc;
+        const open = new Set([...(was?.pages ?? []), ...(now_?.pages ?? [])]);
+        for (const id of ids) {
+          if (!open.has(id)) continue;
+          d.hub.emit(w, 'page', { id }, only);
+          d.hub.emit(w, 'libfile', { pageId: id }, only);
+        }
+        if (was?.files || now_?.files) d.hub.emit(w, 'libfile', {}, only);
+      }
+    }
+    d.hub.emit(w, 'libshare', {}, (v) => v.role === 'dm' || v.role === 'player');
   };
 
   function setPage(w: string, by: string, pg: any, mode: Mode, to: string[]) {
@@ -312,9 +355,12 @@ function routes(d: Deps) {
     const touched: string[] = [];
     let sent: string | null = null;
 
+    let before: Reach | null = null;
+
     if (kind === 'page') {
       const pg = pageRow(w, b.id);
       if (mm !== 'dm' && L.hasClassified(w, pg.path) && normLevel(pg.visibility) !== 'classified' && b.confirm !== true) return needConfirm(res, `“${pg.title}” has classified text. Players never see it, only the party parts of the page. Share anyway?`);
+      before = reachOf(w, [pg.id]);
       setPage(w, by, pg, mm, to);
       if (b.withFiles === true) for (const f of all<any>(db, 'SELECT * FROM libfiles_files WHERE world_id = ? AND page_id = ?', w, pg.id)) {
         if (['party', 'dm'].includes(normLevel(f.level))) setFile(w, by, f, mm, to);
@@ -325,6 +371,7 @@ function routes(d: Deps) {
       const f = fileRow(w, b.id);
       const pg = pageRow(w, f.page_id);
       if (mm !== 'dm' && b.withPage === true && L.hasClassified(w, pg.path) && b.confirm !== true) return needConfirm(res, `The page “${pg.title}” has classified text. Players never see it, only the party parts of the page. Share the page anyway?`);
+      before = reachOf(w, [pg.id]);
       setFile(w, by, f, mm, to);
       if (b.withPage === true && mm !== 'dm') setPage(w, by, pg, mm, to);
       title = f.name; itemId = f.id; touched.push(pg.id);
@@ -341,6 +388,7 @@ function routes(d: Deps) {
       const inside = folderPages(w, rule);
       if (!inside.length && mode !== 'off') throw new HttpError(404, 'There is nothing in that folder');
       if (mode !== 'off' && mm !== 'dm' && b.confirm !== true) return needConfirm(res, `Share everything in “${label}”${path ? '' : ' (the whole source)'}, including pages and files added later? Classified and broker pages are skipped.`);
+      before = reachOf(w, inside.map((p) => p.id));
       tx(db, () => {
         run(db, 'DELETE FROM libshare_folders WHERE world_id = ? AND source_id = ? AND path = ?', w, sourceId, path);
         if (mm !== 'dm') run(db, 'INSERT INTO libshare_folders (world_id, source_id, path, mode, players, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', w, sourceId, path, mm, JSON.stringify(to), by, now());
@@ -352,7 +400,7 @@ function routes(d: Deps) {
       L.changed(w, touched.slice(0, 500));
     }
     if (notify) sent = recordSent(w, by, kind, itemId, title, mm, to, touched);
-    touch(w, touched.slice(0, 200));
+    touch(w, touched.slice(0, 200), before);
     res.json({ ok: true, sent, ...overview(w) });
   });
 
