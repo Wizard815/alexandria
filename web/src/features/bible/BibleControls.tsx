@@ -6,7 +6,7 @@ import { ErrorBox, useAction, useToast } from '../../ui/index.tsx';
 import { progressText, type Progress } from './EmbeddingsCard.tsx';
 
 interface Scope { eligible: number; pending: number; indexed: number; facts: number }
-interface Status { chat: boolean; configured: boolean; model: string | null; runs: string; reading: boolean; now: { pageId: string; title: string; scope: string; since: string } | null; failed: number; embedded: { facts: number; withVectors: number };
+interface Status { chat: boolean; building?: boolean; configured: boolean; model: string | null; runs: string; reading: boolean; now: { pageId: string; title: string; scope: string; since: string; reading?: number } | null; failed: number; embedded: { facts: number; withVectors: number };
   log: { at: string; pageId: string; title: string; scope: string; ok: boolean; facts: number; ms: number }[]; scopes: Record<string, Scope>; progress?: Progress }
 interface Finding { kind: string; pageId: string; title: string; scope: string; note: string }
 interface Audit { facts: number; counts: Record<string, number>; findings: Finding[] }
@@ -22,22 +22,26 @@ export function BibleControls({ left, onChanged }: { left: string; onChanged: ()
   const act = useAction();
   const { toast, toastNode } = useToast();
   const s = st.data;
-  const busy = !!s?.now;
+  const busy = !!s?.now || !!s?.building;
   useEffect(() => { const t = setInterval(() => void st.reload(), busy ? 4000 : 20_000); return () => clearInterval(t); }, [busy, st.reload]);
   if (!s) return <ErrorBox error={st.error} />;
   const set = (bibleRuns: string) => act.run(async () => { await w.updateSettings({ bibleRuns } as any); if (bibleRuns === 'off') await w.call('POST', '/bible/stop'); await reloadInfo(); await st.reload(); onChanged(); });
   const readNow = () => act.run(async () => { await w.call('POST', '/bible/read-now'); toast('Reading up to 25 pages'); await st.reload(); });
+  const readAll = () => act.run(async () => { await w.call('POST', '/bible/read-now', { all: true }); toast('Reading every waiting page, several at once'); await st.reload(); });
   const check = () => act.run(async () => { setAudit(await w.call<Audit>('GET', '/bible/audit')); setOpen('audit'); });
   const reread = (ids: string[]) => act.run(async () => { const r = await w.call<{ pages: number }>('POST', '/bible/reread', { pageIds: [...new Set(ids)].slice(0, 500) }); toast(`${r.pages} will be read again`); setAudit(await w.call<Audit>('GET', '/bible/audit')); await st.reload(); onChanged(); });
   const href = (id: string) => `/w/${info.slug}/dm/library?page=${encodeURIComponent(id)}`;
-  const state = s.now ? `Reading “${s.now.title}” (${WHO[s.now.scope] ?? s.now.scope} copy)` : !s.configured ? 'No model is set' : s.runs === 'off' ? 'Paused' : s.reading ? 'Ready, between pages' : 'Waiting for the next session';
+  const state = s.now ? `Reading “${s.now.title}” (${WHO[s.now.scope] ?? s.now.scope} copy)${s.now.reading && s.now.reading > 1 ? ` and ${s.now.reading - 1} more` : ''}` : s.building ? 'Reading the whole world' : !s.configured ? 'No model is set' : s.runs === 'off' ? 'Paused' : s.reading ? 'Ready, between pages' : 'Waiting for the next session';
   return (
     <section className="card" aria-label="Story bible progress" data-testid="bible-controls">
       <ErrorBox error={act.error ?? st.error} />
       <div className="row between">
-        <span><span className={`live-dot${s.now ? '' : ' off'}`} /> <strong>{state}</strong>{left && <span className="small muted" data-testid="bible-progress"> · {left}</span>}</span>
+        <span><span className={`live-dot${busy ? '' : ' off'}`} /> <strong>{state}</strong>{left && <span className="small muted" data-testid="bible-progress"> · {left}</span>}</span>
         <span className="row" style={{ gap: 6 }}>
-          {s.now ? <button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', '/bible/stop'); await st.reload(); })}>Stop this run</button> : <button type="button" className="btn small" disabled={act.busy || !s.configured} onClick={() => void readNow()}>Read 25 now</button>}
+          {busy ? <button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', '/bible/stop'); await st.reload(); })}>Stop this run</button> : <>
+            <button type="button" className="btn small" disabled={act.busy || !s.configured} onClick={() => void readNow()}>Read 25 now</button>
+            <button type="button" className="btn small" disabled={act.busy || !s.configured} title="Every waiting page, several at once, as one job" onClick={() => void readAll()}>Read all now</button>
+          </>}
           <select className="input" style={{ width: 'auto', minHeight: 30 }} aria-label="When it reads" value={s.runs} onChange={(e) => void set(e.target.value)}><option value="session">During sessions</option><option value="always">Any time</option><option value="off">Paused</option></select>
           <button type="button" className={`btn small${open === 'log' ? ' on' : ''}`} aria-expanded={open === 'log'} onClick={() => setOpen(open === 'log' ? null : 'log')}>Log</button>
           <button type="button" className="btn small" disabled={act.busy} onClick={() => void check()}>Check it</button>
