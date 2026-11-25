@@ -1,5 +1,5 @@
 // What the DM's sharing grants, read live (nothing is copied or stored per page):
-//   folder rules   everything in a folder (pages and files, also ones added or moved in later)
+//   folder rules   everything in a folder or a whole source (pages and files, also ones added or moved in later)
 //   file shares    one file, for the whole party ('*') or chosen players, whatever its page says
 // Only pages and files at the DM-only level can be lifted this way. A broker or
 // classified page or file, or one with a broker or classified marker, is never
@@ -9,7 +9,7 @@ import { normLevel } from '../../core/levels.ts';
 
 export const SCHEMA = `
 -- A rule on a folder: all pages and files in it (and below it) are shared with the party or chosen players.
--- source_id is '' for pages written in Alexandria; path is the folder names joined with '/'.
+-- source_id is '' for pages written in Alexandria; path is the folder names joined with '/' ('' for the whole source).
 CREATE TABLE IF NOT EXISTS libshare_folders (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   source_id TEXT NOT NULL,
@@ -67,9 +67,10 @@ export const folderPath = (folder: unknown): string => {
   return Array.isArray(list) ? list.map(String).join('/') : '';
 };
 
-/** Is a page (its source and folder) inside this rule's folder? */
+/** Is a page (its source and folder) inside this rule's folder? A rule with no path covers its whole source. */
 export const inRule = (r: FolderRule, sourceId: string | null, folder: unknown): boolean => {
-  if ((sourceId ?? '') !== r.sourceId || !r.path) return false;
+  if ((sourceId ?? '') !== r.sourceId || typeof r.path !== 'string') return false;
+  if (!r.path) return true;
   const p = folderPath(folder);
   return p === r.path || p.startsWith(`${r.path}/`);
 };

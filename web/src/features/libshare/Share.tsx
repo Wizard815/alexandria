@@ -44,8 +44,10 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
   const act = useAction();
   const sharing = useSharing();
   const o = sharing.data;
+  // A folder with no path is a whole source: said by name (whole), never implied by a missing path.
+  const whole = target.kind === 'folder' && !target.path;
   const q = target.kind === 'folder' ? { kind: 'folder', sourceId: target.sourceId ?? '', path: target.path ?? '' } : { kind: target.kind, id: target.id! };
-  const prev = useLoad<any>(() => w.call('GET', '/libshare/preview', undefined, q as any), [w, target.kind, target.id, target.path, target.sourceId]);
+  const prev = useLoad<any>(() => w.call('GET', '/libshare/preview', undefined, (whole ? { ...q, whole: '1' } : q) as any), [w, target.kind, target.id, target.path, target.sourceId]);
   const current: AudEntry | undefined = useMemo(() => {
     if (!o) return undefined;
     if (target.kind === 'page') return o.pages[target.id!];
@@ -72,7 +74,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
 
   // Sent with fetch because the confirm question comes back as a 409 with needsConfirm, not as an error.
   const go = async (confirmed: boolean) => {
-    const body: any = { ...q, mode: m === 'dm' && target.kind === 'folder' ? 'off' : m, players: m === 'players' ? ids : undefined, notify: notify && m !== 'dm', confirm: confirmed, withPage: target.kind === 'file' ? wp : undefined, withFiles: target.kind === 'page' ? withFiles : undefined };
+    const body: any = { ...q, ...(whole ? { whole: true } : {}), mode: m === 'dm' && target.kind === 'folder' ? 'off' : m, players: m === 'players' ? ids : undefined, notify: notify && m !== 'dm', confirm: confirmed, withPage: target.kind === 'file' ? wp : undefined, withFiles: target.kind === 'page' ? withFiles : undefined };
     await act.run(async () => {
       const res = await fetch(`${w.client.baseUrl}${w.path('/libshare/share')}`, { method: 'PUT', headers: { Authorization: `Bearer ${w.client.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await res.json().catch(() => ({}));
@@ -104,7 +106,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
         {o && !hidden && (
           <>
             <div role="radiogroup" aria-label="Who can see it" className="shr-choices">
-              <label className={`shr-choice${m === 'party' ? ' on' : ''}`}><input type="radio" name="shr" checked={m === 'party'} onChange={() => choose('party')} /><span><strong>Everyone</strong><span className="tiny muted">The whole party{target.kind === 'folder' ? ', including pages and files added to this folder later' : ''}.</span></span></label>
+              <label className={`shr-choice${m === 'party' ? ' on' : ''}`}><input type="radio" name="shr" checked={m === 'party'} onChange={() => choose('party')} /><span><strong>Everyone</strong><span className="tiny muted">The whole party{target.kind === 'folder' ? `, including pages and files added to this ${whole ? 'source' : 'folder'} later` : ''}.</span></span></label>
               <label className={`shr-choice${m === 'players' ? ' on' : ''}`}><input type="radio" name="shr" checked={m === 'players'} onChange={() => choose('players')} /><span><strong>Only these players</strong><span className="tiny muted">Chosen below. Nobody else can open it.</span></span></label>
               {m === 'players' && (
                 <div className="shr-players">
@@ -115,7 +117,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
               <label className={`shr-choice${m === 'dm' ? ' on' : ''}`}><input type="radio" name="shr" checked={m === 'dm'} onChange={() => choose('dm')} /><span><strong>DM only</strong><span className="tiny muted">{target.kind === 'folder' ? 'Remove the folder rule. Items keep their own sharing.' : 'Nobody but you.'}</span></span></label>
             </div>
             {target.kind === 'folder' && prev.data && (
-              <p className="small muted">{prev.data.shareable} page{prev.data.shareable === 1 ? '' : 's'} and {prev.data.files} file{prev.data.files === 1 ? '' : 's'} in this folder.
+              <p className="small muted">{prev.data.shareable} page{prev.data.shareable === 1 ? '' : 's'} and {prev.data.files} file{prev.data.files === 1 ? '' : 's'} in this {whole ? 'source' : 'folder'}.
                 {(prev.data.skippedClassified > 0 || prev.data.skippedBroker > 0) && ` Skipped, never shared: ${prev.data.skippedClassified} classified, ${prev.data.skippedBroker} broker.`}
                 {' '}The rule applies to everything added or moved in later too.</p>
             )}
@@ -162,7 +164,7 @@ export function SharedPanel({ onOpen }: { onOpen: (pageId: string) => void }) {
   const needle = q.trim().toLowerCase();
   const list = o.shared.filter((s) => !needle || s.title.toLowerCase().includes(needle) || s.where.toLowerCase().includes(needle));
   const stop = (s: SharedItem) => act.run(async () => { await w.call('PUT', '/libshare/share', { kind: s.kind, id: s.id, mode: 'dm' }); await sharing.reload(); });
-  const stopFolder = (f: FolderRule) => act.run(async () => { await w.call('PUT', '/libshare/share', { kind: 'folder', sourceId: f.sourceId, path: f.path, mode: 'off' }); await sharing.reload(); });
+  const stopFolder = (f: FolderRule) => act.run(async () => { await w.call('PUT', '/libshare/share', { kind: 'folder', sourceId: f.sourceId, path: f.path, whole: !f.path, mode: 'off' }); await sharing.reload(); });
   return (
     <div className="stack" aria-label="Shared with players">
       <p className="small muted">Everything players can open right now: shared pages and files, and folder rules.</p>
@@ -173,7 +175,7 @@ export function SharedPanel({ onOpen }: { onOpen: (pageId: string) => void }) {
           {o.folders.map((f) => (
             <div key={`${f.sourceId}|${f.path}`} className="list-item shr-row">
               <i className="fa-solid fa-folder-open lib-ico" aria-hidden="true" />
-              <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{f.path}</strong><span className="tiny faint lib-ellipsis">{f.source} · {f.mode === 'party' ? 'Everyone' : names(o, f.to)} · includes what is added later</span></span>
+              <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{f.path || `${f.source} (whole source)`}</strong><span className="tiny faint lib-ellipsis">{f.source} · {f.mode === 'party' ? 'Everyone' : names(o, f.to)} · includes what is added later</span></span>
               <button type="button" className="btn small" disabled={act.busy} onClick={() => void stopFolder(f)}>Stop sharing</button>
             </div>
           ))}
