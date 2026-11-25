@@ -2,7 +2,8 @@
 // beside it, downloads, retention) and the player's "My recordings" (their own mic track and the players'
 // transcript only). Audio is played from signed per-viewer addresses the server hands out.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PageHead, ErrorBox, Empty, Loading, useAction } from '../../ui/index.tsx';
+import { Link } from 'react-router-dom';
+import { PageHead, ErrorBox, Empty, Loading, Markdown, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 
 interface Track { id: string; kind: 'full' | 'mic'; label: string; person: string; durationMs: number; bytes: number; file: string; url: string }
@@ -10,7 +11,7 @@ interface Retention { mode: 'default' | 'forever' | 'days'; days: number | null;
 interface RecSession {
   id: string; name: string; date: string; startedAt: string; stoppedAt: string | null; active: boolean; durationMs: number; status: string; error: string | null; warnings: string[];
   progress: { pct: number; step: string } | null; builtAt: string | null; folder?: string; people: string[]; mics: number; bytes: number; rawChunks: number; retention: Retention;
-  audioDeleted: boolean; canBuild: boolean; tracks?: Track[]; final?: FinalView | null;
+  audioDeleted: boolean; canBuild: boolean; tracks?: Track[]; final?: FinalView | null; zipUrl?: string | null;
 }
 interface FinalView {
   status: 'running' | 'done' | 'failed' | 'undone'; step: string; pct: number; startedAt: string; finishedAt: string | null; error: string | null;
@@ -85,7 +86,7 @@ function TrackRow({ t, audioRef, main }: { t: Track; audioRef?: (el: HTMLAudioEl
 }
 
 /** One session: players, transcript beside them and downloads. */
-function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: string; tracks?: Track[] }; lines: Line[]; dm: boolean }) {
+function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: string; tracks?: Track[]; zipUrl?: string | null }; lines: Line[]; dm: boolean }) {
   const main = useRef<HTMLAudioElement | null>(null);
   const [now, setNow] = useState(0);
   const tracks = s.tracks ?? [];
@@ -108,6 +109,12 @@ function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: st
   return (
     <div className="rec-view">
       <div className="rec-players stack">
+        {s.zipUrl && (
+          <div className="row between wrap" style={{ gap: 6 }}>
+            <a className="btn small" href={s.zipUrl} download data-testid="rec-download-all" aria-label={`Download everything for ${s.name}`}><i className="fa-solid fa-file-zipper" aria-hidden="true" /> Download all (.zip)</a>
+            <span className="tiny muted">{dm ? 'The full session, every mic, the transcripts, the approved summary and session.json.' : 'Your own microphone, the players’ transcript and the players’ summary.'}</span>
+          </div>
+        )}
         {lead ? <TrackRow key={lead.id} t={lead} audioRef={(el) => { main.current = el; }} main /> : <Empty>No audio to play.</Empty>}
         {tracks.filter((t) => t !== lead).length > 0 && <h3 className="rec-h">{dm ? 'Each microphone' : 'Your microphone'}</h3>}
         {tracks.filter((t) => t !== lead).map((t) => <TrackRow key={t.id} t={t} />)}
@@ -232,6 +239,74 @@ function FinalBox({ s, reload }: { s: RecSession; reload: () => Promise<void> })
   );
 }
 
+interface HandoffCard { id: string; status: 'pending' | 'approved' | 'discarded'; text: string; source: 'live' | 'final'; logDraftId: string | null; createdAt: string; updatedAt: string; decidedAt: string | null }
+interface Handoff { minervaOn: boolean; where: 'minerva' | 'recordings' | 'none'; source: 'live' | 'final'; hasSummary: boolean; minerva: { id: string; status: string; title: string; createdAt: string }[]; cards: HandoffCard[] }
+const FROM = { live: 'the running notes (live transcript)', final: 'the final transcript' };
+
+/**
+ * Where this session's summary went: Minerva's review queue (when Minerva is on), or a "Summary ready" card here to
+ * approve (saved as a session log draft), edit or discard. It is the DM's summary, so only the DM's page shows it.
+ */
+function SummaryBox({ s }: { s: RecSession }) {
+  const { w, info } = useWorld();
+  const act = useAction();
+  const h = useLoad<Handoff>(() => w.call<Handoff>('GET', `/audio/sessions/${s.id}/handoff`), [w, s.id], ['audio-handoff', 'audio-summary', 'minerva', 'transcript-final']);
+  const [edit, setEdit] = useState<{ id: string; text: string } | null>(null);
+  if (s.active) return null;
+  const v = h.data;
+  const decide = (c: HandoffCard, action: 'approve' | 'discard') => act.run(async () => {
+    await w.call('POST', `/audio/sessions/${s.id}/handoff/${c.id}`, { action, ...(edit?.id === c.id ? { text: edit.text } : {}) });
+    setEdit(null);
+    await h.reload();
+  });
+  const pending = v?.cards.filter((c) => c.status === 'pending') ?? [];
+  const decided = v?.cards.filter((c) => c.status !== 'pending') ?? [];
+  const minervaPending = v?.minerva.filter((x) => x.status === 'pending') ?? [];
+  return (
+    <section className="card stack" aria-label="Session summary" data-testid="rec-summary" data-where={v?.where ?? ''}>
+      <h3 style={{ margin: 0 }}>Session summary</h3>
+      <ErrorBox error={act.error ?? h.error} />
+      {!v ? <Loading /> : (
+        <>
+          {v.where === 'none' && <p className="small muted" style={{ margin: 0 }}>{v.hasSummary ? 'Getting the summary ready for your review…' : 'No summary yet. It is made from the transcript a few seconds after the recording stops (it needs a chat model), and made again from the final transcript.'}</p>}
+          {v.where === 'minerva' && (
+            <p className="small" style={{ margin: 0 }} data-testid="rec-summary-where">
+              The summary went to <Link to={`/w/${info.slug}/dm/minerva`}>Minerva’s review queue</Link> as “Last session” for the Campaign Status.{' '}
+              {minervaPending.length ? `${minervaPending.length === 1 ? 'It waits' : `${minervaPending.length} drafts wait`} for your approval there; nothing is written before you approve.` : 'You have decided it there.'}
+              {v.source === 'final' ? ' It is made from the final transcript.' : ''}
+            </p>
+          )}
+          {v.where === 'recordings' && (
+            <p className="small" style={{ margin: 0 }} data-testid="rec-summary-where">
+              Minerva is off for this world, so the summary waits here for you. Approve saves it as a <Link to={`/w/${info.slug}/dm/sessionlog`}>session log</Link> draft (players see nothing until you publish it there); Discard drops it.
+            </p>
+          )}
+          {pending.map((c) => (
+            <div key={c.id} className="stack tight rec-summary-card" data-card="pending">
+              <div className="row between wrap" style={{ gap: 6 }}><strong>Summary ready</strong><span className="tiny muted">from {FROM[c.source]}{decided.some((x) => x.status === 'approved') ? ' · an update after the one you approved' : ''}</span></div>
+              {edit?.id === c.id
+                ? <textarea value={edit.text} onChange={(e) => setEdit({ id: c.id, text: e.target.value })} rows={10} aria-label="Edit the summary" style={{ width: '100%' }} />
+                : <div className="small rec-summary-text"><Markdown text={c.text} /></div>}
+              <div className="row wrap" style={{ gap: 6 }}>
+                <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void decide(c, 'approve')}>{edit?.id === c.id ? 'Save and approve' : 'Approve'}</button>
+                {edit?.id === c.id
+                  ? <button type="button" className="btn small" disabled={act.busy} onClick={() => setEdit(null)}>Cancel edit</button>
+                  : <button type="button" className="btn small" disabled={act.busy} onClick={() => setEdit({ id: c.id, text: c.text })}>Edit</button>}
+                <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void decide(c, 'discard')}>Discard</button>
+              </div>
+            </div>
+          ))}
+          {decided.map((c) => (
+            <p key={c.id} className="tiny muted" style={{ margin: 0 }} data-card={c.status}>
+              {c.status === 'approved' ? <>Approved{c.decidedAt ? ` ${c.decidedAt.slice(0, 10)}` : ''}: saved as a <Link to={`/w/${info.slug}/dm/sessionlog`}>session log draft</Link> (from {FROM[c.source]}).</> : <>Discarded (from {FROM[c.source]}).</>}
+            </p>
+          ))}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function RecordingsDM() {
   const { w } = useWorld();
   const list = useLoad<{ sessions: RecSession[]; ffmpeg: boolean }>(() => w.call('GET', '/audio/recordings'), [w], ['recording', 'transcript-final']);
@@ -268,8 +343,9 @@ export function RecordingsDM() {
               <>
                 <h2 style={{ margin: 0 }}>{cur.name} <span className="muted small">{cur.date}</span></h2>
                 <StatusBox s={cur} reload={reload} />
-                <SessionView s={{ id: cur.id, name: cur.name, date: cur.date, tracks: d && !d.audioDeleted && d.status === 'ready' ? d.tracks : [] }} lines={lines.data ?? []} dm />
+                <SessionView s={{ id: cur.id, name: cur.name, date: cur.date, tracks: d && !d.audioDeleted && d.status === 'ready' ? d.tracks : [], zipUrl: d?.zipUrl ?? null }} lines={lines.data ?? []} dm />
                 <FinalBox s={cur} reload={reload} />
+                <SummaryBox s={cur} />
                 <KeepAudio s={cur} reload={reload} />
               </>
             )}
@@ -282,7 +358,7 @@ export function RecordingsDM() {
 
 // ---- a player's page ------------------------------------------------------------------------------------
 
-interface MineSession { id: string; name: string; date: string; status: string; durationMs: number; audioDeleted: boolean; deletesAt: string | null; daysLeft: number | null; tracks: Track[] }
+interface MineSession { id: string; name: string; date: string; status: string; durationMs: number; audioDeleted: boolean; deletesAt: string | null; daysLeft: number | null; tracks: Track[]; zipUrl?: string | null }
 
 export function MyRecordings() {
   const { w } = useWorld();
