@@ -12,7 +12,7 @@ import { DEFAULT_COSTS } from '../src/features/spells/mana.ts';
 import {
   DEFAULT_SPELL_RULES as R, PLAN_COSTS, casterLevel, checkSpellRules, complexity, dailyProgress, dualCastUnlocked, extraRecipeSpells, fuseInsight,
   gradeFinalCheck, highestSpellLevel, isHybrid, learnGates, levelUpInsightBank, lineMastery, multiclassHighest, multiclassPool, poolFor, preview,
-  quoteCast, quoteDual, relic, resolveRules, scroll, studyCoin, studyDays, studyPoints, upcastCost, type CastState, type LearnInput,
+  quoteCast, quoteDual, memoryLearn, resolveRules, scroll, studyCoin, studyDays, studyPoints, upcastCost, type CastState, type LearnInput,
 } from '../src/features/spells/rules.ts';
 
 const C = PLAN_COSTS;
@@ -77,18 +77,20 @@ test('SpellRules: casting limits: echo strain, one per turn, surge, high level, 
 
 test('SpellRules: dual cast empower and fuse, the Arcana DC, the unlock and the fuse insight', () => {
   const fireball = { id: 'fb', level: 3 }, ray = { id: 'ray', level: 2, concentration: true }, web = { id: 'web', level: 2, concentration: true };
-  const ctx = { characterLevel: 5, hasFeat: false, usedSinceShortRest: false, penalty: 0 };
+  const ctx = { characterLevel: 5, hasAbility: true, usedSinceShortRest: false, penalty: 0 };
   const emp = quoteDual(fireball, fireball, ctx, C, R);
   assert.deepEqual([emp.allowed, emp.cost, emp.effectiveLevel, emp.dc], [true, 10, 5, 16]);
   const fuse = quoteDual(fireball, ray, ctx, C, R);
   assert.deepEqual([fuse.allowed, fuse.cost, fuse.dc], [true, 12, 15], '(5 + 3) × 1.5');
   assert.equal(quoteDual(ray, web, ctx, C, R).allowed, false, 'two concentration spells');
   assert.equal(quoteDual(fireball, ray, { ...ctx, penalty: 2 }, C, R).dc, 17, 'the next roll after a failure');
-  assert.equal(quoteDual(fireball, ray, { ...ctx, characterLevel: 4 }, C, R).allowed, false);
+  assert.match(quoteDual(fireball, ray, { ...ctx, hasAbility: false, characterLevel: 20 }, C, R).reasons[0], /needs the Dual cast ability/, 'an ability by default, not a level');
+  const byLevel = { ...R, dualCast: { ...R.dualCast, unlock: 'level' as const } };
+  assert.equal(quoteDual(fireball, ray, { ...ctx, hasAbility: false, characterLevel: 4 }, C, byLevel).allowed, false);
+  assert.equal(quoteDual(fireball, ray, { ...ctx, hasAbility: false, characterLevel: 5 }, C, byLevel).allowed, true);
   assert.equal(quoteDual(fireball, ray, { ...ctx, usedSinceShortRest: true }, C, R).allowed, false);
-  const feat = { ...R, dualCast: { ...R.dualCast, unlock: 'feat' as const } };
-  assert.equal(dualCastUnlocked(20, false, feat), false);
-  assert.equal(dualCastUnlocked(1, true, feat), true);
+  assert.equal(dualCastUnlocked(20, false, R), false);
+  assert.equal(dualCastUnlocked(1, true, R), true);
   assert.deepEqual(fuseInsight(['fb', 'ray'], 'fb', 'ray', 0, 13, R), { banked: 1, reveal: true });
   assert.deepEqual(fuseInsight(['fb', 'ray'], 'fb', 'ray', 6, 13, R), { banked: 6, reveal: true }, 'never past half');
   assert.deepEqual(fuseInsight(['fb', 'ray'], 'fb', 'web', 0, 13, R), { banked: 0, reveal: false });
@@ -127,9 +129,11 @@ test('SpellRules: the graded final check and the shortcuts', () => {
   assert.equal(gradeFinalCheck(1, 5, 3, 13, 250, coin).coinLost, 125);
   assert.equal(levelUpInsightBank(13, 0, R), 6);
   assert.equal(levelUpInsightBank(13, 9, R), 9, 'never lowers progress');
-  assert.deepEqual(relic(3, 16, 13, 0, R), { learned: true, dc: 16, banked: 0, exhaustion: 0 });
-  assert.deepEqual(relic(3, 15, 13, 0, R), { learned: false, dc: 16, banked: 3, exhaustion: 1 });
-  assert.deepEqual(scroll(3, 13, R), { hours: 3, points: 3 });
+  assert.deepEqual(memoryLearn(3, null, 13, 0, R), { learned: true, dc: null, banked: 0, exhaustion: 0 }, 'a full memory teaches at once');
+  const saving = { ...R, learning: { ...R.learning, memory: { ...R.learning.memory, save: true } } };
+  assert.deepEqual(memoryLearn(3, 16, 13, 0, saving), { learned: true, dc: 16, banked: 0, exhaustion: 0 });
+  assert.deepEqual(memoryLearn(3, 15, 13, 0, saving), { learned: false, dc: 16, banked: 3, exhaustion: 1 });
+  assert.deepEqual(scroll(3, 13, R), { hours: 3, points: 3 }, 'a scroll only adds study points');
 });
 
 test('SpellRules: learning gates list what is missing', () => {
@@ -157,17 +161,17 @@ test('SpellRules: line mastery counts gifts by default, and hybrids', () => {
 
 test('SpellRules: the setting is validated and laid over the defaults', () => {
   checkSpellRules({});
-  checkSpellRules({ dualCast: { unlock: 'feat' }, learning: { gates: [{}, {}, {}, {}, {}, {}, { sources: ['alone'] }, {}, {}, {}] } });
+  checkSpellRules({ dualCast: { unlock: 'level' }, learning: { gates: [{}, {}, {}, {}, {}, {}, { sources: ['alone'] }, {}, {}, {}] } });
   assert.throws(() => checkSpellRules([]), /must be an object/);
   assert.throws(() => checkSpellRules({ nope: 1 }), /Unknown spell rule: nope/);
-  assert.throws(() => checkSpellRules({ dualCast: { unlock: 'ritual' } }), /dualCast.unlock must be one of level, feat/);
+  assert.throws(() => checkSpellRules({ dualCast: { unlock: 'ritual' } }), /dualCast.unlock must be one of ability, level/);
   assert.throws(() => checkSpellRules({ pools: { third: [1, 2] } }), /pools.third must have 20 entries/);
   assert.throws(() => checkSpellRules({ upcastSurcharge: -1 }), /0 to 100000/);
   assert.throws(() => checkSpellRules({ echoStrain: { on: 'yes' } }), /true or false/);
   assert.throws(() => checkSpellRules({ learning: { gates: [{}, {}, {}, {}, {}, {}, {}, {}, {}, { from: 'up' }] } }), /from must be one of cantrip, below, any/);
   assert.throws(() => checkSpellRules({ learning: { gates: [{ sources: ['dream'] }, {}, {}, {}, {}, {}, {}, {}, {}, {}] } }), /sources must list some of/);
-  const r = resolveRules({ dualCast: { unlock: 'feat' }, pools: { third: Array(20).fill(1) }, learning: { gates: [{}, {}, {}, {}, {}, {}, { sources: ['alone'] }, {}, {}, {}] } });
-  assert.equal(r.dualCast.unlock, 'feat');
+  const r = resolveRules({ dualCast: { unlock: 'level' }, pools: { third: Array(20).fill(1) }, learning: { gates: [{}, {}, {}, {}, {}, {}, { sources: ['alone'] }, {}, {}, {}] } });
+  assert.equal(r.dualCast.unlock, 'level');
   assert.equal(r.dualCast.level, 5, 'the rest keeps its default');
   assert.equal(r.pools.third[0], 1);
   assert.deepEqual(r.pools.full, R.pools.full);

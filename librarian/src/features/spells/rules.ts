@@ -12,7 +12,7 @@
 //   study point a successful fuse banks toward a recipe.
 // - Learning: tier gates, ability minimums, level and pool requirements, study
 //   points, progress per day, materials, the graded final check and the
-//   shortcuts (level-up insight, memory relic, scroll).
+//   shortcuts (level-up insight, a memory of learning, scroll).
 // - Spell lines: mastery per line (gifts count or not) and hybrid spells.
 //
 // The world stores only what it changes (`spellRules`, a partial object);
@@ -58,8 +58,8 @@ export interface SpellRules {
   lowMana: { on: boolean; belowPct: number };
   dualCast: {
     on: boolean;
-    /** What unlocks it: a character level, or a feat the DM grants per character. */
-    unlock: 'level' | 'feat';
+    /** What unlocks it: the Dual cast ability (the DM grants it per character; nothing in play gives it yet), or a character level. */
+    unlock: 'ability' | 'level';
     level: number;
     empowerMultiplier: number;
     empowerLevels: number;
@@ -100,7 +100,9 @@ export interface SpellRules {
     levelGate: boolean;
     gates: TierGate[];
     levelUpInsightBank: number;
-    relic: { dcBase: number; dcPerLevel: number; bankOnFail: number; exhaustion: number };
+    /** A memory of learning a spell (taken whole, e.g. by a memory spell): learn it at once. With `save` on, a WIS save first. */
+    memory: { save: boolean; dcBase: number; dcPerLevel: number; bankOnFail: number; exhaustion: number };
+    /** A scroll is a study aid, never the spell itself: decoding it adds study points; the spell is still studied and checked. */
     scroll: { hoursPerLevel: number; bank: number };
   };
   lines: { giftsCountForMastery: boolean; hybridMastery: number };
@@ -126,7 +128,7 @@ export const DEFAULT_SPELL_RULES: SpellRules = {
   highLevelLimit: { on: true, fromLevel: 6 },
   overchannel: { on: true, dcBase: 10, fatigue: 1 },
   lowMana: { on: false, belowPct: 25 },
-  dualCast: { on: true, unlock: 'level', level: 5, empowerMultiplier: 2, empowerLevels: 2, fuseMultiplier: 1.5, dcBase: 10, failPenalty: 2, insightPoints: 1 },
+  dualCast: { on: true, unlock: 'ability', level: 5, empowerMultiplier: 2, empowerLevels: 2, fuseMultiplier: 1.5, dcBase: 10, failPenalty: 2, insightPoints: 1 },
   learning: {
     pointsDivisor: 2,
     hybridMultiplier: 1.25,
@@ -160,7 +162,7 @@ export const DEFAULT_SPELL_RULES: SpellRules = {
       gate(3, 'below', false, ['text', 'mentor'], true),
     ],
     levelUpInsightBank: 0.5,
-    relic: { dcBase: 10, dcPerLevel: 2, bankOnFail: 0.25, exhaustion: 1 },
+    memory: { save: false, dcBase: 10, dcPerLevel: 2, bankOnFail: 0.25, exhaustion: 1 },
     scroll: { hoursPerLevel: 1, bank: 0.25 },
   },
   lines: { giftsCountForMastery: true, hybridMastery: 2 },
@@ -170,7 +172,7 @@ export const DEFAULT_SPELL_RULES: SpellRules = {
 
 // ---- the setting: a partial object laid over the defaults ------------------------------------------------
 
-const ENUMS: Record<string, readonly string[]> = { 'dualCast.unlock': ['level', 'feat'], 'learning.gates.from': ['cantrip', 'below', 'any'] };
+const ENUMS: Record<string, readonly string[]> = { 'dualCast.unlock': ['ability', 'level'], 'learning.gates.from': ['cantrip', 'below', 'any'] };
 const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Check `v` against the shape of `def`; throws a plain reason naming the key. Numbers are 0 to 100000. */
@@ -360,10 +362,10 @@ export function quoteCast(spell: { level: number; manaCost?: number | null }, ca
 
 export interface DualQuote { allowed: boolean; reasons: string[]; cost: number; dc: number; effectiveLevel: number | null; concentration: boolean }
 
-/** May this character dual cast at all: level reached, or the feat when the world asks for a feat. */
-export function dualCastUnlocked(characterLevel: number, hasFeat: boolean, r: SpellRules): boolean {
+/** May this character dual cast at all: they have the Dual cast ability, or (when the world unlocks it by level) reached the level. */
+export function dualCastUnlocked(characterLevel: number, hasAbility: boolean, r: SpellRules): boolean {
   if (!r.dualCast.on) return false;
-  return r.dualCast.unlock === 'feat' ? hasFeat : characterLevel >= r.dualCast.level;
+  return r.dualCast.unlock === 'ability' ? hasAbility : characterLevel >= r.dualCast.level;
 }
 
 /**
@@ -375,13 +377,13 @@ export function dualCastUnlocked(characterLevel: number, hasFeat: boolean, r: Sp
 export function quoteDual(
   a: { id: string; level: number; manaCost?: number | null; concentration?: boolean },
   b: { id: string; level: number; manaCost?: number | null; concentration?: boolean },
-  ctx: { characterLevel: number; hasFeat: boolean; usedSinceShortRest: boolean; penalty: number },
+  ctx: { characterLevel: number; hasAbility: boolean; usedSinceShortRest: boolean; penalty: number },
   costs: number[],
   r: SpellRules,
 ): DualQuote {
   const reasons: string[] = [];
   if (!r.dualCast.on) reasons.push('Dual cast is off in this world');
-  else if (!dualCastUnlocked(ctx.characterLevel, ctx.hasFeat, r)) reasons.push(r.dualCast.unlock === 'feat' ? 'Dual cast needs the feat' : `Dual cast opens at character level ${r.dualCast.level}`);
+  else if (!dualCastUnlocked(ctx.characterLevel, ctx.hasAbility, r)) reasons.push(r.dualCast.unlock === 'ability' ? 'Dual cast needs the Dual cast ability' : `Dual cast opens at character level ${r.dualCast.level}`);
   if (ctx.usedSinceShortRest) reasons.push('Dual cast is used up until a short rest');
   const ca = upcastCost(a.level, a.level, costs, r, a.manaCost), cb = upcastCost(b.level, b.level, costs, r, b.manaCost);
   const dc = r.dualCast.dcBase + a.level + b.level + Math.max(0, ctx.penalty);
@@ -465,15 +467,20 @@ export function gradeFinalCheck(d20: number, bonus: number, spellLevel: number, 
 /** Level-up insight: a free attempt; on a failure, bank this share of the study. */
 export const levelUpInsightBank = (needed: number, banked: number, r: SpellRules): number => Math.min(needed, Math.max(banked, Math.floor(needed * r.learning.levelUpInsightBank)));
 
-/** Memory relic: instant; WIS save DC base + per level × spell level; a failure banks a share and gives exhaustion. */
-export function relic(spellLevel: number, saveTotal: number, needed: number, banked: number, r: SpellRules): { learned: boolean; dc: number; banked: number; exhaustion: number } {
-  const R = r.learning.relic;
+/**
+ * A full memory of learning a spell: the character learns it at once. With
+ * `memory.save` on (off by default), a WIS save DC base + per level × spell
+ * level first; a failure banks a share of the study and gives exhaustion.
+ */
+export function memoryLearn(spellLevel: number, saveTotal: number | null, needed: number, banked: number, r: SpellRules): { learned: boolean; dc: number | null; banked: number; exhaustion: number } {
+  const R = r.learning.memory;
+  if (!R.save) return { learned: true, dc: null, banked, exhaustion: 0 };
   const dc = R.dcBase + R.dcPerLevel * spellLevel;
-  if (saveTotal >= dc) return { learned: true, dc, banked, exhaustion: 0 };
+  if (saveTotal !== null && saveTotal >= dc) return { learned: true, dc, banked, exhaustion: 0 };
   return { learned: false, dc, banked: Math.min(needed, banked + Math.floor(needed * R.bankOnFail)), exhaustion: R.exhaustion };
 }
 
-/** A scroll: hours to decode, and the points using it up adds. */
+/** A scroll: hours to decode, and the study points using it up adds. It never teaches the spell by itself. */
 export function scroll(spellLevel: number, needed: number, r: SpellRules): { hours: number; points: number } {
   return { hours: Math.max(1, spellLevel) * r.learning.scroll.hoursPerLevel, points: Math.floor(needed * r.learning.scroll.bank) };
 }
