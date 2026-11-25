@@ -23,6 +23,9 @@ import { balance, money, spendable } from '../../core/coin.ts';
 import { HttpError, id as newId, int, now, parseJson, str } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, names, settings } from '../../routes/_shared.ts';
 import { playerVisible } from '../shop/shops.ts';
+import { stateOf as minervaState } from '../minerva/store.ts';
+import { memoryLog } from '../minerva/after.ts';
+import { draftEncounter } from './draft.ts';
 import { GAME_LABEL, LIMITS, STARTERS, parseScript, play, quickScript, starter, type Effect, type Node, type Script } from './script.ts';
 
 export { parseScript, play, STARTERS } from './script.ts';
@@ -118,6 +121,17 @@ function routes(d: Deps) {
 
   // ---- live events ----
   const changed = (e: Pick<Row, 'id' | 'world_id' | 'account_id'>) => d.hub.emit(e.world_id, 'encounter', { id: e.id }, dmAnd(e.account_id));
+  /** A finished talk goes into Minerva's notes for the session in progress (DM only), when Minerva is on. Never breaks the talk. */
+  const remember = (e: Row, log: Line[]) => {
+    try {
+      if (!minervaState(db, e.world_id).enabled) return;
+      const nm = names(db, e.world_id);
+      const results = log.filter((l) => l.who === 'gain' || l.who === 'loss' || l.who === 'game').map((l) => l.text).slice(-4);
+      const said = log.filter((l) => l.who === 'you').map((l) => `"${l.text}"`).slice(-3);
+      const text = `${nm[e.account_id] ?? 'A player'} met ${e.npc_name}${e.source === 'wander' ? ' while wandering' : ''} (app encounter${e.template_name ? `: ${e.template_name}` : ''}).${said.length ? ` They answered ${said.join(', ')}.` : ''}${results.length ? ` ${results.join(' ')}` : ''}`;
+      memoryLog(d, e.world_id, { text: text.slice(0, 1900), about: e.npc_name }, null);
+    } catch (err) { console.error('encounters: could not log to Minerva', err); }
+  };
   const coinChanged = (w: string, owner: string) => d.hub.emit(w, 'coin', { owner, balance: balance(db, w, owner) }, dmAnd(owner));
   const itemChanged = (w: string, owner: string, it: { id: string; name: string; qty: number }) =>
     d.hub.emit(w, 'item', { id: it.id, owner, name: it.name, qty: it.qty, status: 'approved' }, dmAnd(owner));
@@ -215,7 +229,7 @@ function routes(d: Deps) {
     res.json(view(e, isDM(res), names(db, e.world_id)));
   });
 
-  // DM sends. { accountIds: [...] | 'party', and one of: templateId; script (+ npcName, npcBlurb); line + answers (+ npcName) }. shopId: the shop "open a shop" options without their own shop open.
+  // DM sends. { accountIds: [...] | 'party', and one of: templateId; script (+ npcName, npcBlurb); line + answers (+ npcName) }. addToPeople: put the NPC on the party's People list. shopId: the shop "open a shop" options without their own shop open.
   r.post('/', requireDM, (req, res) => {
     const w = W(res);
     const b = req.body ?? {};
@@ -242,6 +256,13 @@ function routes(d: Deps) {
       src = { npcName, npcBlurb, script, templateId: null, templateName: '', shopId, source: 'dm' };
     }
     const made = start(w, me(res), to, src);
+    // "Add to People": the NPC joins the party's People list once, the first time anyone meets them.
+    if (b.addToPeople === true && !one(db, 'SELECT 1 FROM people WHERE world_id = ? AND name = ? COLLATE NOCASE', w, src.npcName)) {
+      const nm0 = names(db, w);
+      const p = { id: newId('ppl_'), name: src.npcName.slice(0, 120), role: src.npcBlurb.slice(0, 120), attitude: '', kind: 'neutral', page_id: null, met: `Met by ${to.map((x) => nm0[x] ?? 'a player').join(', ')}`.slice(0, 60), visibility: 'party' };
+      run(db, 'INSERT INTO people (id, world_id, name, role, attitude, kind, page_id, met, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', p.id, w, p.name, p.role, p.attitude, p.kind, p.page_id, p.met, p.visibility);
+      d.hub.emit(w, 'person', p, () => true);
+    }
     audit(db, w, me(res), 'encounter.send', `${src.npcName} to ${made.length} player${made.length === 1 ? '' : 's'}`);
     const nm = names(db, w);
     res.status(201).json(made.map((e) => view(e, true, nm)));
@@ -353,6 +374,7 @@ function routes(d: Deps) {
     else { nodeId = next; say('npc', nodeOf(sc, next).text); }
     run(db, 'UPDATE encounters SET node_id = ?, status = ?, log = ?, steps = ?, paid_cp = ?, open_shop = ?, updated_at = ? WHERE id = ?',
       nodeId, status, JSON.stringify(log.slice(-MAX_LOG)), steps, paid, openShop, now(), e.id);
+    if (status === 'done') remember(e, log);
     for (const o of new Set(coinMoves)) coinChanged(w, o);
     for (const it of items) itemChanged(w, e.account_id, it);
     changed(e);
@@ -366,6 +388,7 @@ function routes(d: Deps) {
     if (e.status === 'open') {
       const log = [...parseJson<Line[]>(e.log, []), { who: 'note', text: 'You walk away.', at: now() } as Line];
       run(db, `UPDATE encounters SET status = 'done', log = ?, updated_at = ? WHERE id = ?`, JSON.stringify(log), now(), e.id);
+      remember(e, log);
       changed(e);
     }
     reply(res, e);
@@ -406,6 +429,12 @@ function routes(d: Deps) {
     if (!name || !npcName) throw new HttpError(400, 'name and npcName are required');
     return { name, npcName, npcBlurb: str(b?.npcBlurb, 'npcBlurb', { max: 300, optional: true }).trim(), script: parseScript(b?.script), wander: b?.wander === true ? 1 : 0 };
   };
+  // Draft an encounter from a description with the chat model; the DM edits and saves it like any other.
+  r.post('/templates/draft', requireDM, async (req, res) => {
+    const prompt = str(req.body?.prompt, 'prompt', { max: 3000 }).trim();
+    if (!prompt) throw new HttpError(400, 'Describe the encounter first');
+    res.json(await draftEncounter(d, prompt, ctx(res).world.name));
+  });
   r.get('/templates/all', requireDM, (_req, res) => {
     const own = all<TemplateRow>(db, 'SELECT * FROM encounter_templates WHERE world_id = ? ORDER BY name COLLATE NOCASE', W(res)).map(tview);
     res.json({ templates: own, starters: STARTERS.map((s) => ({ ...s, wander: !own.some((t) => t.wander), builtin: true })) });
@@ -442,9 +471,9 @@ const tools: McpTool[] = [
   {
     name: 'send_encounter', write: true,
     description: "DM: have an NPC walk up to one or more players in their app. Either templateId (from list_encounter_templates), or npcName + line + answers for a quick one. accountIds: player account ids, or 'party'. shopId: the shop a 'show me your wares' option opens.",
-    props: { accountIds: { description: "Player account ids, or 'party'" }, templateId: S('Template or starter id'), npcName: S('NPC name'), npcBlurb: S('What they look like'), line: S('What the NPC says (quick encounter)'), answers: { type: 'array', items: { type: 'string' }, description: 'Answers the player can pick (quick encounter)' }, shopId: S('Shop id') },
+    props: { accountIds: { description: "Player account ids, or 'party'" }, templateId: S('Template or starter id'), npcName: S('NPC name'), npcBlurb: S('What they look like'), line: S('What the NPC says (quick encounter)'), answers: { type: 'array', items: { type: 'string' }, description: 'Answers the player can pick (quick encounter)' }, shopId: S('Shop id'), addToPeople: { type: 'boolean', description: "Also put the NPC on the party's People list" } },
     required: ['accountIds'],
-    call: (a) => ({ method: 'POST', path: '/encounters', body: { accountIds: a.accountIds, templateId: a.templateId, npcName: a.npcName, npcBlurb: a.npcBlurb, line: a.line, answers: a.answers, shopId: a.shopId } }),
+    call: (a) => ({ method: 'POST', path: '/encounters', body: { accountIds: a.accountIds, templateId: a.templateId, npcName: a.npcName, npcBlurb: a.npcBlurb, line: a.line, answers: a.answers, shopId: a.shopId, addToPeople: a.addToPeople } }),
   },
   { name: 'encounter_say', write: true, description: 'DM: speak as the NPC in an open encounter, with new answers for the player.', props: { id: S('Encounter id'), text: S('What the NPC says'), answers: { type: 'array', items: { type: 'string' } } }, required: ['id', 'text'], call: (a) => ({ method: 'POST', path: `/encounters/${enc(a.id)}/say`, body: { text: a.text, answers: a.answers } }) },
   { name: 'end_encounter', write: true, description: 'DM: end an open NPC encounter.', props: { id: S('Encounter id') }, required: ['id'], call: (a) => ({ method: 'POST', path: `/encounters/${enc(a.id)}/end`, body: {} }) },

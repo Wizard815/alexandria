@@ -4,7 +4,7 @@
 // with branching answers, gifts, a shop and small games; and the settings
 // (wandering, its wait, the coin cap per encounter).
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
@@ -13,6 +13,7 @@ import './encounters.css';
 
 type Tab = 'live' | 'library' | 'settings';
 interface ShopLite { id: string; name: string; status: string }
+interface PersonLite { id: string; name: string; role: string; attitude: string }
 
 export default function EncountersDM() {
   const { w } = useWorld();
@@ -70,11 +71,19 @@ function Send({ templates, shops, onSent }: { templates: Template[]; shops: Shop
   const [line, setLine] = useState('');
   const [answers, setAnswers] = useState<string[]>(['', '']);
   const [shopId, setShopId] = useState('');
+  const [addPeople, setAddPeople] = useState(false);
+  const people = useLoad<PersonLite[]>(() => w.call('GET', '/people'), [w], ['person']);
   const t = templates.find((x) => x.id === tid);
+  const fromPerson = (pid: string) => {
+    const p = (people.data ?? []).find((x) => x.id === pid);
+    if (!p) return;
+    setNpcName(p.name);
+    setNpcBlurb([p.role, p.attitude].filter(Boolean).join(', '));
+  };
   const needsShop = mode === 'saved' && !!t?.script.nodes.some((n) => n.options.some((o) => o.effects.some((e) => e.kind === 'shop' && !e.shopId)));
   const toggle = (id: string) => setTo((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]));
   const send = () => act.run(async () => {
-    const body: Record<string, unknown> = { accountIds: to, shopId: shopId || undefined, npcName: npcName.trim() || undefined };
+    const body: Record<string, unknown> = { accountIds: to, shopId: shopId || undefined, npcName: npcName.trim() || undefined, addToPeople: addPeople || undefined };
     if (mode === 'saved') body.templateId = tid;
     else Object.assign(body, { npcBlurb: npcBlurb.trim() || undefined, line, answers: answers.filter((a) => a.trim()) });
     await w.call('POST', '/encounters', body);
@@ -94,6 +103,14 @@ function Send({ templates, shops, onSent }: { templates: Template[]; shops: Shop
         </div>
       </Field>
       <Tabs label="What to send" value={mode} onChange={setMode} items={[['quick', 'Quick line'], ['saved', 'Saved or starter']]} />
+      {(people.data?.length ?? 0) > 0 && (
+        <Field label="Someone from People (optional)" help="Fills in the NPC's name and look.">
+          <select value="" onChange={(e) => fromPerson(e.target.value)} data-testid="enc-person">
+            <option value="">Pick an NPC…</option>
+            {people.data!.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` · ${p.role}` : ''}</option>)}
+          </select>
+        </Field>
+      )}
       {mode === 'saved' ? (
         <>
           <Field label="Encounter">
@@ -125,6 +142,7 @@ function Send({ templates, shops, onSent }: { templates: Template[]; shops: Shop
           </select>
         </Field>
       )}
+      <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={addPeople} onChange={(e) => setAddPeople(e.target.checked)} /><span className="small">Add this NPC to the party’s People list</span></label>
       <ErrorBox error={act.error} />
       <button type="button" className="btn primary" disabled={act.busy || !to.length || (mode === 'quick' ? !line.trim() : !tid)} onClick={() => void send()} data-testid="enc-send">Send</button>
       {toastNode}
@@ -189,6 +207,7 @@ function Library({ data, shops, reload }: { data: { templates: Template[]; start
     <div className="cols">
       <nav className="col-1 stack" aria-label="Saved encounters">
         <button type="button" className="btn" onClick={() => setSel(blank())}>New encounter</button>
+        <DraftBox onDraft={(t) => setSel(t)} />
         {data.templates.map((t) => (
           <button key={t.id} type="button" className={`card enc-pick${sel?.id === t.id ? ' on' : ''}`} onClick={() => setSel(structuredClone(t))}>
             <div className="row between"><strong>{t.name}</strong>{t.wander && <span className="chip teal">Wander</span>}</div>
@@ -206,9 +225,34 @@ function Library({ data, shops, reload }: { data: { templates: Template[]; start
         ))}
       </nav>
       <div className="col-2 stack loose">
-        {sel ? <Editor key={sel.id || sel.name} start={sel} shops={shops} onSaved={async (t) => { await reload(); setSel(t); }} onGone={async () => { await reload(); setSel(null); }} /> : <Empty>Pick an encounter to edit, or start a new one.</Empty>}
+        {sel ? <Editor key={sel.id || `${sel.name}-${sel.script.nodes.length}-${sel.npcName}`} start={sel} shops={shops} onSaved={async (t) => { await reload(); setSel(t); }} onGone={async () => { await reload(); setSel(null); }} /> : <Empty>Pick an encounter to edit, or start a new one.</Empty>}
       </div>
     </div>
+  );
+}
+
+/** Describe an encounter and the world's chat model drafts the steps; the DM edits and saves it. */
+function DraftBox({ onDraft }: { onDraft: (t: Template) => void }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const [prompt, setPrompt] = useState('');
+  const [note, setNote] = useState<string | null>(null);
+  const go = () => act.run(async () => {
+    const r = await w.call<{ name: string; npcName: string; npcBlurb: string; script: Script; usedModel: boolean; note: string | null }>('POST', '/encounters/templates/draft', { prompt });
+    setNote(r.note);
+    onDraft({ id: '', name: r.name, npcName: r.npcName, npcBlurb: r.npcBlurb, script: r.script, wander: false, builtin: false });
+  });
+  return (
+    <details className="card enc-draft">
+      <summary><i className="fa-solid fa-wand-magic-sparkles" aria-hidden="true" /> Draft one with the assistant</summary>
+      <div className="stack tight" style={{ marginTop: 8 }}>
+      <textarea className="input" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={3000} placeholder="A nervous fence behind the tannery offers a dice game; if they win, he tips them off about the guard rotation." style={{ padding: '8px 10px' }} />
+      <ErrorBox error={act.error} />
+      {note && <span className="tiny faint">{note}</span>}
+      <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} disabled={act.busy || !prompt.trim()} onClick={() => void go()}>{act.busy ? 'Drafting…' : 'Draft'}</button>
+      <span className="tiny faint">Nothing is sent or saved until you do.</span>
+      </div>
+    </details>
   );
 }
 
@@ -274,7 +318,7 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
 
           <div className="row between">
             <span className="small">Game here</span>
-            <select value={n.game?.kind ?? ''} onChange={(e) => setNode(i, { ...n, game: e.target.value ? { kind: e.target.value as GameKind, stakeCp: n.game?.stakeCp ?? 0, winCp: n.game?.winCp ?? 10, dc: e.target.value === 'check' ? n.game?.dc ?? 12 : null, skill: n.game?.skill ?? null, win: n.game?.win ?? n.id, lose: n.game?.lose ?? n.id } : null })} style={{ width: 'auto' }}>
+            <select className="input" aria-label="Game here" value={n.game?.kind ?? ''} onChange={(e) => setNode(i, { ...n, game: e.target.value ? { kind: e.target.value as GameKind, stakeCp: n.game?.stakeCp ?? 0, winCp: n.game?.winCp ?? 10, dc: e.target.value === 'check' ? n.game?.dc ?? 12 : null, skill: n.game?.skill ?? null, win: n.game?.win ?? n.id, lose: n.game?.lose ?? n.id } : null })} style={{ width: 'auto' }}>
               <option value="">None</option>
               {(['coin', 'shells', 'dice', 'check'] as GameKind[]).map((k) => <option key={k} value={k}>{k === 'coin' ? 'Coin toss' : k === 'shells' ? 'Shell game' : k === 'dice' ? 'Dice duel' : 'Skill check'}</option>)}
             </select>
@@ -304,7 +348,7 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
             return (
               <div key={j} className="enc-opt-edit stack tight">
                 <div className="row wrap">
-                  <input style={{ flex: '2 1 200px' }} value={o.label} placeholder="What the player says" onChange={(e) => setOpt({ label: e.target.value })} maxLength={120} />
+                  <input className="input" style={{ flex: '2 1 200px', width: 'auto' }} value={o.label} placeholder="What the player says" onChange={(e) => setOpt({ label: e.target.value })} maxLength={120} />
                   <NextPicker ids={ids} value={o.next} onChange={(v) => setOpt({ next: v })} />
                   <button type="button" className="btn ghost small" aria-label="Remove answer" onClick={() => setNode(i, { ...n, options: n.options.filter((_, k) => k !== j) })}>✕</button>
                 </div>
@@ -352,7 +396,7 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
 
 function NextPicker({ ids, value, onChange, required }: { ids: string[]; value: string | null; onChange: (v: string | null) => void; required?: boolean }) {
   return (
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} aria-label="Goes to" style={{ flex: '1 1 140px', width: 'auto' }}>
+    <select className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} aria-label="Goes to" style={{ flex: '1 1 140px', width: 'auto' }}>
       {!required && <option value="">Ends the talk</option>}
       {ids.map((id) => <option key={id} value={id}>→ {id}</option>)}
     </select>
@@ -394,6 +438,30 @@ function Settings({ cfg, reload }: { cfg: EncounterConfig; reload: () => Promise
       </div>
       <ErrorBox error={act.error} />
       {toastNode}
+    </section>
+  );
+}
+
+// ---------------- the Table page card ----------------
+
+/** On the DM's Table page: who is talking to which NPC right now, with a way in. Hidden when nobody is. */
+export function EncountersNow() {
+  const { w, isDM, info } = useWorld();
+  const list = useLoad<Encounter[]>(() => (isDM ? w.call('GET', '/encounters', undefined, { status: 'open' }) : Promise.resolve([])), [w, isDM], ['encounter']);
+  const open = (list.data ?? []).filter((e) => e.status === 'open');
+  if (!isDM || !open.length) return null;
+  return (
+    <section className="card gold" aria-labelledby="enc-now-h" data-testid="enc-now">
+      <div className="card-head"><h2 id="enc-now-h"><i className="fa-solid fa-person-walking" aria-hidden="true" /> Encounters now</h2><Link to={`/w/${info.slug}/dm/encounters`} className="small">Watch &amp; reply →</Link></div>
+      {open.slice(0, 5).map((e) => {
+        const last = [...e.log].reverse().find((l) => l.who !== 'npc' && l.who !== 'dm');
+        return (
+          <div key={e.id} className="row between" style={{ gap: 8 }}>
+            <span><strong>{e.player}</strong> <span className="muted">with</span> {e.npc.name}{e.source === 'wander' && <span className="chip teal" style={{ marginLeft: 6 }}>Wandered</span>}</span>
+            <span className="small muted" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{last ? last.text : 'Just started'}</span>
+          </div>
+        );
+      })}
     </section>
   );
 }
