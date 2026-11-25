@@ -50,3 +50,24 @@ test('WebTree_ChildrenNestedUnderTheirParentPageAreNotDuplicatedByTheFolderPath'
   const g = all.find((n) => n.label === 'Guild')!;
   assert.deepEqual(g.children.map((n) => n.label).sort(), ['Hall', 'Vault']);
 });
+
+test('WebTree_TwoSourcesWithOneNameStayTwoRowsAndEachSharesItself', () => {
+  const rows = [
+    row('a', 'Harbor', { source: 'Wiki', sourceId: 'src_one', sourceKind: 'kanka' }),
+    row('b', 'Market', { source: 'Wiki', sourceId: 'src_one', sourceKind: 'kanka', folder: ['Town'] }),
+    row('c', 'Tower', { source: 'Wiki', sourceId: 'src_two', sourceKind: 'obsidian' }),
+    row('d', 'Notes', { source: 'Atlas', sourceId: 'src_three', sourceKind: 'obsidian' }),
+  ];
+  const tree = buildTree(rows);
+  const wikis = tree.filter((n) => n.label === 'Wiki');
+  assert.equal(wikis.length, 2, 'not merged by name');
+  assert.deepEqual(wikis.map((n) => n.folder!.sourceId).sort(), ['src_one', 'src_two'], 'a whole-source share targets the right source');
+  assert.deepEqual(wikis.map((n) => n.hint).sort(), ['Kanka', 'Obsidian'], 'the connector type tells them apart');
+  const one = wikis.find((n) => n.folder!.sourceId === 'src_one')!;
+  assert.equal(one.count, 2);
+  assert.equal(walk(one.children).find((n) => n.label === 'Town')!.folder!.sourceId, 'src_one', 'folders inside keep their source');
+  assert.equal(tree.find((n) => n.label === 'Atlas')!.hint, undefined, 'a unique name needs no hint');
+  // Same name and same connector type: numbered.
+  const twins = buildTree([row('x', 'A', { source: 'Wiki', sourceId: 's1', sourceKind: 'kanka' }), row('y', 'B', { source: 'Wiki', sourceId: 's2', sourceKind: 'kanka' })]);
+  assert.deepEqual(twins.map((n) => n.hint).sort(), ['Kanka 1', 'Kanka 2']);
+});
