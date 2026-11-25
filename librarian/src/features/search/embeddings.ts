@@ -139,8 +139,12 @@ function pruneIfChanged(db: DB) {
 
 export interface SyncResult { embedded: number; pages: number; remaining: boolean; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
 
-/** A refusal about this page's text (the classified guard, or a 4xx about the request): back off from the page, carry on with the rest. */
-const isRefusal = (e: unknown) => e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429 && e.status !== 404 && e.status !== 408);
+/**
+ * A refusal about this page's text (the classified guard, or a 4xx about the request): back off from the page, carry on with the rest.
+ * A wrong key (401) or an account out of credit (402) is about the server, not the page: the pass stops instead of backing off from every page.
+ */
+const NOT_ABOUT_THE_PAGE = new Set([401, 402, 404, 408, 429]);
+const isRefusal = (e: unknown) => e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && !NOT_ABOUT_THE_PAGE.has(e.status));
 
 interface Item { r: Pending; scope: VecScope; chunks: string[]; alone?: boolean }
 
