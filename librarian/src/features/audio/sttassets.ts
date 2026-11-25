@@ -7,8 +7,12 @@
 // in ALX_STT_ASSET_DIR (same layout) instead. ALX_STT_ASSETS=off turns all of it off: devices then report that they
 // cannot transcribe, and the server transcribes their audio.
 //
-//   GET /api/stt/lib/<file>                                         the library (public: a pinned open-source build)
-//   GET /api/stt/<ticket>/models/<org>/<model>/resolve/main/<file>  model files (a signed-in member's ticket)
+//   GET /api/stt/<ticket>/lib/<file>                                the library and its runtime (a signed-in member's ticket)
+//   GET /api/stt/<ticket>/models/<org>/<model>/resolve/main/<file>  model files (the same ticket)
+//
+// Every route needs the ticket, so nobody who is not signed in can make the server download anything. The ticket is in the
+// path because a worker's import() and the runtime's own fetches cannot send the sign-in header. It is minted for one account in
+// one world, is checked against that membership on every request, and expires (sound/ticket.ts). Without one: 404.
 import type { Express, Request, Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,8 +36,27 @@ const cacheRoot = (d: Deps) => d.env.ALX_STT_ASSET_DIR || (d.dataDir ? path.join
 /** What a device needs to load its model: null when this server does not serve the files. */
 export function sttAssetsFor(d: Deps, worldId: string, accountId: string) {
   if (!enabled(d) || !cacheRoot(d)) return null;
-  const ticket = mintTicket({ w: worldId, k: 'stt', f: '', a: accountId });
-  return { version: STT_LIB_VERSION, lib: '/api/stt/lib/', models: `/api/stt/${ticket}/models/`, allowed: STT_MODELS };
+  const ticket = ticketFor(worldId, accountId);
+  return { version: STT_LIB_VERSION, lib: `/api/stt/${ticket}/lib/`, models: `/api/stt/${ticket}/models/`, allowed: STT_MODELS };
+}
+
+/** One ticket per account and world for a few hours, so the browser's HTTP cache keeps the library across page loads. */
+const tickets = new Map<string, { t: string; at: number }>();
+const REUSE_MS = 4 * 3600_000;
+function ticketFor(worldId: string, accountId: string) {
+  const key = `${worldId}\n${accountId}`;
+  const had = tickets.get(key);
+  if (had && Date.now() - had.at < REUSE_MS && readTicket(had.t)) return had.t;
+  const t = mintTicket({ w: worldId, k: 'stt', f: '', a: accountId });
+  tickets.set(key, { t, at: Date.now() });
+  if (tickets.size > 5000) for (const [k, v] of tickets) if (Date.now() - v.at >= REUSE_MS) tickets.delete(k);
+  return t;
+}
+
+/** The ticket is good: signed, not expired, for speech files, and its account is still a member of its world. */
+function ticketOk(d: Deps, raw: string) {
+  const t = readTicket(raw);
+  return !!t && t.k === 'stt' && !!one(d.db, 'SELECT 1 FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);
 }
 
 const inflight = new Map<string, Promise<void>>();
@@ -70,7 +93,8 @@ const TYPES: Record<string, string> = { '.js': 'text/javascript; charset=utf-8',
 
 function sendCached(res: Response, file: string, maxAge: number) {
   res.setHeader('Content-Type', TYPES[path.extname(file)] ?? 'application/octet-stream');
-  res.setHeader('Cache-Control', `public, max-age=${maxAge}${maxAge > 86400 ? ', immutable' : ''}`);
+  // private: the URL holds a ticket, so no shared cache keeps it.
+  res.setHeader('Cache-Control', `private, max-age=${maxAge}${maxAge > 86400 ? ', immutable' : ''}`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(file);
 }
@@ -83,11 +107,11 @@ export function sttAssetRoutes(app: Express, d: Deps) {
     res.status(502).json({ error: 'Could not fetch the speech model files' });
   };
 
-  app.get('/api/stt/lib/:file', async (req: Request, res: Response) => {
+  app.get(/^\/api\/stt\/([^/]+)\/lib\/([^/]+)$/, async (req: Request, res: Response) => {
     try {
       guard();
-      const f = String(req.params.file);
-      if (!LIB_FILES.has(f)) throw new HttpError(404, 'File not found');
+      const [ticket, f] = [0, 1].map((i) => String((req.params as any)[i] ?? ''));
+      if (!ticketOk(d, ticket) || !LIB_FILES.has(f)) throw new HttpError(404, 'File not found');
       const upstream = (d.env.ALX_STT_LIB_URL || `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${STT_LIB_VERSION}/dist/`).replace(/\/?$/, '/');
       sendCached(res, await cached(d, path.join('lib', STT_LIB_VERSION, f), upstream + f), 365 * 86400);
     } catch (e) { fail(res, e); }
@@ -97,8 +121,7 @@ export function sttAssetRoutes(app: Express, d: Deps) {
     try {
       guard();
       const [ticket, org, name, file] = [0, 1, 2, 3].map((i) => String((req.params as any)[i] ?? ''));
-      const t = readTicket(ticket);
-      if (!t || t.k !== 'stt' || !one(d.db, 'SELECT 1 FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a)) throw new HttpError(404, 'File not found');
+      if (!ticketOk(d, ticket)) throw new HttpError(404, 'File not found');
       const model = `${org}/${name}`;
       if (!STT_MODELS.includes(model) || !MODEL_FILE.test(file)) throw new HttpError(404, 'File not found');
       const upstream = (d.env.ALX_STT_MODEL_URL || 'https://huggingface.co/').replace(/\/?$/, '/');
