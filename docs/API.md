@@ -229,6 +229,52 @@ items are refused until their level is changed, and a folder rule skips both.
 | GET | `/new` | player, DM | What was sent or shared with this player (checked again on every read), newest first, with `isNew`; the DM gets the send log |
 | POST | `/seen` | player | Marks everything seen |
 
+### Shop (`/api/worlds/:world/shop`)
+
+Shops, the item database they stock from, and buying. See
+[SHOPS.md](SHOPS.md). Guests get 403 everywhere. Prices are in copper.
+Players only ever get the player view: shops that are not hidden, an open
+shop's visible lines, the keeper's public card; a hidden shop is a 404.
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/config` | player, DM | `{approval, sellBack, sellPct, partyPay, coins, kinds, sizes}` (DM also `model, types, rarities`) |
+| GET | `/items` | DM | `?q=&type=&rarity=&source=&tag=&limit=&offset=` → `{total, all, items[], sources[], tags[]}`. The first call seeds the SRD items. |
+| GET | `/items/:iid` | DM | One item |
+| POST | `/items` | DM | `{name, type?, category?, rarity?, cost? ("15 gp") or costCp?, weight?, description?, properties?, attunement?, tags?, dmNotes?}`; 409 on a name already there |
+| PATCH | `/items/:iid` | DM | The fields to change |
+| POST | `/items/:iid/duplicate` | DM | `{name?}` → a custom copy |
+| DELETE | `/items/:iid` | DM | Also removes its stock lines |
+| GET | `/sources` | DM | Game modules with items to import, and their credit lines |
+| POST | `/items/import` | DM | `{type: module, module}` \| `{type: json, json}` \| `{type: csv, csv}`, plus `onDuplicate: skip\|update`, `preview`, and for files `source`, `sourceLabel`, `attribution` → `{added, updated, skipped, errors[], sample[], duplicates[]}` |
+| GET | `/items/export` | DM | `?format=json\|csv` |
+| GET | `/shops` | player, DM | The list (players: open and closed shops only) |
+| GET | `/shops/:sid` | player, DM | One shop; the DM's has `keeper.secret`, `haggle`, `dmNotes`, hidden lines and line `dmNote`s |
+| POST | `/shops` | DM | `{name, kind, description?, keeper?, locationPageId?, markupPct?, haggle?, dmNotes?, status?, restock?: {rule: manual\|days, days}, sellPct?, stock?: [{itemId, qty? (null: unlimited), priceCp?, hidden?, dmNote?}]}` |
+| PATCH | `/shops/:sid` | DM | The fields to change |
+| POST | `/shops/:sid/status` | DM | `{status: hidden\|closed\|open}` |
+| DELETE | `/shops/:sid` | DM | 409 while purchases wait |
+| POST | `/shops/:sid/stock` | DM | One line or `{items: [...]}`; an item already stocked adds to its line |
+| PATCH/DELETE | `/shops/:sid/stock/:stid` | DM | `{qty?, baseQty?, priceCp?, hidden?, dmNote?}` |
+| POST | `/shops/:sid/restock` | DM | Every line back to its usual quantity |
+| POST | `/shops/:sid/stage` | DM | `{show}`: the stock as a stage card (shown on the players' TV with `show: true`) |
+| POST | `/shops/:sid/keeper-page` | DM | Save the keeper as a DM-only NPC page and link it |
+| POST | `/keeper` | DM | `{shopId?, kind?, seed?, race?, gender?, savePage?}`: a keeper from the NPC generator (given to the shop when `shopId`) |
+| POST | `/generate` | DM | `{kind, size, level?, theme?, guide?, seed?, count?, name?, enrich?, save?, status?}` → `{draft}`, or with `save: true` also `{shop}` (hidden unless `status`) |
+| GET | `/pay-options` | player, DM | Like the broker's: `self {cp, available}`, `party {cp, available, allowed, reason}` |
+| POST | `/shops/:sid/buy` | player, DM | `{stockId, qty?, from?: self\|party, to?: me\|party}` → 201, or 202 `{pending: true}` with `shopApproval`. 402 not enough coin, 409 sold out or closed, 404 hidden. |
+| POST | `/shops/:sid/sell` | player | `{itemId, qty?}` (an approved item of yours or the party's) → 202; 403 unless `shopSellBack` |
+| GET | `/orders` | player, DM | Players: their own; DM: all (`?status=pending`) |
+| POST | `/orders/:oid` | DM | `{action: approve\|reject, priceCp?}` (`priceCp`: a sale's total) |
+| POST | `/orders/:oid/cancel` | player | Take back your own pending purchase or sale |
+
+Live events: `shop` `{id}` (to players only for shops they can see or just
+lost), `shop-order` (DM and the buyer), `shop-items` (DM), and the usual
+`coin`, `item`, `item-removed`, `approval`. Settings: `shopApproval`,
+`shopPartyPay`, `shopSellBack`, `shopSellBackPct`. MCP: `search_items`,
+`list_shops`, `read_shop`, `create_item`, `edit_item`, `generate_shop`,
+`create_shopkeeper`, `stock_shop`, `set_shop_status`.
+
 ## Library admin (`/api/admin`, admins only)
 
 | Area | Endpoints |

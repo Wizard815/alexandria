@@ -30,6 +30,7 @@ export const DM_NAMES: Record<string, DMName> = {
   sharing: { group: 'players', label: 'Sharing & keys', icon: 'fa-share-nodes', desc: 'Share pages with players, invite people, and give out API and AI keys.' },
   party: { group: 'players', label: 'Players', icon: 'fa-sack-dollar', desc: 'Each player’s gold and pack, then the party’s: give or take in one tap.' },
   broker: { group: 'players', label: 'Broker', icon: 'fa-scale-balanced', desc: 'Information players can buy, and your price tiers.' },
+  shops: { group: 'players', label: 'Shops', icon: 'fa-store', desc: 'Shops players can buy from: open, close, stock and price them, and approve purchases.' },
   chat: { group: 'players', label: 'Table chat', icon: 'fa-comments', desc: 'Live chat for the whole table or just the party.' },
   messages: { group: 'players', label: 'Messages', icon: 'fa-envelope', desc: 'Private chats between people in this world.' },
   calendar: { group: 'players', label: 'Game nights', icon: 'fa-calendar-days', desc: 'Real-life sessions: RSVPs and rescheduling.' },
@@ -39,6 +40,7 @@ export const DM_NAMES: Record<string, DMName> = {
   relations: { group: 'world', label: 'Relations', icon: 'fa-diagram-project', desc: 'Who is related to, or a member of, whom.' },
   map: { group: 'world', label: 'Map', icon: 'fa-map', desc: 'Pins and notes on the map; hide or erase any.' },
   rules: { group: 'world', label: 'Rules', icon: 'fa-scroll', desc: 'Spells, conditions and monsters from the game module.' },
+  items: { group: 'world', label: 'Items', icon: 'fa-box-open', desc: 'The item database shops stock from: SRD items, your own and imports.' },
   whiteboard: { group: 'world', label: 'Whiteboard', icon: 'fa-chalkboard', desc: 'One shared board that stays between sessions.' },
 
   sculpt: { group: 'prep', label: 'Sculpting', icon: 'fa-wand-magic-sparkles', desc: 'Fill a few blanks; the rest is made to fit your world.' },
