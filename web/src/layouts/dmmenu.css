@@ -30,8 +30,10 @@
 .dmx-pins { display: inline-flex; flex-wrap: wrap; gap: 2px; margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--line); }
 .dmx-tools { margin-left: auto; display: inline-flex; align-items: center; } .dmx-layouts { left: auto; right: 0; }
 .dmx-tabwrap { position: relative; display: inline-flex; }
-.dmx-beside { position: absolute; right: 1px; top: 3px; width: 22px; height: 22px; border: 0; border-radius: 5px; background: var(--panel-2); color: var(--accent); font-size: 11px; cursor: pointer; opacity: 0; pointer-events: none; }
-.dmx-tabwrap:hover .dmx-beside, .dmx-beside:focus-visible { opacity: 1; pointer-events: auto; }
+.dmx-beside { position: absolute; right: 1px; top: 3px; width: 22px; height: 22px; border: 0; border-radius: 5px; background: var(--panel-2); color: var(--accent); font-size: 11px; cursor: pointer; opacity: 0; }
+.dmx-tabwrap:hover .dmx-beside, .dmx-beside:focus-visible { opacity: 1; }
+/* No hover on a touch screen: it would take taps meant for the tab. */
+@media (hover: none) { .dmx-beside { display: none; } }
 /* The workspace fills what the bar and the strip leave. */
 .dmx .main.main-ws { height: calc(100vh - 48px - 40px); padding-bottom: 0; }
 .dmx-star { width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }

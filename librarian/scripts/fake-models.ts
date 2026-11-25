@@ -8,7 +8,7 @@
 // GET /v1/models the way Argos does (status, modalities, capabilities, context),
 // plus /v1/audio/voices and /v1/rerank. It also answers Argos's own endpoints, in
 // Argos's shapes: GET /api/pool (the pool router's cards and models; with
-// `router: 'group'` it answers { enabled: false } like Argos does), GET /running, and
+// `router: 'group'` it answers { enabled: false } like Argos does), GET /api/models/modes, GET /running, and
 // POST /api/models/unload/{model} (the model reads "unloaded" until the next request to it).
 // In tests: const f = await startFakeModels(0); ... f.baseUrl ... await f.close();
 import http from 'node:http';
@@ -285,6 +285,7 @@ export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDe
         });
         return send(200, { router: 'pool', enabled: true, placement: true, budget_gib: 64, protect_seconds: 600, cards, models, queue: [], swaps: [] });
       }
+      if (req.method === 'GET' && path === '/api/models/modes') return send(200, { ok: true, modes: {}, valid: ['standard'], enabled: false }); // how Argos is told apart
       if (req.method === 'GET' && path === '/running') {
         const running = SPECS.filter((m) => !unloaded.has(m.id)).map((m) => ({ model: m.id, state: 'ready', cmd: `fake-server --model ${m.id}`, proxy: '', ttl: 0, name: m.id, description: m.description }));
         return send(200, { running });

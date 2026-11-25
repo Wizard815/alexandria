@@ -21,10 +21,10 @@
 // keyword only.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { ClassifiedRefused, embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
+import { ClassifiedRefused, ModelUnavailable, embed, hasJob, jobConfig, rerankItems } from '../../core/ai.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { type PageHit, type ParsedQuery, type Scope, makeSnippet, markHtml, parseQuery, plainText } from '../../core/pagesearch.ts';
-import { backedOffCount, eligibleIds, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
+import { type Pending, backedOffCount, bindBackoff, eligibleIds, isBackedOff, isCurrent, noteRefused, pendingCopies } from './copies.ts';
 import { libraryOf as libraryFor } from '../../core/library.ts';
 import { type Reach, type VecScope, VEC_SCOPES, openable, reachOf, reachOfScope, reachScopes } from './scopes.ts';
 import { noteDone, progress } from './pace.ts';
@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS search_chunk_state (
 
 /** Older databases allowed only the dm and party scopes: rebuild the two tables once (their rows are kept). */
 export function migrateSearch(db: DB) {
+  bindBackoff(db);
   const sqlOf = (t: string) => String(one<any>(db, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, t)?.sql ?? '');
   if (sqlOf('search_chunks') && !sqlOf('search_chunks').includes("'lifted'")) {
     tx(db, () => {
@@ -121,11 +122,19 @@ export function chunkText(text: string, size = CHUNK_CHARS): string[] {
 /** Remove chunks of pages that are gone or that a scope's copy no longer covers (every world). */
 export function pruneChunks(db: DB) {
   const lib = libraryFor(db);
-  for (const w of all<{ id: string }>(db, 'SELECT id FROM worlds')) lib?.changed(w.id);
+  for (const w of all<{ id: string }>(db, 'SELECT id FROM worlds')) lib?.reconcileQuietly(w.id);
   tx(db, () => {
     run(db, `DELETE FROM search_chunks WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunks.page_id)`);
     run(db, `DELETE FROM search_chunk_state WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = search_chunk_state.page_id)`);
   });
+  prunedAt.set(db, lib?.rev ?? -1);
+}
+const prunedAt = new WeakMap<DB, number>();
+/** pruneChunks, unless nothing has changed in the library since the last time (the background tick runs every 20 seconds). */
+function pruneIfChanged(db: DB) {
+  const lib = libraryFor(db);
+  if (lib && prunedAt.get(db) === lib.rev) return;
+  pruneChunks(db);
 }
 
 export interface SyncResult { embedded: number; pages: number; remaining: boolean; error?: string; /** Pages the classified guard refused this round (they are retried later, not every tick). */ refused?: number }
@@ -133,27 +142,46 @@ export interface SyncResult { embedded: number; pages: number; remaining: boolea
 /**
  * Embed pages whose chunks are missing or out of date. Safe to call again at
  * any time; stops quietly when no embeddings model answers.
+ *
+ * Idle costs nothing: with every page current there is no model call, and the
+ * pass is a few small queries. A page the model keeps refusing or failing on
+ * is left alone for a while (copies.ts, kept in the database), and a model
+ * that is down ends the pass at the first failure.
  */
-export async function syncEmbeddings(d: Deps, opts: { prune?: boolean; maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number; id: string; scope: VecScope }) => void } = {}): Promise<SyncResult> {
+export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId?: string; signal?: AbortSignal; onPage?: (done: { pages: number; embedded: number; id: string; scope: VecScope }) => void } = {}): Promise<SyncResult> {
   const res: SyncResult = { embedded: 0, pages: 0, remaining: false };
   const cfg = jobConfig(d, 'extra');
   if (!cfg) return res;
-  // Every permission change prunes at once (Library.changed); this second look is for safety, so the background tick does it now and then.
-  if (opts.prune !== false) pruneChunks(d.db);
+  pruneIfChanged(d.db);
   const store = vectorStore(d.db);
   const model = tagged(cfg.model);
   let budget = opts.maxPages ?? 25;
+  // Each scope's waiting pages are read once, in batches, and taken a few at a time: not one query per three pages.
+  const queues = new Map<VecScope, Pending[]>();
+  const exhausted = new Set<VecScope>();
+  const next = (scope: VecScope, n: number): Pending[] => {
+    let q = queues.get(scope) ?? [];
+    if (q.length < n && !exhausted.has(scope)) {
+      const batch = pendingCopies(d, scope, 'search_chunk_state', model, 40 + backedOffCount(), opts.worldId).filter((r) => !isBackedOff(r) && !q.some((x) => x.id === r.id));
+      if (!batch.length) exhausted.add(scope);
+      q = [...q, ...batch];
+    }
+    queues.set(scope, q.slice(n));
+    return q.slice(0, n);
+  };
   try {
     for (let more = true; more && budget > 0 && !opts.signal?.aborted;) {
       more = false;
       for (const scope of ORDER) {
         if (budget <= 0 || opts.signal?.aborted) break;
         const take = Math.min(budget, PER_TURN);
-        const rows = pendingCopies(d, scope, 'search_chunk_state', model, take + backedOffCount(), opts.worldId).filter((r) => !isBackedOff(r)).slice(0, take);
+        const rows = next(scope, take);
         if (!rows.length) continue;
         more = true;
         for (const r of rows) {
           if (opts.signal?.aborted) break;
+          // The page may have changed while the queue waited: skip what is no longer what was read.
+          if (!isCurrent(d, r)) continue;
           const chunks = chunkText(r.full).map((c) => plainText(c)).filter(Boolean);
           const vecs: Float32Array[] = [];
           try {
@@ -164,8 +192,8 @@ export async function syncEmbeddings(d: Deps, opts: { prune?: boolean; maxPages?
               for (const v of got) vecs.push(normalize(v));
             }
           } catch (e) {
-            // The guard refused this page's text: leave it for later (longer each time) and carry on with the others.
-            if (e instanceof ClassifiedRefused) { noteRefused(r); res.refused = (res.refused ?? 0) + 1; continue; }
+            // The guard refused this page's text, or the model refuses this page (a 4xx about the request): leave it for later (longer each time) and carry on with the others.
+            if (e instanceof ClassifiedRefused || (e instanceof ModelUnavailable && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429 && e.status !== 404 && e.status !== 408)) { noteRefused(r); res.refused = (res.refused ?? 0) + 1; continue; }
             throw e;
           }
           // The page may have changed while the model worked: write only what still matches its copy now (the next round sees the rest).
@@ -176,6 +204,8 @@ export async function syncEmbeddings(d: Deps, opts: { prune?: boolean; maxPages?
           budget--;
           noteDone('embeddings', r.world_id);
           opts.onPage?.({ pages: res.pages, embedded: res.embedded, id: r.id, scope });
+          // Between pages the event loop breathes: the model's answer and the write are the only waits otherwise.
+          await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
     }

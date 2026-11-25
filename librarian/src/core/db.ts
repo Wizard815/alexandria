@@ -493,8 +493,25 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 `;
 
+/**
+ * Connection settings for a server that stays up. WAL with synchronous=NORMAL
+ * does not fsync on every commit (a crash can lose the last moments, never
+ * corrupt the file), which is what made every small background write cost a
+ * disk flush. busy_timeout lets a second writer wait instead of failing.
+ */
+export function tuneDb(db: DB, memory = false) {
+  db.exec('PRAGMA busy_timeout = 5000');
+  if (memory) return;
+  db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA temp_store = MEMORY');
+  db.exec('PRAGMA cache_size = -65536'); // 64 MB of page cache
+  db.exec('PRAGMA journal_size_limit = 67108864'); // the WAL file is cut back to 64 MB after a checkpoint
+  db.exec('PRAGMA wal_autocheckpoint = 1000');
+}
+
 export function openDb(file: string): DB {
   const db = new DatabaseSync(file);
+  tuneDb(db, file === ':memory:');
   db.exec(SCHEMA);
   migrate(db);
   return db;

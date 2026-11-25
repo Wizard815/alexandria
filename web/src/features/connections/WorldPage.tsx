@@ -95,7 +95,7 @@ export default function WorldPage() {
         ))}
         {!d.sources.length && <div className="card"><Empty>No sources yet. Add one to fill this world's library.</Empty></div>}
       </div>
-      <p className="small muted">The older <Link to="/admin/sources">World sources</Link> page still works.</p>
+      <p className="small muted">The older <Link to="/admin/sources?tab=worlds">World sources</Link> page still works.</p>
 
       {adding && connectors.data && connections.data && (
         <AddSource worldId={id} connectors={connectors.data} connections={connections.data} onClose={() => setAdding(false)} onDone={(m) => { setAdding(false); toast(m); void ov.reload(); void connections.reload(); }} />
@@ -175,7 +175,7 @@ function SourceCard({ s, connector, onEdit, onAudience, onRemove, onChanged, toa
       <div className="card-head">
         <div className="stack tight grow" style={{ minWidth: 0 }}>
           <strong style={{ fontSize: 16 }}>{s.name}</strong>
-          <span className="tiny muted">{s.connector?.label ?? s.kind}{s.connection ? <> · connection <Link to="/admin/connections">{s.connection.name}</Link></> : ''} · {s.pages} page{s.pages === 1 ? '' : 's'}</span>
+          <span className="tiny muted">{s.connector?.label ?? s.kind}{s.connection ? <> · connection <Link to="/admin/sources?tab=connections">{s.connection.name}</Link></> : ''} · {s.pages} page{s.pages === 1 ? '' : 's'}</span>
         </div>
         <AudienceChip a={s.audience} />
       </div>
@@ -231,7 +231,7 @@ function EditSource({ s, c, onClose, onDone }: { s: Source; c: Connector; onClos
   return (
     <Modal title={`Settings · ${s.name}`} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
-        <p className="small muted" style={{ margin: 0 }}>{s.connector?.label ?? s.kind}{s.connection ? <> · connection <Link to="/admin/connections">{s.connection.name}</Link> (its token or address is changed there)</> : null}</p>
+        <p className="small muted" style={{ margin: 0 }}>{s.connector?.label ?? s.kind}{s.connection ? <> · connection <Link to="/admin/sources?tab=connections">{s.connection.name}</Link> (its token or address is changed there)</> : null}</p>
         <Field label="Name"><input value={name} maxLength={80} required onChange={(e) => setName(e.target.value)} /></Field>
         <ConfigFields c={own} scope="source" v={v} editing onChange={(k, x) => setV((o) => ({ ...o, [k]: x }))} />
         {!c.push && <Field label="Sync on its own"><select value={sched} onChange={(e) => setSched(e.target.value)}>{SCHEDULES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>}

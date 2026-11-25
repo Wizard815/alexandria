@@ -10,7 +10,10 @@
 // Chunks carry their start and end (ms since the session began, on the
 // server's clock) and the average signal level. Hold keys (and on-screen buttons) are sent as hold windows; the
 // server honours them. Hold keys only work while this tab is focused.
+// When the world runs speech to text on the devices (stt.ts), a chunk this device is transcribing is uploaded with
+// wait=1 and its text follows; anything this device cannot do is handed to the server.
 import { useSyncExternalStore } from 'react';
+import { deviceStt, type SttMode } from './stt.ts';
 
 export type Mode = 'always' | 'hold-to-talk' | 'hold-to-mute' | 'off';
 export interface MicSetting {
@@ -89,6 +92,8 @@ class Runner {
   holds: { start: number; end: number | null }[] = [];
   queue: Promise<void> = Promise.resolve();
   stopped: Promise<void>[] = [];
+  /** Chunk texts this device is still making and sending. */
+  texts = new Set<Promise<void>>();
 
   constructor(e: Engine, s: MicSetting) { this.e = e; this.s = s; }
 
@@ -161,27 +166,55 @@ class Runner {
     // Unique even after a page reload mid-session: the chunk start in centiseconds.
     const seq = Math.max(0, Math.floor(start / 10));
     const lv = Math.min(1, level * 5);
-    this.queue = this.queue.then(() => this.upload(blob, seq, start, end, lv));
+    // This device transcribes the chunk itself (in parallel with the upload) when it is keeping up.
+    const text = deviceStt.active ? deviceStt.transcribe(blob, end - start) : null;
+    this.queue = this.queue.then(async () => {
+      const ok = await this.upload(blob, seq, start, end, lv, !!text);
+      if (!ok || !text) return;
+      const p: Promise<void> = text.then((r) => this.sendText(seq, r)).finally(() => { this.texts.delete(p); });
+      this.texts.add(p);
+    });
   }
 
-  private async upload(blob: Blob, seq: number, start: number, end: number, level: number) {
+  private async upload(blob: Blob, seq: number, start: number, end: number, level: number, wait: boolean): Promise<boolean> {
     const sid = this.e.state.sessionId ?? this.e.lastSession;
-    if (!sid || !this.s.serverId) return;
-    const url = `${this.e.cfg!.baseUrl}/api/worlds/${encodeURIComponent(this.e.cfg!.worldId)}/audio/sessions/${sid}/chunks?mic=${this.s.serverId}&seq=${seq}&start=${Math.round(start)}&end=${Math.round(end)}&level=${level.toFixed(3)}`;
+    if (!sid || !this.s.serverId) return false;
+    const url = `${this.e.cfg!.baseUrl}/api/worlds/${encodeURIComponent(this.e.cfg!.worldId)}/audio/sessions/${sid}/chunks?mic=${this.s.serverId}&seq=${seq}&start=${Math.round(start)}&end=${Math.round(end)}&level=${level.toFixed(3)}${wait ? '&wait=1' : ''}`;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${this.e.cfg!.token}`, 'Content-Type': blob.type || 'audio/webm' }, body: blob });
-        if (r.ok) { this.e.patchMic(this.s.serverId!, { sent: (this.e.state.mics[this.s.serverId!]?.sent ?? 0) + 1, error: undefined }); return; }
+        // `sent`: this device's session clock as it sends, so the server can tell how far apart the devices' clocks are.
+        const r = await fetch(`${url}&sent=${Math.round(this.e.sessionMs())}`, { method: 'POST', headers: { Authorization: `Bearer ${this.e.cfg!.token}`, 'Content-Type': blob.type || 'audio/webm' }, body: blob });
+        if (r.ok) { this.e.patchMic(this.s.serverId!, { sent: (this.e.state.mics[this.s.serverId!]?.sent ?? 0) + 1, error: undefined }); return true; }
         if (r.status === 403 || r.status === 409 || r.status === 413 || r.status === 415) {
           const msg = await r.json().then((j: any) => j.error).catch(() => `Upload refused (${r.status})`);
           this.e.patchMic(this.s.serverId!, { error: msg, failed: (this.e.state.mics[this.s.serverId!]?.failed ?? 0) + 1 });
           if (r.status === 403 || r.status === 409) void this.stop();
-          return;
+          return false;
         }
       } catch { /* offline: try again */ }
       await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     }
     this.e.patchMic(this.s.serverId!, { failed: (this.e.state.mics[this.s.serverId!]?.failed ?? 0) + 1, error: 'Could not upload; the server is unreachable' });
+    return false;
+  }
+
+  /** This device's text for a chunk it uploaded, or (it could not make any) a note that the server should do it. */
+  private async sendText(seq: number, r: Awaited<ReturnType<typeof deviceStt.transcribe>>) {
+    const sid = this.e.state.sessionId ?? this.e.lastSession;
+    if (!sid || !this.s.serverId) return;
+    const v = deviceStt.view;
+    const body = r.ok
+      ? { ...(r.words ? { words: r.words } : { segments: r.segments ?? [] }), stt: { model: v.model, backend: v.backend, ms: r.ms, rtf: v.rtf } }
+      : { giveUp: true };
+    if (!r.ok) deviceStt.handedOver();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`${this.e.cfg!.baseUrl}/api/worlds/${encodeURIComponent(this.e.cfg!.worldId)}/audio/sessions/${sid}/chunks/${seq}/text?mic=${this.s.serverId}`, { method: 'POST', headers: { Authorization: `Bearer ${this.e.cfg!.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        // Refused (bad text, session long over): the server takes the chunk when its wait runs out.
+        if (res.ok || (res.status >= 400 && res.status < 500)) return;
+      } catch { /* offline: try again */ }
+      await new Promise((x) => setTimeout(x, 1000 * (attempt + 1)));
+    }
   }
 
   press(now: number) { if (!this.holds.some((h) => h.end === null)) this.holds.push({ start: now, end: null }); }
@@ -195,6 +228,8 @@ class Runner {
     for (const r of this.recs) if (r.state !== 'inactive') r.stop();
     await Promise.all(this.stopped);
     await this.queue;
+    // The last chunks' text from this device: waited for a while; whatever is not done by then the server takes.
+    if (this.texts.size) await Promise.race([Promise.all(this.texts), new Promise((r) => setTimeout(r, 20_000))]);
     this.stream?.getTracks().forEach((t) => t.stop());
     void this.ctxA?.close();
     this.stream = null; this.ctxA = null; this.recs.clear(); this.stopped = [];
@@ -276,6 +311,7 @@ class Engine {
     this.lastSession = sessionId;
     this.set({ recording: true, sessionId, error: null });
     if (!this.state.consent && !this.cfg?.isDM) return; // starts once they agree
+    void this.startStt();
     for (const s of this.loadMics()) if (s.enabled && s.serverId && s.mode !== 'off' && !this.runners.has(s.serverId)) {
       const r = new Runner(this, s);
       this.runners.set(s.serverId, r);
@@ -294,14 +330,54 @@ class Engine {
 
   private async stopRunners() {
     const rs = [...this.runners.values()];
+    const ids = [...this.runners.keys()];
     this.runners.clear();
     this.closeOpenHolds();
+    // Each runner waits (a little) for the text of its last chunks from this device before it stops.
     await Promise.all(rs.map((r) => r.stop()));
+    this.stopStt(ids);
   }
 
   async stopAll() {
     await this.stopRunners();
     this.set({ recording: false, sessionId: null });
+  }
+
+  // ---- speech to text on this device ------------------------------------------------------
+  private sttTimer: ReturnType<typeof setInterval> | undefined;
+  private sttUnsub: (() => void) | null = null;
+  private sttLast = '';
+
+  /** Load this device's speech model if the world wants it (only once a mic of this device records), and report on it. */
+  private async startStt() {
+    if (!this.runners.size && !this.loadMics().some((s) => s.enabled && s.serverId && s.mode !== 'off')) return;
+    let mode: SttMode = 'server';
+    let assets: { lib: string; models: string } | null = null;
+    try { const r = await this.api<any>('GET', '/stt/assets'); mode = r.mode; assets = r.assets; } catch { /* older server: server mode */ }
+    if (!this.state.recording) return;
+    clearInterval(this.sttTimer);
+    this.sttUnsub?.();
+    if (mode !== 'server') {
+      // Every few seconds, and at once when the state changes, so the DM sees each mic's speed and a failure is taken over by the server straight away.
+      this.sttUnsub = deviceStt.subscribe(() => { const v = deviceStt.view; if (v.state !== this.sttLast) { this.sttLast = v.state; this.reportStt(); } });
+      this.sttTimer = setInterval(() => this.reportStt(), 5000);
+    }
+    await deviceStt.start(mode, assets);
+    this.reportStt();
+  }
+  private reportStt() {
+    const v = deviceStt.view;
+    if (v.mode === 'server' || !this.state.recording) return;
+    for (const id of this.runners.keys()) void this.api('POST', `/mics/${id}/stt`, { state: v.state, model: v.model, backend: v.backend, rtf: v.rtf ?? undefined, backlog: v.backlog, progress: v.progress ?? undefined, note: v.note }).catch(() => {});
+  }
+  /** The session stopped here: free the model and tell the server, which takes over anything still owed. */
+  private stopStt(ids: string[]) {
+    clearInterval(this.sttTimer);
+    this.sttUnsub?.();
+    this.sttUnsub = null;
+    this.sttLast = '';
+    if (deviceStt.view.mode !== 'server' && deviceStt.view.state !== 'off') for (const id of ids) void this.api('POST', `/mics/${id}/stt`, { state: 'off' }).catch(() => {});
+    deviceStt.stop();
   }
 
   // ---- holds -----------------------------------------------------------------------------------

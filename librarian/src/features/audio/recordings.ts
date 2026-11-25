@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
+import type { JobCtx } from '../../core/jobs.ts';
 import { all, one, run } from '../../core/db.ts';
 import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
 import { id as newId, now, parseJson } from '../../core/util.ts';
@@ -163,9 +164,9 @@ function mixTracks(files: string[], out: string, mp3: boolean) {
 
 // ---- the build queue ---------------------------------------------------------------------
 
-interface Q { chain: Promise<void>; waiting: Set<string>; progress: Map<string, { pct: number; step: string }> }
+interface Q { chain: Promise<void>; waiting: Set<string>; progress: Map<string, { pct: number; step: string }>; jobCtx: Map<string, JobCtx> }
 const queues = new WeakMap<DB, Q>();
-const queueOf = (d: Deps): Q => { let q = queues.get(d.db); if (!q) { q = { chain: Promise.resolve(), waiting: new Set(), progress: new Map() }; queues.set(d.db, q); } return q; };
+const queueOf = (d: Deps): Q => { let q = queues.get(d.db); if (!q) { q = { chain: Promise.resolve(), waiting: new Set(), progress: new Map(), jobCtx: new Map() }; queues.set(d.db, q); } return q; };
 
 export const buildProgress = (d: Deps, sessionId: string) => queueOf(d).progress.get(sessionId) ?? null;
 /** Resolves when every queued build has finished (tests). */
@@ -182,7 +183,12 @@ export function enqueueBuild(d: Deps, sessionId: string): boolean {
   q.waiting.add(sessionId);
   run(d.db, "UPDATE audio_sessions SET rec_status = 'queued', rec_error = NULL WHERE id = ?", sessionId);
   q.chain = q.chain.then(async () => {
-    try { await buildRecording(d, sessionId); } catch (e) { console.error('audio: recording build crashed', e); } finally { q.waiting.delete(sessionId); q.progress.delete(sessionId); }
+    // Shown in the admin's jobs bar; not stoppable (ffmpeg is half way through files) and not resumed by the job runner (the sweep queues it again).
+    const work = async () => { try { await buildRecording(d, sessionId); } catch (e) { console.error('audio: recording build crashed', e); } };
+    try {
+      if (d.jobs) await d.jobs.track({ kind: 'recording', title: `Building a session recording`, worldId: sessionRow(d.db, sessionId)?.world_id ?? null, cancellable: false }, (ctx) => { q.jobCtx.set(sessionId, ctx); return work(); });
+      else await work();
+    } finally { q.waiting.delete(sessionId); q.progress.delete(sessionId); q.jobCtx.delete(sessionId); }
   });
   return true;
 }
@@ -207,7 +213,7 @@ export function sweepRecordings(d: Deps, nowMs = Date.now()) {
 /** Delete a built session's raw chunks (kept: any still waiting for the speech model). */
 export function cleanChunks(d: Deps, sessionId: string): number {
   let n = 0;
-  for (const c of all<any>(d.db, "SELECT id, file FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL AND status NOT IN ('pending', 'queued')", sessionId)) {
+  for (const c of all<any>(d.db, "SELECT id, file FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL AND status NOT IN ('pending', 'queued', 'awaiting')", sessionId)) {
     try { fs.rmSync(path.join(d.dataDir!, c.file), { force: true }); } catch { /* already gone */ }
     run(d.db, 'UPDATE audio_chunks SET file = NULL WHERE id = ?', c.id);
     n++;
@@ -216,7 +222,12 @@ export function cleanChunks(d: Deps, sessionId: string): number {
   return n;
 }
 
-function setProgress(d: Deps, sid: string, pct: number, step: string) { queueOf(d).progress.set(sid, { pct: Math.max(0, Math.min(100, Math.round(pct))), step }); }
+function setProgress(d: Deps, sid: string, pct: number, step: string) {
+  const q = queueOf(d);
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  q.progress.set(sid, { pct: p, step });
+  q.jobCtx.get(sid)?.progress(p, 100, step);
+}
 
 const fmtTime = (ms: number) => { const s = Math.floor(ms / 1000); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`; };
 
@@ -367,13 +378,53 @@ async function buildRecording(d: Deps, sessionId: string): Promise<void> {
 export function transcriptMarkdown(d: Deps, s: SessionRow, worldName: string): string {
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.display_name, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r.character_name || r.display_name]));
   const lines = all<any>(d.db, 'SELECT * FROM audio_lines WHERE session_id = ? ORDER BY start_ms, id', s.id);
+  const fin = one<{ status: string; finished_at: string | null; stats: string }>(d.db, 'SELECT status, finished_at, stats FROM audio_final WHERE session_id = ?', s.id);
   const out = [`# ${s.name}`, '', `${worldName} - ${localDate(s.started_at)}`, '', 'Lines marked **DM only** were not shown to the players.', ''];
+  const fs0 = parseJson<{ mics?: number; words?: number }>(fin?.stats, {});
+  if (fin?.status === 'done' && fs0.words) {
+    const n = fs0.mics;
+    out.push(`Final transcript: ${n ? `${n} microphone${n === 1 ? '' : 's'} synced onto one timeline` : 'synced onto one timeline'}, duplicates removed.`, '');
+  }
   for (const l of lines) {
     const who = l.speaker_account ? people.get(l.speaker_account) ?? 'Someone' : l.speaker_label;
     out.push(`- \`${fmtTime(l.start_ms)}\` **${who}**${l.audience === 'dm' ? ' (**DM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`);
   }
   out.push('');
   return out.join('\n');
+}
+
+/** Write Transcript.md again from the session's current lines (the final pass, or its undo). False when the session has no recording folder yet (the build writes it). */
+export function rewriteTranscript(d: Deps, sessionId: string): boolean {
+  const s = sessionRow(d.db, sessionId);
+  if (!s?.rec_dir || !d.dataDir) return false;
+  const dir = path.join(d.dataDir, s.rec_dir);
+  if (!fs.existsSync(dir)) return false;
+  writeTranscript(d, s, dir);
+  if (fs.existsSync(path.join(dir, 'session.json'))) {
+    const world = one<{ name: string }>(d.db, 'SELECT name FROM worlds WHERE id = ?', s.world_id);
+    writeSessionJson(d, s, world?.name ?? '', dir);
+  }
+  return true;
+}
+
+/**
+ * How the session's transcript was made, for session.json: per mic, where its speech to text ran (chunks done on the
+ * device and on the server) and the clock offset the final pass applied; and the final pass itself.
+ */
+export function transcriptInfo(d: Deps, s: SessionRow) {
+  const fin = one<{ status: string; finished_at: string | null; offsets: string; stats: string }>(d.db, 'SELECT status, finished_at, offsets, stats FROM audio_final WHERE session_id = ?', s.id);
+  const offsets = parseJson<Record<string, { ms: number; method: string }>>(fin?.offsets, {});
+  const mics: Record<string, { device: number; server: number; models: string[]; offsetMs: number | null; syncedBy: string | null }> = {};
+  for (const r of all<{ mic_id: string; source: string | null; stt: string; n: number }>(d.db, "SELECT mic_id, source, stt, COUNT(*) AS n FROM audio_chunks WHERE session_id = ? AND status = 'done' GROUP BY mic_id, source, stt", s.id)) {
+    const m = mics[r.mic_id] ??= { device: 0, server: 0, models: [], offsetMs: offsets[r.mic_id]?.ms ?? null, syncedBy: offsets[r.mic_id]?.method ?? null };
+    if (r.source === 'device') {
+      m.device += r.n;
+      const info = parseJson<{ model?: string; backend?: string }>(r.stt, {});
+      const name = [info.model, info.backend].filter(Boolean).join(' on ');
+      if (name && !m.models.includes(name)) m.models.push(name);
+    } else m.server += r.n;
+  }
+  return { final: fin ? { status: fin.status, finishedAt: fin.finished_at, ...parseJson<Record<string, unknown>>(fin.stats, {}) } : null, speechToText: mics };
 }
 
 function writeTranscript(d: Deps, s: SessionRow, dir: string) {
@@ -384,6 +435,7 @@ function writeTranscript(d: Deps, s: SessionRow, dir: string) {
 export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir: string, roles?: Map<string, string>) {
   const tracks = all<TrackRow>(d.db, "SELECT * FROM audio_tracks WHERE session_id = ? ORDER BY CASE kind WHEN 'full' THEN 0 ELSE 1 END, created_at, label", s.id);
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.username, a.display_name, m.character_name, m.role FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r]));
+  const info = transcriptInfo(d, s);
   const doc = {
     format: 'alexandria-recording/1',
     sessionId: s.id, worldId: s.world_id, world: worldName, name: s.name,
@@ -399,8 +451,10 @@ export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir:
     ],
     microphones: tracks.filter((t) => t.kind === 'mic').map((t) => {
       const p = t.account_id ? people.get(t.account_id) : null;
-      return { micId: t.mic_id, name: t.label, file: t.file, person: { accountId: t.account_id, username: p?.username ?? null, displayName: p?.display_name ?? t.person, character: p?.character_name || null, role: p?.role ?? roles?.get(t.account_id ?? '') ?? null } };
+      const stt = t.mic_id ? info.speechToText[t.mic_id] : undefined;
+      return { micId: t.mic_id, name: t.label, file: t.file, person: { accountId: t.account_id, username: p?.username ?? null, displayName: p?.display_name ?? t.person, character: p?.character_name || null, role: p?.role ?? roles?.get(t.account_id ?? '') ?? null }, ...(stt ? { speechToText: { deviceChunks: stt.device, serverChunks: stt.server, deviceModels: stt.models }, syncOffsetMs: stt.offsetMs, syncedBy: stt.syncedBy } : {}) };
     }),
+    transcript: info.final,
   };
   fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify(doc, null, 2) + '\n');
 }
@@ -433,7 +487,7 @@ export function deleteSessionAudio(d: Deps, s: SessionRow): number {
   let n = 0;
   for (const c of all<any>(d.db, 'SELECT id, file, status FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL', s.id)) {
     try { fs.rmSync(path.join(d.dataDir, c.file), { force: true }); } catch { /* already gone */ }
-    run(d.db, 'UPDATE audio_chunks SET file = NULL, status = ? WHERE id = ?', c.status === 'pending' ? 'expired' : c.status, c.id);
+    run(d.db, 'UPDATE audio_chunks SET file = NULL, status = ? WHERE id = ?', ['pending', 'queued', 'awaiting'].includes(c.status) ? 'expired' : c.status, c.id);
     n++;
   }
   const tracks = all<TrackRow>(d.db, 'SELECT * FROM audio_tracks WHERE session_id = ?', s.id);

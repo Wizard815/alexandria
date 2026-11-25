@@ -27,6 +27,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Deps } from '../app.ts';
 import { classifiedMatch } from './levels.ts';
 import { run, type DB } from './db.ts';
+import { recordCall } from './modelcalls.ts';
 
 export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible';
 /** Jobs that answer in text. */
@@ -425,6 +426,7 @@ async function send(d: Deps, job: Job, c: JobConfig, path: string, body: unknown
       r = await d.fetch(c.baseUrl + path, { method: 'POST', headers, body: payload, signal: guard.signal });
     } catch (err: any) {
       guard.clear();
+      recordCall(d.db, { job, model: c.model, status: 0, ms: performance.now() - t0 });
       if (guard.timedOut) throw new ModelUnavailable(job, `The ${job} model did not answer within ${Math.round(ms / 1000)}s (raise timeoutMs in the job's options if it is just slow)`);
       if (err?.name === 'AbortError') throw err;
       throw new ModelUnavailable(job, `The ${job} model did not answer: ${String(err?.message ?? err).slice(0, 160)}`);
@@ -445,6 +447,7 @@ async function send(d: Deps, job: Job, c: JobConfig, path: string, body: unknown
       await sleep(wait, signal);
       continue;
     }
+    recordCall(d.db, { job, model: c.model, status: r.status, ms: performance.now() - t0 });
     return { r, guard, attempts: n + 1, ttfbMs: performance.now() - t0 };
   }
 }

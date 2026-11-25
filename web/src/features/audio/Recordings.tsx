@@ -10,7 +10,11 @@ interface Retention { mode: 'default' | 'forever' | 'days'; days: number | null;
 interface RecSession {
   id: string; name: string; date: string; startedAt: string; stoppedAt: string | null; active: boolean; durationMs: number; status: string; error: string | null; warnings: string[];
   progress: { pct: number; step: string } | null; builtAt: string | null; folder?: string; people: string[]; mics: number; bytes: number; rawChunks: number; retention: Retention;
-  audioDeleted: boolean; canBuild: boolean; tracks?: Track[];
+  audioDeleted: boolean; canBuild: boolean; tracks?: Track[]; final?: FinalView | null;
+}
+interface FinalView {
+  status: 'running' | 'done' | 'failed' | 'undone'; step: string; pct: number; startedAt: string; finishedAt: string | null; error: string | null;
+  offsets: Record<string, { ms: number; method: string; votes: number }>; stats: { mics?: number; words?: number; liveLines?: number; finalLines?: number; retranscribed?: boolean }; hasLive: boolean;
 }
 interface Line { id: string; start: number; end: number; speaker: string; text: string; audience?: 'players' | 'dm' }
 
@@ -184,17 +188,61 @@ function StatusBox({ s, reload }: { s: RecSession; reload: () => Promise<void> }
   );
 }
 
+const SYNC: Record<string, string> = { reference: 'reference clock', words: 'matched by shared words', upload: 'from upload timing', none: 'not shifted' };
+
+/** The final transcript: every mic synced onto one timeline, duplicates removed; made after the session, can be redone or undone. */
+function FinalBox({ s, reload }: { s: RecSession; reload: () => Promise<void> }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const mics = useLoad<any[]>(() => w.call<any[]>('GET', '/audio/mics'), [w]);
+  const f = s.final ?? null;
+  const name = (id: string) => mics.data?.find((m) => m.id === id)?.label ?? 'A mic that was removed';
+  const make = (retranscribe: boolean) => act.run(async () => { await w.call('POST', `/audio/sessions/${s.id}/final`, { retranscribe }); await reload(); });
+  const undo = () => act.run(async () => { await w.call('POST', `/audio/sessions/${s.id}/final/undo`); await reload(); });
+  if (s.active) return null;
+  return (
+    <section className="card stack" aria-label="Final transcript">
+      <h3 style={{ margin: 0 }}>Final transcript</h3>
+      <ErrorBox error={act.error} />
+      {!f && <p className="small muted" style={{ margin: 0 }}>Not made yet. It is made a little after the session stops: every mic’s text is put on one clock, the same speech heard by two mics is kept once, and each line is credited to the closest mic.</p>}
+      {f?.status === 'running' && (
+        <div role="status"><strong>{f.step || 'Working…'}</strong>
+          <div className="au-meter" role="progressbar" aria-label="Final transcript" aria-valuemin={0} aria-valuemax={100} aria-valuenow={f.pct}><div style={{ width: `${Math.max(3, f.pct)}%` }} /></div></div>
+      )}
+      {f?.status === 'done' && (
+        <p className="small" style={{ margin: 0 }} data-final="done">
+          Synced {f.stats.mics ?? 0} mic{f.stats.mics === 1 ? '' : 's'} onto one timeline: {f.stats.liveLines ?? 0} live lines became {f.stats.finalLines ?? 0}.{f.stats.retranscribed ? ' The audio was listened to again by the server model first.' : ''} Transcript.md was written again.
+        </p>
+      )}
+      {f?.status === 'failed' && <div className="error-box" role="alert">The final transcript failed: {f.error ?? 'unknown error'}. The live transcript is unchanged.</div>}
+      {f?.status === 'undone' && <p className="small muted" style={{ margin: 0 }}>Undone: this is the live transcript again.</p>}
+      {f && Object.keys(f.offsets).length > 1 && (
+        <ul className="au-list" aria-label="Clock sync per mic">
+          {Object.entries(f.offsets).map(([id, o]) => <li key={id}><span className="small">{name(id)}</span><span className="tiny faint">{o.method === 'reference' ? SYNC.reference : `${o.ms > 0 ? '+' : ''}${(o.ms / 1000).toFixed(2)} s · ${SYNC[o.method] ?? o.method}`}</span></li>)}
+        </ul>
+      )}
+      {f?.status !== 'running' && (
+        <div className="row wrap" style={{ gap: 6 }}>
+          <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void make(false)}>{f && f.status !== 'undone' ? 'Make it again' : 'Make the final transcript'}</button>
+          <button type="button" className="btn small" disabled={act.busy || s.audioDeleted} title={s.audioDeleted ? 'The audio was deleted' : undefined} onClick={() => void make(true)}>Listen again with the server model, then sync</button>
+          {f?.status === 'done' && f.hasLive && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void undo()}>Undo (back to the live transcript)</button>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function RecordingsDM() {
   const { w } = useWorld();
-  const list = useLoad<{ sessions: RecSession[]; ffmpeg: boolean }>(() => w.call('GET', '/audio/recordings'), [w], ['recording']);
+  const list = useLoad<{ sessions: RecSession[]; ffmpeg: boolean }>(() => w.call('GET', '/audio/recordings'), [w], ['recording', 'transcript-final']);
   const [sel, setSel] = useState<string | null>(null);
   const sessions = list.data?.sessions ?? [];
   useEffect(() => { if (!sel && sessions.length) setSel(sessions[0].id); }, [sessions, sel]);
-  const busy = sessions.some((s) => s.status === 'building' || s.status === 'queued');
+  const busy = sessions.some((s) => s.status === 'building' || s.status === 'queued' || s.final?.status === 'running');
   useEffect(() => { if (!busy) return; const t = setInterval(() => void list.reload(), 2000); return () => clearInterval(t); }, [busy, list]);
   const cur = sessions.find((s) => s.id === sel) ?? null;
   const detail = useLoad<RecSession | null>(() => (sel ? w.call<RecSession>('GET', `/audio/recordings/${sel}`) : Promise.resolve(null)), [w, sel, cur?.status, cur?.builtAt], []);
-  const lines = useLoad<Line[]>(() => (sel ? w.call<{ lines: Line[] }>('GET', `/audio/sessions/${sel}/lines`).then((r) => r.lines) : Promise.resolve([])), [w, sel]);
+  const lines = useLoad<Line[]>(() => (sel ? w.call<{ lines: Line[] }>('GET', `/audio/sessions/${sel}/lines`).then((r) => r.lines) : Promise.resolve([])), [w, sel, cur?.final?.status, cur?.final?.finishedAt]);
   const d = detail.data && detail.data.id === sel ? detail.data : null;
   const reload = async () => { await list.reload(); await detail.reload(); };
 
@@ -221,6 +269,7 @@ export function RecordingsDM() {
                 <h2 style={{ margin: 0 }}>{cur.name} <span className="muted small">{cur.date}</span></h2>
                 <StatusBox s={cur} reload={reload} />
                 <SessionView s={{ id: cur.id, name: cur.name, date: cur.date, tracks: d && !d.audioDeleted && d.status === 'ready' ? d.tracks : [] }} lines={lines.data ?? []} dm />
+                <FinalBox s={cur} reload={reload} />
                 <KeepAudio s={cur} reload={reload} />
               </>
             )}

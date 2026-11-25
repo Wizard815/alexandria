@@ -81,7 +81,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
           const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
           if (before) levelBefore.set(before.id, before.visibility);
           const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
-          if (r.id) { readIds.push(r.id); out.read++; if (r.id === p.id) gotIt = true; }
+          if (r.id) { if (r.changed !== false) readIds.push(r.id); out.read++; if (r.id === p.id) gotIt = true; }
         }
         // This page did not come back (gone at the source, or its document could not be read), even if other tabs of its resource did:
         // leave it alone for a while. Counting the other tabs as a success asked for it again every few seconds, for ever.
@@ -116,8 +116,8 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
     const levels = readIds.map((id) => ({ id, was: levelBefore.get(id) ?? '', is: one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ?', id)?.visibility ?? '' }));
     const moved = levels.filter((l) => l.was !== l.is);
     // Only ever more shared (a listed page read for the first time): the pages that name it. Anything that became more secret: the whole world.
-    if (moved.length && moved.every((l) => l.was in rank && l.is in rank && rank[l.is] < rank[l.was])) d.library.rebuildAround(src.world_id, moved.map((l) => l.id), readIds);
-    else d.library.rebuildPlayerCopies(src.world_id, moved.length ? undefined : readIds);
+    if (moved.length && moved.every((l) => l.was in rank && l.is in rank && rank[l.is] < rank[l.was])) await d.library.rebuildAround(src.world_id, moved.map((l) => l.id), readIds);
+    else await d.library.rebuildPlayerCopiesAsync(src.world_id, { only: moved.length ? undefined : readIds });
   }
   return out;
 }
