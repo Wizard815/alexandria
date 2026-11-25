@@ -13,7 +13,7 @@
 .nav-head .nav-ico { color: var(--faint); font-size: 12px; }
 .nav-items { display: flex; flex-direction: column; gap: 1px; }
 .nav-item { position: relative; display: flex; align-items: center; }
-.nav-item .nav-link { flex: 1; min-width: 0; padding-right: 34px; }
+.nav-item .nav-link { flex: 1; min-width: 0; padding-right: 62px; }
 .nav-link .nav-ico { color: var(--faint); font-size: 14px; flex: 0 0 auto; }
 .nav-link.active .nav-ico { color: var(--accent); }
 .nav-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
@@ -41,3 +41,15 @@
   .shell.has-drawer .side.open .nav-pin { width: 44px; height: 44px; right: 0; }
   .shell.has-drawer .side.open .nav-item .nav-link { padding-right: 46px; }
 }
+
+/* Workspace: "open beside" sits left of the pin; the entry and saved layouts are above the groups. */
+.nav-beside { position: absolute; right: 32px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; opacity: 0; }
+.nav-item:hover .nav-beside, .nav-beside:focus-visible { opacity: 1; }
+.nav-beside:hover { color: var(--accent); }
+.nav-beside:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.nav-item.in-pane .nav-link { box-shadow: inset 3px 0 0 var(--accent); }
+.nav-ws .nav-layout { background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; padding-right: 10px; }
+.nav-ws .nav-layout:hover { background: var(--accent-bg); }
+.nav-item[draggable=true] { cursor: pointer; }
+@media (hover: none) { .nav-beside { opacity: 0.55; } }
+@media (max-width: 760px) { .nav-beside, .nav-ws { display: none; } .shell.has-drawer .side.open .nav-item .nav-link { padding-right: 46px; } }
