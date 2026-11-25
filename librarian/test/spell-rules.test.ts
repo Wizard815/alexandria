@@ -192,6 +192,8 @@ let server: any;
 let tmp = '';
 const T: Record<string, string> = {};
 let W = '';
+let W2 = '';
+const SP = (w = W) => `/api/worlds/${w}/spells`;
 
 async function call(method: string, url: string, token?: string, body?: unknown) {
   const r = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -208,6 +210,7 @@ before(async () => {
   const dm = (await call('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).body.account.id;
   T.dm = (await call('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).body.token;
   W = (await call('POST', '/api/admin/worlds', T.admin, { name: 'Runeholm', dmAccountId: dm })).body.id;
+  W2 = (await call('POST', '/api/admin/worlds', T.admin, { name: 'Ashmark', dmAccountId: dm })).body.id;
   const inv = (await call('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' })).body;
   T.jess = (await call('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).body.token;
 });
@@ -227,4 +230,73 @@ test('SpellRules: the DM sets spellRules; everyone reads the merged rules and th
   assert.equal(r.body.rules.upcastSurcharge, 0);
   assert.equal(r.body.rules.lines.giftsCountForMastery, false);
   assert.equal(r.body.rules.lines.hybridMastery, 2);
+});
+
+test('SpellRules: the DM makes spell lines and tags spells; players see only spells they may read', async () => {
+  const fire = await call('POST', `${SP()}/lines`, T.dm, { name: 'Fire', color: '#e25822', theme: 'Heat and flame', spells: ['Fire Bolt', 'srd:burning-hands'] });
+  assert.equal(fire.status, 201, JSON.stringify(fire.body));
+  assert.deepEqual(fire.body.spells.sort(), ['srd:burning-hands', 'srd:fire-bolt']);
+  assert.equal((await call('POST', `${SP()}/lines`, T.dm, { name: 'fire' })).status, 409, 'names are unique, case aside');
+  assert.equal((await call('POST', `${SP()}/lines`, T.dm, { name: 'Air', color: 'blue' })).status, 400);
+  assert.match((await call('POST', `${SP()}/lines`, T.dm, { name: 'Air', spells: ['No Such Spell'] })).body.error, /Unknown spell: No Such Spell/);
+  assert.equal((await call('POST', `${SP()}/lines`, T.jess, { name: 'Air' })).status, 403);
+  const air = (await call('POST', `${SP()}/lines`, T.dm, { name: 'Air', color: '#8ecae6' })).body;
+  // A hybrid: Burning Hands in Fire and Air.
+  const tag = await call('PUT', `${SP()}/s/srd:burning-hands/lines`, T.dm, { lines: ['Fire', air.id] });
+  assert.equal(tag.status, 200, JSON.stringify(tag.body));
+  assert.equal((await call('PUT', `${SP()}/s/srd:burning-hands/lines`, T.dm, { lines: ['Frost'] })).status, 400);
+  let list = (await call('GET', `${SP()}/lines`, T.dm)).body.lines;
+  assert.deepEqual(list.map((l: any) => [l.name, l.spells.length]), [['Air', 1], ['Fire', 2]]);
+  // The player knows neither spell and the SRD is not public: the lines show, their spells do not.
+  list = (await call('GET', `${SP()}/lines`, T.jess)).body.lines;
+  assert.deepEqual(list.map((l: any) => [l.name, l.spells.length]), [['Air', 0], ['Fire', 0]]);
+  const ren = await call('PUT', `${SP()}/lines/${air.id}`, T.dm, { name: 'Wind' });
+  assert.equal(ren.body.name, 'Wind');
+  assert.equal(ren.body.color, '#8ecae6', 'what is not sent is kept');
+  assert.equal((await call('PUT', `${SP()}/lines/${air.id}`, T.dm, { name: 'Fire' })).status, 409);
+  assert.equal((await call('DELETE', `${SP()}/lines/${air.id}`, T.dm)).status, 200);
+  assert.equal((await call('DELETE', `${SP()}/lines/${air.id}`, T.dm)).status, 404);
+});
+
+test('SpellRules: a profile exports by name and imports into another world with a preview', async () => {
+  await call('POST', `${SP()}/recipes`, T.dm, { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Burning Hands'] });
+  const prof = await call('GET', `${SP()}/profile/export`, T.dm);
+  assert.equal(prof.status, 200);
+  assert.equal((await call('GET', `${SP()}/profile/export`, T.jess)).status, 403);
+  const p = prof.body;
+  assert.equal(p.format, 'alexandria-spell-rules');
+  assert.deepEqual(p.settings.spellRules, { upcastSurcharge: 0, lines: { giftsCountForMastery: false } }, 'only what the world changed');
+  assert.deepEqual(p.settings.spellManaCosts, PLAN_COSTS);
+  assert.deepEqual(p.lines, [{ name: 'Fire', color: '#e25822', theme: 'Heat and flame', spells: ['Burning Hands', 'Fire Bolt'] }]);
+  assert.deepEqual(p.recipes.map((x: any) => [x.result, x.prereqs]), [['Scorching Ray', ['Fire Bolt', 'Burning Hands']]]);
+  // Into the other world: a spell it lacks is named, nothing changes on a preview.
+  const withMissing = { ...p, lines: [...p.lines, { name: 'Shadow', spells: ['Umbral Lance'] }] };
+  const pre = await call('POST', `${SP(W2)}/profile/import/preview`, T.dm, { profile: withMissing });
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.deepEqual(pre.body.settings, ['spellRules']);
+  assert.deepEqual(pre.body.lines, { added: ['Fire', 'Shadow'], updated: [] });
+  assert.deepEqual(pre.body.missingSpells, ['Shadow: Umbral Lance']);
+  assert.equal(pre.body.recipes.added, 1);
+  assert.deepEqual((await call('GET', `${SP(W2)}/lines`, T.dm)).body.lines, [], 'a preview writes nothing');
+  assert.equal((await call('GET', `${SP(W2)}/rules`, T.dm)).body.rules.upcastSurcharge, 1);
+  const done = await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: JSON.stringify(withMissing) });
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.equal((await call('GET', `${SP(W2)}/rules`, T.dm)).body.rules.upcastSurcharge, 0);
+  assert.deepEqual((await call('GET', `${SP(W2)}/lines`, T.dm)).body.lines.map((l: any) => [l.name, l.spells.length]), [['Fire', 2], ['Shadow', 0]]);
+  assert.equal((await call('GET', `${SP(W2)}/recipes`, T.dm)).body.recipes.length, 1);
+  // Again: lines update in place, the recipe is already there.
+  const again = (await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: p })).body;
+  assert.deepEqual([again.lines.updated, again.recipes.added, again.settings], [['Fire'], 0, []]);
+  // Replace clears the lines and recipes first.
+  const rep = (await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: { ...p, lines: [], recipes: [] }, replace: true })).body;
+  assert.deepEqual([rep.lines.added, rep.recipes.added], [[], 0]);
+  assert.deepEqual((await call('GET', `${SP(W2)}/lines`, T.dm)).body.lines, []);
+  assert.equal((await call('GET', `${SP(W2)}/recipes`, T.dm)).body.recipes.length, 0);
+  // Refused whole: a bad setting, a key a profile does not carry, another format.
+  assert.equal((await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: { settings: { spellRules: { dualCast: { unlock: 'never' } } } } })).status, 400);
+  assert.match((await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: { settings: { agentAuto: true } } })).body.error, /carries only/);
+  assert.equal((await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: { format: 'alexandria-spell-recipes' } })).status, 400);
+  assert.equal((await call('POST', `${SP(W2)}/profile/import`, T.dm, { profile: { lines: [{ name: 'Bad', color: 'red' }] } })).status, 400);
+  assert.equal((await call('GET', `${SP(W2)}/lines`, T.dm)).body.lines.length, 0, 'a refused import changes nothing');
+  assert.equal((await call('POST', `${SP()}/profile/import`, T.jess, { profile: p })).status, 403);
 });

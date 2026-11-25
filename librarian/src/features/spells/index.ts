@@ -13,13 +13,14 @@ import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
 import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
 import { dmAnd, everyone } from '../../core/events.ts';
-import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
+import { DEFAULT_SETTINGS, featureSetting, mergeSettings, settingsFor, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { ABILITIES, ABILITY_NAMES, componentsText, normalizeSpell, spellLine, toCsv, type Ability } from './format.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST, castCost, checkCosts, checkMaxLevel, checkPool, checkRest, maxCastLevel, poolMax, poolNow, restGain, type ManaRules, type RestGain } from './mana.ts';
 import { checkSpellRules, preview, resolveRules } from './rules.ts';
+import { LINES_SCHEMA, MAX_LINES, PROFILE_FORMAT, PROFILE_SETTINGS, deleteLine, forgetSpell, lineById, lineByName, lines, normalizeLine, readProfile, saveLine, setLineSpells, setSpellLines } from './lines.ts';
 import { eligibility, holding, normalizeRecipe, recipeById, recipes, tiers, type Eligibility, type Recipe } from './craft.ts';
 import { readImport, saveImport } from './importers.ts';
 import { facets, queryFrom, search } from './search.ts';
@@ -204,6 +205,7 @@ function routes(d: Deps) {
       run(db, 'DELETE FROM spells_custom WHERE world_id = ? AND id = ?', W(res), cur.id);
       run(db, 'DELETE FROM spells_meta WHERE world_id = ? AND spell_id = ?', W(res), cur.id);
       run(db, 'DELETE FROM spells_known WHERE world_id = ? AND spell_id = ?', W(res), cur.id);
+      forgetSpell(db, W(res), cur.id);
     });
     audit(db, W(res), me(res), 'spells.delete', cur.name);
     changed(res);
@@ -479,32 +481,160 @@ function routes(d: Deps) {
     res.json({ format: 'alexandria-spell-recipes', version: 1, recipes: recipes(db, W(res)).map((x) => ({ result: n(x.resultId), prereqs: x.prereqs.map(n), items: x.items, stats: x.stats, minLevel: x.minLevel, manaCost: x.manaCost, visibility: x.visibility, dmNotes: x.dmNotes, draft: x.draft })) });
   });
 
+  /** Add recipes from an import or a profile (by spell name or id); a recipe already there is skipped. With `dry`, only counts. */
+  function importRecipeList(res: Response, list: any[], replace: boolean, dry: boolean, inTx = false): { added: number; skipped: string[] } {
+    const out = { added: 0, skipped: [] as string[] };
+    const sig = (x: { resultId: string; prereqs: string[] }) => `${x.resultId}|${[...x.prereqs].sort().join(',')}`;
+    const have = new Set(replace ? [] : recipes(db, W(res)).map(sig));
+    const go = () => {
+      if (replace && !dry) run(db, 'DELETE FROM spells_recipes WHERE world_id = ?', W(res));
+      list.forEach((raw: any, i: number) => {
+        let x;
+        try { x = normalizeRecipe(raw, resolver(res)); } catch (e: any) { out.skipped.push(`Recipe ${i + 1}: ${e.message}`); return; }
+        if (have.has(sig(x))) { out.skipped.push(`Recipe ${i + 1}: already there`); return; }
+        have.add(sig(x));
+        if (!dry) run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, dm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          id('rcp_'), W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, me(res), now(), now());
+        out.added++;
+      });
+    };
+    if (dry || inTx) go(); else tx(db, go);
+    return out;
+  }
+
   r.post('/recipes/import', requireDM, (req, res) => {
     const b = req.body ?? {};
     let list = b.recipes ?? b.json;
     if (typeof list === 'string') { try { list = JSON.parse(list); } catch { throw new HttpError(400, 'That is not valid JSON'); } }
     if (list && !Array.isArray(list) && Array.isArray(list.recipes)) list = list.recipes;
     if (!Array.isArray(list) || list.length > 2000) throw new HttpError(400, 'Send recipes: a list of up to 2000 recipes');
-    const res2 = { added: 0, skipped: [] as string[] };
-    const existing = recipes(db, W(res));
-    const sig = (x: { resultId: string; prereqs: string[] }) => `${x.resultId}|${[...x.prereqs].sort().join(',')}`;
-    const have = new Set(existing.map(sig));
-    tx(db, () => {
-      if (b.replace === true) { run(db, 'DELETE FROM spells_recipes WHERE world_id = ?', W(res)); have.clear(); }
-      list.forEach((raw: any, i: number) => {
-        let x;
-        try { x = normalizeRecipe(raw, resolver(res)); } catch (e: any) { res2.skipped.push(`Recipe ${i + 1}: ${e.message}`); return; }
-        if (have.has(sig(x))) { res2.skipped.push(`Recipe ${i + 1}: already there`); return; }
-        have.add(sig(x));
-        run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, dm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          id('rcp_'), W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, me(res), now(), now());
-        res2.added++;
-      });
-    });
+    const res2 = importRecipeList(res, list, b.replace === true, false);
     audit(db, W(res), me(res), 'spells.recipe.import', `${res2.added} added, ${res2.skipped.length} skipped`);
     recipesChanged(res);
     res.json(res2);
   });
+
+  // ---- spell lines (Spell_Plan.md §5) ----
+  const linesChanged = (res: Response) => d.hub.emit(W(res), 'spells-lines', {}, everyone);
+  /** Lines with their spells; a player gets only the spells they may read. */
+  r.get('/lines', (_req, res) => {
+    const visible = new Set(visibleCatalog(res).list.map((x) => x.id));
+    res.json({ lines: lines(db, W(res)).map((l) => ({ ...l, spells: isDM(res) ? l.spells : l.spells.filter((x) => visible.has(x)) })) });
+  });
+
+  /** Spells of a line from names or ids; unknown ones are a 400 naming them. */
+  function lineSpellIds(res: Response, refs: unknown): string[] {
+    if (refs === undefined) return [];
+    if (!Array.isArray(refs) || refs.length > 1000) throw new HttpError(400, 'spells must be a list of up to 1000 spell names or ids');
+    const out: string[] = [];
+    const unknown: string[] = [];
+    for (const ref of refs) { const x = findSpell(db, W(res), String(ref ?? '').trim()); if (x) out.push(x.id); else unknown.push(String(ref).slice(0, 60)); }
+    if (unknown.length) throw new HttpError(400, `Unknown spell${unknown.length === 1 ? '' : 's'}: ${unknown.slice(0, 5).join(', ')}`);
+    return out;
+  }
+
+  r.post('/lines', requireDM, (req, res) => {
+    const x = normalizeLine(req.body);
+    if (lineByName(db, W(res), x.name)) throw new HttpError(409, `There is already a line called ${x.name}`);
+    const spells = lineSpellIds(res, req.body?.spells);
+    const lid = tx(db, () => { const lid = saveLine(db, W(res), x); if (req.body?.spells !== undefined) setLineSpells(db, W(res), lid, spells); return lid; });
+    audit(db, W(res), me(res), 'spells.line.create', x.name);
+    linesChanged(res);
+    res.status(201).json(lineById(db, W(res), lid));
+  });
+
+  r.put('/lines/:lid', requireDM, (req, res) => {
+    const cur = lineById(db, W(res), String(req.params.lid));
+    if (!cur) throw new HttpError(404, 'Line not found');
+    const x = normalizeLine({ name: cur.name, color: cur.color, theme: cur.theme, ...req.body });
+    const spells = lineSpellIds(res, req.body?.spells);
+    tx(db, () => { saveLine(db, W(res), x, cur.id); if (req.body?.spells !== undefined) setLineSpells(db, W(res), cur.id, spells); });
+    audit(db, W(res), me(res), 'spells.line.update', x.name);
+    linesChanged(res);
+    res.json(lineById(db, W(res), cur.id));
+  });
+
+  r.delete('/lines/:lid', requireDM, (req, res) => {
+    const cur = lineById(db, W(res), String(req.params.lid));
+    if (!cur) throw new HttpError(404, 'Line not found');
+    tx(db, () => deleteLine(db, W(res), cur.id));
+    audit(db, W(res), me(res), 'spells.line.delete', cur.name);
+    linesChanged(res);
+    res.json({ ok: true });
+  });
+
+  /** The lines of one spell, by line id or name. */
+  r.put('/s/:id/lines', requireDM, (req, res) => {
+    const sp = spellById(db, W(res), String(req.params.id));
+    if (!sp) throw new HttpError(404, 'Spell not found');
+    const refs = req.body?.lines;
+    if (!Array.isArray(refs) || refs.length > MAX_LINES) throw new HttpError(400, `lines must be a list of up to ${MAX_LINES} line ids or names`);
+    const all_ = lines(db, W(res));
+    const ids = refs.map((ref: unknown) => { const v = String(ref ?? '').trim(); const l = all_.find((x) => x.id === v || x.name.toLowerCase() === v.toLowerCase()); if (!l) throw new HttpError(400, `Unknown line: ${v.slice(0, 40)}`); return l.id; });
+    tx(db, () => setSpellLines(db, W(res), sp.id, ids));
+    audit(db, W(res), me(res), 'spells.line.tag', sp.name);
+    linesChanged(res);
+    res.json({ spellId: sp.id, lines: [...new Set(ids)] });
+  });
+
+  // ---- the spell rules profile (Spell_Plan.md step 2): settings, lines and recipes, by spell name ----
+  r.get('/profile/export', requireDM, (_req, res) => {
+    const s = S(res);
+    const n = nameOf(res);
+    const stored = parseJson<Record<string, unknown>>(one<any>(db, 'SELECT settings FROM worlds WHERE id = ?', W(res))?.settings ?? '{}', {});
+    res.json({
+      format: PROFILE_FORMAT, version: 1,
+      settings: Object.fromEntries(PROFILE_SETTINGS.map((k) => [k, k === 'spellRules' ? (stored.spellRules ?? {}) : featureSetting(s, k)])),
+      lines: lines(db, W(res)).map((l) => ({ name: l.name, color: l.color, theme: l.theme, spells: l.spells.map(n) })),
+      recipes: recipes(db, W(res)).map((x) => ({ result: n(x.resultId), prereqs: x.prereqs.map(n), items: x.items, stats: x.stats, minLevel: x.minLevel, manaCost: x.manaCost, visibility: x.visibility, dmNotes: x.dmNotes, draft: x.draft })),
+    });
+  });
+
+  /**
+   * What importing a profile would do, without doing it (`dry`), or do it.
+   * Settings are checked as a whole first: one bad value refuses the import.
+   * Lines merge by name; a spell this world lacks is skipped and named.
+   * Recipes are added unless already there; `replace: true` clears the
+   * world's lines and recipes first.
+   */
+  function applyProfile(res: Response, body: any, dry: boolean) {
+    const p = readProfile(body);
+    const replace = body?.replace === true;
+    const patch = (p.settings ?? {}) as Record<string, unknown>;
+    let next: WorldSettings;
+    try { next = mergeSettings(S(res), patch); } catch (e: any) { throw new HttpError(400, e.message); }
+    const changedSettings = Object.keys(patch).filter((k) => JSON.stringify((S(res) as any)[k]) !== JSON.stringify(patch[k]));
+    const have = new Map(lines(db, W(res)).map((l) => [l.name.toLowerCase(), l]));
+    const plan = { lines: { added: [] as string[], updated: [] as string[] }, missingSpells: [] as string[], tags: 0 };
+    const parsed = (p.lines ?? []).map((raw: any, i: number) => {
+      let x;
+      try { x = normalizeLine(raw); } catch (e: any) { throw new HttpError(400, `Line ${i + 1}: ${e.message}`); }
+      const ids: string[] = [];
+      for (const ref of Array.isArray(raw.spells) ? raw.spells.slice(0, 1000) : []) {
+        const sp = findSpell(db, W(res), String(ref ?? '').trim());
+        if (sp) ids.push(sp.id); else plan.missingSpells.push(`${x.name}: ${String(ref).slice(0, 60)}`);
+      }
+      (!replace && have.has(x.name.toLowerCase()) ? plan.lines.updated : plan.lines.added).push(x.name);
+      plan.tags += new Set(ids).size;
+      return { x, ids };
+    });
+    const recipeList = Array.isArray(p.recipes) ? p.recipes : [];
+    if (dry) return { settings: changedSettings, ...plan, recipes: importRecipeList(res, recipeList, replace, true) };
+    const out = tx(db, () => {
+      run(db, 'UPDATE worlds SET settings = ? WHERE id = ?', JSON.stringify(next), W(res));
+      if (replace) for (const l of have.values()) deleteLine(db, W(res), l.id);
+      for (const { x, ids } of parsed) setLineSpells(db, W(res), saveLine(db, W(res), x), ids);
+      return { settings: changedSettings, ...plan, recipes: importRecipeList(res, recipeList, replace, false, true) };
+    });
+    audit(db, W(res), me(res), 'spells.profile.import', `${changedSettings.length} settings, ${parsed.length} lines, ${out.recipes.added} recipes`);
+    d.hub.emitPer(W(res), 'settings', (v) => settingsFor(next, v.role));
+    linesChanged(res);
+    recipesChanged(res);
+    return out;
+  }
+
+  r.post('/profile/import/preview', requireDM, (req, res) => res.json(applyProfile(res, req.body, true)));
+  r.post('/profile/import', requireDM, (req, res) => res.json(applyProfile(res, req.body, false)));
 
   // ---- the codex of one character: learned, learnable now, and what is next ----
   function codexFor(res: Response, aid: string) {
@@ -693,7 +823,7 @@ const qs = (a: Record<string, unknown>) => Object.entries(a).filter(([, v]) => v
 
 const feature: Feature = {
   id: 'spells',
-  schema: SCHEMA,
+  schema: SCHEMA + LINES_SCHEMA,
   settings: {
     spellMana: { type: 'boolean', default: false },
     spellManaCosts: { type: 'json', default: DEFAULT_COSTS, validate: checkCosts },

@@ -2,7 +2,7 @@
 
 The plan for Alexandria's spell system: the spell list, mana, casting limits, dual casting, spell trees and learning new spells by combining spells you already know. Everything here becomes a per-world setting with these numbers as defaults; a world can import its own numbers as a "spell rules profile".
 
-Status: **step 1 (the rules engine) is built** in `librarian/src/features/spells/rules.ts`; the rest is planned. The Codex (spell list, mana, spell crafting recipes, spell sheets) is on main; see [docs/SPELLS.md](docs/SPELLS.md). This plan extends it. The research behind the learning rule is in [docs/SPELL_LEARNING_RESEARCH.md](docs/SPELL_LEARNING_RESEARCH.md).
+Status: **steps 1 and 2 are built**: the rules engine (`librarian/src/features/spells/rules.ts`) and spell lines with the spell rules profile (`lines.ts`); the rest is planned. The Codex (spell list, mana, spell crafting recipes, spell sheets) is on main; see [docs/SPELLS.md](docs/SPELLS.md). This plan extends it. The research behind the learning rule is in [docs/SPELL_LEARNING_RESEARCH.md](docs/SPELL_LEARNING_RESEARCH.md).
 
 Words: plain terms only (mana, fire, frost, lightning, earth, air, light, shadow, Arcana check, Dual cast, fatigue, coin).
 
