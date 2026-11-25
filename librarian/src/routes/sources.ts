@@ -268,13 +268,13 @@ export default function sourceRoutes(d: Deps) {
     const ids = Array.isArray(req.body?.sourceIds) ? req.body.sourceIds.map(String) : undefined;
     const out = startCrawl(d, w.id, { mode: 'crawl', sourceIds: ids, by: me(res), full: req.body?.full === true });
     audit(db, w.id, me(res), 'world.crawl', out.id);
-    res.status(202).json({ started: true, ...out });
+    res.status(202).json({ started: true, id: out.id });
   });
   r.post('/worlds/:id/reindex', (req, res) => {
     const w = world(req);
     const out = startCrawl(d, w.id, { mode: 'reindex', by: me(res) });
     audit(db, w.id, me(res), 'world.reindex', out.id);
-    res.status(202).json({ started: true, ...out });
+    res.status(202).json({ started: true, id: out.id });
   });
   r.post('/worlds/:id/crawl/stop', (req, res) => {
     const w = world(req);

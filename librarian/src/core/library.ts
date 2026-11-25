@@ -7,7 +7,7 @@ import path from 'node:path';
 import { type DB, one, all, run, tx } from './db.ts';
 import { type FM, type FMValue, joinFrontmatter, splitFrontmatter } from './frontmatter.ts';
 import { audienceOf, copyOfMarkdown, frontmatterFor, redactMarkdown, scrubHiddenLinks, scrubHiddenValues, secretHints, type Viewer } from './policy.ts';
-import { imageVisibleTo, imagesForPage, importedRelations } from '../intake/records.ts';
+import { imageUrlOf, imageVisibleTo, imagesForPage, importedRelations } from '../intake/records.ts';
 import { mintTicket } from '../features/sound/ticket.ts';
 import { folderLifted } from '../features/libshare/grants.ts';
 import { type Block, type Entry, type Mention, type PropertyGroup, blocksToMarkdown, markdownToBlocks, mentionsIn } from '../intake/model.ts';
@@ -127,6 +127,17 @@ export class ClassifiedIndex extends Set<string> {
 const libraries = new WeakMap<DB, Library>();
 /** The library that owns a database (for code that has the database and no Deps). */
 export const libraryOf = (db: DB): Library | undefined => libraries.get(db);
+
+/** The blocks with every picture held here (`local`: source address to media address) pointing at its copy here. A new tree; the rest is shared. */
+export function localPictures(blocks: any[], local: Map<string, string>): any[] {
+  const walk = (bs: any[]): any[] => bs.map((b) => {
+    if (!b || typeof b !== 'object') return b;
+    if (b.kind === 'image' && typeof b.url === 'string' && local.has(b.url)) return { ...b, url: local.get(b.url) };
+    if (b.kind === 'map' && typeof b.image === 'string' && local.has(b.image)) return { ...b, image: local.get(b.image) };
+    return Array.isArray(b.children) ? { ...b, children: walk(b.children) } : b;
+  });
+  return Array.isArray(blocks) ? walk(blocks) : blocks;
+}
 
 export class Library {
   db: DB;
@@ -921,11 +932,11 @@ export class Library {
     }
     const children = all<any>(this.db, `SELECT id, title, icon FROM pages WHERE world_id = ? AND source_id IS ? AND parent_external = ? ${scopeGuard(scopeOf(aud), '')} ORDER BY position IS NULL, position, title COLLATE NOCASE`, worldId, pg.source_id, pg.external_id ?? '\u0000')
       .map((c) => ({ id: c.id, title: c.title, icon: c.icon ? JSON.parse(c.icon) : null }));
-    const pics = this.picturesOf(worldId, pg, aud, viewer, !!pg.banner);
+    const { list: pics, local } = this.picturesOf(worldId, pg, aud, viewer);
     const base = {
       id: pg.id, path: pg.path, title: pg.title, kind: pg.kind, tags: JSON.parse(pg.tags || '[]'), aliases: JSON.parse(pg.aliases || '[]'),
-      icon: pg.icon ? JSON.parse(pg.icon) : null, banner: pg.banner ?? pics[0]?.url ?? null, pictures: pics, folder: JSON.parse(pg.folder || '[]'), source: pg.source_name ?? null,
-      blocks, properties, links, linkTitles, children, position: pg.position ?? null, updated_at: pg.updated_at,
+      icon: pg.icon ? JSON.parse(pg.icon) : null, banner: (pg.banner ? local.get(pg.banner) ?? pg.banner : null) ?? pics[0]?.url ?? null, pictures: pics, folder: JSON.parse(pg.folder || '[]'), source: pg.source_name ?? null,
+      blocks: local.size ? localPictures(blocks, local) : blocks, properties, links, linkTitles, children, position: pg.position ?? null, updated_at: pg.updated_at,
       // Where the page came from and when it was last read from there.
       ...(pg.source_id ? { source_app: sourceApp(pg.source_kind), synced_at: pg.source_synced_at ?? null } : {}),
     };
@@ -936,18 +947,31 @@ export class Library {
   }
 
   /**
-   * The page's own pictures, downloaded from its source (the generic API's images, Kanka and LegendKeeper maps): each a short-lived media address for
-   * this viewer, the first (primary) first. A viewer other than the DM gets a picture only while that picture may follow the page and the page has a
-   * player copy (imageVisibleTo): a DM-only second picture is never listed. `bannerGiven`: the page has its own banner address, so none is primary.
+   * The page's own pictures, downloaded from its source (its portrait or banner, the generic API's images, Kanka and LegendKeeper maps): each
+   * a short-lived media address for this viewer, the first (primary) first. A viewer other than the DM gets a picture only while that picture
+   * may follow the page and the page has a player copy (imageVisibleTo): a DM-only second picture is never listed. When the page's banner
+   * address was downloaded, that copy is the primary one. `local` maps each source address held here (banner, pictures in the text, maps) to
+   * this viewer's media address, so the page is served with pictures from this server instead of the source's.
    */
-  private picturesOf(worldId: string, pg: any, aud: string, viewer: Viewer, bannerGiven = false): { id: string; name: string; url: string; map: boolean; primary: boolean }[] {
-    if (!viewer.accountId || !pg.source_id || !pg.external_id) return [];
-    const out: { id: string; name: string; url: string; map: boolean; primary: boolean }[] = [];
+  private picturesOf(worldId: string, pg: any, aud: string, viewer: Viewer): { list: { id: string; name: string; url: string; map: boolean; primary: boolean }[]; local: Map<string, string> } {
+    const local = new Map<string, string>();
+    if (!viewer.accountId || !pg.source_id || !pg.external_id) return { list: [], local };
+    const list: { id: string; name: string; url: string; map: boolean; primary: boolean }[] = [];
     for (const img of imagesForPage(this.db, worldId, pg.source_id, pg.external_id)) {
       if (!imageVisibleTo(this.db, img, aud === 'dm' ? 'dm' : 'player')) continue;
-      out.push({ id: img.id, name: img.name, url: `/api/media/intake/${mintTicket({ w: worldId, k: 'intake', f: img.id, a: viewer.accountId })}`, map: img.kind === 'map', primary: !bannerGiven && out.length === 0 });
+      const url = `/api/media/intake/${mintTicket({ w: worldId, k: 'intake', f: img.id, a: viewer.accountId })}`;
+      const from = imageUrlOf(img);
+      if (from && !local.has(from)) local.set(from, url);
+      if (img.kind !== 'inline') list.push({ id: img.id, name: img.name, url, map: img.kind === 'map', primary: false });
     }
-    return out;
+    // The primary picture: the banner's own copy, else (no banner address at all) the first picture.
+    const bannerCopy = pg.banner ? list.find((p) => local.get(pg.banner) === p.url) : list[0];
+    if (bannerCopy) {
+      bannerCopy.primary = true;
+      list.splice(list.indexOf(bannerCopy), 1);
+      list.unshift(bannerCopy);
+    }
+    return { list, local };
   }
 
   /**
