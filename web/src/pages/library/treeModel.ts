@@ -7,9 +7,11 @@ export interface PageRow {
   position?: number | null;
   /** A page opened through a share or a DM grant (not through a key of your own). */
   sharedWithMe?: boolean;
+  /** DM only: the source's id ('' for pages written in Alexandria); folder rules are keyed by it. */
+  sourceId?: string;
 }
 
-export interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number; pos: number | null }
+export interface Node { key: string; label: string; page?: PageRow; children: Node[]; count: number; pos: number | null; /** A folder: where a share rule for it is kept. */ folder?: { sourceId: string; path: string } }
 
 const byLabel = (a: Node, b: Node) => a.label.localeCompare(b.label, undefined, { numeric: true });
 
@@ -18,20 +20,23 @@ export function buildTree(rows: PageRow[]): Node[] {
   const byPage = new Map<string, Node>();
   const ids = new Set(rows.map((r) => r.id));
   for (const r of rows) byPage.set(r.id, { key: `p:${r.id}`, label: r.title, page: r, children: [], count: 0, pos: r.position ?? null });
-  const folderNode = (parent: Node[], key: string, label: string) => {
+  const folderNode = (parent: Node[], key: string, label: string, folder?: Node['folder']) => {
     let n = parent.find((x) => !x.page && x.key === key);
-    if (!n) { n = { key, label, children: [], count: 0, pos: null }; parent.push(n); }
+    if (!n) { n = { key, label, children: [], count: 0, pos: null, ...(folder ? { folder } : {}) }; parent.push(n); }
     return n;
   };
   for (const r of rows) {
     const node = byPage.get(r.id)!;
     if (r.parentId && ids.has(r.parentId) && r.parentId !== r.id) { byPage.get(r.parentId)!.children.push(node); continue; }
     const src = r.source ?? 'Written in Alexandria';
-    let level = folderNode(roots, `s:${src}`, src).children;
+    // A source at the top is a folder too: a rule with no path shares the whole source.
+    let level = folderNode(roots, `s:${src}`, src, { sourceId: r.sourceId ?? '', path: '' }).children;
     let key = `s:${src}`;
+    const names: string[] = [];
     for (const f of r.folder ?? []) {
       key += `/${f}`;
-      level = folderNode(level, `f:${key}`, f).children;
+      names.push(f);
+      level = folderNode(level, `f:${key}`, f, { sourceId: r.sourceId ?? '', path: names.join('/') }).children;
     }
     level.push(node);
   }
