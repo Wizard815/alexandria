@@ -6,10 +6,12 @@ export function safeHref(u: unknown): string | null {
   return /^(https?:\/\/|mailto:)\S+$/i.test(t) ? t : null;
 }
 
-/** An image, banner or map picture address: http or https, or one of the librarian's own signed media addresses (a picture it downloaded for a page). */
+/** An image, banner or map picture address: http or https, one of the librarian's own signed media addresses (a picture it downloaded for a page), or a picture an offline copy keeps. */
 export function safeImageUrl(u: unknown): string | null {
   const t = String(u ?? '').trim();
   if (/^\/api\/media\/intake\/[\w.-]+$/.test(t)) return t;
+  // A picture kept inside an offline copy of a page (lib/offline.ts): only the four picture types, never SVG.
+  if (/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(t)) return t;
   return /^https?:\/\/\S+$/i.test(t) && !/["'()\\]/.test(t) ? t : null;
 }
 
