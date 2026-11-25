@@ -1,6 +1,7 @@
 // Admin: who has been calling models, and who may use the /v1 gateway besides the DM and the admin.
 //
 //   GET    /api/admin/models/activity            { jobs, callers, recent }   per job: last call, calls in the last hour and day, which features
+//   GET    /api/admin/models/activity/gateway    { since, calls, users }      the /v1 call log and per-account totals today vs caps (no prompts)
 //   GET    /api/admin/models/access              { allowed: [...], defaults }
 //   PUT    /api/admin/models/access              { kind: 'account' | 'key', id, dailyRequests?, dailyTokens?, note? }
 //   DELETE /api/admin/models/access/:kind/:id
@@ -8,7 +9,7 @@ import { Router } from 'express';
 import type { Deps } from '../app.ts';
 import { all, one, run } from '../core/db.ts';
 import { HttpError, int, now, oneOf, str } from '../core/util.ts';
-import { activity } from '../core/modelcalls.ts';
+import { activity, gatewayLog } from '../core/modelcalls.ts';
 import { audit } from '../app.ts';
 import type { Auth } from '../core/auth.ts';
 
@@ -17,6 +18,7 @@ const num = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) &&
 export function activityRoutes(d: Deps) {
   const r = Router();
   r.get('/', (req, res) => res.json(activity(d.db, { limit: Number(req.query.limit) || 50 })));
+  r.get('/gateway', (req, res) => res.json(gatewayLog(d.db, d.env, { limit: Number(req.query.limit) || 100 })));
   return r;
 }
 
