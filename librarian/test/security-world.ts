@@ -262,6 +262,10 @@ export async function seedContent(h: H, S: Seed) {
   pushId('shop', openShop.id);
   pushId('shop', (await dm('POST', '/shop/shops', { name: `Smuggler Den ${mark('shop_hidden_name', ['dm'], 'the name of a hidden shop')}`, kind: 'fence', status: 'hidden', description: mark('shop_hidden_desc', ['dm'], 'the description of a hidden shop'), stock: [{ itemId: saleItem.id, qty: 1 }] })).id);
   await dm('POST', '/live/ledger', { owner: ID.jess, amountCp: 1000, note: 'Shop money' });
+  // A town with DM notes, a reputation note and a deal: what the keeper remembers is the DM's.
+  await dm('POST', '/shop/towns', { name: 'Harbour Town', pricePct: 10, description: 'Busy docks.', dmNotes: mark('shop_town_dm_notes', ['dm'], "a town's DM notes"), shopIds: [openShop.id] });
+  await dm('PUT', `/shop/shops/${openShop.id}/memory/${ID.tom}`, { rep: 20, note: mark('shop_rep_note', ['dm'], "the DM's note on a player's reputation with a keeper") });
+  await dm('POST', `/shop/shops/${openShop.id}/deals`, { accountId: ID.tom, pct: 10, note: mark('shop_deal_note', ['dm'], 'why the DM gave a player a deal') });
   await jess('POST', `/shop/shops/${openShop.id}/buy`, { stockId: openShop.stock.find((l: any) => l.name === 'Harbour Lantern').id, qty: 1 });
 
   // ---- the table: transcript, chat, whiteboard -----------------------------------------------------------

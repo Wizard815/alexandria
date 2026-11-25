@@ -313,6 +313,10 @@ const ARGS: Record<string, Maker> = {
   set_shop_status: async () => ({ shop: await shopId(), status: 'open' }),
   create_shopkeeper: async () => ({ shop: await shopId(), save_page: true }),
   generate_shop: () => ({ kind: 'magic', size: 'town', level: 5, seed: 'cov' }),
+  shop_memory: async () => ({ shop: await shopId() }),
+  give_shop_deal: async () => ({ shop: await shopId(), player: ID.jess, pct: 10, days: 2 }),
+  present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
+  set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
 };
 
 /** Values from a tool's own schema for any tool without an entry in ARGS. */
