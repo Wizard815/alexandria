@@ -54,6 +54,8 @@ import { logAgentCall, logAgentProposal } from '../active/log.ts';
 import { applyGuides } from '../templates/guides.ts';
 import { webPrecheck } from '../templates/web.ts';
 import { setGuideNotes } from './store.ts';
+import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
+import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
 /** Tool calls one message may make; past it the model must answer from what it has. */
@@ -613,23 +615,54 @@ function proposeAction(d: Deps, c: Caller, chatId: string, tool: McpTool, args: 
 /** Does this write tool run without a card right now? Asked at each call, so the Auto switch applies to the next action. */
 export type AutoCheck = (tool: string) => boolean;
 
-interface Executed { content: string; proposed?: string; ran?: { ok: boolean; status: number }; cites: Citation[]; summary?: string }
+interface Executed { content: string; proposed?: string; ran?: { ok: boolean; status: number }; cites: Citation[]; summary?: string; duplicate?: boolean }
+
+/** Which run a call belongs to, for Minerva's thoughts (the DM's harness only). */
+export interface RunMeta { runId?: string; source?: ThoughtSource }
+
+/** A read in the DM's words, for Minerva's thoughts: "search_library “goblin cave”". */
+const lookText = (name: string, a: any): string => {
+  const q = a?.query ?? a?.q ?? a?.name ?? a?.term ?? a?.title ?? a?.path ?? a?.id ?? a?.pageId;
+  return `${name.replace(/_/g, ' ')}${typeof q === 'string' && q ? ` “${q.slice(0, 80)}”` : ''}`;
+};
 
 /** One tool call from the model or a fast path: unknown tools are refused, writes become proposals, reads run. */
-async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, McpTool>, auto: AutoCheck, name: string, args: any): Promise<Executed> {
+async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, McpTool>, auto: AutoCheck, name: string, args0: any, meta: RunMeta = {}): Promise<Executed> {
   const tool = byName.get(name);
+  const dm = c.harness === 'dm';
+  const note = (kind: 'look' | 'do' | 'ask' | 'skip' | 'error', text: string, extra: { actionId?: string; detail?: string } = {}) => { if (dm) think(d, c.worldId, { source: meta.source ?? 'assistant', kind, text, runId: meta.runId, chatId, ...extra }); };
+  let args = args0;
   try {
     // The player harness never lists write tools, and a call to one is refused here too.
-    if (!tool) return { content: `Unknown tool "${name}".`, cites: [] };
+    if (!tool) {
+      // A near miss ("search" for search_library) is named, so the next call gets it right.
+      const near = nearestToolNames(name, [...byName.keys()].filter((n) => dm || !byName.get(n)?.write));
+      note('error', `Tried a tool that does not exist: ${name}${near.length ? ` (meant ${near[0]}?)` : ''}.`);
+      return { content: `Unknown tool "${name}".${near.length ? ` Did you mean ${near.map((n) => `"${n}"`).join(' or ')}? Call that instead.` : ' Use only the tools you were given.'}`, cites: [] };
+    }
+    // Arguments are checked against the tool's schema before anything runs or becomes a card: a card the DM approves must not then fail on a typo.
+    const chk = checkArgs(tool, args ?? {});
+    if (chk.problems.length) {
+      note('error', `My ${name} call had bad arguments, fixing them: ${chk.problems.join('; ')}.`);
+      return { content: `Not ${tool.write ? 'proposed' : 'run'}: ${chk.problems.join('; ')}. Fix the arguments and call ${name} again.`, cites: [] };
+    }
+    args = chk.args;
     // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
     if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
     // A web search that would not run (off, or a query with a DM-only or classified word) never becomes a card: nothing is sent.
     if (name === 'web_research') { const why = webPrecheck(d, c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (tool.write && !auto(name)) {
+      // The same change already waiting in this chat (a model that repeats itself, or a retry) is not a second card.
+      const same = one<{ id: string }>(d.db, "SELECT id FROM agent_actions WHERE chat_id = ? AND tool = ? AND args = ? AND status = 'pending'", chatId, name, JSON.stringify(args ?? {}));
+      if (same) return { content: `Already proposed as action ${same.id}: ${describeCall(name, args)}. It is waiting for the DM; do not propose it again.`, proposed: same.id, duplicate: true, cites: [], summary: describeCall(name, args) };
       const aid = proposeAction(d, c, chatId, tool, args);
+      note('ask', `Proposed: ${describeCall(name, args)}. Waiting for you.`, { actionId: aid });
       return { content: `Proposed to the DM as action ${aid}: ${describeCall(name, args)}. It has NOT run; it waits for the DM to approve it.`, proposed: aid, cites: [], summary: describeCall(name, args) };
     }
+    if (!tool.write) note('look', `Looking up: ${lookText(name, args)}.`);
     const t = await runTool(d, c, tool, args);
+    if (tool.write) note(t.ok ? 'do' : 'error', t.ok ? `Did it (${meta.source === 'task' ? 'task' : 'Auto'}): ${describeCall(name, args)}.` : `Tried “${describeCall(name, args)}” but it did not work: ${t.text.slice(0, 160)}`);
+    else if (!t.ok) note('error', `${name} answered ${t.status}: ${t.text.slice(0, 160)}`);
     if (c.harness === 'dm') audit(d, c.worldId, c.accountId, tool.write ? 'agent.action' : 'agent.read', `${name} ${JSON.stringify(args ?? {})}${tool.write ? ` auto-approved -> ${t.status}` : ''}`);
     if (c.harness === 'dm' && tool.write) {
       logAgentCall(d, c.worldId, { tool: name, args, summary: describeCall(name, args), ok: t.ok, result: t.text, via: 'auto-approved' });
@@ -640,6 +673,7 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     }
     return { content: (t.ok ? t.text : `Error ${t.status}: ${t.text}`).slice(0, budgetFor(d, c.harness).toolChars), ran: { ok: t.ok, status: t.status }, cites: t.ok ? citationsFrom(name, t.text) : [], summary: describeCall(name, args) };
   } catch (e: any) {
+    note('error', `${name} failed: ${String(e?.message ?? e).slice(0, 160)}`);
     return { content: `The call failed: ${String(e?.message ?? e).slice(0, 200)}`, cites: [] };
   }
 }
@@ -681,7 +715,7 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
       calls = [{ tool: plan.verb === 'damage' ? 'damage_combatant' : 'heal_combatant', args: { combatant: who.id, amount: plan.amount } }];
     }
   }
-  const done = await Promise.all(calls.map((x) => execCall(d, c, input.chatId, byName, auto, x.tool, x.args)));
+  const done = await Promise.all(calls.map((x) => execCall(d, c, input.chatId, byName, auto, x.tool, x.args, { runId: input.replyId, source: input.exec ? 'task' : 'assistant' })));
   const lines = done.map((r, i) => (r.proposed ? `- Waiting for your approval: ${r.summary}` : r.ran?.ok ? `- Done: ${r.summary}${(() => { const j = parseJson<any>(r.content, null); return (j?.removed ? ' (defeated and removed from the fight)' : j?.defeated ? ' (defeated)' : '') + (j?.concentrationSave ? ` (Constitution save DC ${j.concentrationSave.dc} due to keep concentrating on ${j.concentrationSave.spell})` : '') + (j?.died ? ' (dead)' : ''); })()}` : `- That did not work: ${describeCall(calls[i].tool, calls[i].args)}. ${r.content.slice(0, 160)}`));
   return { text: `${intro}\n\n${lines.join('\n')}`, cites: [] };
 }
@@ -736,6 +770,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       if (opts.desc === 'concise') tools = tools.map((t) => (CONCISE[t.name] ? { ...t, description: CONCISE[t.name] } : t));
     }
     const exec = c.harness === 'dm' ? input.exec : undefined;
+    const meta: Required<RunMeta> = { runId: input.replyId, source: exec ? 'task' : 'assistant' };
+    if (c.harness === 'dm') think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: `${exec ? `Task (${exec.mode === 'do' ? 'doing it' : 'proposing'})` : 'Working on'}: “${input.text.slice(0, 160)}”` });
     // The DM's own chat asks the settings at every call (the per-tool list and the Auto switch); a player's never runs a write.
     let auto: AutoCheck = c.harness === 'dm' ? (name) => runsWithoutAsking(d, c.worldId, name) : () => false;
     if (exec) {
@@ -773,7 +809,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const dmHarness = c.harness === 'dm';
     // The DM's guides: a request that matches one (its triggers, or "use guide X") gets the guide and what its steps found.
     if (dmHarness) {
-      const g = await applyGuides(d, { worldId: c.worldId, viewer: c.viewer, chatId: input.chatId, text: input.text, exec: (n, a) => execCall(d, c, input.chatId, byName, auto, n, a) }).catch((e) => { console.error('agent: guides failed', e); return null; });
+      const g = await applyGuides(d, { worldId: c.worldId, viewer: c.viewer, chatId: input.chatId, text: input.text, exec: (n, a) => execCall(d, c, input.chatId, byName, auto, n, a, meta) }).catch((e) => { console.error('agent: guides failed', e); return null; });
       if (g) {
         setGuideNotes(d.db, input.replyId, g.notes);
         live.status(`guide ${g.notes.map((x) => x.name).join(', ')}`);
@@ -782,6 +818,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         addCites(g.cites as Citation[]);
       }
     }
+    if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `Read the context in ${took(built.prepMs)}: ${hits.length ? `${hits.length} library match${hits.length === 1 ? '' : 'es'} (${hits.slice(0, 3).map((h) => h.title).join(', ')}${hits.length > 3 ? ', …' : ''})` : 'no library matches'}.` });
     const names = tools.map((t) => t.name);
     const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
     const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
@@ -832,6 +869,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
           for (const t of [...matchTools(tools, `${input.text} ${reply}`, true, 8), ...tools.filter((x) => selectTools(input.text, names, 99, true).includes(x.name))]) if (t.write) picked.add(t.name);
           // This time a tool call is required: asking alone let models answer "I did make the call" without one.
           mustCall = true;
+          think(d, c.worldId, { ...meta, kind: 'skip', chatId: input.chatId, text: 'My answer said I changed something, but I had not called a tool for it. Trying again with the tools for that.' });
           messages.push({ role: 'assistant', content: reply }, { role: 'user', content: 'For my last message you said something was proposed or changed, but you made no write tool call. Call the write tool for my last message only, now. Do not repeat changes from earlier messages: those are already handled.' });
           continue;
         }
@@ -843,18 +881,23 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       gate = null;
       messages.push({ role: 'assistant', content: r.content || null, tool_calls: r.toolCalls });
       live.status(r.toolCalls.map((tc) => tc.function.name).join(', '));
+      // What the model says before it calls tools is its plan in its own words: the closest thing to its thinking.
+      if (dmHarness && r.content?.trim()) think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: r.content.trim().slice(0, 300) });
       const tt = performance.now();
       let budget = Math.max(0, MAX_TOOL_CALLS - T.toolCalls);
       const results = await Promise.all(r.toolCalls.map(async (tc): Promise<Executed> => {
         const nm = tc.function?.name ?? '';
-        const args = parseJson<any>(tc.function?.arguments, {});
+        const parsed = parseToolArgs(tc.function?.arguments);
         if (budget-- <= 0) return { content: 'Skipped: too many tool calls in one message. Answer from what you have.', cites: [] };
+        if (!parsed.ok) { if (dmHarness) think(d, c.worldId, { ...meta, kind: 'error', chatId: input.chatId, text: `My ${nm} call was garbled; asking the model to send it again.` }); return { content: `Not run: ${parsed.error} Call ${nm} again.`, cites: [] }; }
+        const args = parsed.args;
         if (nm === 'more_tools' && dmHarness) {
           const found = matchTools(tools, String(args?.query ?? ''), true);
           for (const t of found) picked.add(t.name);
+          think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `Looking for a tool for “${String(args?.query ?? '').slice(0, 80)}”: ${found.length ? found.slice(0, 5).map((t) => t.name).join(', ') : 'none found'}.` });
           return { content: `${describeTools(found)}\nThese tools are now offered; call one on your next step.`, cites: [] };
         }
-        return execCall(d, c, input.chatId, byName, auto, nm, args);
+        return execCall(d, c, input.chatId, byName, auto, nm, args, meta);
       }));
       for (const [i, tc] of r.toolCalls.entries()) { const t = byName.get(tc.function?.name ?? ''); if (t?.write && (results[i].proposed || results[i].ran)) wrote = true; }
       T.toolMs += ms(tt);
@@ -884,15 +927,21 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     if (escalated && !blocked && !reply.includes(LOOKING)) { reply = `${reply}\n\n${LOOKING}`; live.replace(reply); }
     if (!blocked) addCites(citedHits(reply, hits));
     finish(reply, 'done', blocked);
+    if (dmHarness) {
+      const waiting = one<{ n: number }>(d.db, "SELECT COUNT(*) AS n FROM agent_actions WHERE chat_id = ? AND status = 'pending'", input.chatId)?.n ?? 0;
+      think(d, c.worldId, { ...meta, kind: 'done', chatId: input.chatId, text: `Answered in ${took(T.totalMs)}${T.toolCalls ? `, ${T.toolCalls} tool call${T.toolCalls === 1 ? '' : 's'}` : ''}${waiting ? `. ${waiting} change${waiting === 1 ? '' : 's'} waiting for you` : ''}.`, detail: reply.slice(0, 600) });
+    }
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       // Stopped by the user: keep what was shown (the player's is only what passed the check).
       const shown = (gate ? gate.sent : live.text).trim();
       finish(shown ? `${shown}\n\n_Stopped._` : '_Stopped._', 'done');
+      if (c.harness === 'dm') think(d, c.worldId, { runId: input.replyId, source: input.exec ? 'task' : 'assistant', kind: 'skip', chatId: input.chatId, text: 'Stopped.' });
     } else {
       const msg = err instanceof ModelUnavailable ? `The chat model is not available: ${err.message}` : 'The agent hit an error. Try again.';
       if (!(err instanceof ModelUnavailable)) console.error('agent: run failed', err);
       finish(msg, 'error');
+      if (c.harness === 'dm') think(d, c.worldId, { runId: input.replyId, source: input.exec ? 'task' : 'assistant', kind: 'error', chatId: input.chatId, text: msg });
     }
   } finally {
     running.delete(input.chatId);

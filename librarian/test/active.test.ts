@@ -548,3 +548,33 @@ test('TestCombat_AssistantAddsAPartyMemberByNameAsTheirCharacterAndTurnTimersMea
   assert.equal((tool.call({ name: 'Wolf', initiative: 0 }) as any).body.initiative, undefined, 'a 0 from the model is rolled');
   assert.equal((tool.call({ name: 'Wolf', initiative: 14 }) as any).body.initiative, 14);
 });
+
+test("TestActive_ThoughtsSayWhatWasHeardAndWhyItActedAskedOrLetGo", async () => {
+  await reset();
+  const { clearThoughts } = await import('../src/features/active/thoughts.ts');
+  clearThoughts(deps, W);
+  const thoughts = async () => (await ok('GET', `${A()}/thoughts`, T.dm));
+  await settings({ cats: { music: 'off', sfx: 'ask' } });
+  await say('dm', 'Music: something calm.');
+  await say('dm', 'Sound effect: creak.');
+  const th = await thoughts();
+  assert.equal(th.mode, 'active');
+  assert.equal(th.recording, true);
+  assert.match(th.heard.text, /creak/, 'the last line heard is the listening line, not a feed entry');
+  assert.ok(!th.thoughts.some((t: any) => t.kind === 'heard'));
+  assert.ok(th.thoughts.some((t: any) => t.kind === 'skip' && /Music and ambience is set to Off/.test(t.text)), JSON.stringify(th.thoughts));
+  const ask = th.thoughts.find((t: any) => t.kind === 'ask');
+  assert.match(ask.text, /Sound effects is set to Ask/);
+  assert.ok(ask.logId, 'a card can be decided from the window');
+  assert.equal((await log('pending'))[0].id, ask.logId);
+  // Approving the card says so; a line repeated at once is let go with the reason.
+  await ok('POST', `${A()}/log/${ask.logId}/approve`, T.dm);
+  await settings({ cats: { music: 'auto' } });
+  await say('dm', 'Music: something tense.');
+  await say('dm', 'Music: something tense.');
+  const th2 = (await thoughts()).thoughts;
+  assert.ok(th2.some((t: any) => t.kind === 'do' && /You said do it/.test(t.text)));
+  assert.ok(th2.some((t: any) => t.kind === 'do' && /^Did it:/.test(t.text)));
+  assert.ok(th2.some((t: any) => t.kind === 'skip' && /again/.test(t.text)));
+  assert.equal((await call('GET', `${A()}/thoughts`, T.jess)).status, 403, 'players never see them');
+});
