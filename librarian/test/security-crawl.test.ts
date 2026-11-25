@@ -106,6 +106,10 @@ const SPEC: Record<string, string> = {
   'stage:cid': 'SELECT id FROM stage_cards WHERE world_id = ?',
   'stage:uid': 'SELECT id FROM stage_images WHERE world_id = ?',
   'voice:id': 'SELECT id FROM voice_presets WHERE world_id = ?',
+  'shop:sid': 'SELECT id FROM shops WHERE world_id = ?',
+  'shop:stid': 'SELECT id FROM shop_stock WHERE world_id = ?',
+  'shop:iid': 'SELECT id FROM shop_items WHERE world_id = ? LIMIT 20',
+  'shop:oid': 'SELECT id FROM shop_orders WHERE world_id = ?',
   'worldlore:id': "SELECT id FROM pages WHERE world_id = ? AND path LIKE 'WorldLore/%'",
   '*:kind': "SELECT 'music' UNION SELECT 'ambience' UNION SELECT 'sfx'",
   '*:channel': "SELECT 'table' UNION SELECT 'party'",
@@ -708,6 +712,7 @@ const PLAYER_ROUTES = [
   'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
   'POST /minerva/me/journal', 'POST /minerva/me/capture', 'POST /minerva/me/goals', 'POST /minerva/me/share',
   'POST /libshare/seen',
+  'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
