@@ -5,6 +5,8 @@ import { PageHead, ErrorBox, Field, Switch, useAction } from '../../ui/index.tsx
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { engine, healMic, useEngine, type MicSetting, type Mode } from './engine.ts';
 import { KeyButton, Meter, MODE_LABELS, useAttach, useInputs } from './shared.tsx';
+import { deviceStt, useDeviceStt } from './stt.ts';
+import { DeviceSttNote } from './SttStatus.tsx';
 
 const MODES: Mode[] = ['always', 'hold-to-talk', 'hold-to-mute', 'off'];
 
@@ -16,6 +18,8 @@ export default function PlayerAudio() {
   const { inputs, labelled, error: devError, reload } = useInputs();
   const [mic, setMic] = useState<MicSetting | null>(null);
   const { busy, error, run } = useAction();
+  const stt = useDeviceStt();
+  const [sttAllowed, setSttAllowed] = useState(() => deviceStt.allowed);
 
   useEffect(() => { setMic(engine.loadMics()[0] ?? null); }, [info.id]);
   // The browser may have renamed the device id since the mic was picked (Safari, a cleared profile): find it by name.
@@ -96,6 +100,20 @@ export default function PlayerAudio() {
             </button>
           )}
           {holdMode && !ms?.recording && <p className="small muted">The button works once a session is recording.</p>}
+        </section>
+      )}
+
+      {consent?.agreed && status.data?.transcription?.stt && status.data.transcription.stt !== 'server' && (
+        <section className="card stack" aria-label="Speech to text on this device">
+          <div className="card-head">
+            <h2 style={{ margin: 0 }}>Speech to text on this device</h2>
+            <label className="row" style={{ gap: 8 }}><span className="small">Allow</span><Switch checked={sttAllowed} onChange={(v) => { setSttAllowed(v); deviceStt.setAllowed(v); }} label="Let this device turn my speech into text" /></label>
+          </div>
+          <p className="small muted" style={{ margin: 0 }}>
+            The DM asked {status.data.transcription.stt === 'auto' ? 'devices with a graphics card the browser can use' : 'each device'} to turn its own mic into text, so the server has less to do.
+            {' '}The speech model is downloaded from your table’s server the first time (tens of megabytes) and kept. It uses battery while recording; switch it off and the server does it instead.
+          </p>
+          {ms?.recording ? <DeviceSttNote view={stt} player /> : <p className="tiny faint" style={{ margin: 0 }}>{sttAllowed ? 'Starts with the recording.' : 'Off: the server transcribes your mic.'}</p>}
         </section>
       )}
     </div>
