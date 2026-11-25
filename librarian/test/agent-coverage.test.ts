@@ -197,6 +197,9 @@ const pendingCoin = () => once('coin', async () => (await dm('GET', '/approvals'
 const request = () => once('request', async () => (await as('jess')('POST', '/requests', { kind: 'question', title: 'Can I recall the keeper?', body: 'Jessamine grew up here.' })).id as string);
 const movableItem = () => once('movable', async () => (await dm('POST', '/inventory', { owner: ID.tom, name: 'Rope', qty: 3, reason: 'Bought' })).id as string);
 
+const shopId = () => once('shop', async () => (await dm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'cov', save: true, status: 'open' })).shop.id as string);
+const shopItem = () => once('shopitem', async () => (await dm('POST', '/shop/items', { name: 'Coverage Lantern', cost: '2 gp' })).id as string);
+
 /** Arguments that need real ids or values. A tool not listed gets values made from its schema. */
 const ARGS: Record<string, Maker> = {
   run_macro: () => once('macro', async () => { await dm('POST', '/actions/macros', { name: 'Coverage roll', steps: [{ action: 'dice.roll' }] }); return 'ok'; }).then(() => ({ macro: 'Coverage roll' })),
@@ -292,6 +295,12 @@ const ARGS: Record<string, Maker> = {
   goal_update: () => ({ player: 'jess', goal: 'Find the keeper', heat: 'on', text: 'Seen at the quay.' }),
   my_who_is: () => ({ name: 'jess' }),
   my_goal_update: () => ({ goal: 'Find my brother', heat: 'on' }),
+  read_shop: async () => ({ shop: await shopId() }),
+  edit_item: async () => ({ item: await shopItem(), cost: '3 gp' }),
+  stock_shop: async () => ({ shop: await shopId(), items: [{ item_id: await shopItem(), qty: 2 }] }),
+  set_shop_status: async () => ({ shop: await shopId(), status: 'open' }),
+  create_shopkeeper: async () => ({ shop: await shopId(), save_page: true }),
+  generate_shop: () => ({ kind: 'magic', size: 'town', level: 5, seed: 'cov' }),
 };
 
 /** Values from a tool's own schema for any tool without an entry in ARGS. */
