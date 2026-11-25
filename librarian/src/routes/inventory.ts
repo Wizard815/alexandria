@@ -26,7 +26,7 @@ import { requirePlayerOrDM } from '../core/auth.ts';
 import { dmAnd } from '../core/events.ts';
 import { HttpError, id, int, now, str } from '../core/util.ts';
 import { ctx, isDM, me, memberIds, names, settings } from './_shared.ts';
-import { balance, money } from '../core/coin.ts';
+import { balance, money, spendable } from '../core/coin.ts';
 import { checkPageId } from '../features/itemcards/link.ts';
 
 const ITEM_COLS = ['owner', 'name', 'qty', 'weight', 'note', 'dm_note', 'link', 'image'] as const;
@@ -227,7 +227,7 @@ export default function inventoryRoutes(d: Deps) {
     if (from === to) throw new HttpError(400, 'Pick someone else to give to');
     partyCoinOn(res, from, to);
     return tx(db, () => {
-      const have = balance(db, c.world.id, from);
+      const have = spendable(db, c.world.id, from);
       if (have < amount) throw new HttpError(402, `Not enough coin: ${from === 'party' ? 'the party pouch has' : from === me(res) ? 'you have' : 'they have'} ${money(Math.max(0, have))}`);
       const tid = logTransfer(res, { kind: 'coin', from, to, amount, note });
       const nm = names(db, c.world.id);

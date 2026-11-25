@@ -227,3 +227,65 @@ test('TestBrokerPayFrom_PartyPaymentIsAnnouncedLiveToThePartyOnly', async () => 
   assert.equal(ev!.aud({ accountId: ID.tom, role: 'player' }), true);
   assert.equal(ev!.aud({ accountId: '', role: 'guest' }), false);
 });
+
+const pendingDebit = (owner: string, cp: number) => run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Waiting', ?, ?, 'pending')`, `led_p${Math.random()}`, W, owner, -cp, ID.jess, new Date().toISOString());
+const clearPending = () => run(deps.db, `DELETE FROM ledger WHERE world_id = ? AND status = 'pending'`, W);
+
+test('TestBrokerPayFrom_APendingDebitCountsAgainstWhatCanBeSpent', async () => {
+  setCoin(ID.jess, 600); setCoin('party', 600);
+  pendingDebit(ID.jess, 300); pendingDebit('party', 300);
+  const opts = await ok('GET', `${B()}/pay-options`, T.jess);
+  assert.equal(opts.self.cp, 600, 'the approved balance is unchanged');
+  assert.equal(opts.self.available, 300);
+  assert.equal(opts.party.available, 300);
+  const o = await offer(400, 'party', 'Promised coin');
+  const own = await call('POST', `${B()}/offers/${o.id}/pay`, T.jess, { from: 'self' });
+  assert.equal(own.status, 402, 'own coin promised to a waiting debit is not spent twice');
+  assert.match(own.body.error, /you have 3 gp/);
+  const party = await call('POST', `${B()}/offers/${o.id}/pay`, T.jess, { from: 'party' });
+  assert.equal(party.status, 402, 'the pouch cannot be overdrawn by a waiting debit either');
+  assert.equal(coin(ID.jess), 600);
+  assert.equal(coin('party'), 600);
+  // A pending credit is not coin yet.
+  run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, 1000, 'Hoped for', ?, ?, 'pending')`, `led_c${Math.random()}`, W, ID.jess, ID.jess, new Date().toISOString());
+  assert.equal((await call('POST', `${B()}/offers/${o.id}/pay`, T.jess, { from: 'self' })).status, 402);
+  // What is left after the promise can still be spent.
+  const small = await offer(300, 'party', 'Just enough');
+  await ok('POST', `${B()}/offers/${small.id}/pay`, T.jess, { from: 'self' });
+  assert.equal(coin(ID.jess), 300);
+  clearPending();
+});
+
+test('TestBrokerPayFrom_APendingDebitBlocksAGiftThatWouldOverdraw', async () => {
+  setCoin(ID.jess, 500); pendingDebit(ID.jess, 400);
+  const r = await call('POST', `/api/worlds/${W}/inventory/coin/transfer`, T.jess, { from: 'me', to: ID.tom, amountCp: 200 });
+  assert.equal(r.status, 402, JSON.stringify(r.body));
+  assert.equal(coin(ID.jess), 500);
+  clearPending();
+});
+
+test('TestBrokerPayFrom_ThePartyLogNamesOnlyWhatEveryPlayerMaySee', async () => {
+  setCoin(ID.jess, 0); setCoin('party', 5000);
+  // An offer to Jess alone, paid from the pouch: Tom reads the pouch log and must not learn its title.
+  const o = await offer(200, [ID.jess], 'The secret of the drowned bell');
+  const hub = deps.hub as any;
+  const seen: any[] = [];
+  const real = hub.emit.bind(hub);
+  hub.emit = (w: string, type: string, data: any, aud: any) => { seen.push({ type, data }); return real(w, type, data, aud); };
+  await ok('POST', `${B()}/offers/${o.id}/pay`, T.jess, { from: 'party' });
+  const q = await ok('POST', `${B()}/quote`, T.jess, { question: 'Who rules Saltmarsh harbour?' });
+  // A question is the asker's own: paid from the pouch it reads as a neutral line too.
+  await ok('POST', `${B()}/ask`, T.jess, { quoteId: q.quoteId, from: 'party' });
+  hub.emit = real;
+  const log = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
+  assert.ok(!JSON.stringify(log).includes('drowned bell'), 'a private offer title stays off the party log');
+  assert.ok(!JSON.stringify(log).includes('Saltmarsh'), 'the question stays off the party log');
+  assert.equal(log.entries.filter((e: any) => e.note === 'Broker purchase (paid by Jess from the party pouch)').length, 2);
+  const live = await ok('GET', `/api/worlds/${W}/live`, T.tom);
+  assert.ok(!/drowned bell|Saltmarsh/.test(JSON.stringify(live.purse)));
+  const partyEvents = seen.filter((e) => e.type === 'coin' && e.data.owner === 'party');
+  assert.equal(partyEvents.length, 2);
+  assert.ok(!/drowned bell|Saltmarsh/.test(JSON.stringify(partyEvents)), 'the live pouch event is neutral too');
+  // Jess still sees her own offer by name.
+  assert.ok((await ok('GET', `${B()}/offers`, T.jess)).some((x: any) => x.title === 'The secret of the drowned bell'));
+});
