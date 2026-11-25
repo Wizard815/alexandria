@@ -28,11 +28,15 @@ export default function modelRoutes(d: Deps) {
       accountId: auth.account.id, keyId: keyRow?.id ?? null, isAdmin: !!auth.account.is_admin && auth.via !== 'scribe_key', isDm: isDm && auth.via === 'session',
       viaSession: auth.via === 'session', viaScribeKey: auth.via === 'scribe_key',
     }, d.env);
+    const job: Job = req.path === '/embeddings' ? 'extra' : 'chat';
+    const stopped = (outcome: 'refused' | 'limited', status: number) => recordCall(d.db, { job, model: null, feature: 'gateway', reason: req.path, via: 'gateway', accountId: auth.account.id, status, outcome });
+    if (!a.allowed) stopped('refused', 403);
     if (!a.allowed) throw new HttpError(403, `The model gateway is for the DM and the admin (${a.why}). Ask the admin to allow this account or key.`);
     // A rate per minute for each account.
     const t = Date.now();
     const recent = (hits.get(auth.account.id) ?? []).filter((x) => t - x < 60_000);
     if (a.ratePerMinute > 0 && recent.length >= a.ratePerMinute) {
+      stopped('limited', 429);
       res.setHeader('Retry-After', String(Math.max(1, Math.ceil((60_000 - (t - recent[0])) / 1000))));
       throw new HttpError(429, `Too many model requests: ${a.ratePerMinute} a minute. Wait a moment.`);
     }
@@ -41,6 +45,7 @@ export default function modelRoutes(d: Deps) {
     // The daily caps.
     const used = usedToday(d.db, auth.account.id);
     if ((a.dailyRequests > 0 && used.requests >= a.dailyRequests) || (a.dailyTokens > 0 && used.tokens >= a.dailyTokens)) {
+      stopped('limited', 429);
       res.setHeader('Retry-After', String(secondsToMidnightUtc()));
       throw new HttpError(429, a.dailyRequests > 0 && used.requests >= a.dailyRequests
         ? `Daily limit reached: ${used.requests} of ${a.dailyRequests} model requests today. It resets at 00:00 UTC; the admin can raise it.`

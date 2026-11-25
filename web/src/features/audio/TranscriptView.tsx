@@ -18,7 +18,10 @@ export function useRecordingSync() {
   useAttach();
   useEffect(() => {
     void engine.refresh().catch(() => {});
-    return on(['recording'], () => { void engine.refresh().catch(() => {}); });
+    const offRec = on(['recording'], () => { void engine.refresh().catch(() => {}); });
+    // The DM changed where speech to text runs: a device that is recording switches now (loads or frees its model).
+    const offStt = on(['stt-mode'], (e) => { const m = (e.data as any)?.mode; if (m === 'server' || m === 'device' || m === 'auto') engine.sttModeChanged(m); });
+    return () => { offRec(); offStt(); };
   }, [on, info.id, client.token]);
 }
 
