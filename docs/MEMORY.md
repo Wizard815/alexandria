@@ -114,6 +114,38 @@ make sure the server's batch size takes `ALX_EMBED_BATCH` inputs of about 500
 characters each. A page the classified guard refuses is sent on its own, so it
 never holds back the pages around it.
 
+## Refresh world and the Knowledge page
+
+DM > Prep > **Knowledge** shows how current everything the assistant knows is:
+each source (pages, pictures stored and waiting, last sync), the search index
+and story bible (pages read of pages there are), and Minerva's codex links
+(codex pages linked to a library page, and ones whose page is gone).
+
+**Refresh world** is one job (`refresh-world`, `features/knowledge/refresh.ts`)
+that runs, in order, and shows each step's progress:
+
+1. **Sync sources**: the crawl, sources only (what changed; **Full refresh**
+   lists everything again and removes pages a source no longer has).
+2. **Store pictures**: every queued portrait and picture in page text,
+   downloaded and stored here (`docs/CONNECTORS.md`, "Portraits and pictures in
+   page text"). Pictures that failed before get another chance.
+3. **Search index and story bible**: one bulk build (above), after any bulk
+   build already running for the world.
+4. **Minerva's codex links** (`features/minerva/relink.ts`): a codex page whose
+   library page was renamed gets its `Library: [[...]]` line fixed; one whose
+   page was removed and added again (a new id) is linked again by its title or
+   an alias, when exactly one page matches; a codex page with no link is linked
+   to a library page of the same name. Ones that cannot be mended are listed,
+   never guessed. The home page and calendar index are rewritten.
+
+A step runs even when an earlier one had problems. It is a job: Admin > Jobs
+lists it, it can be stopped, a restart starts it again, and one runs per world
+at a time (not while a crawl runs). The last run is kept per world.
+
+API (DM): `GET /api/worlds/:w/knowledge`, `POST /api/worlds/:w/knowledge/refresh`
+(`{ "full": true }` for a complete listing; 202, or 409 while one runs),
+`POST /api/worlds/:w/knowledge/refresh/stop`. MCP: `refresh_world` (DM write key).
+
 Copies with the same text are read once. A page's party, broker and DM copies
 are often identical; when one copy's text (its hash) matches another scope's
 copy of the same page, the vectors and facts are copied instead of asking the
