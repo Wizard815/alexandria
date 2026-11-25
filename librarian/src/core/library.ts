@@ -855,7 +855,7 @@ export class Library {
    */
   list(worldId: string, viewer: Viewer) {
     const aud = audienceOf(viewer);
-    const cols = 'p.id, p.path, p.title, p.kind, p.tags, p.folder, p.icon, p.source_id, p.external_id, p.parent_external, p.position, p.updated_at, p.visibility, s.name AS source_name';
+    const cols = 'p.id, p.path, p.title, p.kind, p.tags, p.folder, p.icon, p.source_id, p.external_id, p.parent_external, p.position, p.updated_at, p.visibility, s.name AS source_name, s.kind AS source_kind';
     const rows = all<any>(this.db, `SELECT ${cols} FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? ${scopeGuard(scopeOf(aud), 'p')} ORDER BY p.path`, worldId);
     // A player also lists the pages their own per-user source key sees, and the ones shared with them (see liftedInfo).
     let lifted = new Map<string, string>();
@@ -869,7 +869,7 @@ export class Library {
     const shown = new Set(rows.map((r) => `${r.source_id}|${r.external_id}`));
     return rows.map((r) => {
       const parent = r.parent_external && shown.has(`${r.source_id}|${r.parent_external}`) ? rows.find((x) => x.source_id === r.source_id && x.external_id === r.parent_external)?.id ?? null : null;
-      const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, ...(aud !== 'player' ? { sourceId: r.source_id ?? '' } : {}), position: r.position ?? null, updated_at: r.updated_at };
+      const out: any = { id: r.id, path: r.path, title: r.title, kind: r.kind, tags: JSON.parse(r.tags || '[]'), folder: JSON.parse(r.folder || '[]'), icon: r.icon ? JSON.parse(r.icon) : null, parentId: parent, source: r.source_name ?? null, ...(aud !== 'player' ? { sourceId: r.source_id ?? '', sourceKind: r.source_kind ?? null } : {}), position: r.position ?? null, updated_at: r.updated_at };
       if (aud !== 'player') out.visibility = r.visibility;
       else if (lifted.has(r.id)) { out.via = lifted.get(r.id); out.sharedWithMe = lifted.get(r.id) !== 'key'; }
       return out;
