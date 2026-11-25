@@ -41,6 +41,7 @@ export const DM_NAMES: Record<string, DMName> = {
   map: { group: 'world', label: 'Map', icon: 'fa-map', desc: 'Pins and notes on the map; hide or erase any.' },
   rules: { group: 'world', label: 'Rules', icon: 'fa-scroll', desc: 'Spells, conditions and monsters from the game module.' },
   items: { group: 'world', label: 'Items', icon: 'fa-box-open', desc: 'The item database shops stock from: SRD items, your own and imports.' },
+  codex: { group: 'world', label: 'Codex', icon: 'fa-book-journal-whills', desc: 'Every spell, mana, and spells players learn by combining others.' },
   whiteboard: { group: 'world', label: 'Whiteboard', icon: 'fa-chalkboard', desc: 'One shared board that stays between sessions.' },
 
   sculpt: { group: 'prep', label: 'Sculpting', icon: 'fa-wand-magic-sparkles', desc: 'Fill a few blanks; the rest is made to fit your world.' },

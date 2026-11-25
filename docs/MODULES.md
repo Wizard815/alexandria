@@ -159,6 +159,9 @@ secrets):
 
 MCP tools: `lookup_rule`, `lookup_term`, `read_term`.
 
+A module's spells can also be imported into the world's spell list, the Codex
+(with mana costs and spell crafting): see [SPELLS.md](SPELLS.md).
+
 ## Rebuilding the built-in modules
 
 `librarian/scripts/build-srd.ts` rebuilds `librarian/src/features/modules/data/srd-2024.json`
