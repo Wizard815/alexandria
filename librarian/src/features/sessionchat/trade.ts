@@ -4,7 +4,7 @@
 // you own, stacks merge, every move is logged in `transfers` and the coin
 // ledger). Declining or cancelling moves nothing.
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { balance, money } from '../../core/coin.ts';
+import { money, spendable } from '../../core/coin.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 
 export interface TradeInput {
@@ -52,7 +52,7 @@ function logTransfer(db: DB, worldId: string, by: string, t: { kind: 'coin' | 'i
 }
 
 function moveCoin(db: DB, worldId: string, from: string, to: string, amount: number, by: string, note: string, label: (x: string) => string) {
-  if (balance(db, worldId, from) < amount) throw new HttpError(402, `Not enough coin: ${label(from)} would need ${money(amount)}`);
+  if (spendable(db, worldId, from) < amount) throw new HttpError(402, `Not enough coin: ${label(from)} would need ${money(amount)}`);
   const tid = logTransfer(db, worldId, by, { kind: 'coin', from, to, amount, note });
   run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status, transfer_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?)`, id('led_'), worldId, from, -amount, `Trade with ${label(to)}`.slice(0, 200), by, now(), tid);
   run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status, transfer_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?)`, id('led_'), worldId, to, amount, `Trade with ${label(from)}`.slice(0, 200), by, now(), tid);
@@ -71,7 +71,7 @@ export function createTrade(db: DB, worldId: string, t: TradeInput) {
   if (!t.wantItemName && !t.wantCp) throw new HttpError(400, 'Ask for an item or some coin');
   let offerName: string | null = null;
   if (t.offerItemId) offerName = ownedItem(db, worldId, t.fromId, t.offerItemId, t.offerQty).name;
-  if (t.offerCp && balance(db, worldId, t.fromId) < t.offerCp) throw new HttpError(402, `You only have ${money(Math.max(0, balance(db, worldId, t.fromId)))}`);
+  if (t.offerCp && spendable(db, worldId, t.fromId) < t.offerCp) throw new HttpError(402, `You only have ${money(Math.max(0, spendable(db, worldId, t.fromId)))}`);
   const row = { id: id('trd_'), world_id: worldId, from_id: t.fromId, to_id: t.toId, offer_item_id: t.offerItemId, offer_item_name: offerName, offer_qty: t.offerItemId ? t.offerQty : 0, offer_cp: t.offerCp,
     want_item_name: t.wantItemName, want_qty: t.wantItemName ? t.wantQty : 0, want_cp: t.wantCp, note: t.note, status: 'open', fail_reason: null, created_at: now(), decided_at: null };
   run(db, `INSERT INTO sessionchat_trades (id, world_id, from_id, to_id, offer_item_id, offer_item_name, offer_qty, offer_cp, want_item_name, want_qty, want_cp, note, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
@@ -107,8 +107,8 @@ export function acceptTrade(db: DB, worldId: string, tradeId: string, by: string
       try { theirs = ownedItem(db, worldId, t.from_id, t.offer_item_id, t.offer_qty); }
       catch (e: any) { throw new HttpError(409, `The offer is no longer possible: ${e.message}`); }
     }
-    if (t.offer_cp && balance(db, worldId, t.from_id) < t.offer_cp) throw new HttpError(409, 'The offer is no longer possible: not enough coin on their side');
-    if (t.want_cp && balance(db, worldId, by) < t.want_cp) throw new HttpError(402, `Not enough coin: you need ${money(t.want_cp)}`);
+    if (t.offer_cp && spendable(db, worldId, t.from_id) < t.offer_cp) throw new HttpError(409, 'The offer is no longer possible: not enough coin on their side');
+    if (t.want_cp && spendable(db, worldId, by) < t.want_cp) throw new HttpError(402, `Not enough coin: you need ${money(t.want_cp)}`);
     // Stacks may merge during the first move, so read each row again before moving it.
     const fresh = (it: any) => one<any>(db, 'SELECT * FROM items WHERE id = ?', it.id)!;
     if (theirs) { moveItem(db, worldId, fresh(theirs), by, t.offer_qty, by); logTransfer(db, worldId, by, { kind: 'item', from: t.from_id, to: by, item: theirs.name, qty: t.offer_qty, note: 'Trade' }); }

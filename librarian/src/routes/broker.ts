@@ -29,7 +29,7 @@ import { leaks } from '../features/broker2/guard.ts';
 import { itemAnswer, rulesAnswer, visibleItems, type OtherAnswer } from '../features/broker2/other.ts';
 import { LOW_CONFIDENCE, allowedTopicHit, answersQuestion, needsAnswerCheck, realWorldAnswer, routeQuestion, type Labels } from '../features/broker2/routing.ts';
 import { escalateFromBroker } from '../features/sourcekeys/hook.ts';
-import { balance, money } from '../core/coin.ts';
+import { balance, money, spendable } from '../core/coin.ts';
 import { ctx, isDM, me, memberIds, names, settings } from './_shared.ts';
 
 type Clock = 'real' | 'game';
@@ -319,9 +319,11 @@ export default function brokerRoutes(d: Deps) {
    * (partyPurse) and the DM must allow it (brokerPartyPay). Without a choice the old world setting (brokerPayer) says
    * who pays. Always run inside a transaction: the balance is read and spent in the same step, so two people paying at
    * once, or a pouch that changed since the price was shown, can never overspend. A party payment is logged on the
-   * pouch with who paid, so the whole party sees it.
+   * pouch with who paid, so the whole party sees it. The party log names what was bought only when `shared` says every
+   * player may see it anyway (an offer to the whole party); a question is the asker's own and an offer to one player is
+   * theirs, so those read "Broker purchase" on the pouch (fail closed).
    */
-  function charge(res: Response, asker: string, cost: number, title: string, choice?: unknown, fallback: 'self' | 'party' | 'setting' = 'setting'): { payer: string; ledgerId: string | null; from: 'self' | 'party' } {
+  function charge(res: Response, asker: string, cost: number, title: string, choice?: unknown, fallback: 'self' | 'party' | 'setting' = 'setting', shared = false): { payer: string; ledgerId: string | null; from: 'self' | 'party'; note: string } {
     const s = settings(res);
     const w = ctx(res).world.id;
     const partyOk = s.partyPurse && s.brokerPartyPay !== false;
@@ -334,14 +336,15 @@ export default function brokerRoutes(d: Deps) {
     } else if (choice === 'self' || choice === 'me') from = 'self';
     else throw new HttpError(400, 'from must be "self" (your own coin) or "party" (the party pouch)');
     const payer = from === 'party' ? 'party' : asker;
-    if (!cost) return { payer, ledgerId: null, from };
-    const bal = balance(db, w, payer);
+    if (!cost) return { payer, ledgerId: null, from, note: '' };
+    // Coin already promised to debits waiting for the DM is not available again.
+    const bal = spendable(db, w, payer);
     if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}${payer === 'party' ? '. Someone may have spent from it; pick again.' : ''}`);
     const who = names(db, w)[asker] ?? 'Someone';
-    const note = from === 'party' ? `Broker: ${title.slice(0, 110)} (paid by ${who} from the party pouch)` : `Broker: ${title}`;
+    const note = from === 'party' ? `${shared ? `Broker: ${title.slice(0, 110)}` : 'Broker purchase'} (paid by ${who} from the party pouch)` : `Broker: ${title}`;
     const lid = id('led_');
     run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, lid, w, payer, -cost, note.slice(0, 200), asker, now());
-    return { payer, ledgerId: lid, from };
+    return { payer, ledgerId: lid, from, note: note.slice(0, 200) };
   }
   /** Tell the people who can see a purse that it changed (the party pouch goes to the whole party, live). */
   function coinChanged(w: string, owner: string, asker: string, note?: string) {
@@ -356,8 +359,9 @@ export default function brokerRoutes(d: Deps) {
     const s = settings(res);
     const partyAllowed = s.partyPurse && s.brokerPartyPay !== false;
     res.json({
-      self: { cp: balance(db, w, me(res)) },
-      party: { cp: s.partyPurse ? balance(db, w, 'party') : null, allowed: partyAllowed, reason: !s.partyPurse ? 'The party pouch is off in this world.' : s.brokerPartyPay === false ? 'Your DM has turned off paying the broker from the party pouch.' : null },
+      // available: what the purse can spend now, less coin promised to debits still waiting for the DM.
+      self: { cp: balance(db, w, me(res)), available: spendable(db, w, me(res)) },
+      party: { cp: s.partyPurse ? balance(db, w, 'party') : null, available: s.partyPurse ? spendable(db, w, 'party') : null, allowed: partyAllowed, reason: !s.partyPurse ? 'The party pouch is off in this world.' : s.brokerPartyPay === false ? 'Your DM has turned off paying the broker from the party pouch.' : null },
       default: partyAllowed && s.brokerPayer === 'party' ? 'party' : 'self',
     });
   });
@@ -397,11 +401,11 @@ export default function brokerRoutes(d: Deps) {
       // The DM queue of escalated questions (features/sourcekeys) shows it too, with what the DM side holds.
       escalateFromBroker(d, { worldId: w, accountId: me(res), question: q.question, brokerRequestId: rid, reason: String(q.classification?.reason ?? ''), evidence: JSON.parse(cls).dmEvidence ?? [], routing: q.classification?.routing ?? null });
     } else {
-      let paid: { payer: string; ledgerId: string | null } | null = null;
+      let paid: { payer: string; ledgerId: string | null; note: string } | null = null;
       try {
         tx(db, () => {
-          const { payer, ledgerId } = charge(res, me(res), q.cost, q.question, req.body?.from);
-          paid = { payer, ledgerId };
+          const { payer, ledgerId, note } = charge(res, me(res), q.cost, q.question, req.body?.from);
+          paid = { payer, ledgerId, note };
           const ra = readyAt(w, q.wait);
           run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, created_at, classification, needs_review, broker_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             rid, w, me(res), q.question, q.length, q.tier, q.cost, payer, ledgerId, ra.clock, ra.at, ra.game, q.found.answer, JSON.stringify(q.found.sources), now(), cls, q.delivery === 'review' ? 1 : 0, q.brokerLevel ? 1 : 0);
@@ -411,8 +415,8 @@ export default function brokerRoutes(d: Deps) {
         quotes.set(qid, q);
         throw e;
       }
-      const p = paid as { payer: string; ledgerId: string | null } | null;
-      if (p?.ledgerId) coinChanged(w, p.payer, me(res), `Broker: ${q.question}`);
+      const p = paid as { payer: string; ledgerId: string | null; note: string } | null;
+      if (p?.ledgerId) coinChanged(w, p.payer, me(res), p.note);
       settle(w);
       audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost}`);
     }
@@ -597,11 +601,14 @@ export default function brokerRoutes(d: Deps) {
     if (isDM(res)) throw new HttpError(403, 'Players pay for offers');
     if (o.status !== 'open') throw new HttpError(409, o.status === 'paid' ? 'Already paid' : 'This offer is gone');
     let from = me(res);
+    let note = '';
     tx(db, () => {
       // Checked inside the transaction and settled with a conditional update: two players paying at once cannot both succeed.
       if (one<any>(db, 'SELECT status FROM broker_offers WHERE id = ?', o.id)?.status !== 'open') throw new HttpError(409, 'Already paid, or this offer is gone');
-      const paid = charge(res, me(res), o.price_cp, o.title, req.body?.from, 'self');
+      // Every player sees an offer to the whole party, so the party log may name it; an offer to one player stays theirs.
+      const paid = charge(res, me(res), o.price_cp, o.title, req.body?.from, 'self', targetsOf(o).includes('party'));
       from = paid.payer;
+      note = paid.note;
       const done = run(db, `UPDATE broker_offers SET status = 'paid', paid_by = ?, paid_from = ?, ledger_id = ?, paid_at = ? WHERE id = ? AND status = 'open'`, me(res), from, paid.ledgerId, now(), o.id);
       if (done !== 1) throw new HttpError(409, 'Already paid, or this offer is gone');
       run(db, `UPDATE coin_requests SET status = 'done' WHERE offer_id = ? AND status = 'open'`, o.id);
@@ -609,7 +616,7 @@ export default function brokerRoutes(d: Deps) {
     audit(db, w, me(res), 'broker.offer.pay', o.title);
     const row = one<any>(db, 'SELECT * FROM broker_offers WHERE id = ?', o.id);
     d.hub.emit(w, 'broker-offer', { id: o.id, status: 'paid' }, offerAudience(row));
-    coinChanged(w, from, me(res), `Broker: ${o.title}`);
+    coinChanged(w, from, me(res), note);
     res.json(offerOut(res, row, names(db, w)));
   });
   r.post('/offers/:oid/decline', requirePlayerOrDM, (req, res) => {
@@ -670,18 +677,18 @@ export default function brokerRoutes(d: Deps) {
     const q = reqFor(res, String(req.params.id));
     if (q.account_id !== me(res) || q.status !== 'offered') throw new HttpError(409, 'There is no offer to accept');
     const wait = JSON.parse(q.ready_at || '{}');
-    let paid: { payer: string; ledgerId: string | null } | null = null;
+    let paid: { payer: string; ledgerId: string | null; note: string } | null = null;
     tx(db, () => {
       // Taken at most once: a double click or a second device finds the offer already taken and pays nothing.
       if (one<any>(db, 'SELECT status FROM broker_requests WHERE id = ?', q.id)?.status !== 'offered') throw new HttpError(409, 'There is no offer to accept');
-      const { payer, ledgerId } = charge(res, me(res), q.cost_cp, q.question, req.body?.from);
-      paid = { payer, ledgerId };
+      const { payer, ledgerId, note } = charge(res, me(res), q.cost_cp, q.question, req.body?.from);
+      paid = { payer, ledgerId, note };
       const ra = readyAt(w, wait.amount !== undefined ? wait : null);
       const done = run(db, `UPDATE broker_requests SET status = 'waiting', payer = ?, ledger_id = ?, wait_clock = ?, ready_at = ?, ready_at_game = ? WHERE id = ? AND status = 'offered'`, payer, ledgerId, ra.clock, ra.at, ra.game, q.id);
       if (done !== 1) throw new HttpError(409, 'There is no offer to accept');
     });
-    const p = paid as { payer: string; ledgerId: string | null } | null;
-    if (p?.ledgerId) coinChanged(w, p.payer, me(res), `Broker: ${q.question}`);
+    const p = paid as { payer: string; ledgerId: string | null; note: string } | null;
+    if (p?.ledgerId) coinChanged(w, p.payer, me(res), p.note);
     settle(w);
     back(res, q.id, w);
   });
@@ -694,7 +701,7 @@ export default function brokerRoutes(d: Deps) {
 
   function refund(res: Response, q: any) {
     if (!q.ledger_id || !q.cost_cp) return;
-    run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, id('led_'), q.world_id, q.payer, q.cost_cp, `Broker refund: ${q.question}`.slice(0, 200), me(res), now());
+    run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, id('led_'), q.world_id, q.payer, q.cost_cp, (q.payer === 'party' ? 'Broker refund' : `Broker refund: ${q.question}`).slice(0, 200), me(res), now());
   }
   r.post('/:id/refuse', requireDM, (req, res) => {
     const w = ctx(res).world.id;
