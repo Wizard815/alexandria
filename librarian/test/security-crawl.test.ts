@@ -110,6 +110,9 @@ const SPEC: Record<string, string> = {
   'shop:stid': 'SELECT id FROM shop_stock WHERE world_id = ?',
   'shop:iid': 'SELECT id FROM shop_items WHERE world_id = ? LIMIT 20',
   'shop:oid': 'SELECT id FROM shop_orders WHERE world_id = ?',
+  'shop:tid': 'SELECT id FROM shop_towns WHERE world_id = ?',
+  'shop:did': 'SELECT id FROM shop_deals WHERE world_id = ?',
+  'shop:aid': "SELECT account_id FROM members WHERE world_id = ? AND role = 'player'",
   'worldlore:id': "SELECT id FROM pages WHERE world_id = ? AND path LIKE 'WorldLore/%'",
   'spells:id': "SELECT id FROM spells_custom WHERE world_id = ? UNION SELECT 'srd:fireball' UNION SELECT 'srd:fire-bolt' UNION SELECT 'srd:scorching-ray'",
   'spells:sid': 'SELECT spell_id FROM spells_known WHERE world_id = ?',
@@ -720,7 +723,7 @@ const PLAYER_ROUTES = [
   'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
   'POST /minerva/me/journal', 'POST /minerva/me/capture', 'POST /minerva/me/goals', 'POST /minerva/me/share',
   'POST /libshare/seen',
-  'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel',
+  'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel', 'POST /shop/shops/:sid/haggle',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */

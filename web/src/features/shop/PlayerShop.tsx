@@ -1,8 +1,11 @@
 // Player page: the shops the DM has put up (open or closed; hidden ones never
 // arrive), one shop's keeper and stock, buying with your own coin or the party
 // pouch, your requests waiting for the DM, and selling back when the DM allows.
-// Prices, stock and the shop list follow the DM live.
-import { useState } from 'react';
+// Prices, stock and the shop list follow the DM live. Prices are this player's
+// own: the town's price level, their reputation with the keeper and any deal
+// (from haggling, or given by the DM). Haggle asks the keeper for a percentage
+// off one line.
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins, when } from '../../lib/format.ts';
@@ -18,6 +21,9 @@ export default function PlayerShop() {
   const sid = sp.get('shop') ?? '';
   const shops = list.data?.shops ?? [];
   const pick = sid && shops.some((s) => s.id === sid) ? sid : shops.length === 1 ? shops[0].id : '';
+  // Arriving with a shop that is not in the list yet (a keeper just sent it, or it opened a moment ago): look again.
+  const known = !sid || shops.some((s) => s.id === sid);
+  useEffect(() => { if (list.data && !known) void list.reload(); }, [sid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (info.role === 'guest') return <div className="page"><PageHead title="Shop" /><Empty>Shops are for the players at the table.</Empty></div>;
   if (!list.data) return <div className="page"><PageHead title="Shop" /><ErrorBox error={list.error} />{!list.error && <Loading />}</div>;
@@ -52,6 +58,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
   const opts = useLoad<PayOptions>(() => w.call('GET', '/shop/pay-options'), [w], ['coin', 'settings']);
   const [buying, setBuying] = useState<Line | null>(null);
   const [selling, setSelling] = useState(false);
+  const [haggling, setHaggling] = useState<Line | null>(null);
   const { toast, toastNode } = useToast();
   if (!shop.data) return <section className="card"><ErrorBox error={shop.error} />{!shop.error && <Loading />}</section>;
   const s = shop.data;
@@ -62,7 +69,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
         <div className="row between" style={{ alignItems: 'flex-start' }}>
           <div className="stack tight">
             <h2 id="shop-h" style={{ margin: 0 }}>{s.name}</h2>
-            <span className="small muted">{s.kindLabel}{s.location ? <> · <Link to={`/w/${info.slug}/library?page=${encodeURIComponent(s.location.id)}`}>{s.location.title}</Link></> : null}</span>
+            <span className="small muted">{s.kindLabel}{s.town ? ` · ${s.town.name}` : ''}{s.location ? <> · <Link to={`/w/${info.slug}/library?page=${encodeURIComponent(s.location.id)}`}>{s.location.title}</Link></> : null}</span>
           </div>
           <span className={statusChip(s.status)}>{STATUS_LABEL[s.status]}</span>
         </div>
@@ -74,6 +81,14 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
             {s.keeper.voice && <span className="small muted">{s.keeper.voice}</span>}
             {s.keeper.personality && <span className="small muted">{s.keeper.personality}</span>}
           </div>
+        )}
+        {s.town && <span className="small muted" data-testid="shop-town">Prices in {s.town.name} are {s.town.prices}.{s.town.description ? ` ${s.town.description}` : ''}</span>}
+        {s.you && s.keeper?.name && (
+          <span className="small" data-testid="shop-standing">
+            {s.keeper.name} sees you as: <strong>{s.you.standing}</strong>
+            {s.you.repPct > 0 ? ` (${s.you.repPct}% off for you)` : s.you.repPct < 0 ? ` (${-s.you.repPct}% more for you)` : ''}
+            {s.you.deals.length ? ` · Deals: ${s.you.deals.map((x) => `${x.pct}% off ${x.line ?? 'everything'}`).join(', ')}` : ''}
+          </span>
         )}
         {opts.data && <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}><span className="small">My coin: <strong>{money(opts.data.self.cp)}</strong></span>{opts.data.party.cp !== null && <span className="small">Party pouch: <strong>{money(opts.data.party.cp)}</strong></span>}</div>}
       </section>
@@ -92,6 +107,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
                       </span>
                       <span className="stack tight" style={{ alignItems: 'flex-end' }}>
                         <strong data-testid="shop-price">{l.priceCp === null ? 'Ask' : money(l.priceCp)}</strong>
+                        {l.listPriceCp !== undefined && l.listPriceCp !== null && l.priceCp !== null && l.listPriceCp !== l.priceCp && <s className="tiny faint" aria-label="Usual price">{money(l.listPriceCp)}</s>}
                         <span className="tiny faint" data-testid="shop-qty">{l.unlimited ? 'plenty' : l.qty === 0 ? 'sold out' : `${l.qty} left`}</span>
                       </span>
                     </summary>
@@ -102,7 +118,10 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
                       {l.attribution && <span className="tiny faint">{l.source}: {l.attribution}</span>}
                     </div>
                   </details>
-                  <button type="button" className="btn small primary" data-testid="buy-btn" disabled={l.priceCp === null || l.qty === 0} onClick={() => setBuying(l)}>Buy</button>
+                  <span className="stack tight">
+                    <button type="button" className="btn small primary" data-testid="buy-btn" disabled={l.priceCp === null || l.qty === 0} onClick={() => setBuying(l)}>Buy</button>
+                    {s.haggles && info.role !== 'dm' && l.priceCp !== null && l.qty !== 0 && !l.dealPct && <button type="button" className="btn small ghost" data-testid="haggle-btn" onClick={() => setHaggling(l)}>Haggle</button>}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -111,6 +130,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
         </section>
       )}
       {buying && <BuyModal shop={s} line={buying} opts={opts.data} config={config} onClose={() => setBuying(null)} onDone={(m) => { setBuying(null); toast(m); void shop.reload(); void opts.reload(); }} />}
+      {haggling && <HaggleModal shop={s} line={haggling} onClose={() => setHaggling(null)} onDone={(m) => { setHaggling(null); toast(m); void shop.reload(); }} />}
       {selling && <SellModal shop={s} onClose={() => setSelling(false)} onDone={(m) => { setSelling(false); toast(m); }} />}
       {toastNode}
     </>
@@ -143,6 +163,31 @@ function BuyModal({ shop, line, opts, config, onClose, onDone }: { shop: Shop; l
         <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary" data-testid="buy-confirm" disabled={act.busy} onClick={() => void buy()}>Pay {coins(total, info.settings.coins)}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function HaggleModal({ shop, line, onClose, onDone }: { shop: Shop; line: Line; onClose: () => void; onDone: (msg: string) => void }) {
+  const { w, info } = useWorld();
+  const [pct, setPct] = useState(10);
+  const act = useAction();
+  const price = line.priceCp ?? 0;
+  const ask = () => act.run(async () => {
+    const r = await w.call<{ message: string }>('POST', `/shop/shops/${encodeURIComponent(shop.id)}/haggle`, { stockId: line.id, pct });
+    onDone(r.message);
+  });
+  return (
+    <Modal title={`Haggle over ${line.name}`} onClose={onClose}>
+      <div className="stack">
+        <span className="small muted">Ask {shop.keeper?.name || 'the keeper'} for a better price. A modest ask is easy; a greedy one may sour them. You get one try a day on each thing.</span>
+        <Field label={`Ask for ${pct}% off`}><input type="range" min={1} max={50} value={pct} onChange={(e) => setPct(Number(e.target.value))} aria-label="Percent off to ask for" /></Field>
+        <div className="row between"><span>You would pay</span><strong>{coins(Math.round((price * (100 - pct)) / 100), info.settings.coins)}</strong></div>
+        <ErrorBox error={act.error} />
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn primary" data-testid="haggle-go" disabled={act.busy} onClick={() => void ask()}>Make the offer</button>
         </div>
       </div>
     </Modal>
