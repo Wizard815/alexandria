@@ -71,7 +71,7 @@ Why not a flat 6 per level: it gave a level 2 caster twice the casting of a norm
 
 ## 4. Dual cast
 
-From character level 5, once per short rest, using action + bonus action.
+Needs the Dual cast ability (granted by the DM), once per short rest, using action + bonus action.
 - **Empower** (the same spell twice): ×2 mana; counts as cast 2 levels higher (Fireball becomes 10d6).
 - **Fuse** (two different known spells): both costs added ×1.5; both effects land on the same target or area; at most one needs concentration.
 - **Arcana check** DC 10 + both spell levels added. On a failure the mana is spent and the next roll is at −2.
@@ -96,7 +96,7 @@ From character level 5, once per short rest, using action + bonus action.
 | Character level | when your caster type reaches that spell level |
 | Mana pool | at least 2 × the cast cost |
 | Item | kept or used up; linked to the shop's item database |
-| Methods allowed | e.g. a 9th-level spell only by research or a relic |
+| Methods allowed | e.g. a 9th-level spell only by research or a memory |
 | Extra price | HP, max HP or max mana lost, for the strongest or forbidden spells |
 
 ### Time and cost
@@ -134,8 +134,8 @@ Compared with an earlier draft (3 days per spell level alone): low spells get a 
 
 **Shortcuts**
 - **Level-up insight:** a free attempt when you level up; a failure banks half the study.
-- **Memory relic:** instant; WIS save DC 10 + 2 × spell level; a failure banks a quarter and gives 1 exhaustion.
-- **Scroll:** 1 hour per spell level to decode; using it up adds a quarter.
+- **Memory:** a full memory of learning a spell (taken whole, e.g. by a memory spell) teaches it at once. Optional WIS save DC 10 + 2 × spell level (off by default); a failure banks a quarter and gives 1 exhaustion.
+- **Scroll:** a study aid, not the spell: 1 hour per spell level to decode; using it up adds a quarter of the study. The spell still has to be studied and checked.
 
 ### Flow
 1. The player picks a spell they can learn and a method, and starts studying.
@@ -159,6 +159,6 @@ Compared with an earlier draft (3 days per spell level alone): low spells get a 
 ## 8. Open questions (answered as settings)
 
 - Keep the third-caster pool, or let each world set its own? **Both: the plan's table is the default and every pool table is editable per world (`spellRules.pools`).**
-- Dual cast at level 5, or tie it to a feat? **Level 5 by default; `spellRules.dualCast.unlock: "feat"` makes it a feat the DM grants.**
+- Dual cast at level 5, or tie it to a feat? **An ability the DM grants per character; nothing in play gives it yet. `spellRules.dualCast.unlock: "level"` opens it at a character level instead.**
 - Should failed final checks cost coin as well as time? **No by default; `learning.failCoinLoss` and `learning.setbackCoinLoss` set a share of the materials lost.**
-- Do spells learned by gift count toward line mastery? **Yes by default; `lines.giftsCountForMastery: false` turns it off.**
+- Do spells learned by gift count toward line mastery? **Yes by default; `lines.giftsCountForMastery: false` turns it off.** A scroll still has to be learned; a memory teaches at once.

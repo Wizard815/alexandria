@@ -223,10 +223,10 @@ limits (one leveled spell per turn, surge cast, echo strain, the high-level
 limit, overchannel, low mana), dual cast (empower, fuse, the Arcana check,
 the fuse insight), learning (tier gates, ability minimums, study points,
 progress per day, materials, the graded final check, level-up insight, memory
-relic, scroll) and spell line mastery.
+a memory of learning, scroll) and spell line mastery.
 
 A world changes any part of it with the setting `spellRules`: a partial object
-laid over the defaults, so `{"dualCast": {"unlock": "feat"}}` changes only
+laid over the defaults, so `{"dualCast": {"unlock": "level"}}` changes only
 that. Unknown keys and wrong kinds of value are refused. Lists (the pool
 tables, the DC table) are replaced whole; `learning.gates` merges per spell
 level. `GET /api/worlds/:w/spells/rules` returns the merged rules and the
@@ -238,9 +238,10 @@ The plan's open questions, answered as settings:
 | Question | Default | Setting |
 |---|---|---|
 | Third-caster pool | the plan's table; every pool table is editable per world | `pools.full`, `pools.half`, `pools.third`, `pools.none` |
-| Dual cast at level 5 or by a feat | level 5 | `dualCast.unlock` (`level` or `feat`), `dualCast.level` |
+| Dual cast at level 5 or by a feat | an ability the DM grants; nothing in play gives it yet | `dualCast.unlock` (`ability` or `level`), `dualCast.level` |
 | Failed final checks cost coin | no | `learning.failCoinLoss`, `learning.setbackCoinLoss` (share of the materials) |
 | Gifted spells count toward line mastery | yes | `lines.giftsCountForMastery` |
+| Scrolls and memories | a scroll is a study aid (adds study points; the spell is still studied and checked); a full memory of learning a spell (e.g. taken by a memory spell) teaches it at once | `learning.scroll`, `learning.memory` (`save: true` adds a WIS save) |
 
 The engine is not wired into casting or the Codex UI yet: `POST /spells/cast`
 still uses the mana rules above. Characters have no caster type or study
