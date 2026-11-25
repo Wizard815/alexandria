@@ -11,6 +11,7 @@ import { all, one, run } from '../src/core/db.ts';
 import { balance, spendable } from '../src/core/coin.ts';
 import { generateShop } from '../src/features/shop/gen.ts';
 import { nameKey, parseCost, parseCsv } from '../src/features/shop/items.ts';
+import { haggleOutcome, personalPrice, repDiscount, standing } from '../src/features/shop/market.ts';
 
 let base = '';
 let server: any;
@@ -393,4 +394,206 @@ test('TestShop_StageCardHasNoDMText', async () => {
   const text = JSON.stringify(card);
   assert.ok(text.includes('Torch'));
   assert.ok(!text.includes('Moonpetal') && !text.includes('SHOPSECRET'), text);
+});
+
+// ---- towns, the keeper's memory, haggling and sending a shop to a player ----
+
+test('TestShop_HaggleRulesAndPersonalPrices', () => {
+  // barter 20, no reputation: the keeper goes to 20%. Up to 10% always; 10-20% by chance; past 20% refused with a counter; past 40% insulted.
+  assert.deepEqual([haggleOutcome({ askPct: 10, barterPct: 20, rep: 0, roll: 0.99 }).accepted, haggleOutcome({ askPct: 10, barterPct: 20, rep: 0, roll: 0.99 }).mood], [true, 'agreed']);
+  const mid = haggleOutcome({ askPct: 15, barterPct: 20, rep: 0, roll: 0 });
+  assert.equal(mid.accepted, true);
+  assert.ok(mid.chance < 1 && mid.chance > 0.3);
+  const unlucky = haggleOutcome({ askPct: 20, barterPct: 20, rep: 0, roll: 0.5 });
+  assert.equal(unlucky.accepted, false, 'at the limit the chance is 30%');
+  assert.equal(unlucky.counterPct, 10);
+  assert.equal(unlucky.repDelta, -1);
+  const far = haggleOutcome({ askPct: 30, barterPct: 20, rep: 0, roll: 0 });
+  assert.deepEqual([far.accepted, far.counterPct, far.repDelta, far.mood], [false, 10, -2, 'refused']);
+  const silly = haggleOutcome({ askPct: 60, barterPct: 20, rep: 0, roll: 0 });
+  assert.deepEqual([silly.counterPct, silly.repDelta, silly.mood], [0, -5, 'insulted']);
+  assert.equal(haggleOutcome({ askPct: 5, barterPct: 0, rep: 100, roll: 0 }).mood, 'never', 'a keeper who never haggles');
+  // Reputation moves the keeper's limit: +100 rep adds 10 points, -100 takes 10 away.
+  assert.equal(haggleOutcome({ askPct: 15, barterPct: 20, rep: 100, roll: 0.99 }).accepted, true);
+  assert.equal(haggleOutcome({ askPct: 6, barterPct: 10, rep: -100, roll: 0 }).mood, 'never');
+  // Prices.
+  assert.equal(repDiscount(100, 10), 10);
+  assert.equal(repDiscount(-50, 10), -5);
+  assert.equal(personalPrice(1000, 10, 15), 750);
+  assert.equal(personalPrice(1000, -10, 0), 1100);
+  assert.equal(personalPrice(1000, 50, 80), 100, 'never more than 90% off');
+  assert.equal(standing(0), 'Stranger');
+  assert.equal(standing(95), 'Trusted friend');
+});
+
+test('TestShop_TownPriceLevelMovesEveryShopInIt', async () => {
+  await set({ shopApproval: false });
+  const town = await ok('POST', `${P()}/towns`, T.dm, { name: 'Harrowgate', size: 'city', pricePct: 50, description: 'A city under siege.', dmNotes: 'SHOPSECRET_TOWN the duke hoards grain' });
+  assert.equal(town.prices, 'steep');
+  const shop = await makeShop('Siege Smith', [{ item: 'Longsword', qty: 3 }]);
+  const listed = (await ok('GET', `${P()}/items?q=longsword`, T.dm)).items.find((x: any) => x.name === 'Longsword').costCp;
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Longsword').priceCp, listed);
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { townId: town.id });
+  const v = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
+  assert.equal(lineOf(v, 'Longsword').priceCp, Math.round(listed * 1.5));
+  assert.deepEqual(v.town, { name: 'Harrowgate', description: 'A city under siege.', prices: 'steep' });
+  assert.doesNotMatch(JSON.stringify(v), /SHOPSECRET|pricePct|dmNotes/);
+  // The siege ends: every shop in the town follows.
+  await ok('PATCH', `${P()}/towns/${town.id}`, T.dm, { pricePct: -20 });
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Longsword').priceCp, Math.round(listed * 0.8));
+  const dmv = await ok('GET', `${P()}/shops/${shop.id}`, T.dm);
+  assert.equal(dmv.town.pricePct, -20);
+  // Players cannot see or change towns.
+  assert.equal((await call('GET', `${P()}/towns`, T.jess)).status, 403);
+  assert.equal((await call('POST', `${P()}/towns`, T.jess, { name: 'Mine' })).status, 403);
+  assert.equal((await call('PATCH', `${P()}/shops/${shop.id}`, T.dm, { townId: 'twn_nope' })).status, 400);
+  // A generated shop in a town takes its size, and gets a purse and a barter percent.
+  const g = await ok('POST', `${P()}/generate`, T.dm, { kind: 'armorer', townId: town.id, seed: 'twn', save: true });
+  assert.equal(g.draft.size, 'city');
+  assert.equal(g.shop.townId, town.id);
+  assert.ok(g.shop.goldCp > 0 && g.shop.barterPct >= 0);
+  // Deleting the town leaves its shops at their own prices.
+  await ok('DELETE', `${P()}/towns/${town.id}`, T.dm);
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Longsword').priceCp, listed);
+});
+
+test('TestShop_ReputationAndDealsAreRememberedPerPlayer', async () => {
+  await set({ shopApproval: false });
+  const shop = await makeShop('Memory Lane', [{ item: 'Rope', qty: 20 }, { item: 'Torch', qty: null, price: 1000 }]);
+  const torch = lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch');
+  assert.equal(torch.priceCp, 1000);
+  // The DM makes Jess a friend of the keeper: 10% off everything (rep 100, effect 10).
+  await ok('PUT', `${P()}/shops/${shop.id}/memory/${ID.jess}`, T.dm, { rep: 100, note: 'Saved his daughter' });
+  const jv = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
+  assert.equal(lineOf(jv, 'Torch').priceCp, 900);
+  assert.equal(lineOf(jv, 'Torch').listPriceCp, 1000);
+  assert.equal(jv.you.standing, 'Trusted friend');
+  assert.doesNotMatch(JSON.stringify(jv), /Saved his daughter/, 'the DM note on reputation stays DM-only');
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'Tom is a stranger');
+  // A deal for Tom on the torch, used up by his next purchase.
+  await ok('POST', `${P()}/shops/${shop.id}/deals`, T.dm, { accountId: ID.tom, stockId: torch.id, pct: 25, note: 'Bribe' });
+  const tv = await ok('GET', `${P()}/shops/${shop.id}`, T.tom);
+  assert.equal(lineOf(tv, 'Torch').priceCp, 750);
+  assert.equal(tv.you.deals.length, 1);
+  setCoin(ID.tom, 10_000);
+  await ok('POST', `${P()}/shops/${shop.id}/buy`, T.tom, { stockId: torch.id, qty: 2 });
+  assert.equal(coin(ID.tom), 10_000 - 1500);
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'the deal was used');
+  // The keeper remembers: Tom spent 15 gp there and his reputation went up.
+  const mem = await ok('GET', `${P()}/shops/${shop.id}/memory`, T.dm);
+  const tom = mem.players.find((p: any) => p.accountId === ID.tom);
+  assert.deepEqual([tom.spentCp, tom.purchases, tom.rep], [1500, 1, 1]);
+  assert.equal(mem.players.find((p: any) => p.accountId === ID.jess).note, 'Saved his daughter');
+  assert.equal(mem.deals.find((x: any) => x.accountId === ID.tom).status, 'used');
+  assert.equal((await call('GET', `${P()}/shops/${shop.id}/memory`, T.tom)).status, 403);
+  assert.equal((await call('POST', `${P()}/shops/${shop.id}/deals`, T.tom, { accountId: ID.tom, pct: 50 })).status, 403);
+});
+
+test('TestShop_HaggleOnceADayAndTheDealIsUsedAtTheCounter', async () => {
+  await set({ shopApproval: false, shopHaggle: true });
+  const shop = await makeShop('Barter Barn', [{ item: 'Rope', qty: 20 }, { item: 'Torch', qty: null, price: 1000 }]);
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { barterPct: 20 });
+  const v = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
+  assert.equal(v.haggles, true);
+  const torch = lineOf(v, 'Torch');
+  // A small ask is always granted: a deal for a game day.
+  const h = await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.jess, { stockId: torch.id, pct: 5 });
+  assert.deepEqual([h.accepted, h.mood, h.pct], [true, 'agreed', 5]);
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch').priceCp, 950);
+  assert.equal((await call('POST', `${P()}/shops/${shop.id}/haggle`, T.jess, { stockId: torch.id, pct: 10 })).status, 409, 'already has a deal');
+  // An insulting ask: nothing, reputation drops, and no second try today.
+  const bad = await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.tom, { stockId: torch.id, pct: 80 });
+  assert.deepEqual([bad.accepted, bad.mood, bad.deal], [false, 'insulted', null]);
+  assert.equal((await call('POST', `${P()}/shops/${shop.id}/haggle`, T.tom, { stockId: torch.id, pct: 5 })).status, 429);
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}/memory`, T.dm)).players.find((p: any) => p.accountId === ID.tom).rep, -5);
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'rep -5 is less than 1% at effect 10');
+  // The next game day the keeper has forgotten, and Jess's deal has run out.
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { minutes: 1500 });
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch').priceCp, 1000);
+  assert.equal((await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.tom, { stockId: torch.id, pct: 5 })).accepted, true);
+  // A keeper who never haggles, and the world switch.
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { barterPct: 0 });
+  const rope = lineOf(v, 'Rope');
+  assert.equal((await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.jess, { stockId: rope.id, pct: 5 })).mood, 'never');
+  await set({ shopHaggle: false });
+  assert.equal((await call('POST', `${P()}/shops/${shop.id}/haggle`, T.jess, { stockId: rope.id, pct: 5 })).status, 403);
+  await set({ shopHaggle: true });
+  assert.equal((await call('POST', `${P()}/shops/${shop.id}/haggle`, T.guest, { stockId: rope.id, pct: 5 })).status, 403);
+});
+
+test('TestShop_KeeperPurseFillsOnSalesAndLimitsBuyingBack', async () => {
+  await set({ shopApproval: false, shopSellBack: true, shopSellBackPct: 50 });
+  const shop = await makeShop('Thin Purse', [{ item: 'Torch', qty: null, price: 300 }]);
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { goldCp: 100 });
+  setCoin(ID.jess, 1000);
+  await ok('POST', `${P()}/shops/${shop.id}/buy`, T.jess, { stockId: lineOf(shop, 'Torch').id, qty: 1 });
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.dm)).goldCp, 400);
+  // Jess offers something worth more than the purse holds: refused up front.
+  const items = (await ok('GET', `${P()}/items?limit=500`, T.dm)).items;
+  const sword = items.find((x: any) => x.name === 'Longsword');
+  run(deps.db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES ('itm_purse', ?, ?, 'Longsword', 1, 3, '', '', NULL, NULL, ?, ?, 'approved')`, W, ID.jess, new Date().toISOString(), ID.jess);
+  assert.ok(Math.floor(sword.costCp / 2) > 400);
+  const r = await call('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: 'itm_purse' });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /cannot afford/);
+  // With more coin in the purse it goes through, and the purse pays.
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { goldCp: 5000 });
+  const o = await ok('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: 'itm_purse' });
+  await ok('POST', `${P()}/orders/${o.order.id}`, T.dm, { action: 'approve' });
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.dm)).goldCp, 5000 - o.order.totalCp);
+  // Unlimited purse (blank) again.
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { goldCp: null });
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.dm)).goldCp, null);
+  await set({ shopSellBack: false });
+});
+
+test('TestShop_PresentSendsTheShopToChosenPlayersOnly', async () => {
+  const shop = await makeShop('Wandering Peddler', [{ item: 'Torch', qty: 5 }], 'hidden');
+  const seen: { type: string; data: any; jess: boolean; tom: boolean; dm: boolean }[] = [];
+  const orig = deps.hub.emit.bind(deps.hub);
+  deps.hub.emit = (w: string, type: string, data: unknown, aud: any) => {
+    if (type === 'shop-present') seen.push({ type, data, jess: aud({ accountId: ID.jess, role: 'player' }), tom: aud({ accountId: ID.tom, role: 'player' }), dm: aud({ accountId: ID.dm, role: 'dm' }) });
+    return orig(w, type, data, aud);
+  };
+  try {
+    // Hidden: refused unless the DM opens it with the same call.
+    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: [ID.jess] })).status, 409);
+    const r = await ok('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: [ID.jess], open: true, message: 'Fine wares, friend!' });
+    assert.deepEqual([r.sentTo, r.opened, r.shop.status], [[ID.jess], true, 'open']);
+    assert.equal(seen.length, 1);
+    assert.deepEqual([seen[0].jess, seen[0].tom, seen[0].dm], [true, false, false]);
+    assert.equal(seen[0].data.shopId, shop.id);
+    assert.equal(seen[0].data.message, 'Fine wares, friend!');
+    assert.doesNotMatch(JSON.stringify(seen[0].data), /SHOPSECRET/);
+    // Everyone.
+    await ok('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: 'all' });
+    assert.deepEqual([seen[1].jess, seen[1].tom], [true, true]);
+    // Not to people outside the world, and never by a player.
+    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: ['acc_nobody'] })).status, 400);
+    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.jess, { to: [ID.jess] })).status, 403);
+  } finally {
+    deps.hub.emit = orig;
+  }
+});
+
+test('TestShop_NewKindsStockWhatTheySell', async () => {
+  const weapons = await generateShop(deps, W, { kind: 'weaponsmith', size: 'city', level: 5, seed: 'w' });
+  assert.ok(weapons.stock.length > 3);
+  assert.ok(weapons.stock.every((l) => ['weapon', 'ammunition', 'tool', 'gear'].includes(l.type)), weapons.stock.map((l) => l.type).join(','));
+  assert.ok(weapons.stock.some((l) => l.type === 'weapon'));
+  const armor = await generateShop(deps, W, { kind: 'armourer', size: 'city', level: 5, seed: 'a' });
+  assert.equal(armor.kind, 'armorer');
+  assert.ok(armor.stock.every((l) => ['armor', 'shield', 'tool'].includes(l.type)));
+  const ench = await generateShop(deps, W, { kind: 'enchantment', size: 'city', level: 8, seed: 'e' });
+  assert.equal(ench.kind, 'enchanter');
+  assert.ok(ench.stock.filter((l) => l.rarity !== 'mundane').length >= ench.stock.length / 2);
+  const curio = await generateShop(deps, W, { kind: 'trinkets', size: 'town', level: 3, seed: 'c' });
+  assert.equal(curio.kind, 'curio');
+  assert.ok(curio.stock.length > 0);
+  assert.equal((await generateShop(deps, W, { kind: 'potions', size: 'town', level: 3, seed: 'p' })).kind, 'alchemist');
+  for (const dr of [weapons, armor, ench, curio]) assert.ok(dr.goldCp > 0 && dr.barterPct >= 0, dr.kind);
+  // Same seed, same purse.
+  assert.equal((await generateShop(deps, W, { kind: 'weaponsmith', size: 'city', level: 5, seed: 'w' })).goldCp, weapons.goldCp);
+  const kinds = (await ok('GET', `${P()}/config`, T.jess)).kinds.map((k: any) => k.id);
+  for (const k of ['weaponsmith', 'armorer', 'enchanter', 'curio']) assert.ok(kinds.includes(k), k);
 });
