@@ -16,6 +16,8 @@ export interface VectorStore {
   rows(worldId: string, scope: VecScope): VectorRow[];
   /** Replace all of a page's vectors in one scope, and record what they were made from. */
   replacePage(worldId: string, pageId: string, scope: VecScope, chunks: { text: string; v: Float32Array }[], state: PageState): void;
+  /** replacePage for many pages in one transaction (a bulk build writes a whole request's pages at once). `keep` runs inside it, per page, and false skips that page. */
+  replacePages(items: { worldId: string; pageId: string; scope: VecScope; chunks: { text: string; v: Float32Array }[]; state: PageState }[], keep?: (i: number) => boolean): boolean[];
   /** Delete a page's vectors (one scope, or every scope). */
   deletePage(pageId: string, scope?: VecScope): void;
   /** Delete every vector of a world (re-embed). */
@@ -71,12 +73,26 @@ class SqliteVectorStore implements VectorStore {
   }
 
   replacePage(worldId: string, pageId: string, scope: VecScope, chunks: { text: string; v: Float32Array }[], st: PageState) {
+    this.replacePages([{ worldId, pageId, scope, chunks, state: st }]);
+  }
+
+  replacePages(items: { worldId: string; pageId: string; scope: VecScope; chunks: { text: string; v: Float32Array }[]; state: PageState }[], keep?: (i: number) => boolean): boolean[] {
+    const wrote = items.map(() => false);
+    if (!items.length) return wrote;
+    const del = this.db.prepare('DELETE FROM search_chunks WHERE page_id = ? AND scope = ?');
+    const ins = this.db.prepare('INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, ?, ?, ?, ?)');
+    const state = this.db.prepare(`INSERT INTO search_chunk_state (page_id, scope, world_id, updated_at, sig, model, hash) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id, hash = excluded.hash`);
     tx(this.db, () => {
-      run(this.db, 'DELETE FROM search_chunks WHERE page_id = ? AND scope = ?', pageId, scope);
-      chunks.forEach((c, i) => run(this.db, 'INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, ?, ?, ?, ?)', worldId, pageId, scope, i, c.text, toBlob(c.v)));
-      run(this.db, `INSERT INTO search_chunk_state (page_id, scope, world_id, updated_at, sig, model, hash) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (page_id, scope) DO UPDATE SET updated_at = excluded.updated_at, sig = excluded.sig, model = excluded.model, world_id = excluded.world_id, hash = excluded.hash`, pageId, scope, worldId, st.updatedAt, st.sig, st.model, st.hash);
+      items.forEach((it, n) => {
+        if (keep && !keep(n)) return;
+        del.run(it.pageId, it.scope);
+        it.chunks.forEach((c, i) => ins.run(it.worldId, it.pageId, it.scope, i, c.text, toBlob(c.v)));
+        state.run(it.pageId, it.scope, it.worldId, it.state.updatedAt, it.state.sig, it.state.model, it.state.hash);
+        wrote[n] = true;
+      });
     });
+    return wrote;
   }
 
   deletePage(pageId: string, scope?: VecScope) {
