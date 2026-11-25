@@ -7,6 +7,7 @@ import { useMainPrefs } from '../screens/prefs.ts';
 import Chat from './Chat.tsx';
 import { SpokenNotice } from './aloud.tsx';
 import Statblock from './Statblock.tsx';
+import { PREFILL_EVENT } from './prefill.ts';
 import './agent.css';
 
 const KEY = 'alx-agent-open';
@@ -44,6 +45,12 @@ function Panel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [set]);
 
+  // "Ask the assistant" from another page opens the panel on the chat; the chat puts the text in its box.
+  useEffect(() => {
+    const onFill = () => { setTab('chat'); set(true); };
+    window.addEventListener(PREFILL_EVENT, onFill);
+    return () => window.removeEventListener(PREFILL_EVENT, onFill);
+  }, [set]);
   useDockShift(open);
   // Heard even with the panel folded away; clicking it unfolds the panel on the chat it names.
   const notice = <SpokenNotice onOpen={() => { setTab('chat'); set(true); }} />;

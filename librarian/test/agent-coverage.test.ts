@@ -195,6 +195,7 @@ const mark = (n: string) => once(`mark-${n}`, async () => (await dm('POST', '/ma
 const scene = () => once('scene', async () => (await dm('POST', '/scenes', { name: 'Coverage scene', parts: { table: { mapId: 'world', pic: 'none' }, sound: { stopOthers: true } } })).name as string);
 const pendingCoin = () => once('coin', async () => (await dm('GET', '/approvals')).coin[0].id as string);
 const request = () => once('request', async () => (await as('jess')('POST', '/requests', { kind: 'question', title: 'Can I recall the keeper?', body: 'Jessamine grew up here.' })).id as string);
+const dmTemplate = () => once('dm-template', async () => (await dm('POST', '/templates', { kind: 'library', name: 'Coverage page', spec: { sections: ['Overview'] } })).id as string);
 const movableItem = () => once('movable', async () => (await dm('POST', '/inventory', { owner: ID.tom, name: 'Rope', qty: 3, reason: 'Bought' })).id as string);
 
 /** Arguments that need real ids or values. A tool not listed gets values made from its schema. */
@@ -277,6 +278,11 @@ const ARGS: Record<string, Maker> = {
   cancel_quick_event: async () => ({ id: await quickEvent('cancel') }),
   lore_read: async () => ({ id: await lorePage('Read') }),
   lore_write: () => ({ path: 'Test/Written', title: 'Written', markdown: '# Written\nBy the agent.', level: 'party' }),
+  create_dm_template: () => ({ kind: 'guide', name: 'Coverage towns', triggers: ['town'], spec: { sections: ['Overview'] } }),
+  get_dm_template: async () => ({ id: await dmTemplate() }),
+  update_dm_template: async () => ({ id: await dmTemplate(), description: 'Updated by the agent' }),
+  // Web research is off by default; here it is on, with the fake models server standing in for a SearXNG instance.
+  web_research: async () => { await dm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl: fakes.baseUrl.replace(/\/v1$/, '') }); return { queries: ['Tomonoura Japan town'] }; },
   lore_move: async () => ({ id: await lorePage('Move'), to: 'Moved' }),
   lore_delete: async () => ({ id: await lorePage('Delete') }),
   list_map_marks: () => ({ mapId: 'world' }),

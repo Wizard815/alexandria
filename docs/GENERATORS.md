@@ -70,6 +70,11 @@ from the spec, so the saved page matches what the DM saw.
 MCP (DM only): `generate`, `generate_map`, and `save_generated` (write key,
 always DM level). They are in the agent's intent list.
 
+## Templates
+
+A **generator template** (DM → Templates & guides) keeps the structure and fields the DM wants for a
+generated town, NPC, tavern or shop; the assistant follows it when a request matches. See [TEMPLATES.md](TEMPLATES.md).
+
 ## Not done
 
 Maps are not drawn with text in lower case in PNGs (an uppercase bitmap font);

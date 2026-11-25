@@ -234,6 +234,15 @@ export function fakeEmbedding(s: string): number[] {
   return v.map((x) => +(x / norm).toFixed(6));
 }
 
+/** Made-up web results for a query (example.org only): what the fake search engines answer. */
+export function fakeWebResults(q: string): { title: string; url: string; content: string }[] {
+  const slug = q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'search';
+  return [
+    { title: `${q}: an overview`, url: `https://example.org/wiki/${slug}`, content: `A made-up overview of ${q}: a harbour, narrow lanes and an old shrine on the hill.` },
+    { title: `The history of ${q}`, url: `https://example.org/history/${slug}`, content: `A made-up history of ${q}: a trading port since the old days, known for its festival.` },
+  ];
+}
+
 function readBody(req: http.IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const parts: Buffer[] = [];
@@ -308,6 +317,17 @@ export function startFakeModels(port = 8300, host = '127.0.0.1', opts: { tokenDe
         const scored = docs.map((x, index) => ({ index, relevance_score: fakeRelevance(String(body?.query ?? ''), typeof x === 'string' ? x : String((x as any)?.text ?? '')) }));
         scored.sort((a, b) => b.relevance_score - a.relevance_score || a.index - b.index);
         return send(200, { model: body?.model ?? 'fake-rerank', results: scored.slice(0, Number(body?.top_n) > 0 ? Number(body.top_n) : scored.length), usage: { total_tokens: 1 } });
+      }
+      // A SearXNG instance's JSON search (GET /search?q=...&format=json), for web research: two made-up results on example.org.
+      if (req.method === 'GET' && (path === '/search' || path === '/v1/search')) {
+        const q = new URL(req.url ?? '/', 'http://fake').searchParams.get('q') ?? '';
+        return send(200, { query: q, results: fakeWebResults(q).map((x) => ({ title: x.title, url: x.url, content: x.content, engine: 'fake' })) });
+      }
+      // OpenRouter's web plugin (plugins: [{id: 'web'}]): a short answer with url_citation annotations.
+      if (req.method === 'POST' && path === '/v1/chat/completions' && Array.isArray(body?.plugins) && body.plugins.some((p: any) => p?.id === 'web')) {
+        const q = text(body.messages?.[body.messages.length - 1]?.content);
+        const hits = fakeWebResults(q);
+        return send(200, { id: 'chatcmpl-fake-web', object: 'chat.completion', model: body.model, choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: `What the web says about ${q}.`, annotations: hits.map((x) => ({ type: 'url_citation', url_citation: { url: x.url, title: x.title, content: x.content } })) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } });
       }
       if (req.method === 'POST' && path === '/v1/chat/completions') {
         const r = chatReply(body);
