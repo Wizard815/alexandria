@@ -5,7 +5,8 @@
 //   GET  /api/worlds/:world/bible?subject=&kind=&q=&limit=   the bible for the caller
 //   GET  /api/worlds/:world/bible/status                      (DM) extraction progress per scope
 //   POST /api/worlds/:world/bible/refresh                     (DM) extract what is stale now
-//   POST /api/worlds/:world/bible/rebuild                     (DM) forget every fact and read it all again
+//   POST /api/worlds/:world/bible/rebuild                     (DM) forget every fact and read it all again (one bulk pass, a job)
+//   POST /api/worlds/:world/bible/read-now   {all?: true}     (DM) read 25 pages now, or everything waiting in one bulk pass
 //   MCP  story_bible
 //
 // Extraction is incremental (only pages whose copy changed), budgeted and runs
@@ -24,6 +25,7 @@ import { assembleBible, bibleCoverage } from './assemble.ts';
 import { SCHEMA, bibleFailed, bibleLog, bibleNow, forgetFailures, syncBible } from './extract.ts';
 import { auditBible } from './audit.ts';
 import { BIBLE_RUNS, bibleRuns, mayRead, worldsToRead } from './when.ts';
+import { BULK_KIND, bulkRunning, startBulkBuild } from '../search/bulkbuild.ts';
 
 // A "read now" the DM started, by world, and the background reader's own stop button.
 const manual = new Map<string, AbortController>();
@@ -47,7 +49,7 @@ const feature: Feature = {
 
     r.get('/status', requireDM, (_req, res) => {
       const w = ctx(res).world.id;
-      res.json({ chat: hasJob(d, 'bible'), runs: bibleRuns(d.db, w), reading: mayRead(d.db, w), now: bibleNow(w), log: bibleLog(w), failed: bibleFailed().length, embedded: embedded(w), ...bibleCoverage(d, w) });
+      res.json({ chat: hasJob(d, 'bible'), building: bulkRunning(d, w), runs: bibleRuns(d.db, w), reading: mayRead(d.db, w), now: bibleNow(w), log: bibleLog(w), failed: bibleFailed().length, embedded: embedded(w), ...bibleCoverage(d, w) });
     });
 
     r.post('/refresh', requireDM, async (_req, res) => {
@@ -55,9 +57,11 @@ const feature: Feature = {
     });
 
     // "Read a few now": started, not waited for (a page can take half a minute). The status says how it goes.
-    r.post('/read-now', requireDM, (_req, res) => {
+    r.post('/read-now', requireDM, (req, res) => {
       if (!hasJob(d, 'bible')) throw new HttpError(503, 'No model is set for the story bible or chat (Admin → Models)');
       const w = ctx(res).world.id;
+      // Everything waiting, in one bulk pass (several pages at once), tracked as a job.
+      if (req.body?.all === true) { forgetFailures(); res.status(202).json({ ok: true, all: true, started: startBulkBuild(d, w, { bible: true }) }); return; }
       const ctl = new AbortController();
       manual.get(w)?.abort();
       manual.set(w, ctl);
@@ -65,7 +69,13 @@ const feature: Feature = {
       void withPriority(0, () => syncBible(d, { maxPages: 25, worldId: w, signal: ctl.signal })).catch(() => {}).finally(() => { if (manual.get(w) === ctl) manual.delete(w); });
       res.status(202).json({ ok: true });
     });
-    r.post('/stop', requireDM, (_req, res) => { manual.get(ctx(res).world.id)?.abort(); stopRunning(ctx(res).world.id); res.json({ ok: true }); });
+    r.post('/stop', requireDM, (_req, res) => {
+      const w = ctx(res).world.id;
+      manual.get(w)?.abort();
+      stopRunning(w);
+      for (const j of d.jobs.list()) if (j.kind === BULK_KIND && j.worldId === w && j.status === 'running') d.jobs.cancel(j.id);
+      res.json({ ok: true });
+    });
 
     // Checks that need no model: waiting, failed and empty pages, facts whose subject the page never names, the same page read several times.
     r.get('/audit', requireDM, (_req, res) => { res.json(auditBible(d, ctx(res).world.id)); });
@@ -85,7 +95,9 @@ const feature: Feature = {
       const w = ctx(res).world.id;
       run(d.db, 'DELETE FROM bible_facts WHERE world_id = ?', w);
       run(d.db, 'DELETE FROM bible_state WHERE world_id = ?', w);
-      res.json({ ok: true, ...bibleCoverage(d, w) });
+      const cov = bibleCoverage(d, w);
+      // Read again in one bulk pass (a job), whatever "when it reads" says: the DM asked for it.
+      res.json({ ok: true, ...cov, started: startBulkBuild(d, w, { bible: true }) });
     });
 
     return r;
