@@ -107,6 +107,10 @@ const SPEC: Record<string, string> = {
   'stage:uid': 'SELECT id FROM stage_images WHERE world_id = ?',
   'voice:id': 'SELECT id FROM voice_presets WHERE world_id = ?',
   'worldlore:id': "SELECT id FROM pages WHERE world_id = ? AND path LIKE 'WorldLore/%'",
+  'spells:id': "SELECT id FROM spells_custom WHERE world_id = ? UNION SELECT 'srd:fireball' UNION SELECT 'srd:fire-bolt' UNION SELECT 'srd:scorching-ray'",
+  'spells:sid': 'SELECT spell_id FROM spells_known WHERE world_id = ?',
+  'spells:rid': 'SELECT id FROM spells_recipes WHERE world_id = ?',
+  'spells:lid': 'SELECT id FROM spells_learn WHERE world_id = ?',
   '*:kind': "SELECT 'music' UNION SELECT 'ambience' UNION SELECT 'sfx'",
   '*:channel': "SELECT 'table' UNION SELECT 'party'",
   '*:source': "SELECT 'library' UNION SELECT 'x'",
@@ -139,6 +143,8 @@ function queries(p: string): string[] {
   if (/\/source-keys\/lookup$/.test(p)) return ['?q=Backstory', '?q=Blanket', '?q=Harbour', '?q=ZQX'];
   if (/\/minerva\/page$/.test(p)) return all<any>(deps.db, `SELECT path FROM pages WHERE world_id = ? AND path LIKE 'Minerva/%'`, S.W).map((r) => `?rel=${encodeURIComponent(String(r.path).slice(8))}`);
   if (/\/minerva\/(context|who)$/.test(p)) return ['harbour', 'Jessamine', 'Tomas', 'jess', 'smuggler', 'Harbour Warden', 'Who rang the sunken bell?'].flatMap((x) => [`?who=${encodeURIComponent(x)}&name=${encodeURIComponent(x)}`]);
+  if (/\/spells\/list$/.test(p)) return ['?full=1&limit=500', '?known=1&full=1', '?public=0&full=1&limit=500', '?q=zqx&text=1&full=1'];
+  if (/\/spells\/(codex|log)$/.test(p)) return [S.ID.jess, S.ID.tom].map((a) => `?account=${a}`);
   if (/\/quickgen\/items$/.test(p)) return ['?rarity=rare&count=30', '?type=weapon&count=30'];
   return [];
 }
@@ -693,6 +699,8 @@ test('TestSecurityAI_ClassifiedTextTypedByTheDmIsRefusedNotSent', async () => {
 const PLAYER_ROUTES = [
   'DELETE /agent/chats/:id', 'PATCH /agent/chats/:id', 'DELETE /inventory/:iid', 'DELETE /live/presence', 'DELETE /map/:mapId/marks/:mid', 'DELETE /profiles/me/blocks/:bid', 'DELETE /sessionchat/messages/:mid',
   'PATCH /inventory/:iid', 'PATCH /map/:mapId/marks/:mid', 'PATCH /sessionchat/messages/:mid',
+  // Spells: a player edits their own spell sheet (when the world allows it), casts, asks to learn and takes back their own request.
+  'PUT /spells/characters/:aid', 'POST /spells/cast', 'POST /spells/learn', 'POST /spells/learn/:lid/cancel',
   'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
   'POST /audio/consent', 'POST /audio/mics', 'POST /audio/sessions/:sid/chunks', 'POST /audio/sessions/:sid/holds', 'DELETE /audio/mics/:id', 'POST /audio/sessions/:sid/chunks/:seq/text', 'POST /audio/mics/:id/stt',
