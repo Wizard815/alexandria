@@ -952,3 +952,88 @@ test('Agent: Stop closes a reply whose run is gone, so the chat unlocks', async 
   assert.equal((await e.ok('POST', `${A(e)}/chats/${chat.id}/stop`, e.T.dm, {})).stopped, false);
   assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.dm)).busy, false);
 });
+
+// ---- Minerva's Assistant overhaul: tool arguments, cards, thoughts -----------------------------------------------
+
+test('Agent: garbled or loose tool arguments are repaired, and the rest go back to the model before any card', async () => {
+  const e = env;
+  e.model.seen.length = 0;
+  // Fenced JSON with a trailing comma, a number sent as text: put right, one card.
+  e.model.queue.push(
+    () => ({ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'add_combatant', arguments: '```json\n{"name": "Bandit", "hp": "11", "initiative": "9",}\n```' } }] }),
+    () => say('I proposed adding the bandit.'),
+  );
+  const one = await ask(e, e.T.dm, 'Add a bandit with 11 HP');
+  assert.equal(one.chat.actions.length, 1);
+  assert.deepEqual(one.chat.actions[0].args, { name: 'Bandit', hp: 11, initiative: 9 });
+  // Not JSON at all, then a wrong number: each is sent back, nothing is proposed until the call is right.
+  e.model.seen.length = 0;
+  e.model.queue.push(
+    () => ({ role: 'assistant', content: null, tool_calls: [{ id: 'c2', type: 'function', function: { name: 'add_combatant', arguments: 'name=Bandit hp=11' } }] }),
+    () => toolCall('add_combatant', { name: 'Bandit Two', hp: 'eleven' }, 'c3'),
+    () => toolCall('add_combatant', { name: 'Bandit Two', hp: 11 }, 'c4'),
+    () => say('Proposed.'),
+  );
+  const two = await ask(e, e.T.dm, 'Add another bandit with 11 HP');
+  const toolMsgs = e.model.seen.flatMap((s: any) => s.messages.filter((m: any) => m.role === 'tool').map((m: any) => m.content));
+  assert.ok(toolMsgs.some((t: string) => /not valid JSON/.test(t)), 'garbled arguments are named');
+  assert.ok(toolMsgs.some((t: string) => /hp must be a number/.test(t)), 'a bad number is named');
+  assert.deepEqual(two.chat.actions.map((a: any) => a.args), [{ name: 'Bandit Two', hp: 11 }], 'only the good call became a card');
+});
+
+test('Agent: an unknown tool name gets the nearest real one, and an enum in the wrong case is fixed', async () => {
+  const e = env;
+  e.model.seen.length = 0;
+  e.model.queue.push(() => toolCall('search', { query: 'Saltmarsh' }), () => say('Done looking.'));
+  await ask(e, e.T.dm, 'Find Saltmarsh');
+  const t = e.model.seen[1].messages.find((m: any) => m.role === 'tool').content;
+  assert.match(t, /Unknown tool "search"\. Did you mean .*"search_library"/);
+  e.model.queue.push(() => toolCall('play_music', { mood: 'Tense' }), () => say('Proposed.'));
+  const { chat } = await ask(e, e.T.dm, 'Play something tense');
+  assert.equal(chat.actions[0].args.mood, 'tense');
+});
+
+test('Agent: the same change proposed twice is one card; a card can be edited before it is approved', async () => {
+  const e = env;
+  e.model.queue.push(
+    () => ({ role: 'assistant', content: null, tool_calls: [
+      { id: 'd1', type: 'function', function: { name: 'add_item', arguments: JSON.stringify({ owner: 'party', name: 'Rope', qty: 1 }) } },
+      { id: 'd2', type: 'function', function: { name: 'add_item', arguments: JSON.stringify({ owner: 'party', name: 'Rope', qty: 1 }) } },
+    ] }),
+    () => say('Proposed the rope.'),
+  );
+  const { chat } = await ask(e, e.T.dm, 'Give the party a rope');
+  assert.equal(chat.actions.length, 1, 'one card for the same change');
+  const act = chat.actions[0];
+  // Edit: the qty becomes 3 (sent as text, put right), and the words follow.
+  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.jess, { args: { owner: 'party', name: 'Rope', qty: 3 } })).status, 403);
+  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', qty: 'many' } })).status, 400);
+  const edited = await e.ok('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', name: 'Silk Rope', qty: '3' } });
+  assert.equal(edited.summary, 'Give 3 x Silk Rope to party');
+  assert.deepEqual(edited.args, { owner: 'party', name: 'Silk Rope', qty: 3 });
+  const done = await e.ok('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' });
+  assert.equal(done.status, 'done');
+  const inv = await e.ok('GET', `/api/worlds/${e.W}/inventory?owner=party`, e.T.dm);
+  assert.equal(inv.items.find((i: any) => i.name === 'Silk Rope')?.qty, 3);
+  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', name: 'X' } })).status, 409, 'a decided card cannot change');
+});
+
+test("Agent: Minerva's thoughts follow a run (DM only): the plan, the look-ups, the proposal and the end", async () => {
+  const e = env;
+  const { clearThoughts } = await import('../src/features/active/thoughts.ts');
+  clearThoughts(e.deps, e.W);
+  e.model.queue.push(
+    () => ({ role: 'assistant', content: 'I will look up Saltmarsh first.', tool_calls: [{ id: 't1', type: 'function', function: { name: 'search_library', arguments: JSON.stringify({ query: 'Saltmarsh' }) } }] }),
+    () => toolCall('add_coin', { owner: 'party', amountCp: 500 }, 't2'),
+    () => say('Proposed 5 gold for the party.'),
+  );
+  const { reply } = await ask(e, e.T.dm, 'Give the party 5 gold for the Saltmarsh job');
+  const th = (await e.ok('GET', `/api/worlds/${e.W}/active/thoughts`, e.T.dm)).thoughts as any[];
+  const mine = th.filter((t) => t.runId === reply.id);
+  assert.deepEqual([...new Set(mine.map((t) => t.kind))], ['plan', 'look', 'ask', 'done']);
+  assert.ok(mine.some((t) => t.kind === 'plan' && t.text === 'I will look up Saltmarsh first.'), "the model's own words before its tools");
+  assert.ok(mine.some((t) => t.kind === 'look' && /search library “Saltmarsh”/.test(t.text)));
+  assert.ok(mine.some((t) => t.kind === 'ask' && t.actionId && /Change party coin by 500 cp/.test(t.text)));
+  assert.match(mine.at(-1).text, /1 change waiting for you/);
+  assert.equal((await e.call('GET', `/api/worlds/${e.W}/active/thoughts`, e.T.jess)).status, 403, 'players never see them');
+});
