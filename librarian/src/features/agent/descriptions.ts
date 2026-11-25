@@ -85,7 +85,6 @@ export const CONCISE: Record<string, string> = {
   read_spell: 'Use to read one Codex spell in full after list_spells gave its id. Example: "read me Scorching Ray from the codex".',
   list_spell_recipes: 'Use to see the spell crafting recipes and their tiers. Example: "what recipes lead to Fireball".',
   draft_spell_recipe: 'Use to suggest a spell crafting recipe (a draft the DM approves). Example: "suggest a recipe: Fire Bolt plus Burning Hands teaches Scorching Ray, INT 13".',
-  my_spell_codex: 'Use for the asking player\'s own spells, mana and what they can learn next. Example: "what spells can I learn now".',
   generate_names: 'Use to roll names by race and gender. Example: "six dwarven surnames".',
   generate_items: 'Use to roll magic or other items by rarity and type. Example: "draw two uncommon potions".',
   generate_coins: 'Use to roll coins for a creature or a hoard. Example: "what is in the troll\'s purse".',
