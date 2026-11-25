@@ -5,6 +5,7 @@ import { useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { useAction } from '../../ui/index.tsx';
 import { seesText, useActive, useActiveLog, type LogRow } from './shared.tsx';
+import ThoughtsIsland, { useThoughtPrefs } from './Thoughts.tsx';
 import './active.css';
 
 export function ConfirmCards({ phone = false }: { phone?: boolean }) {
@@ -61,6 +62,8 @@ export function UndoToasts({ phone = false }: { phone?: boolean }) {
 export default function ActiveOverlay() {
   const { info } = useWorld();
   const loc = useLocation();
+  const th = useThoughtPrefs();
   if (info?.role !== 'dm' || /\/dm\/phone\/?$/.test(loc.pathname)) return null;
-  return <><ConfirmCards /><UndoToasts /></>;
+  // With Minerva's thoughts open, the cards and what she did are in that window: not twice on screen.
+  return <><ThoughtsIsland />{!th.open && <><ConfirmCards /><UndoToasts /></>}</>;
 }
