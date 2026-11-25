@@ -126,6 +126,37 @@ try {
   const gone = await pl.waitForFunction((name) => !document.body.innerText.includes(name), draftName, { timeout: 8000 }).then(() => true, () => false);
   check(gone, 'hiding the shop took it off the phone live');
   note('price change and hiding reached the phone live');
+
+  // 6. A town, then the DM sends the (hidden) shop to Jess: it opens, pops up on her phone, and she haggles.
+  const town = await api(tokDM, 'POST', '/shop/towns', { name: 'Harrowgate', pricePct: 25, description: 'A city under siege.' });
+  await api(tokDM, 'PATCH', `/shop/shops/${dmShop.id}`, { townId: town.id, barterPct: 20 });
+  await pl.goto(`${W}/shop`);
+  await pl.waitForLoadState('networkidle').catch(() => {});
+  await dm.reload();
+  await dm.getByTestId('shop-send').waitFor({ timeout: 10000 });
+  await dm.getByLabel('Jess', { exact: false }).first().check().catch(() => {});
+  await dm.getByTestId('shop-send').click();
+  const popped = await pl.getByTestId('shop-present').waitFor({ timeout: 8000 }).then(() => true, () => false);
+  check(popped, 'the shop popped up on the phone');
+  if (popped) {
+    await pl.getByTestId('shop-present').getByRole('button', { name: 'Browse' }).click();
+    await pl.waitForURL(new RegExp(`shop=${dmShop.id}`), { timeout: 8000 });
+    await pl.getByTestId('shop-town').waitFor({ timeout: 8000 });
+    check((await pl.getByTestId('shop-town').innerText()).includes('Harrowgate'), 'the town shows on the shop');
+    const first = pl.getByTestId('shop-line').filter({ has: pl.getByTestId('haggle-btn') }).first();
+    const haggled = (await first.locator('summary strong').first().innerText()).trim();
+    const hl = pl.getByTestId('shop-line').filter({ hasText: haggled }).first();
+    await hl.getByTestId('haggle-btn').click();
+    await pl.getByLabel('Percent off to ask for').fill('3');
+    await pl.getByTestId('haggle-go').click();
+    const agreed = await pl.getByText(/nods: 3% off/).first().waitFor({ timeout: 8000 }).then(() => true, () => false);
+    check(agreed, 'a small haggle is agreed');
+    const struck = await hl.locator('s').first().waitFor({ timeout: 8000 }).then(() => true, () => false);
+    check(struck, 'the usual price is struck through after the deal');
+    const wide2 = await pl.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check(wide2 <= 1, `the shop page scrolls sideways by ${wide2}px on a phone after haggling`);
+  }
+  note('town, send to player, pop-up and haggle');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {
@@ -135,4 +166,4 @@ try {
 
 for (const e of errs) problems.push(e);
 if (problems.length) { console.log(`\n${problems.length} problem(s):`); for (const p of problems) console.log(' - ' + p); process.exit(1); }
-console.log('shop ok: generated, opened, bought on a phone, live coin, inventory, price and hiding; hidden shop never shown');
+console.log('shop ok: generated, opened, bought on a phone, live coin, inventory, price and hiding; hidden shop never shown; town, send to player and haggle');
