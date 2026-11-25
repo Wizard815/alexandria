@@ -15,10 +15,21 @@ services:
     environment:
       # The address players use; goes into their AI connection settings.
       ALX_PUBLIC_URL: http://192.168.1.20:8090
-      # A model on this machine (Ollama, LM Studio).
-      LOCAL_LLM_URL: http://host.docker.internal:11434
+      # The homelab model hub (Argos) on the shared ai_net network; every AI
+      # call then shows up in Argos' metrics and captures. Add MODEL_API_KEY
+      # if Argos has apiKeys set.
+      MODEL_BASE_URL: http://argos:8080/v1
+      # Or a model on this machine (Ollama, LM Studio):
+      # LOCAL_LLM_URL: http://host.docker.internal:11434
+    networks:
+      - default
+      - ai_net
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       # A second vault folder, read-only.
       - /home/me/Obsidian/Campaign:/vaults/campaign:ro
+
+networks:
+  ai_net:
+    external: true    # docker network create ai_net, if Argos is not running yet

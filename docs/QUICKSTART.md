@@ -26,7 +26,7 @@ Docker Compose reads this file (`env_file`). The settings that matter:
 | `ALX_TRUST_PROXY` | `1` | Required behind nginx, so client IPs and `https` are read from its headers. (The nginx override sets it too.) |
 | `ALX_ADMIN_TABLE_LOGIN` | `1` (optional) | Lets one person be both DM and admin on a small server: the table sign-in then also opens the admin pages. Otherwise admins use `/admin/login`. |
 | `ALX_ADMIN_ALLOW` | e.g. `192.168.0.0/16,127.0.0.1/32` (optional) | Only these networks may use the admin pages. |
-| `MODEL_BASE_URL`, `MODEL_API_KEY` | an OpenAI-compatible endpoint | The AI features. Or `LOCAL_LLM_URL=http://host.docker.internal:11434` for Ollama / LM Studio on this machine. |
+| `MODEL_BASE_URL`, `MODEL_API_KEY` | an OpenAI-compatible endpoint | The AI features. `http://argos:8080/v1` for Argos on the `ai_net` network (see `docker-compose.override.example.yml`). Or `LOCAL_LLM_URL=http://host.docker.internal:11434` for Ollama / LM Studio on this machine. |
 | `ALX_MODEL_<JOB>_URL`, `_MODEL`, `_KEY` | per job (`CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`) | A different model per job. Easier: do it in the Models page (step 9), which wins over these. |
 | `ALX_LIBFILE_VIDEO_MAX_MB` | default 2048 | Largest video upload. nginx is set to 2 GB as well. |
 
