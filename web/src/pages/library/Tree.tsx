@@ -87,13 +87,13 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved, badge, onSha
               {hasKids ? <button type="button" className="lib-caret" aria-label={isOpen ? `Close ${n.label}` : `Open ${n.label}`} onClick={() => toggle(n.key)} tabIndex={-1}><i className={`fa-solid fa-chevron-${isOpen ? 'down' : 'right'}`} aria-hidden="true" /></button> : <span className="lib-caret" />}
               <button type="button" data-row={i} className="lib-row-btn" onClick={() => (n.page ? onOpen(n.page.id) : toggle(n.key))} onKeyDown={(e) => onKey(e, r, i)} title={n.page?.path ?? n.label}>
                 {n.page ? (n.page.icon?.glyph ? <Icon icon={n.page.icon} size={13} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />) : <i className={`fa-solid ${r.depth === 0 ? 'fa-database' : isOpen ? 'fa-folder-open' : 'fa-folder'} lib-ico`} aria-hidden="true" />}
-                <span className="lib-row-label">{n.label}</span>
+                <span className="lib-row-label">{n.label}{n.hint && <span className="lib-hint"> ({n.hint})</span>}</span>
                 {n.page?.playersSee && n.page.visibility !== 'party' && <i className="fa-solid fa-eye lib-eye" title="Players can read another copy of this page" aria-label="Players can read another copy" />}
                 {badge ? badge(n) : n.page?.visibility && n.page.visibility !== 'party' && n.page.visibility !== 'dm' && <LevelChip level={n.page.visibility} />}
                 {n.page && saved.has(n.page.id) && <i className="fa-solid fa-download lib-saved-ico" title="Saved for offline" aria-label="Saved for offline" />}
                 {!n.page && <span className="lib-count">{n.count}</span>}
               </button>
-              {onShare && (n.page || n.folder) && <button type="button" className="lib-row-save lib-row-share" title={`Share “${n.label}”`} aria-label={`Share ${n.label}`} onClick={() => onShare(n)}><i className="fa-solid fa-share-nodes" aria-hidden="true" /></button>}
+              {onShare && (n.page || n.folder) && <button type="button" className="lib-row-save lib-row-share" title={`Share “${n.label}”${n.hint ? ` (${n.hint})` : ''}`} aria-label={`Share ${n.label}${n.hint ? ` (${n.hint})` : ''}`} onClick={() => onShare(n)}><i className="fa-solid fa-share-nodes" aria-hidden="true" /></button>}
               {!n.page && onSaveFolder && <button type="button" className="lib-row-save" title={`Save “${n.label}” for offline`} aria-label={`Save ${n.label} for offline`} onClick={() => onSaveFolder(pageIds(n), n.label)}><i className="fa-solid fa-download" aria-hidden="true" /></button>}
             </div>
           );
@@ -116,6 +116,7 @@ export const TREE_CSS = `
 .lib-ico { color: var(--faint); width: 16px; text-align: center; font-size: 13px; }
 .lib-eye { color: var(--teal); font-size: 11px; flex: 0 0 auto; }
 .lib-count { font-size: 12px; color: var(--faint); }
+.lib-hint { color: var(--faint); font-weight: 400; font-size: 12px; }
 .lib-dm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
 .lib-saved-ico { color: var(--teal); font-size: 11px; }
 .lib-row-save { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 4px 6px; }
