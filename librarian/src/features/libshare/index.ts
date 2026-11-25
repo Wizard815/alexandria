@@ -42,16 +42,16 @@ export default {
       props: {}, call: () => ({ method: 'GET', path: '/libshare/overview' }),
     },
     {
-      name: 'share_library_item', write: true,
+      name: 'share_library_item', write: true, dmOnly: true,
       description: "DM: share a library page, file or folder with everyone ('party'), only chosen players (list of player account ids), or nobody ('dm'). A folder rule also covers pages and files added later. Classified items can never be shared. notify=true also tells the players ('new from the DM').",
       props: {
         kind: { type: 'string', enum: ['page', 'file', 'folder'] }, id: { type: 'string', description: 'Page id or path, or file id (not for a folder)' },
-        sourceId: { type: 'string', description: "Folder: the source id ('' for pages written in Alexandria)" }, path: { type: 'string', description: "Folder: its names joined with '/'" },
+        sourceId: { type: 'string', description: "Folder: the source id ('' for pages written in Alexandria)" }, path: { type: 'string', description: "Folder: its names joined with '/'" }, whole: { type: 'boolean', description: 'Folder: share the whole source (leave path empty)' },
         to: { type: 'string', enum: ['party', 'players', 'dm'] }, players: { type: 'array', items: { type: 'string' } },
         notify: { type: 'boolean' }, confirm: { type: 'boolean', description: 'Needed for a folder, or an item that holds classified text players never see' },
       },
       required: ['kind', 'to'],
-      call: (a: any) => ({ method: 'PUT', path: '/libshare/share', body: { kind: a.kind, id: a.id, sourceId: a.sourceId, path: a.path, mode: a.to, players: a.players, notify: a.notify, confirm: a.confirm } }),
+      call: (a: any) => ({ method: 'PUT', path: '/libshare/share', body: { kind: a.kind, id: a.id, sourceId: a.sourceId, path: a.path, whole: a.whole, mode: a.to, players: a.players, notify: a.notify, confirm: a.confirm } }),
     },
   ] as McpTool[],
 } satisfies Feature;
@@ -192,7 +192,7 @@ function routes(d: Deps) {
     return {
       players: [...valid].map((id) => ({ id, name: nm[id] ?? 'Player' })),
       pages, files, shared: shared.slice(0, 3000),
-      folders: rules.map((x) => ({ sourceId: x.sourceId, path: x.path, mode: x.mode, to: x.mode === 'players' ? x.players.filter((p) => valid.has(p)) : [], source: x.sourceId ? srcName.get(x.sourceId) ?? 'Source' : 'Written in Alexandria', at: x.at })),
+      folders: rules.map((x) => ({ sourceId: x.sourceId, path: x.path, whole: !x.path, mode: x.mode, to: x.mode === 'players' ? x.players.filter((p) => valid.has(p)) : [], source: x.sourceId ? srcName.get(x.sourceId) ?? 'Source' : 'Written in Alexandria', at: x.at })),
     };
   }
 
@@ -204,6 +204,8 @@ function routes(d: Deps) {
     const kind = modeOf(req.query.kind, ['page', 'file', 'folder']);
     if (kind === 'folder') {
       const rule: FolderRule = { sourceId: String(req.query.sourceId ?? ''), path: String(req.query.path ?? '').replace(/^\/+|\/+$/g, ''), mode: 'party', players: [], by: null, at: '' };
+      // An empty path is the whole source, and only when asked for by name.
+      if (!rule.path && req.query.whole !== '1') throw new HttpError(400, 'path is required: the folder names joined with / (or whole=1 for the whole source)');
       const pages = folderPages(w, rule);
       const files = all<any>(db, 'SELECT id, page_id, level FROM libfiles_files WHERE world_id = ?', w).filter((f) => pages.some((p) => p.id === f.page_id));
       const lv = (p: any) => (p.marker_level === 'classified' ? 'classified' : p.marker_level === 'broker' ? 'broker' : normLevel(p.visibility));
@@ -330,19 +332,22 @@ function routes(d: Deps) {
     } else {
       const sourceId = String(b.sourceId ?? '');
       const path = String(b.path ?? '').replace(/^\/+|\/+$/g, '');
-      if (!path) throw new HttpError(400, 'path is required: the folder names joined with /');
+      // An empty path is the whole source (every folder in it), and only when asked for by name: never by a missing field.
+      if (!path && b.whole !== true) throw new HttpError(400, 'path is required: the folder names joined with / (or whole: true for the whole source)');
       if (sourceId && !one(db, 'SELECT 1 FROM sources WHERE id = ? AND world_id = ?', sourceId, w)) throw new HttpError(404, 'Source not found');
+      const srcLabel = sourceId ? one<any>(db, 'SELECT name FROM sources WHERE id = ?', sourceId)?.name ?? 'Source' : 'Written in Alexandria';
+      const label = path || srcLabel;
       const rule: FolderRule = { sourceId, path, mode: 'party', players: [], by, at: now() };
       const inside = folderPages(w, rule);
       if (!inside.length && mode !== 'off') throw new HttpError(404, 'There is nothing in that folder');
-      if (mode !== 'off' && mm !== 'dm' && b.confirm !== true) return needConfirm(res, `Share everything in “${path}”, including pages and files added later? Classified and broker pages are skipped.`);
+      if (mode !== 'off' && mm !== 'dm' && b.confirm !== true) return needConfirm(res, `Share everything in “${label}”${path ? '' : ' (the whole source)'}, including pages and files added later? Classified and broker pages are skipped.`);
       tx(db, () => {
         run(db, 'DELETE FROM libshare_folders WHERE world_id = ? AND source_id = ? AND path = ?', w, sourceId, path);
         if (mm !== 'dm') run(db, 'INSERT INTO libshare_folders (world_id, source_id, path, mode, players, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', w, sourceId, path, mm, JSON.stringify(to), by, now());
       });
-      title = path.split('/').pop() || path; itemId = `${sourceId}|${path}`;
+      title = path ? path.split('/').pop() || path : srcLabel; itemId = `${sourceId}|${path}`;
       for (const p of inside) touched.push(p.id);
-      audit(db, w, by, 'libshare.folder', `${path} ${mode}${to.length ? ` ${to.length} players` : ''}`);
+      audit(db, w, by, 'libshare.folder', `${path || `${srcLabel} (whole source)`} ${mode}${to.length ? ` ${to.length} players` : ''}`);
       L.touchClassified();
       L.changed(w, touched.slice(0, 500));
     }

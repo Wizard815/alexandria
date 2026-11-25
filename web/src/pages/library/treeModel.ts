@@ -29,7 +29,8 @@ export function buildTree(rows: PageRow[]): Node[] {
     const node = byPage.get(r.id)!;
     if (r.parentId && ids.has(r.parentId) && r.parentId !== r.id) { byPage.get(r.parentId)!.children.push(node); continue; }
     const src = r.source ?? 'Written in Alexandria';
-    let level = folderNode(roots, `s:${src}`, src).children;
+    // A source at the top is a folder too: a rule with no path shares the whole source.
+    let level = folderNode(roots, `s:${src}`, src, { sourceId: r.sourceId ?? '', path: '' }).children;
     let key = `s:${src}`;
     const names: string[] = [];
     for (const f of r.folder ?? []) {

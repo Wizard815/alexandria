@@ -123,6 +123,17 @@ try {
   await dm.page.waitForTimeout(800);
   check(await dm.page.locator('.shr-party').count() > 0, 'no Party badge in the library tree');
   await shot(dm.page, '03-library-badges');
+  // A whole source has a Share button too (a rule with no path); opened and closed here, not saved.
+  const srcShare = dm.page.getByRole('button', { name: 'Share Written in Alexandria' });
+  if (check(await srcShare.count() > 0, 'no Share button on the source at the top of the tree')) {
+    await srcShare.first().click();
+    const sd = dm.page.getByRole('dialog', { name: /Share “Written in Alexandria”/ });
+    await sd.getByText(/in this source/).waitFor({ timeout: 8000 }).catch(() => {});
+    check(/in this source/.test(await sd.innerText()), 'the whole-source dialog does not count what is in the source');
+    await dm.page.keyboard.press('Escape');
+    await sd.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+    if (await sd.isVisible()) await sd.getByRole('button', { name: /close|cancel/i }).first().click().catch(() => {});
+  }
 
   // ---- 3. Shared with players view ------------------------------------------
   await dm.page.getByRole('tab', { name: /^Shared/ }).click();
