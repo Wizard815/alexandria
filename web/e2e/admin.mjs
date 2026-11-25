@@ -30,7 +30,7 @@ if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill();
 
 const ROUTES = ['', 'worlds', 'accounts', 'library', 'sources', 'models', 'keys', 'access', 'audit', 'search', 'integrations',
   'sources?tab=worlds', 'sources?tab=keys', 'sources?tab=files', 'access?tab=permissions', 'access?tab=security', 'search?tab=mirror',
-  'models?tab=session', 'models?tab=memory', 'models?tab=embeddings'];
+  'models?tab=session', 'models?tab=memory', 'models?tab=embeddings', 'models?tab=calls'];
 const REDIRECTS = { connections: 'sources?tab=connections', 'source-keys': 'sources?tab=keys', 'source-files': 'sources?tab=files', permissions: 'access?tab=permissions', security: 'access?tab=security', mirror: 'search?tab=mirror' };
 
 const browser = await chromium.launch();
@@ -83,10 +83,33 @@ try {
     await ctx.close();
   }
 
-  // ---- Models → Game night ----
-  // The seeded demo leaves last night's session chat open: the DM ends it, so no session is live.
   const j = async (method, p, tok, body) => (await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })).json();
   const dmTok = (await j('POST', '/api/auth/login', undefined, { username: 'dm', password: 'dungeon master 123' })).token;
+
+  // ---- Models → Gateway calls ----
+  // The DM calls /v1 (the prompt must never show), a player is refused; the admin sees both, and today's totals vs caps, at phone width.
+  {
+    const jessTok = (await j('POST', '/api/auth/login', undefined, { username: 'jess', password: 'player pass 123' })).token;
+    await j('POST', '/v1/chat/completions', dmTok, { model: 'x', messages: [{ role: 'user', content: 'E2E-PROMPT-NEVER-SHOWN' }] });
+    await j('POST', '/v1/chat/completions', jessTok, { model: 'x', messages: [{ role: 'user', content: 'hi' }] });
+    const { ctx, page } = await signIn({ width: 390, height: 844 }, true, 'admin (gateway calls)');
+    await page.goto(`${base}/admin/models?tab=calls`);
+    await page.getByTestId('gateway-calls').locator('[data-call]').first().waitFor({ timeout: 10000 });
+    const calls = page.getByTestId('gateway-calls');
+    check(await calls.locator('[data-call="refused"]').count() >= 1, 'gateway calls: the refused player call is listed');
+    check(await calls.locator('[data-call="passed"]').count() >= 1, 'gateway calls: the DM call is listed');
+    const who = await calls.locator('[data-call] strong').allTextContents();
+    check(who.includes('jess') && who.includes('dm'), `gateway calls: who called is shown (${who.join(', ')})`);
+    check(!(await page.content()).includes('E2E-PROMPT-NEVER-SHOWN'), 'gateway calls: the prompt is never shown');
+    const today = page.getByTestId('gateway-today');
+    check(await today.locator('[data-user="dm"]').count() === 1 && /Requests: 1 \//.test(await today.locator('[data-user="dm"]').textContent()), 'gateway calls: the DM\'s requests today against the cap');
+    const wide = await page.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
+    check(wide <= 1, `gateway calls: no sideways scroll at phone width (${wide}px)`);
+    await ctx.close();
+  }
+
+  // ---- Models → Game night ----
+  // The seeded demo leaves last night's session chat open: the DM ends it, so no session is live.
   if ((await j('GET', '/api/worlds/saltreach/sessionchat/current', dmTok)).session) await j('POST', '/api/worlds/saltreach/sessionchat/sessions/end', dmTok, {});
   const rec = await j('GET', '/api/worlds/saltreach/audio/status', dmTok);
   check(!rec.recording, 'no recording is running');

@@ -369,18 +369,20 @@ test('Final_api: chunks still waiting for a device when the pass starts are tran
 
 test('Stt_assets: a member gets a ticket URL; the library and allowed model files are fetched once and then served from the cache', async () => {
   const a = (await ok('GET', `${A()}/stt/assets`, T.jess)).assets;
-  assert.equal(a.lib, '/api/stt/lib/');
+  assert.match(a.lib, /^\/api\/stt\/[^/]+\/lib\/$/);
   assert.match(a.models, /^\/api\/stt\/[^/]+\/models\/$/);
+  assert.equal(a.lib.split('/')[3], a.models.split('/')[3], 'one ticket for both');
+  assert.equal((await ok('GET', `${A()}/stt/assets`, T.jess)).assets.lib, a.lib, 'the same URL again, so the browser cache keeps the library');
   upstream.length = 0;
-  const lib = await call('GET', '/api/stt/lib/transformers.min.js');
+  const lib = await call('GET', `${a.lib}transformers.min.js`);
   assert.equal(lib.status, 200);
   assert.match(lib.headers.get('content-type') ?? '', /javascript/);
-  assert.match(lib.headers.get('cache-control') ?? '', /immutable/);
-  assert.equal((await call('GET', '/api/stt/lib/transformers.min.js')).status, 200);
+  assert.match(lib.headers.get('cache-control') ?? '', /private.*immutable/);
+  assert.equal((await call('GET', `${a.lib}transformers.min.js`)).status, 200);
   assert.deepEqual(upstream, ['https://cdn.example/dist/transformers.min.js'], 'fetched once');
-  assert.equal((await call('GET', '/api/stt/lib/ort-wasm-simd-threaded.jsep.wasm')).headers.get('content-type'), 'application/wasm');
-  assert.equal((await call('GET', '/api/stt/lib/evil.js')).status, 404, 'only the pinned files');
-  assert.equal((await call('GET', '/api/stt/lib/..%2F..%2Fdata.db')).status, 404);
+  assert.equal((await call('GET', `${a.lib}ort-wasm-simd-threaded.jsep.wasm`)).headers.get('content-type'), 'application/wasm');
+  assert.equal((await call('GET', `${a.lib}evil.js`)).status, 404, 'only the pinned files');
+  assert.equal((await call('GET', `${a.lib}..%2F..%2Fdata.db`)).status, 404);
 
   const cfg = await call('GET', `${a.models}onnx-community/whisper-tiny_timestamped/resolve/main/config.json`);
   assert.equal(cfg.status, 200);
@@ -396,8 +398,49 @@ test('Stt_assets: a member gets a ticket URL; the library and allowed model file
   deps.env.ALX_STT_ASSETS = 'off';
   try {
     assert.equal((await ok('GET', `${A()}/stt/assets`, T.jess)).assets, null);
-    assert.equal((await call('GET', '/api/stt/lib/transformers.min.js')).status, 404);
+    assert.equal((await call('GET', `${a.lib}transformers.min.js`)).status, 404);
   } finally { delete deps.env.ALX_STT_ASSETS; }
+});
+
+test('Stt_assets: nothing is served or downloaded without a signed-in member\'s ticket', async () => {
+  const a = (await ok('GET', `${A()}/stt/assets`, T.jess)).assets;
+  const ticket = a.lib.split('/')[3];
+  upstream.length = 0;
+  for (const f of ['transformers.min.js', 'ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']) {
+    for (const url of [`/api/stt/lib/${f}`, `/api/stt/x/lib/${f}`, `/api/stt/${ticket.slice(0, -2)}xx/lib/${f}`, `/api/stt/${ticket.split('.')[0]}/lib/${f}`]) {
+      const r = await call('GET', url);
+      assert.ok(r.status === 404 || r.status === 401, `${url} without a good ticket answered ${r.status}`);
+    }
+  }
+  // A ticket minted for another kind of file is not a speech ticket.
+  const { mintTicket } = await import('../src/features/sound/ticket.ts');
+  const other = mintTicket({ w: deps.db.prepare('SELECT world_id FROM members LIMIT 1').get().world_id, k: 'track', f: '', a: ID.jess });
+  assert.equal((await call('GET', `/api/stt/${other}/lib/transformers.min.js`)).status, 404);
+  // Someone who has left the world loses it.
+  const stranger = mintTicket({ w: 'no-such-world', k: 'stt', f: '', a: ID.jess });
+  assert.equal((await call('GET', `/api/stt/${stranger}/lib/transformers.min.js`)).status, 404);
+  assert.equal((await call('GET', `/api/stt/${stranger}/models/onnx-community/whisper-tiny_timestamped/resolve/main/config.json`)).status, 404);
+  assert.deepEqual(upstream, [], 'the server downloaded nothing for them');
+  // Not signed in: the assets route itself is 401.
+  assert.equal((await call('GET', `${A()}/stt/assets`)).status, 401);
+});
+
+test('Stt_live: changing where speech to text runs tells every device at once, once per change', async () => {
+  const seen: { type: string; data: any }[] = [];
+  const untap = deps.hub.tap((_w: string, type: string, data: unknown) => { if (type === 'stt-mode') seen.push({ type, data }); });
+  try {
+    await setting('speechToText', 'server');
+    seen.length = 0;
+    await setting('speechToText', 'device');
+    assert.deepEqual(seen.map((s) => s.data), [{ mode: 'device' }]);
+    await setting('speechToText', 'device');
+    await setting('transcriptHint', 'on');
+    assert.equal(seen.length, 1, 'no event when the mode did not change');
+    await setting('speechToText', 'auto');
+    await setting('speechToText', 'server');
+    assert.deepEqual(seen.map((s) => s.data.mode), ['device', 'auto', 'server']);
+    assert.deepEqual(Object.keys(seen[0].data), ['mode'], 'only the mode is sent');
+  } finally { untap(); }
 });
 
 test('Stt_csp: the app page allows WebAssembly from its own origin and nothing else new', async () => {
