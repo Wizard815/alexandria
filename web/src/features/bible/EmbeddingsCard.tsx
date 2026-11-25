@@ -1,6 +1,7 @@
 // Admin > Models: the embeddings job, and how much of each world it (and the
-// story bible) has read, per scope. "Re-embed world" forgets one world's
-// vectors and facts so they are made again in the background.
+// story bible) has read, per scope. "Index all now" reads everything waiting
+// in one bulk pass (a job); "Re-embed world" forgets one world's vectors and
+// facts and makes them again the same way.
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
@@ -40,7 +41,10 @@ export default function EmbeddingsCard() {
         <div key={wd.id} className="stack tight">
           <div className="row between">
             <strong>{wd.name}</strong>
-            <button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { await client.request('POST', `/api/admin/embeddings/${wd.id}/reembed`); await load(); })}>Re-embed world</button>
+            <span className="row" style={{ gap: 6 }}>
+              <button type="button" className="btn small" disabled={act.busy} title="Embed and read into the story bible everything that is waiting, in one fast pass" onClick={() => void act.run(async () => { await client.request('POST', `/api/admin/embeddings/${wd.id}/build`); await load(); })}>Index all now</button>
+              <button type="button" className="btn small" disabled={act.busy} onClick={() => void act.run(async () => { await client.request('POST', `/api/admin/embeddings/${wd.id}/reembed`); await load(); })}>Re-embed world</button>
+            </span>
           </div>
           {(wd.embeddings.progress?.pending || wd.bible.progress?.pending) ? (
             <div className="small" role="status" data-testid="embed-progress">
