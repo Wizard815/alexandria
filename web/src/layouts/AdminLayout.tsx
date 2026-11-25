@@ -10,6 +10,7 @@ import * as F from '../features/registry.ts';
 import AdminLogin from '../features/adminauth/Login.tsx';
 import { setAdminToken, useAdminToken } from '../features/adminauth/session.ts';
 import AdminSearchBox from '../features/gateway/SearchBox.tsx';
+import JobsBar from '../features/gateway/JobsBar.tsx';
 
 import '../admin.css';
 import { Icon } from '../pages/admin/kit.tsx';
@@ -91,7 +92,7 @@ export function AdminLayout() {
           </div>
         </div>
       </nav>
-      <main className="main"><AdminSearchBox /><OfflineBanner /><Outlet /></main>
+      <main className="main"><AdminSearchBox /><OfflineBanner /><JobsBar /><Outlet /></main>
     </div>
   );
   if (mode.kind === 'table') return body;
