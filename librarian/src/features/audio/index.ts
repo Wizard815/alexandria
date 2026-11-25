@@ -71,7 +71,21 @@ const feature: Feature = {
   },
   worldMount: 'audio',
   dataDirs: ['audio', 'recordings'],
-  appRoutes: (app, d) => { recordingMedia(app, d); sttAssetRoutes(app, d); },
+  appRoutes: (app, d) => {
+    recordingMedia(app, d);
+    sttAssetRoutes(app, d);
+    // The DM changed where speech to text runs: tell every recording device at once ('stt-mode'), so it loads or frees its model
+    // without waiting for its next recording. The mode is no secret (players read it in /audio/status); nothing else is sent.
+    const lastMode = new Map<string, string>();
+    d.hub.tap((worldId, type) => {
+      if (type !== 'settings') return;
+      let mode: string;
+      try { mode = engine(d).sttMode(worldId); } catch { return; }
+      if (lastMode.get(worldId) === mode) return;
+      lastMode.set(worldId, mode);
+      d.hub.emit(worldId, 'stt-mode', { mode }, () => true);
+    });
+  },
 
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
