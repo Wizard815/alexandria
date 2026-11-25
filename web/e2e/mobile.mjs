@@ -29,6 +29,8 @@ const dm = async (method, p, body) => (await fetch(`${base}/api/worlds/${WID}${p
 await dm('POST', '/live/combatants', { name: 'Sera Vane', initiative: 18, hp: 30, maxHp: 30 });
 await dm('POST', '/live/combatants', { name: 'Goblin boss', initiative: 14, hp: 21, maxHp: 21 });
 await dm('PUT', '/live/combat', { active: true, round: 1, turn: 0 });
+// An open shop, so the Shop page is audited with a keeper and stock on it.
+await dm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'mobile', save: true, status: 'open' });
 
 const PROFILES = [
   { name: 'android-360', viewport: { width: 360, height: 800 }, ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', dpr: 3 },
