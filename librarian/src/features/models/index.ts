@@ -5,7 +5,7 @@
 // the environment (ALX_MODEL_<JOB>_URL ...). API keys are write-only.
 //
 //   GET    /api/admin/models                      { jobs, providers }
-//   PUT    /api/admin/models                      { jobs: { chat: { providerId, model, options, enabled, gameNight, fallback } } }
+//   PUT    /api/admin/models                      { jobs: { chat: { providerId, model, options, enabled, gameNight, fallback } } } (keepWarm: old name for gameNight)
 //   GET    /api/admin/models/status               loaded / unloaded per job and provider (asks the servers)
 //   POST   /api/admin/models/providers            add a provider
 //   PUT    /api/admin/models/providers/:id        change one (apiKey "••••" or missing keeps the key)
@@ -372,7 +372,7 @@ const feature: Feature = {
         if (b.gameNight !== undefined) {
           if (b.gameNight !== 'hold' && b.gameNight !== 'ondemand') throw new HttpError(400, 'gameNight must be "hold" or "ondemand"');
           step.policy = b.gameNight;
-        }
+        } else if (b.keepWarm !== undefined) step.policy = b.keepWarm ? 'hold' : 'ondemand'; // the old per-job switch
         if (b.fallback !== undefined) {
           const f = b.fallback;
           if (f === null || f === '' || f.providerId === '' ) { row.fallback_provider_id = ''; row.fallback_model = ''; row.fallback_options = '{}'; row.allow_cloud_fallback = 0; }
