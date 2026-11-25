@@ -170,7 +170,7 @@ check(JSON.stringify(await dm('GET', '/people')).includes('Velmira') && JSON.str
 const rec = await step('Start the session: models warm, recording starts, players consent', async () => {
   // The previous night's table chat is still open in the seeded demo.
   if ((await dm('GET', '/sessionchat/current')).session) await dm('POST', '/sessionchat/sessions/end', {});
-  await api('PUT', '/api/admin/models/session', adminTok, { loadOnStart: true, keepLoaded: true });
+  await api('PUT', '/api/admin/models/lifecycle', adminTok, { policies: { chat: 'hold', audit: 'hold', audio: 'hold', extra: 'hold' } });
   for (const p of Object.values(P)) await api('POST', `${W}/audio/consent`, p.token, { agree: true });
   const consents = await dm('GET', '/audio/consents');
   check(consents.length === 3 && consents.every((c: any) => c.agreed), 'all three players agreed to the recording');

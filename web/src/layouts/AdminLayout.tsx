@@ -6,7 +6,6 @@ import { NavLink, Outlet, Navigate, useLocation, useNavigate } from 'react-route
 import { AlexandriaClient } from '@alx/client';
 import { AuthScope, useAuth, type Me } from '../lib/auth.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
-import * as F from '../features/registry.ts';
 import AdminLogin from '../features/adminauth/Login.tsx';
 import { setAdminToken, useAdminToken } from '../features/adminauth/session.ts';
 import AdminSearchBox from '../features/gateway/SearchBox.tsx';
@@ -14,15 +13,7 @@ import JobsBar from '../features/gateway/JobsBar.tsx';
 
 import '../admin.css';
 import { Icon } from '../pages/admin/kit.tsx';
-
-// The sidebar's three groups. A feature that adds an admin page without a place here lands under Gateway.
-const GROUPS: { label: string; links: [string, string][] }[] = [
-  { label: 'Library', links: [['', 'Overview'], ['worlds', 'Worlds'], ['library', 'Library'], ['search', 'Search'], ['mirror', 'World mirror']] },
-  { label: 'Sources', links: [['connections', 'Connections'], ['sources', 'World sources'], ['source-keys', 'Source keys'], ['source-files', 'Source files']] },
-  { label: 'Gateway', links: [['accounts', 'Accounts'], ['permissions', 'Permissions'], ['models', 'Models'], ['integrations', 'Integrations'], ['access', 'Access & MCP'], ['keys', 'Keys & AI'], ['audit', 'Audit log'], ['security', 'Security']] },
-];
-const KNOWN = new Set(GROUPS.flatMap((g) => g.links.map(([to]) => to)));
-const EXTRA: [string, string][] = F.adminNav.filter((n) => !KNOWN.has(n.to)).map((n) => [n.to, n.label]);
+import { AdminMenu } from './AdminMenu.tsx';
 
 type Mode = { kind: 'admin' | 'table'; me: Me };
 
@@ -68,22 +59,16 @@ export function AdminLayout() {
   if (!table.ready || mode === undefined) return <div className="t-admin"><div className="page"><p className="muted">Opening the library admin…</p></div></div>;
   if (!mode) return <Navigate to="/admin/login" replace />;
 
-  const groups = EXTRA.length ? GROUPS.map((g) => (g.label === 'Gateway' ? { ...g, links: [...g.links, ...EXTRA] } : g)) : GROUPS;
   const body = (
     <div className="t-admin shell adm">
       <nav className={`side${menu ? ' open' : ''}`} aria-label="Admin">
         <div className="adm-brand">
           <Icon name="brand" size={28} color="#7FD1C7" />
-          <div className="adm-brand-text"><span className="name">Alexandria</span><span className="sub">Gateway{window.location.port ? ` · :${window.location.port}` : ''}</span></div>
+          <div className="adm-brand-text"><span className="name">Alexandria</span><span className="sub">Admin{window.location.port ? ` · :${window.location.port}` : ''}</span></div>
           <button type="button" className="adm-menu-btn" aria-expanded={menu} aria-controls="adm-nav" onClick={() => setMenu(!menu)}>{menu ? 'Close' : 'Menu'}</button>
         </div>
         <div className="adm-nav" id="adm-nav">
-          {groups.map((g) => (
-            <div className="nav-group" key={g.label}>
-              <span className="nav-label">{g.label}</span>
-              {g.links.map(([to, label]) => <NavLink key={to} to={`/admin/${to}`} end={to === ''} className="nav-link" onClick={() => setMenu(false)}><Icon name={to || 'overview'} />{label}</NavLink>)}
-            </div>
-          ))}
+          <AdminMenu onNavigate={() => setMenu(false)} />
           <div className="side-foot">
             <NavLink to="/" className="nav-link"><Icon name="back" />Your worlds</NavLink>
             {release && <span className="tiny adm-who" data-testid="release">Alexandria {release}</span>}
