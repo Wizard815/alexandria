@@ -161,6 +161,8 @@ export default function brokerRoutes(d: Deps) {
     if (dm) {
       out.broker_level = !!q.broker_level;
       out.asker = q.account_id; out.asker_name = nm[q.account_id] ?? 'Someone';
+      const payRow = q.ledger_id ? one<any>(db, 'SELECT by_id FROM ledger WHERE id = ?', q.ledger_id) : null;
+      out.paid_by = payRow?.by_id ?? null; out.paid_by_name = payRow?.by_id ? nm[payRow.by_id] ?? null : null; out.paid_from = q.ledger_id ? (q.payer === 'party' ? 'party' : 'self') : null;
       out.needs_review = !!q.needs_review && q.status === 'waiting';
       // DM only: how the question was judged, and the DM-side lines that matched.
       const c: (Classification & { routing?: Labels }) | null = q.classification ? JSON.parse(q.classification) : null;
@@ -186,7 +188,7 @@ export default function brokerRoutes(d: Deps) {
     const { cfg } = loadConfig(db, w);
     const c = worldNow(w);
     // Players get the same config; spoiler tags and routing rules stay on DM-only routes.
-    res.json({ ...cfg, payer: settings(res).brokerPayer, clock: { minutes: c.minutes, label: c.label }, site: siteOf(res), topics: topicsOf(res) });
+    res.json({ ...cfg, payer: settings(res).brokerPayer, partyPay: settings(res).partyPurse && settings(res).brokerPartyPay !== false, clock: { minutes: c.minutes, label: c.label }, site: siteOf(res), topics: topicsOf(res) });
   });
   r.put('/config', requireDM, (req, res) => {
     const c = validConfig(req.body);
@@ -311,17 +313,55 @@ export default function brokerRoutes(d: Deps) {
   r.get('/quote', requirePlayerOrDM, async (req, res) => res.json(await quote(res, str(req.query.question, 'question', { max: 500 }), String(req.query.length ?? 'short'))));
   r.post('/quote', requirePlayerOrDM, async (req, res) => res.json(await quote(res, str(req.body?.question, 'question', { max: 500 }), String(req.body?.length ?? 'short'))));
 
-  function charge(res: Response, asker: string, cost: number, question: string): { payer: string; ledgerId: string | null } {
+  /**
+   * Take payment for something the broker sells, from the payer the player chose: their own coin ('self') or the party
+   * pouch ('party'). The choice is made after the price is known and checked here, never trusted: the pouch must be on
+   * (partyPurse) and the DM must allow it (brokerPartyPay). Without a choice the old world setting (brokerPayer) says
+   * who pays. Always run inside a transaction: the balance is read and spent in the same step, so two people paying at
+   * once, or a pouch that changed since the price was shown, can never overspend. A party payment is logged on the
+   * pouch with who paid, so the whole party sees it.
+   */
+  function charge(res: Response, asker: string, cost: number, title: string, choice?: unknown, fallback: 'self' | 'party' | 'setting' = 'setting'): { payer: string; ledgerId: string | null; from: 'self' | 'party' } {
     const s = settings(res);
     const w = ctx(res).world.id;
-    const payer = s.brokerPayer === 'party' && s.partyPurse ? 'party' : asker;
-    if (!cost) return { payer, ledgerId: null };
+    const partyOk = s.partyPurse && s.brokerPartyPay !== false;
+    let from: 'self' | 'party';
+    if (choice === undefined || choice === null || choice === '') from = fallback === 'party' || (fallback === 'setting' && s.brokerPayer === 'party') ? (partyOk ? 'party' : 'self') : 'self';
+    else if (choice === 'party') {
+      if (!s.partyPurse) throw new HttpError(400, 'The party pouch is off in this world, so it cannot pay the broker');
+      if (s.brokerPartyPay === false) throw new HttpError(403, 'Your DM has turned off paying the broker from the party pouch. Pay from your own coin.');
+      from = 'party';
+    } else if (choice === 'self' || choice === 'me') from = 'self';
+    else throw new HttpError(400, 'from must be "self" (your own coin) or "party" (the party pouch)');
+    const payer = from === 'party' ? 'party' : asker;
+    if (!cost) return { payer, ledgerId: null, from };
     const bal = balance(db, w, payer);
-    if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}`);
+    if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}${payer === 'party' ? '. Someone may have spent from it; pick again.' : ''}`);
+    const who = names(db, w)[asker] ?? 'Someone';
+    const note = from === 'party' ? `Broker: ${title.slice(0, 110)} (paid by ${who} from the party pouch)` : `Broker: ${title}`;
     const lid = id('led_');
-    run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, lid, w, payer, -cost, `Broker: ${question}`.slice(0, 200), asker, now());
-    return { payer, ledgerId: lid };
+    run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, lid, w, payer, -cost, note.slice(0, 200), asker, now());
+    return { payer, ledgerId: lid, from };
   }
+  /** Tell the people who can see a purse that it changed (the party pouch goes to the whole party, live). */
+  function coinChanged(w: string, owner: string, asker: string, note?: string) {
+    const nm = names(db, w);
+    d.hub.emit(w, 'coin', { owner, balance: balance(db, w, owner), ...(owner === 'party' && note ? { note, by: nm[asker] ?? null } : {}) }, owner === 'party' ? (v) => v.role === 'dm' || v.role === 'player' : dmAnd(owner));
+  }
+
+  // What this player may pay with, and how much each purse holds, for the choice shown with every price.
+  r.get('/pay-options', requirePlayerOrDM, (_req, res) => {
+    on(res);
+    const w = ctx(res).world.id;
+    const s = settings(res);
+    const partyAllowed = s.partyPurse && s.brokerPartyPay !== false;
+    res.json({
+      self: { cp: balance(db, w, me(res)) },
+      party: { cp: s.partyPurse ? balance(db, w, 'party') : null, allowed: partyAllowed, reason: !s.partyPurse ? 'The party pouch is off in this world.' : s.brokerPartyPay === false ? 'Your DM has turned off paying the broker from the party pouch.' : null },
+      default: partyAllowed && s.brokerPayer === 'party' ? 'party' : 'self',
+    });
+  });
+
   const readyAt = (w: string, wait: Tier['wait']) => {
     if (!wait || !wait.amount) return { clock: 'real', at: now(), game: null };
     if (wait.clock === 'game') return { clock: 'game', at: null, game: addMinutesForWait(db, w, wait.amount, wait.unit) };
@@ -357,12 +397,22 @@ export default function brokerRoutes(d: Deps) {
       // The DM queue of escalated questions (features/sourcekeys) shows it too, with what the DM side holds.
       escalateFromBroker(d, { worldId: w, accountId: me(res), question: q.question, brokerRequestId: rid, reason: String(q.classification?.reason ?? ''), evidence: JSON.parse(cls).dmEvidence ?? [], routing: q.classification?.routing ?? null });
     } else {
-      tx(db, () => {
-        const { payer, ledgerId } = charge(res, me(res), q.cost, q.question);
-        const ra = readyAt(w, q.wait);
-        run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, created_at, classification, needs_review, broker_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          rid, w, me(res), q.question, q.length, q.tier, q.cost, payer, ledgerId, ra.clock, ra.at, ra.game, q.found.answer, JSON.stringify(q.found.sources), now(), cls, q.delivery === 'review' ? 1 : 0, q.brokerLevel ? 1 : 0);
-      });
+      let paid: { payer: string; ledgerId: string | null } | null = null;
+      try {
+        tx(db, () => {
+          const { payer, ledgerId } = charge(res, me(res), q.cost, q.question, req.body?.from);
+          paid = { payer, ledgerId };
+          const ra = readyAt(w, q.wait);
+          run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, created_at, classification, needs_review, broker_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            rid, w, me(res), q.question, q.length, q.tier, q.cost, payer, ledgerId, ra.clock, ra.at, ra.game, q.found.answer, JSON.stringify(q.found.sources), now(), cls, q.delivery === 'review' ? 1 : 0, q.brokerLevel ? 1 : 0);
+        });
+      } catch (e) {
+        // A price that could not be paid keeps its quote: pick another purse and try again.
+        quotes.set(qid, q);
+        throw e;
+      }
+      const p = paid as { payer: string; ledgerId: string | null } | null;
+      if (p?.ledgerId) coinChanged(w, p.payer, me(res), `Broker: ${q.question}`);
       settle(w);
       audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost}`);
     }
@@ -491,7 +541,7 @@ export default function brokerRoutes(d: Deps) {
 
   function offerOut(res: Response, o: any, nm: Record<string, string>) {
     const dm = isDM(res);
-    const out: any = { id: o.id, title: o.title, teaser: o.teaser, price_cp: o.price_cp, status: o.status, expires_at: offerExpiry(o), expires_sessions: o.expires_sessions, created_at: o.created_at, paid_at: o.paid_at, paid_by: o.paid_by, paid_by_name: o.paid_by ? nm[o.paid_by] ?? null : null };
+    const out: any = { id: o.id, title: o.title, teaser: o.teaser, price_cp: o.price_cp, status: o.status, expires_at: offerExpiry(o), expires_sessions: o.expires_sessions, created_at: o.created_at, paid_at: o.paid_at, paid_by: o.paid_by, paid_by_name: o.paid_by ? nm[o.paid_by] ?? null : null, paid_from_party: o.paid_from === 'party' };
     if (o.status === 'paid' || dm) {
       out.info = o.info;
       const pg = o.page_id ? one<any>(db, 'SELECT id, title, visibility, player_body FROM pages WHERE id = ?', o.page_id) : null;
@@ -546,24 +596,20 @@ export default function brokerRoutes(d: Deps) {
     const o = offerFind(res, String(req.params.oid));
     if (isDM(res)) throw new HttpError(403, 'Players pay for offers');
     if (o.status !== 'open') throw new HttpError(409, o.status === 'paid' ? 'Already paid' : 'This offer is gone');
-    const s = settings(res);
-    const from = req.body?.from === 'party' ? 'party' : me(res);
-    if (from === 'party' && !s.partyPurse) throw new HttpError(400, 'The party pouch is off in this world');
+    let from = me(res);
     tx(db, () => {
-      const bal = balance(db, w, from);
-      if (bal < o.price_cp) throw new HttpError(402, `Not enough coin: this costs ${money(o.price_cp)} and ${from === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}`);
-      let lid: string | null = null;
-      if (o.price_cp) {
-        lid = id('led_');
-        run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, lid, w, from, -o.price_cp, `Broker offer: ${o.title}`.slice(0, 200), me(res), now());
-      }
-      run(db, `UPDATE broker_offers SET status = 'paid', paid_by = ?, paid_from = ?, ledger_id = ?, paid_at = ? WHERE id = ?`, me(res), from, lid, now(), o.id);
+      // Checked inside the transaction and settled with a conditional update: two players paying at once cannot both succeed.
+      if (one<any>(db, 'SELECT status FROM broker_offers WHERE id = ?', o.id)?.status !== 'open') throw new HttpError(409, 'Already paid, or this offer is gone');
+      const paid = charge(res, me(res), o.price_cp, o.title, req.body?.from, 'self');
+      from = paid.payer;
+      const done = run(db, `UPDATE broker_offers SET status = 'paid', paid_by = ?, paid_from = ?, ledger_id = ?, paid_at = ? WHERE id = ? AND status = 'open'`, me(res), from, paid.ledgerId, now(), o.id);
+      if (done !== 1) throw new HttpError(409, 'Already paid, or this offer is gone');
       run(db, `UPDATE coin_requests SET status = 'done' WHERE offer_id = ? AND status = 'open'`, o.id);
     });
     audit(db, w, me(res), 'broker.offer.pay', o.title);
     const row = one<any>(db, 'SELECT * FROM broker_offers WHERE id = ?', o.id);
     d.hub.emit(w, 'broker-offer', { id: o.id, status: 'paid' }, offerAudience(row));
-    d.hub.emit(w, 'coin', { owner: from, balance: balance(db, w, from) }, from === 'party' ? () => true : dmAnd(from));
+    coinChanged(w, from, me(res), `Broker: ${o.title}`);
     res.json(offerOut(res, row, names(db, w)));
   });
   r.post('/offers/:oid/decline', requirePlayerOrDM, (req, res) => {
@@ -624,11 +670,18 @@ export default function brokerRoutes(d: Deps) {
     const q = reqFor(res, String(req.params.id));
     if (q.account_id !== me(res) || q.status !== 'offered') throw new HttpError(409, 'There is no offer to accept');
     const wait = JSON.parse(q.ready_at || '{}');
+    let paid: { payer: string; ledgerId: string | null } | null = null;
     tx(db, () => {
-      const { payer, ledgerId } = charge(res, me(res), q.cost_cp, q.question);
+      // Taken at most once: a double click or a second device finds the offer already taken and pays nothing.
+      if (one<any>(db, 'SELECT status FROM broker_requests WHERE id = ?', q.id)?.status !== 'offered') throw new HttpError(409, 'There is no offer to accept');
+      const { payer, ledgerId } = charge(res, me(res), q.cost_cp, q.question, req.body?.from);
+      paid = { payer, ledgerId };
       const ra = readyAt(w, wait.amount !== undefined ? wait : null);
-      run(db, `UPDATE broker_requests SET status = 'waiting', payer = ?, ledger_id = ?, wait_clock = ?, ready_at = ?, ready_at_game = ? WHERE id = ?`, payer, ledgerId, ra.clock, ra.at, ra.game, q.id);
+      const done = run(db, `UPDATE broker_requests SET status = 'waiting', payer = ?, ledger_id = ?, wait_clock = ?, ready_at = ?, ready_at_game = ? WHERE id = ? AND status = 'offered'`, payer, ledgerId, ra.clock, ra.at, ra.game, q.id);
+      if (done !== 1) throw new HttpError(409, 'There is no offer to accept');
     });
+    const p = paid as { payer: string; ledgerId: string | null } | null;
+    if (p?.ledgerId) coinChanged(w, p.payer, me(res), `Broker: ${q.question}`);
     settle(w);
     back(res, q.id, w);
   });
@@ -688,4 +741,4 @@ export default function brokerRoutes(d: Deps) {
   return r;
 }
 
-export const BROKER_DEFAULT_SETTINGS = { brokerEnabled: DEFAULT_SETTINGS.brokerEnabled, brokerPayer: DEFAULT_SETTINGS.brokerPayer };
+export const BROKER_DEFAULT_SETTINGS = { brokerEnabled: DEFAULT_SETTINGS.brokerEnabled, brokerPayer: DEFAULT_SETTINGS.brokerPayer, brokerPartyPay: DEFAULT_SETTINGS.brokerPartyPay };

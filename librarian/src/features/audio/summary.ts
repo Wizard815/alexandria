@@ -84,8 +84,9 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
     // The same test the outgoing screen uses (any classified page, by shared word runs), so a line that would make the
     // whole request refused is left out instead and the summary still runs.
     const secret = (t: string) => d.library.containsClassified(worldId, t) || wouldBeRefused(d, t);
-    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: audience === 'dm' }).filter((l) => !secret(l.text));
-    const fresh = lines.filter((l) => l.updatedAt > upto).sort((a, b) => a.start - b.start);
+    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: audience === 'dm' });
+    // Newer than the summary first, then the secret test: the whole night is not tested again on every pass.
+    const fresh = lines.filter((l) => l.updatedAt > upto && !secret(l.text)).sort((a, b) => a.start - b.start);
     if (!fresh.length) return { ran: false, reason: 'Nothing new', lines: 0 };
     // The first summary waits like the rest: from the start of the session.
     const since = cur?.updated_at ?? one<any>(d.db, 'SELECT started_at FROM audio_sessions WHERE id = ?', sessionId)?.started_at;
@@ -128,7 +129,29 @@ export async function updateBoth(d: Deps, worldId: string, sessionId: string, op
   return { dm, party };
 }
 
-/** Sessions recording now: the scheduler's list. */
+/**
+ * A session left open (the app closed, the machine slept, the server restarted mid-session) keeps the summary, the rules check and the
+ * live passes working for nobody, forever. One with no line and no audio for this long is closed, at the time of its last activity,
+ * and the audit says so. ALX_AUDIO_STALE_MIN sets the minutes (30; 0 turns it off).
+ */
+export function closeStaleSessions(d: Deps, at = Date.now()): { sessionId: string; worldId: string; stoppedAt: string }[] {
+  const mins = Number(d.env?.ALX_AUDIO_STALE_MIN ?? 30);
+  if (!(mins > 0)) return [];
+  const out: { sessionId: string; worldId: string; stoppedAt: string }[] = [];
+  for (const s of all<any>(d.db, `SELECT s.id, s.world_id, s.started_at,
+      max(coalesce((SELECT max(updated_at) FROM audio_lines WHERE session_id = s.id), ''), coalesce((SELECT max(created_at) FROM audio_chunks WHERE session_id = s.id), ''), s.started_at) AS last
+    FROM audio_sessions s WHERE s.stopped_at IS NULL`)) {
+    if (at - Date.parse(s.last) < mins * 60_000) continue;
+    run(d.db, 'UPDATE audio_sessions SET stopped_at = ? WHERE id = ? AND stopped_at IS NULL', s.last, s.id);
+    run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', s.world_id, null, 'audio.auto_close', `Session ${s.id} had no activity for ${mins} minutes and was closed at ${s.last}`, new Date(at).toISOString());
+    d.hub.emit(String(s.world_id), 'audio-closed', { sessionId: s.id, at: s.last, reason: 'idle' }, (v) => v.role === 'dm');
+    out.push({ sessionId: String(s.id), worldId: String(s.world_id), stoppedAt: String(s.last) });
+  }
+  return out;
+}
+
+/** Sessions recording now: the scheduler's list (a session that has been silent too long is closed first). */
 export function recordingSessions(d: Deps): { worldId: string; sessionId: string }[] {
+  try { closeStaleSessions(d); } catch { /* the list below is still right */ }
   return all<any>(d.db, 'SELECT id, world_id FROM audio_sessions WHERE stopped_at IS NULL').map((r) => ({ worldId: String(r.world_id), sessionId: String(r.id) }));
 }

@@ -44,7 +44,8 @@ Each job is `{ providerId, model, options, fallback? }`:
   `{"voice":"af_heart"}` for the voice job.
 - **On/off.** Off, or no provider, means "use the server's environment".
 - **Fallback**, optional: another provider and model (see below).
-- **Warm up**, **keep warm** and the loaded/unloaded status (see below).
+- **During a game session**: Keep loaded or Load when needed (see Game
+  night below), **Warm up** and the loaded/unloaded status.
 
 A job with nothing saved falls back to the environment:
 `ALX_MODEL_<JOB>_URL`, `ALX_MODEL_<JOB>_MODEL`, `ALX_MODEL_<JOB>_KEY`
@@ -89,7 +90,7 @@ model fails (it is written to the audit log). The classified guard in
 `core/ai.ts` screens every attempt, the fallback included, so classified
 text still never goes to any model.
 
-### Warm up, status and keep warm
+### Warm up and status
 
 - **Warm up** sends the job's tiny request to the main provider, so an
   unloaded model starts loading before the session does.
@@ -97,10 +98,8 @@ text still never goes to any model.
   Argos's `GET /v1/models` (other servers show "status unknown"), or that the
   model is not found or the provider is unreachable. **Refresh status**
   asks again.
-- **Keep warm** (off by default) sends that tiny request every few minutes
-  (`ALX_MODELS_KEEPWARM_MS`, default 240000) while a session is live, meaning
-  a recording is running or someone was on a world page in the last ten
-  minutes.
+- Keeping a model loaded during a session is the job's **During a game
+  session** choice, handled by Game night below.
 
 ### Local or cloud, per job
 
@@ -113,28 +112,48 @@ fallback shows its own location, and the rule is unchanged: a local job with
 a cloud fallback only falls back to the cloud when **Allow falling back to
 the cloud** is ticked.
 
-### Session mode for Argos
+### Game night: loading and unloading around a session
 
-Admin → Models → **Session mode** is one setting for the whole server (not
-per world: the GPUs are shared by every world). All three switches are off
-by default. A session starts when the DM starts a session chat session or an
-audio recording, and ends when the last of them stops.
+Admin → Models → **Game night** is one setting for the whole server (not
+per world: the GPUs are shared by every world). A session is live while a
+DM records audio, has the session chat open, or has pressed **Start game
+night** (rows older than a day are ignored, so a crashed recording cannot
+hold models forever).
 
-- **Load before play.** When a session starts, one tiny request goes to
-  every enabled **local** job at once (cloud jobs are skipped). Progress
-  shows in Admin → Models and as a **Models ready** card on the DM's table
-  page: `chat ✓ audit ✓ whisper … loading`.
-- **Keep loaded.** While a session runs, the keep-warm ping goes to every
-  local job, not only the ones with their own **keep warm** switch.
-- **Unload when the session ends.** When the last session ends, Alexandria
-  calls Argos's `POST /api/models/unload/{model}` for each job model that is
-  on an **Argos** provider (once per model, main models only). Providers of
-  any other kind, fallbacks, and models no job uses are never touched.
-- **Load all now** / **Unload all now** do the same on demand.
+Each job has a policy: **Keep loaded** (the default for chat, audit, audio
+and embeddings) or **Load when needed** (voice and rerank). When a session
+starts, every Keep loaded model is loaded at once and held while it runs:
+checked every minute and reloaded if the server let it go. After the last
+session ends, a grace period (10 minutes by default, so a break or a
+restarted recording does not unload anything) then each held model is
+unloaded. While no session is open and nothing is held, Alexandria sends
+the model servers nothing. A restart mid-session re-warms; a restart after
+one unloads what was left held.
+
+What "load", "hold" and "unload" mean depends on the server, found by asking
+it once (cached; **Detect again** or pick the type by hand under **Model
+servers**):
+
+| Server | Load and hold | Unload |
+| --- | --- | --- |
+| Argos | a tiny request; Argos keeps the model for its `ttl` (`0` = never unloads), refreshed before a non-zero ttl runs out | `POST /api/models/unload/{model}` |
+| llama-swap | a tiny request, repeated just inside the ttl you enter (llama-swap does not report it) | `POST /api/models/unload/{model}` (older builds: `GET /unload`, which unloads everything) |
+| Ollama | `keep_alive: -1` | `keep_alive: 0` |
+| LM Studio | `POST /api/v1/models/load` when it has it, else a tiny request | `POST /api/v1/models/unload`, else its own idle timer |
+| Other OpenAI-compatible (vLLM, llama.cpp, a proxy) | nothing: it cannot be told to keep a model; optional ping every N minutes | nothing |
+| Hosted (OpenAI, OpenRouter, any cloud provider) | nothing, never pinged | nothing |
+
+If a server keeps unloading a held model (more than three times in ten
+minutes, usually one model at a time on that server), Alexandria stops
+reloading it for ten minutes and says so instead of thrashing.
+
+The DM's table page shows a **Models ready** card while a session is live:
+`chat ✓ audit ✓ whisper … loading`. **Unload all job models now** unloads
+every job model on a server that can, whether or not it was held.
 
 The requests are fixed strings ("Reply with the single word: ready", a
-half second of silence, a short test sentence) and a body-less unload call.
-No world text is sent.
+half second of silence, a short test sentence) and body-less management
+calls. No world text is sent.
 
 ### The VRAM view
 
@@ -183,7 +202,7 @@ sends only what a player may read), and the classified guard applies.
 All admin only (others get 403).
 
 - `GET /api/admin/models` lists `{ jobs, providers }`, never with a key.
-- `PUT /api/admin/models` with `{ "jobs": { "chat": { "providerId", "model", "options", "enabled", "keepWarm", "fallback": { "providerId", "model", "options", "allowCloud" } } } }`
+- `PUT /api/admin/models` with `{ "jobs": { "chat": { "providerId", "model", "options", "enabled", "gameNight", "fallback": { "providerId", "model", "options", "allowCloud" } } } }`
   (`"fallback": null` removes it). Only the jobs and fields you send change.
   The older `{ "baseUrl", "apiKey" }` shape still works: it finds or makes a
   provider for that URL.
@@ -194,11 +213,17 @@ All admin only (others get 403).
   suggested model per job with the reason (or why it is left unset) and
   Argos's voices.
 - `GET /api/admin/models/status`: loaded or unloaded per job, from Argos.
-- `GET` / `PUT /api/admin/models/session` with `{ loadOnStart, keepLoaded, unloadOnEnd }`
-  (booleans): the session mode, with `warm` (per local job: `idle`,
-  `loading`, `ready` or `failed`), `sessionRunning` and `localJobs`.
-- `POST /api/admin/models/warm-all` (answers 202 at once; poll `GET session`)
-  and `POST /api/admin/models/unload-all` (returns `results` per model).
+- `GET /api/admin/models/lifecycle`: `phase` (`off`, `warming`, `ready`,
+  `releasing`), `live` and `reasons`, `graceUntil`, `holds` (per held model:
+  jobs, backend, state), `policies` per job, `lastRelease` and per provider
+  the detected `backend` with what it can do. `PUT` it with
+  `{ "graceMinutes", "policies": { "chat": "hold" | "ondemand" } }`.
+- `POST /api/admin/models/game-night/start` and `/game-night/end`
+  (`{ "now": true }` skips the grace period).
+- `POST /api/admin/models/providers/:id/detect` probes the server type
+  again; `PUT /api/admin/models/providers/:id` with `{ "backend", "ttl",
+  "pingMinutes" }` overrides it.
+- `POST /api/admin/models/unload-all` (returns `results` per model).
 - `GET /api/admin/models/vram`: per Argos provider, `pool`, `running`,
   `budget`, `jobModels` and the `config` snippets for both routers.
 - `GET /api/worlds/:world/models/ready` (DM only): the warm state for the
@@ -343,8 +368,8 @@ Why these choices:
   only returns a score per document) cannot do. Keep it small so the check
   is fast.
 
-Then switch on **Session mode** above, press **Copy Argos config**, and
-Argos keeps all of this resident for the whole session.
+Leave those jobs on **Keep loaded** (Game night above), press **Copy Argos
+config**, and Argos keeps all of this resident for the whole session.
 
 ## Pointing each job at a server
 

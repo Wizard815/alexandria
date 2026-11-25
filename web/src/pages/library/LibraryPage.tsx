@@ -26,8 +26,10 @@ import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
 import { FILES_CSS, FilesTab, PageFiles } from '../../features/libfiles/Files.tsx';
+import { AudBadge, FromDM, SHARE_CSS, SharedPanel, ShareControl, ShareDialog, useSharing, type Overview, type Target } from '../../features/libshare/Share.tsx';
+import type { Node } from './treeModel.ts';
 
-type Side = 'pages' | 'files' | 'saved' | 'lint';
+type Side = 'pages' | 'files' | 'shared' | 'saved' | 'lint';
 type Sort = 'tree' | 'recent' | 'title';
 
 /** `embedded`: inside the gateway admin (own heading, read-only except for files). */
@@ -48,6 +50,15 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   const [side, setSide] = useState<Side>('pages');
   const [busy, setBusy] = useState<string | null>(null);
   const { toast, toastNode } = useToast();
+  const sharing = useSharing();
+  const so = sharing.data;
+  const [shareTarget, setShareTarget] = useState<Target | null>(null);
+  const shareNode = useCallback((n: Node) => setShareTarget(n.page ? { kind: 'page', id: n.page.id, title: n.page.title } : { kind: 'folder', title: n.label, sourceId: n.folder!.sourceId, path: n.folder!.path }), []);
+  const badgeOf = useCallback((n: Node) => {
+    if (n.page) return <AudBadge level={n.page.visibility} entry={so?.pages[n.page.id]} o={so} />;
+    const r = n.folder && so?.folders.find((f) => f.sourceId === n.folder!.sourceId && f.path === n.folder!.path);
+    return r ? <AudBadge level="party" entry={{ mode: r.mode, to: r.to, via: ['folder'] }} o={so} kind="folder" /> : null;
+  }, [so]);
   const world = info.id;
 
   const refreshSaved = useCallback(() => off.listSaved(world, me).then(setSaved), [world, me]);
@@ -135,11 +146,12 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   };
 
   const sideItems: [Side, string][] = [['pages', `Pages (${rows.length})`], ['files', 'Files'], ...(readOnly ? [] : [['saved', `Saved (${saved.length})`] as [Side, string]])];
+  if (isDM && !readOnly) sideItems.splice(2, 0, ['shared', `Shared${so?.shared.length ? ` (${so.shared.length})` : ''}`]);
   if (isDM) sideItems.push(['lint', `Leak check${lint.data?.length ? ` (${lint.data.length})` : ''}`]);
 
   return (
     <div className={embedded ? "lib-embedded" : "page wide"}>
-      <style>{LIB_CSS + TREE_CSS + SHELL_CSS + FILES_CSS}</style>
+      <style>{LIB_CSS + TREE_CSS + SHELL_CSS + FILES_CSS + SHARE_CSS}</style>
       {!embedded && <PageHead title="Library" lead={isDM ? `Every page in ${info.name}; players get the player copy.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
         {isDM && !readOnly && <button type="button" className="btn primary" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
       </PageHead>}
@@ -174,11 +186,13 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
                   {list.length > 0 && <div className="tiny faint" style={{ marginTop: 6 }}>Titles</div>}
                 </div>
               )}
-              {hits && !list.length ? null : flat ? <FlatList rows={flat} selected={selected} onOpen={open} saved={savedIds} />
-                : <Tree rows={list} selected={selected} onOpen={open} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} />}
+              {!isDM && !offline && <FromDM onOpen={open} compact autoSeen />}
+              {hits && !list.length ? null : flat ? <FlatList rows={flat} selected={selected} onOpen={open} saved={savedIds} so={isDM ? so : null} />
+                : <Tree rows={list} selected={selected} onOpen={open} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} badge={isDM && !readOnly ? badgeOf : undefined} onShare={isDM && !readOnly && netOnline ? shareNode : undefined} />}
             </>
           )}
           {side === 'files' && <FilesTab onOpen={open} />}
+          {side === 'shared' && isDM && <SharedPanel onOpen={open} />}
           {side === 'saved' && <SavedPanel saved={saved} offline={offline} onOpen={open} onUpdate={() => void updateSaved()} onZip={zipSaved}
             onRemove={async (id) => { await off.removeSaved(world, me, id); void refreshSaved(); }} />}
           {side === 'lint' && isDM && <LintPanel rows={lint.data} error={lint.error} onOpen={open} />}
@@ -196,12 +210,13 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
           )}
         </section>
       </div>
+      {shareTarget && <ShareDialog target={shareTarget} onClose={() => setShareTarget(null)} onDone={toast} />}
       {toastNode}
     </div>
   );
 }
 
-function FlatList({ rows, selected, onOpen, saved }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; saved: Set<string> }) {
+function FlatList({ rows, selected, onOpen, saved, so }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; saved: Set<string>; so?: Overview | null }) {
   const [n, setN] = useState(200);
   if (!rows.length) return <p className="muted small" style={{ padding: 12 }}>No pages match.</p>;
   return (
@@ -210,7 +225,7 @@ function FlatList({ rows, selected, onOpen, saved }: { rows: PageRow[]; selected
         <button key={r.id} type="button" className={`list-item${selected === r.id ? ' active' : ''}`} aria-current={(selected === r.id) || undefined} onClick={() => onOpen(r.id)}>
           {r.icon?.glyph ? <Icon icon={r.icon} size={14} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />}
           <span className="stack tight grow" style={{ minWidth: 0 }}><strong className="lib-ellipsis">{r.title}</strong><span className="tiny faint lib-ellipsis">{[r.source, ...(r.folder ?? [])].filter(Boolean).join(' / ') || r.path} · {when(r.updated_at)}</span></span>
-          {r.visibility && r.visibility !== 'party' && <LevelChip level={r.visibility} />}
+          {so ? <AudBadge level={r.visibility} entry={so.pages[r.id]} o={so} /> : r.visibility && r.visibility !== 'party' && <LevelChip level={r.visibility} />}
           {saved.has(r.id) && <i className="fa-solid fa-download lib-saved-ico" title="Saved for offline" />}
         </button>
       ))}
@@ -357,7 +372,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
         <h1 className="lib-title">{pg.icon?.glyph && <Icon icon={pg.icon} size={26} />}<span>{pg.title}</span></h1>
         {pg.aliases?.length > 0 && <div className="small muted">Also called {pg.aliases.join(', ')}</div>}
         <div className="row wrap lib-meta">
-          {isDM && pg.visibility && <LevelChip level={pg.visibility} all />}
+          {isDM && pg.visibility && <PageAud id={pg.id} level={pg.visibility} />}
           {isDM && !readOnly && pg.source && <DepthBadge pageId={pg.id} />}
           {editable && !offlineAt && <select aria-label="Level" value={levelOf(pg.visibility)} onChange={(e) => void setLevel(e.target.value)} disabled={act.busy}>{LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}</select>}
           {pg.tags?.map((t: string) => <span key={t} className="chip"><i className="fa-solid fa-tag" aria-hidden="true" /> {t}</span>)}
@@ -369,7 +384,7 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
           </button>}
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
-          {!offlineAt && !readOnly && <ShareButton pageId={pg.id} />}
+          {!offlineAt && !readOnly && (isDM ? <ShareControl target={{ kind: 'page', id: pg.id, title: pg.title }} onDone={toast} /> : <ShareButton pageId={pg.id} />)}
           {isDM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {isDM && !offlineAt && !readOnly && <MoreMenu><button type="button" role="menuitem" className="lib-menu-danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete this page…</button></MoreMenu>}
@@ -399,6 +414,11 @@ function PageView({ id, rows, savedAt, onOpen, onSavedChange, toast, onDeleted }
       {ask && <AskModal kind={ask} page={{ id: pg.id, title: pg.title }} onClose={() => setAsk(null)} onSent={() => { setAsk(null); toast('Sent to your DM'); }} />}
     </article>
   );
+}
+
+function PageAud({ id, level }: { id: string; level: string }) {
+  const so = useSharing().data;
+  return <><LevelChip level={level} all />{so?.pages[id] && <AudBadge level={level} entry={so.pages[id]} o={so} />}</>;
 }
 
 /** A small menu for actions that should not sit beside the everyday ones. Closes when something in it is chosen or the page is clicked. */

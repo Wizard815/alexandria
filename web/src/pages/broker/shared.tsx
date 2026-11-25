@@ -6,10 +6,10 @@ import { coins, when } from '../../lib/format.ts';
 import { useAction, ErrorBox, Field } from '../../ui/index.tsx';
 
 /** Settings this work adds. lib/world.tsx does not list them yet. */
-export interface ApprovalSettings { playerChangesNeedApproval: boolean; dmChangeReason: boolean; brokerEnabled: boolean; brokerPayer: 'self' | 'party'; playerTransfers: boolean }
+export interface ApprovalSettings { playerChangesNeedApproval: boolean; dmChangeReason: boolean; brokerEnabled: boolean; brokerPayer: 'self' | 'party'; brokerPartyPay: boolean; playerTransfers: boolean }
 export const extra = (s: WorldSettings): ApprovalSettings => {
   const x = s as unknown as Partial<ApprovalSettings>;
-  return { playerChangesNeedApproval: x.playerChangesNeedApproval ?? true, dmChangeReason: x.dmChangeReason ?? true, brokerEnabled: x.brokerEnabled ?? true, brokerPayer: x.brokerPayer ?? 'self', playerTransfers: x.playerTransfers ?? true };
+  return { playerChangesNeedApproval: x.playerChangesNeedApproval ?? true, dmChangeReason: x.dmChangeReason ?? true, brokerEnabled: x.brokerEnabled ?? true, brokerPayer: x.brokerPayer ?? 'self', brokerPartyPay: x.brokerPartyPay ?? true, playerTransfers: x.playerTransfers ?? true };
 };
 
 export type Unit = 'minutes' | 'hours' | 'days';
@@ -21,6 +21,8 @@ export interface BrokerConfig {
   /** Questions it can't answer: the DM prices them, or the broker turns them away. */
   unknown?: 'dm' | 'refuse';
   payer: 'self' | 'party';
+  /** The party pouch is on and the DM lets players pay the broker from it. */
+  partyPay?: boolean;
   clock: { minutes: number; label: string };
   /** The world's site, only when the DM set one. */
   site: { url: string; label: string } | null;
@@ -33,6 +35,8 @@ export interface BrokerRequest {
   wait_clock: 'real' | 'game' | null; ready_at: string | null; ready_at_game: number | null; ready_at_game_label: string | null; game_now: number;
   created_at: string; delivered_at: string | null; reply: string | null;
   answer?: string; sources?: { id: string | null; title: string }[]; voice?: string; asker?: string; asker_name?: string;
+  /** DM only: who paid and from which purse. */
+  paid_by?: string | null; paid_by_name?: string | null; paid_from?: 'self' | 'party' | null;
   /** DM only: how the question was judged. */
   classification?: Classification;
   /** DM only: a "DM reviews" answer waiting for approval. */
@@ -52,7 +56,7 @@ export interface Offer {
   id: string; title: string; teaser: string; price_cp: number; status: 'open' | 'paid' | 'declined' | 'expired' | 'withdrawn';
   expires_at: string; expires_sessions: number | null; created_at: string; paid_at: string | null; paid_by: string | null; paid_by_name: string | null;
   info?: string; page?: { id: string; title: string } | null; for_party?: boolean;
-  targets?: string[]; target_names?: string[]; declined_by?: string[]; paid_from?: string | null;
+  targets?: string[]; target_names?: string[]; declined_by?: string[]; paid_from?: string | null; paid_from_party?: boolean;
 }
 /** "until the end of next session", or a date. */
 export const offerExpiry = (o: Offer) => `${o.expires_sessions ? `Until the end of ${o.expires_sessions === 1 ? 'the next session' : `${o.expires_sessions} sessions`} · ` : ''}${new Date(o.expires_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
@@ -185,4 +189,55 @@ export function BrokerTeaser() {
       {openOffers.map((o) => <span key={o.id} className="small" style={{ color: 'var(--accent-strong)' }}>✉ Someone offers knowledge of “{o.title}” for {coins(o.price_cp, info.settings.coins)}.</span>)}
     </section>
   );
+}
+
+// ---- Choosing how to pay, after the price is known ----
+
+export interface PayOptions { self: { cp: number }; party: { cp: number | null; allowed: boolean; reason: string | null }; default: 'self' | 'party' }
+export type PayFrom = 'self' | 'party';
+
+/** Both purses and whether the party pouch may pay; fresh whenever coin moves. */
+export function usePayOptions(enabled = true) {
+  const { w } = useWorld();
+  return useLoad<PayOptions | null>(() => (enabled ? w.call<PayOptions>('GET', '/broker/pay-options') : Promise.resolve(null)), [w, enabled], ['coin', 'settings']);
+}
+
+/**
+ * "Pay from": your own coin or the party pouch, with both balances. A purse that cannot cover the price is
+ * disabled and says how much is missing. The choice is only a request: the server checks it again.
+ */
+export function PayChoice({ cost, value, onChange, opts }: { cost: number; value: PayFrom; onChange: (v: PayFrom) => void; opts: PayOptions | null }) {
+  const { info } = useWorld();
+  if (!opts) return null;
+  const money = (cp: number) => coins(cp, info.settings.coins);
+  const choices: { id: PayFrom; label: string; cp: number | null; off: string | null }[] = [
+    { id: 'self', label: 'My coin', cp: opts.self.cp, off: opts.self.cp < cost ? `${money(cost - opts.self.cp)} short` : null },
+    ...(opts.party.allowed ? [{ id: 'party' as PayFrom, label: 'Party pouch', cp: opts.party.cp, off: (opts.party.cp ?? 0) < cost ? `${money(cost - (opts.party.cp ?? 0))} short` : null }] : []),
+  ];
+  return (
+    <fieldset className="pay-choice" aria-label="Pay from">
+      <legend className="tiny faint">Pay from</legend>
+      <div className="pay-opts">
+        {choices.map((c) => (
+          <label key={c.id} className={`pay-opt${value === c.id ? ' on' : ''}${c.off ? ' off' : ''}`}>
+            <input type="radio" name="pay-from" value={c.id} checked={value === c.id} disabled={!!c.off} onChange={() => onChange(c.id)} />
+            <span className="stack tight"><strong>{c.label}</strong><span className="small">{money(c.cp ?? 0)}</span>{c.off && <span className="tiny" style={{ color: 'var(--danger-text)' }}>{c.off}</span>}</span>
+          </label>
+        ))}
+      </div>
+      {!opts.party.allowed && opts.party.reason && <span className="tiny faint">{opts.party.reason}</span>}
+      {value === 'party' && <span className="tiny faint">The whole party sees this payment in the pouch log.</span>}
+      <style>{`.pay-choice { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; } .pay-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; } .pay-opt { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; min-height: 44px; } .pay-opt.on { border-color: var(--accent); background: var(--accent-bg); } .pay-opt.off { opacity: 0.6; cursor: not-allowed; } .pay-opt input { margin-top: 3px; }`}</style>
+    </fieldset>
+  );
+}
+
+/** The purse to preselect: the one asked for, unless it cannot cover the price and the other can. */
+export function pickPayFrom(opts: PayOptions | null, cost: number, wanted?: PayFrom): PayFrom {
+  if (!opts) return 'self';
+  const ok = (f: PayFrom) => (f === 'self' ? opts.self.cp >= cost : opts.party.allowed && (opts.party.cp ?? 0) >= cost);
+  const first = wanted ?? opts.default;
+  if (ok(first)) return first;
+  const other: PayFrom = first === 'self' ? 'party' : 'self';
+  return ok(other) ? other : first;
 }
