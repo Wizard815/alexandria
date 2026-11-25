@@ -151,3 +151,34 @@ test('ModelGateway_TheRateLimiterAndCorsCoverTheGateway', async () => {
   const { last } = await hit('0', 'GET', '/v1/models', undefined, { Origin: 'https://evil.example' });
   assert.equal(last.headers.get('access-control-allow-origin'), null);
 });
+
+test('ModelGateway_TheCallLogShowsWhoWhenModelTokensAndRefusedOrLimitedButNoPrompt', async () => {
+  const k = await kit();
+  await k.ok('PUT', '/api/admin/models/access', k.T.admin, { kind: 'account', id: k.ID.jess, dailyRequests: 1 });
+  await k.ok('POST', '/v1/chat/completions', k.T.dm, { ...chat, messages: [{ role: 'user', content: 'SECRET-PROMPT-TEXT' }] });
+  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.jess, chat)).status, 200);
+  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.jess, chat)).status, 429, 'over the cap');
+  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.tom, chat)).status, 403, 'not listed');
+  const g = await k.ok('GET', '/api/admin/models/activity/gateway', k.T.admin);
+  assert.ok(!JSON.stringify(g).includes('SECRET-PROMPT-TEXT'), 'the prompt is never in the log');
+  const dmCall = g.calls.find((c: any) => c.accountId === k.ID.dm);
+  assert.equal(dmCall.outcome, 'passed');
+  assert.equal(dmCall.tokensIn, 11);
+  assert.equal(dmCall.model, 'chat-mock');
+  assert.ok(dmCall.username && dmCall.at && dmCall.status === 200);
+  assert.ok(g.calls.some((c: any) => c.accountId === k.ID.jess && c.outcome === 'limited' && c.status === 429));
+  assert.ok(g.calls.some((c: any) => c.accountId === k.ID.tom && c.outcome === 'refused' && c.status === 403));
+  const jess = g.users.find((u: any) => u.accountId === k.ID.jess);
+  assert.equal(jess.requests, 1, 'a limited call does not count against the cap');
+  assert.equal(jess.limited, 1);
+  assert.equal(jess.caps.dailyRequests, 1);
+  assert.equal(jess.role, 'listed');
+  const dm = g.users.find((u: any) => u.accountId === k.ID.dm);
+  assert.equal(dm.tokens, 16);
+  assert.equal(dm.role, 'dm');
+  assert.equal(g.users.find((u: any) => u.accountId === k.ID.tom).refused, 1);
+  // Only the admin reads it; without a sign-in it is 401.
+  assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', k.T.dm)).status, 403);
+  assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', k.T.jess)).status, 403);
+  assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', null)).status, 401);
+});

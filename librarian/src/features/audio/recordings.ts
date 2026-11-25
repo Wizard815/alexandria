@@ -229,7 +229,7 @@ function setProgress(d: Deps, sid: string, pct: number, step: string) {
   q.jobCtx.get(sid)?.progress(p, 100, step);
 }
 
-const fmtTime = (ms: number) => { const s = Math.floor(ms / 1000); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`; };
+export const fmtTime = (ms: number) => { const s = Math.floor(ms / 1000); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`; };
 
 interface Plan { file: string; from: number; trim: number; dur: number }
 /** The stretch of each chunk to use: a chunk repeats the end of the one before it, so it is trimmed to start where the audio so far stops. */
@@ -433,6 +433,11 @@ function writeTranscript(d: Deps, s: SessionRow, dir: string) {
 }
 
 export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir: string, roles?: Map<string, string>) {
+  fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify(sessionJsonDoc(d, s, worldName, roles), null, 2) + '\n');
+}
+
+/** The session.json document (the DM's: every mic, every person). */
+export function sessionJsonDoc(d: Deps, s: SessionRow, worldName: string, roles?: Map<string, string>) {
   const tracks = all<TrackRow>(d.db, "SELECT * FROM audio_tracks WHERE session_id = ? ORDER BY CASE kind WHEN 'full' THEN 0 ELSE 1 END, created_at, label", s.id);
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.username, a.display_name, m.character_name, m.role FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r]));
   const info = transcriptInfo(d, s);
@@ -456,7 +461,7 @@ export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir:
     }),
     transcript: info.final,
   };
-  fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify(doc, null, 2) + '\n');
+  return doc;
 }
 
 // ---- retention ------------------------------------------------------------------------------
