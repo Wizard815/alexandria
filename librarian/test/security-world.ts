@@ -313,6 +313,23 @@ export async function seedContent(h: H, S: Seed) {
   await lib(`page=${S.pages.shared.id}&level=classified&kind=rules`, mark('libfile_classified', ['dm'], 'a classified file on a shared page', { ai: false, long: true }), 'vault-notes.txt');
   await lib(`page=${S.pages.dm.id}&level=party&kind=handout`, PNG(mark('libfile_on_dmpage', ['dm'], 'a party-level file attached to a DM-only page')), `${tok('libfile_on_dmpage')}.png`);
 
+  // ---- library sharing: per-player shares, folder rules (also for pages and files added later), a file given alone ----
+  // Rule-lifted pages are DM-level, so a player assistant may be sent them (ai stays true) but only that player's.
+  await page('share_page_jess', 'Shared/Jess Only.md', 'dm', `A page only Jess was sent. ${mark('share_page_jess', ['dm', 'jess'], 'a DM page shared with Jess only')}`);
+  await dm('PUT', '/libshare/share', { kind: 'page', id: S.pages.share_page_jess.id, mode: 'players', players: [ID.jess], notify: true });
+  await page('share_folder_tom', 'Tom Folder/Open.md', 'dm', `In a folder shared with Tom. ${mark('share_folder_tom', ['dm', 'tom'], 'a DM page in a folder shared with Tom only')}`);
+  await page('share_folder_classified', 'Tom Folder/Sealed.md', 'classified', `Sealed. ${mark('share_folder_classified', ['dm'], 'a classified page inside a shared folder', { long: true, ai: false })}`);
+  await page('share_folder_broker', 'Tom Folder/Broker.md', 'broker', `For sale. ${mark('share_folder_broker', ['dm'], 'a broker page inside a shared folder')}`);
+  await dm('PUT', '/libshare/share', { kind: 'folder', sourceId: '', path: 'Tom Folder', mode: 'players', players: [ID.tom], confirm: true });
+  await lib(`page=${S.pages.share_page_jess.id}&level=dm`, PNG(mark('share_file_jess', ['dm', 'jess'], 'a file given to Jess only')), `${tok('share_file_jess')}.png`).then((f) => dm('PUT', '/libshare/share', { kind: 'file', id: f.id, mode: 'players', players: [ID.jess], notify: true }));
+  // Added to Tom's folder after the rule: the rule covers them (Tom only), never a classified file.
+  await page('share_folder_later', 'Tom Folder/Later/Added After.md', 'dm', `Filed after the folder was shared. ${mark('share_folder_later', ['dm', 'tom'], 'a DM page added to a folder after it was shared with Tom')}`);
+  await lib(`page=${S.pages.share_folder_later.id}&level=dm`, PNG(mark('share_folder_later_file', ['dm', 'tom'], 'a DM file added to a folder after it was shared with Tom')), `${tok('share_folder_later_file')}.png`);
+  await lib(`page=${S.pages.share_folder_later.id}&level=classified`, mark('share_folder_later_classified', ['dm'], 'a classified file added to a folder shared with Tom', { long: true, ai: false }), 'later-sealed.txt');
+  // A file given to Jess alone, on a DM page she cannot open: she gets the file, never the page.
+  await page('share_file_home_page', 'Handouts/Behind The Screen.md', 'dm', `The page a handout hangs on. ${mark('share_file_home_page', ['dm'], 'a DM page holding a file given to Jess alone')}`);
+  await lib(`page=${S.pages.share_file_home_page.id}&level=dm`, PNG(mark('share_file_alone_jess', ['dm', 'jess'], 'a file given to Jess alone, its page hidden')), `${tok('share_file_alone_jess')}.png`).then((f) => dm('PUT', '/libshare/share', { kind: 'file', id: f.id, mode: 'players', players: [ID.jess], notify: true }));
+
   // ---- generators, sculpting, voice, sound --------------------------------------------------------
   await page('item_dm', 'items/Whisper Blade.md', 'dm', `# Whisper Blade\nA dagger. ${mark('quickgen_item', ['dm'], 'a DM-only page tagged item (quick-gen draws from it)')}\n`, { title: `Whisper Blade ${tok('quickgen_item')}`, tags: ['item'], rarity: 'rare' });
   await page('item_class', 'items/Hollow Crown.md', 'classified', `# Hollow Crown\n${mark('quickgen_item_class', ['dm'], 'a classified page tagged item', { ai: false, long: true })}\n`, { title: 'Hollow Crown', tags: ['item'], rarity: 'rare' });

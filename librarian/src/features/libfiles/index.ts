@@ -27,6 +27,7 @@ import { safePagePath } from '../../core/library.ts';
 import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
 import { ctx, me, readerFor } from '../../routes/_shared.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
+import { fileGranted } from '../libshare/grants.ts';
 import { KINDS, cleanName, sniffFile } from './sniff.ts';
 import { sendFile, targetFor } from './remote.ts';
 import { moveFile, receiveBody, sendRanged } from './stream.ts';
@@ -58,22 +59,36 @@ const folder = (d: Deps, world: string) => path.join(d.dataDir ?? '', 'libfiles'
 
 interface Row { id: string; world_id: string; page_id: string; name: string; kind: string; level: string; mime: string; family: string; size: number; by_id: string | null; at: string; remote: string | null }
 
-/** May this viewer have this file? The page and the file's own level both count; a classified file is never for a model. */
-export function mayRead(d: Deps, f: Pick<Row, 'level' | 'page_id' | 'world_id'>, viewer: Viewer): boolean {
+/** Can this viewer open the file's page: its level, or (a player) a share, key or folder rule that lifts it? */
+export function pageOpenable(d: Deps, worldId: string, pageId: string, visibility: unknown, viewer: Viewer): boolean {
+  const aud = audienceOf(viewer);
+  if (canSeeLevel(normLevel(visibility), aud)) return true;
+  return aud === 'player' && !!viewer.accountId && d.library.liftedPages(worldId, viewer.accountId, pageId).has(pageId);
+}
+
+/**
+ * May this viewer have this file? The page and the file's own level both count; a classified file is never for a model.
+ * A player may also have a DM-only file the DM shared with them (a share on the file, or a folder rule), even when its page stays hidden.
+ */
+export function mayRead(d: Deps, f: Pick<Row, 'level' | 'page_id' | 'world_id'> & { id?: string }, viewer: Viewer): boolean {
   const pg = one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
   if (!pg) return false;
   const aud = audienceOf(viewer);
-  return canSeeLevel(normLevel(pg.visibility), aud) && canSeeLevel(normLevel(f.level), aud);
+  if (pageOpenable(d, f.world_id, f.page_id, pg.visibility, viewer) && canSeeLevel(normLevel(f.level), aud)) return true;
+  return aud === 'player' && !!viewer.accountId && !!f.id && fileGranted(d.db, f as any, viewer.accountId);
 }
 
 const sees = (viewer: Viewer) => audienceOf(viewer) !== 'player';
 
 function view(d: Deps, f: Row, viewer: Viewer, pageTitle?: string) {
+  const pg = sees(viewer) ? null : one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
+  // A player never learns the page of a file they were given alone.
+  const pageShown = !pg || pageOpenable(d, f.world_id, f.page_id, pg.visibility, viewer);
   const out: any = {
-    id: f.id, pageId: f.page_id, name: f.name, kind: f.kind, mime: f.mime, family: f.family, size: f.size, at: f.at,
+    id: f.id, pageId: pageShown ? f.page_id : null, name: f.name, kind: f.kind, mime: f.mime, family: f.family, size: f.size, at: f.at,
     url: `/api/media/libfile/${mintTicket({ w: f.world_id, k: 'libfile', f: f.id, a: viewer.accountId })}`,
   };
-  if (pageTitle !== undefined) out.pageTitle = pageTitle;
+  if (pageTitle !== undefined && pageShown) out.pageTitle = pageTitle;
   // The DM (and the broker's view) also see the level and where the file was sent.
   if (sees(viewer)) { out.level = f.level; if (f.remote && viewer.role === 'dm') out.remote = JSON.parse(f.remote); }
   return out;
@@ -112,7 +127,7 @@ function fileRoutes(d: Deps): Router {
   const pageOf = (res: Response, ref: unknown) => {
     const pg = one<any>(d.db, 'SELECT id, path, title, visibility, source_id, external_id FROM pages WHERE world_id = ? AND (id = ? OR path = ?)', W(res), String(ref ?? ''), String(ref ?? ''));
     // A page the viewer may not open is not found.
-    if (!pg || !canSeeLevel(normLevel(pg.visibility), audienceOf(ctx(res).viewer))) throw new HttpError(404, 'Page not found');
+    if (!pg || !pageOpenable(d, W(res), pg.id, pg.visibility, ctx(res).viewer)) throw new HttpError(404, 'Page not found');
     return pg;
   };
   const fileOf = (res: Response, fid: unknown): Row => {

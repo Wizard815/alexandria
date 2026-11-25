@@ -26,13 +26,13 @@ export const DM_NAMES: Record<string, DMName> = {
   clock: { group: 'run', label: 'Clock', icon: 'fa-moon', desc: 'The in-world date and time.' },
   active: { group: 'run', label: 'Active mode', icon: 'fa-ear-listen', desc: 'Let the assistant listen and act while a session records.' },
 
-  party: { group: 'players', label: 'Party', icon: 'fa-sack-dollar', desc: 'Packs and coin for every player.' },
+  party: { group: 'players', label: 'Players', icon: 'fa-sack-dollar', desc: 'Each player’s gold and pack, then the party’s: give or take in one tap.' },
   inbox: { group: 'players', label: 'Inbox', icon: 'fa-inbox', desc: 'Coin and item approvals, and what players ask for.' },
   broker: { group: 'players', label: 'Broker', icon: 'fa-scale-balanced', desc: 'Information players can buy, and your price tiers.' },
   chat: { group: 'players', label: 'Table chat', icon: 'fa-comments', desc: 'Live chat for the whole table or just the party.' },
   messages: { group: 'players', label: 'Messages', icon: 'fa-envelope', desc: 'Private chats between people in this world.' },
 
-  library: { group: 'world', label: 'Library', icon: 'fa-book', desc: 'Every page in the world, searchable.' },
+  library: { group: 'world', label: 'Library', icon: 'fa-book', desc: 'Every page in the world, searchable. Share pages, files and folders with players.' },
   people: { group: 'world', label: 'People', icon: 'fa-user-group', desc: 'Everyone the party has met.' },
   relations: { group: 'world', label: 'Relations', icon: 'fa-diagram-project', desc: 'Who is related to, or a member of, whom.' },
   map: { group: 'world', label: 'Map', icon: 'fa-map', desc: 'Pins and notes on the map; hide or erase any.' },
