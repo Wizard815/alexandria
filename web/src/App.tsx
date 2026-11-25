@@ -8,8 +8,9 @@ import { Setup, Login, Join, Reset } from './pages/auth/Auth.tsx';
 import AdminOverview from './pages/admin/Overview.tsx';
 import AdminAccounts from './pages/admin/Accounts.tsx';
 import AdminWorlds from './pages/admin/Worlds.tsx';
-import AdminSources from './pages/admin/Sources.tsx';
 import AdminAudit from './pages/admin/Audit.tsx';
+import { AccessHub, SearchHub, SourcesHub } from './pages/admin/Hubs.tsx';
+import { ADMIN_REDIRECTS } from './lib/adminnames.ts';
 import DMTable from './pages/dm/Table.tsx';
 import DMInbox from './pages/dm/Inbox.tsx';
 import DMCombat from './pages/dm/Combat.tsx';
@@ -54,7 +55,10 @@ export function App() {
         <Route index element={<AdminOverview />} />
         <Route path="accounts" element={<AdminAccounts />} />
         <Route path="worlds" element={<AdminWorlds />} />
-        <Route path="sources" element={<AdminSources />} />
+        <Route path="sources" element={<SourcesHub />} />
+        <Route path="access" element={<AccessHub />} />
+        <Route path="search" element={<SearchHub />} />
+        {Object.entries(ADMIN_REDIRECTS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={`/admin/${to}`} replace />} />)}
         <Route path="keys" element={<div className="page"><ConnectAI /></div>} />
         <Route path="audit" element={<AdminAudit />} />
         {F.adminRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}

@@ -695,7 +695,7 @@ const PLAYER_ROUTES = [
   'PATCH /inventory/:iid', 'PATCH /map/:mapId/marks/:mid', 'PATCH /sessionchat/messages/:mid',
   'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
-  'POST /audio/consent', 'POST /audio/mics', 'POST /audio/sessions/:sid/chunks', 'POST /audio/sessions/:sid/holds', 'DELETE /audio/mics/:id',
+  'POST /audio/consent', 'POST /audio/mics', 'POST /audio/sessions/:sid/chunks', 'POST /audio/sessions/:sid/holds', 'DELETE /audio/mics/:id', 'POST /audio/sessions/:sid/chunks/:seq/text', 'POST /audio/mics/:id/stt',
   'POST /broker/:id/accept', 'POST /broker/:id/decline', 'POST /broker/ask', 'POST /broker/offers/:oid/decline', 'POST /broker/offers/:oid/pay', 'POST /broker/quote',
   'POST /calendar/:sid/chat', 'POST /calendar/:sid/reschedule', 'PUT /calendar/:sid/rsvp',
   'POST /inventory/', 'POST /inventory/:iid/move', 'POST /inventory/coin-requests', 'POST /inventory/images', 'POST /inventory/coin/transfer', 'POST /inventory/transfers/seen',
@@ -707,6 +707,7 @@ const PLAYER_ROUTES = [
   'POST /stage/cards/:cid/buy', 'POST /screen/media/ended',
   'POST /source-keys/', 'DELETE /source-keys/:id', 'POST /source-keys/:id/refresh', 'POST /source-keys/escalations', 'POST /library/pages/:id/share/', 'DELETE /library/pages/:id/share/',
   'POST /minerva/me/journal', 'POST /minerva/me/capture', 'POST /minerva/me/goals', 'POST /minerva/me/share',
+  'POST /libshare/seen',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */

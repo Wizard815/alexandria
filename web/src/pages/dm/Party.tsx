@@ -5,7 +5,8 @@
 // gives (coin and items between them and the party) show in a log here.
 // Items can carry a picture.
 import { useState, type FormEvent } from 'react';
-import { PageHead, ErrorBox, Empty, Loading, Field, useAction } from '../../ui/index.tsx';
+import { PageHead, ErrorBox, Empty, Loading, Field, Tabs, useAction } from '../../ui/index.tsx';
+import { PlayersCards } from './Players.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { usePlayers } from './shared.tsx';
@@ -28,7 +29,22 @@ function useReason() {
   return { need, ask };
 }
 
+/** The Players page: a card per player and then the party; the detailed editor and logs sit in tabs beside it. */
 export default function DMParty() {
+  const { info } = useWorld();
+  const [tab, setTab] = useState<'cards' | 'details' | 'log'>('cards');
+  return (
+    <div className="page wide">
+      <PageHead title="Players" lead={info.settings.dmEditsInventory ? 'Each player’s gold and pack, then the party’s. Your changes are logged and players see them.' : 'Each player’s gold and pack, then the party’s. DM edits to packs are off in Settings.'} />
+      <Tabs label="Players page" value={tab} onChange={setTab} items={[['cards', 'Players and party'], ['details', 'Details and approvals'], ['log', 'Gives and moves']]} />
+      {tab === 'cards' && <PlayersCards />}
+      {tab === 'details' && <PartyDetails />}
+      {tab === 'log' && <TransfersList limit={60} title="Players' gives and moves" />}
+    </div>
+  );
+}
+
+function PartyDetails() {
   const { w, info, nameOf } = useWorld();
   const players = usePlayers();
   const [owner, setOwner] = useState<string>('party');
@@ -39,8 +55,7 @@ export default function DMParty() {
   const ownerName = owner === 'party' ? 'The party' : nameOf(owner);
 
   return (
-    <div className="page wide">
-      <PageHead title="Party" lead={info.settings.dmEditsInventory ? 'Packs and coin. Your changes are logged and players see them.' : 'Packs and coin. DM edits to packs are off in Settings.'} />
+    <div className="stack">
       <div className="cols">
         <aside className="col-1 card flush" style={{ maxWidth: 320 }}>
           <div className="list" role="tablist" aria-label="Whose inventory">

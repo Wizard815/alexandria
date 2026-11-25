@@ -12,7 +12,8 @@ import { createApp } from '../src/app.ts';
 import { all, one, run } from '../src/core/db.ts';
 import { ModelUnavailable, chainFor, chat, embed, hasJob, jobConfig, rerank } from '../src/core/ai.ts';
 import { hybridPages } from '../src/features/search/embeddings.ts';
-import { keepWarmTick, listVoiceNames } from '../src/features/models/index.ts';
+import { listVoiceNames } from '../src/features/models/index.ts';
+import { lifecycleTick, lifecycleView } from '../src/features/models/lifecycle.ts';
 import { migrateJobsToProviders } from '../src/features/models/providers.ts';
 import { normalizeModel, suggestJobs, argosWebUrl, normalizeArgosUrl } from '../src/features/models/argos.ts';
 import { fakeRelevance, startFakeModels, type FakeModels } from '../scripts/fake-models.ts';
@@ -456,23 +457,21 @@ test('ModelsWarm_SendsATinyRequestToTheMainProvider', async () => {
   assert.equal(wr.ok, true);
 });
 
-test('ModelsKeepWarm_OffByDefaultAndOnlyWhileASessionIsLive', async () => {
-  fake.requests.length = 0;
-  assert.deepEqual(await keepWarmTick(deps), [], 'no job asked for it');
-  const v = await ok('PUT', A, adminT, { jobs: { chat: { keepWarm: true } } });
-  assert.equal(job(v, 'chat').keepWarm, true);
-  assert.equal(job(v, 'audit').keepWarm, false, 'default off');
-  assert.deepEqual(await keepWarmTick(deps), [], 'no session is live');
-  assert.equal(fake.requests.length, 0);
+test('ModelsGameNight_PolicyPerJobAndNoRequestWhileNoSessionIsOpen', async () => {
+  const v0 = await ok('GET', A, adminT);
+  assert.equal(job(v0, 'chat').gameNight, 'hold', 'chat is held by default');
+  assert.equal(job(v0, 'voice').gameNight, 'ondemand', 'voice loads when needed by default');
+  const v = await ok('PUT', A, adminT, { jobs: { chat: { gameNight: 'ondemand' } } });
+  assert.equal(job(v, 'chat').gameNight, 'ondemand');
+  assert.equal((await call('PUT', A, adminT, { jobs: { chat: { gameNight: 'always' } } })).status, 400);
+  // The old keepWarm switch still saves: on = keep loaded during a session.
+  assert.equal(job(await ok('PUT', A, adminT, { jobs: { chat: { keepWarm: true } } }), 'chat').gameNight, 'hold');
 
-  run(deps.db, "INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_kw', 'kw', 'KW', 'x', 0, '2025-01-01')");
-  run(deps.db, "INSERT INTO worlds (id, slug, name, created_at) VALUES ('w_kw', 'kw', 'KW', '2025-01-01')");
-  run(deps.db, "INSERT INTO audio_sessions (id, world_id, name, started_at) VALUES ('s_kw', 'w_kw', 'Game night', ?)", new Date().toISOString());
-  assert.deepEqual(await keepWarmTick(deps), ['chat']);
-  assert.deepEqual(fake.requests.map((r) => r.path), ['/v1/chat/completions']);
-  run(deps.db, "UPDATE audio_sessions SET stopped_at = ? WHERE id = 's_kw'", new Date().toISOString());
-  assert.deepEqual(await keepWarmTick(deps), []);
-  await ok('PUT', A, adminT, { jobs: { chat: { keepWarm: false } } });
+  fake.requests.length = 0;
+  await lifecycleTick(deps);
+  await lifecycleTick(deps);
+  assert.equal(fake.requests.length, 0, 'no session is open: the model servers are not asked anything');
+  assert.equal(lifecycleView(deps).phase, 'off');
 });
 
 test('ModelsVoices_PresetNamesForTheVoiceFeature', async () => {

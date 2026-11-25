@@ -6,6 +6,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Modal, Switch, useAction } from '../../ui/index.tsx';
 import { useNet } from '../../lib/net.ts';
 import { CopyButton } from '../../lib/copy.tsx';
+import { SHARE_CSS, ShareDialog as DMShareDialog } from '../libshare/Share.tsx';
 import { mergeCopies, type PageRow } from '../../pages/library/treeModel.ts';
 
 interface Share { from?: string; to: string; toName: string; fromName: string; kind: string; mine?: boolean }
@@ -13,8 +14,8 @@ interface State { everyone: boolean; locked: boolean; shares: Share[] }
 const EVENT = 'alx-share-open';
 const path = (id: string) => `/library/pages/${encodeURIComponent(id)}/share`;
 
-/** Open the share dialog (ShareHost must be on the page). No pages: it starts with the page search. */
-export const openShare = (ids?: string[]) => window.dispatchEvent(new CustomEvent(EVENT, { detail: ids ?? null }));
+/** Open the share dialog (ShareHost must be on the page). No page: it starts with the page search. One page: the same dialog the library opens. */
+export const openShare = (page?: { id: string; title: string }) => window.dispatchEvent(new CustomEvent(EVENT, { detail: page ?? null }));
 
 export function ShareButton({ pageId, primary }: { pageId: string; primary?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -29,17 +30,20 @@ export function ShareButton({ pageId, primary }: { pageId: string; primary?: boo
 
 export function ShareHost() {
   const [start, setStart] = useState<string[] | null>(null);
+  const [one, setOne] = useState<{ id: string; title: string } | null>(null);
   const loc = useLocation();
   const [params] = useSearchParams();
   useEffect(() => {
     const f = (e: Event) => {
-      const ids = (e as CustomEvent).detail as string[] | null;
+      const page = (e as CustomEvent).detail as { id: string; title: string } | null;
+      if (page) { setOne(page); return; }
       const here = /\/library\/?$/.test(loc.pathname) ? params.get('page') : null;
-      setStart(ids ?? (here ? [here] : []));
+      setStart(here ? [here] : []);
     };
     window.addEventListener(EVENT, f);
     return () => window.removeEventListener(EVENT, f);
   }, [loc.pathname, params]);
+  if (one) return <><style>{SHARE_CSS}</style><DMShareDialog key={one.id} target={{ kind: 'page', ...one }} onClose={() => setOne(null)} /></>;
   return start ? <ShareDialog key={start.join()} start={start} pick onClose={() => setStart(null)} /> : null;
 }
 

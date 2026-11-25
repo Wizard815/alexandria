@@ -67,7 +67,7 @@ export default function Access() {
             ) : <p className="muted">No keys yet.</p>}
           </Section>
           <Section title="Admin sign-in">
-            <p className="small muted">Admin pages have their own sign-in, with an authenticator code and an optional allowed network. Set those, and see recovery steps, on <Link to="/admin/security">Security</Link>. A forgotten password is reset from <Link to="/admin/accounts">Accounts</Link>.</p>
+            <p className="small muted">Admin pages have their own sign-in, with an authenticator code and an optional allowed network. Set those, and see recovery steps, on <Link to="/admin/access?tab=security">Security</Link>. A forgotten password is reset from <Link to="/admin/accounts">Accounts</Link>.</p>
           </Section>
         </>
       )}

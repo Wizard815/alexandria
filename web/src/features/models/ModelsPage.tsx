@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad } from '../../lib/world.tsx';
-import { ErrorBox, Field, Loading, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
-import SessionCard from './SessionCard.tsx';
+import { useSearchParams } from 'react-router-dom';
+import { ErrorBox, Field, Loading, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
+import GameNightCard from './GameNightCard.tsx';
 import VramCard from './VramCard.tsx';
 import EmbeddingsCard from '../bible/EmbeddingsCard.tsx';
 
@@ -10,12 +11,12 @@ type Kind = 'argos' | 'openai' | 'ollama' | 'lmstudio' | 'openai-compatible';
 type Location = 'local' | 'cloud';
 type Seen = 'loaded' | 'unloaded' | 'unknown' | 'missing' | 'unreachable';
 
-interface Provider { id: string; name: string; kind: Kind; baseUrl: string; apiKey: string; location: Location; webUrl?: string; usedBy: string[] }
+interface Provider { id: string; name: string; kind: Kind; baseUrl: string; apiKey: string; location: Location; webUrl?: string; usedBy: string[]; backend?: { label: string; canHold: boolean; detected: string | null } }
 interface FallbackView { providerId: string; model: string; options: Record<string, unknown>; allowCloud: boolean; location?: Location }
 interface Choice { providerId: string; model: string }
 interface JobView {
   job: string; uses: string; providerId: string; baseUrl: string; model: string; apiKey: string; options: Record<string, unknown>;
-  enabled: boolean; keepWarm: boolean; fallback: FallbackView | null; fallbackBlocked: boolean;
+  enabled: boolean; gameNight: 'hold' | 'ondemand'; fallback: FallbackView | null; fallbackBlocked: boolean;
   location: Location | null; lastChoice?: Record<Location, Choice | null>;
   source: 'saved' | 'env' | 'none' | 'chat'; effective: { baseUrl: string; model: string; hasKey: boolean; provider: string | null; location: Location; hasFallback: boolean } | null;
 }
@@ -164,7 +165,7 @@ function ProviderCard({ p, onChanged, onFound }: { p: Provider; onChanged: () =>
   return (
     <section className="card" aria-label={`Provider ${p.name}`} data-provider={p.id}>
       <div className="row between">
-        <div className="row"><h3 style={{ margin: 0 }}>{p.name}</h3><span className="chip">{KIND_NAMES[p.kind]}</span><LocChip l={p.location} /></div>
+        <div className="row"><h3 style={{ margin: 0 }}>{p.name}</h3><span className="chip">{KIND_NAMES[p.kind]}</span><LocChip l={p.location} />{p.backend?.detected && <span className="chip" title="What this server can do around a game session (Game night tab)" data-backend={p.backend.detected}>{p.backend.label}</span>}</div>
         {p.webUrl && <a className="small" href={p.webUrl} target="_blank" rel="noreferrer">Argos page ↗</a>}
       </div>
       <p className="tiny muted" style={{ margin: 0 }}>{p.usedBy.length ? `Used by ${p.usedBy.join(', ')}.` : 'Not used by any job yet.'}</p>
@@ -232,7 +233,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   const here = providers.filter((p) => p.location === loc);
   const [options, setOptions] = useState(Object.keys(j.options).length ? JSON.stringify(j.options) : '');
   const [enabled, setEnabled] = useState(j.enabled);
-  const [keepWarm, setKeepWarm] = useState(j.keepWarm);
+  const [gameNight, setGameNight] = useState(j.gameNight);
   const [hasFb, setHasFb] = useState(!!j.fallback);
   const [fbProvider, setFbProvider] = useState(j.fallback?.providerId ?? '');
   const [fbModel, setFbModel] = useState(j.fallback?.model ?? '');
@@ -247,7 +248,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
 
   const save = () => a.run(async () => {
     const fallback = hasFb && fbProvider ? { providerId: fbProvider, model: fbModel, allowCloud: crossesToCloud && allowCloud } : null;
-    await client.request('PUT', '/api/admin/models', { jobs: { [j.job]: { providerId, model, options: options.trim() || '{}', enabled, keepWarm, fallback } } });
+    await client.request('PUT', '/api/admin/models', { jobs: { [j.job]: { providerId, model, options: options.trim() || '{}', enabled, gameNight, fallback } } });
     toast('Saved');
     onSaved();
   });
@@ -312,7 +313,14 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
         )}
       </div>
 
-      <div className="row small"><Switch checked={keepWarm} onChange={setKeepWarm} label={`${NAMES[j.job]} keep warm`} /> Keep warm: a tiny request every few minutes while a session is live (off by default)</div>
+      {loc === 'local' && (
+        <Field label="During a game session" help="Keep loaded: loaded when a session starts, held while it runs, unloaded after. See the Game night tab for what this server can do.">
+          <select value={gameNight} onChange={(e) => setGameNight(e.target.value as 'hold' | 'ondemand')} aria-label={`${NAMES[j.job]} during a session`}>
+            <option value="hold">Keep loaded</option>
+            <option value="ondemand">Load when needed</option>
+          </select>
+        </Field>
+      )}
 
       <ErrorBox error={a.error} />
       <div className="row">
@@ -331,8 +339,14 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   );
 }
 
+type Tab = 'setup' | 'session' | 'memory' | 'embeddings';
+const TABS: [Tab, string][] = [['setup', 'Providers & jobs'], ['session', 'Game night'], ['memory', 'GPU & queue'], ['embeddings', 'Embeddings']];
+
 export default function ModelsPage() {
   const { client } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = (TABS.find(([id]) => id === params.get('tab'))?.[0]) ?? 'setup';
+  const pick = (id: Tab) => { const next = new URLSearchParams(params); next.set('tab', id); setParams(next, { replace: true }); };
   const data = useLoad(() => client.request<All>('GET', '/api/admin/models'), []);
   const [status, setStatus] = useState<Status | null>(null);
   const [models, setModels] = useState<Record<string, Found[]>>({});
@@ -345,7 +359,8 @@ export default function ModelsPage() {
   const providers = data.data?.providers ?? [];
   const jobs = [...(data.data?.jobs ?? [])].sort((a, b) => JOB_ORDER.indexOf(a.job) - JOB_ORDER.indexOf(b.job));
   const signature = providers.map((p) => p.id).join(',') + '|' + jobs.map((j) => `${j.providerId}:${j.model}`).join(',');
-  useEffect(() => { if (data.data) void refreshStatus(); }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Asks each provider which models it has loaded (a model list, never a generation): only while this page is open.
+  useEffect(() => { if (data.data && (tab === 'setup' || tab === 'session')) void refreshStatus(); }, [signature, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reload = () => void data.reload();
   const remember = (id: string, d: Discovery) => setModels((m) => ({ ...m, [id]: d.models }));
@@ -361,27 +376,35 @@ export default function ModelsPage() {
   }, [data.data, client]);
 
   return (
-    <div className="page">
-      <PageHead title="Models" lead="Providers are where models live; each job picks a provider and a model, and can fall back to another. Save first, then Test.">
+    <div className="page models-page">
+      <PageHead title="Models" lead="Which model does each job, and what happens to the models around a game session.">
         <button type="button" className="btn small" onClick={() => void refreshStatus()}>Refresh status</button>
       </PageHead>
+      <Tabs label="Models sections" value={tab} onChange={pick} items={TABS} />
       <ErrorBox error={data.error} />
       <ErrorBox error={statusError} />
       {data.loading && !data.data ? <Loading /> : (
-        <>
-          <h2 style={{ marginBottom: 0 }}>Providers</h2>
-          <ArgosPreset jobs={jobs} onDone={reload} />
-          {providers.map((p) => <ProviderCard key={p.id + p.name + p.baseUrl + p.location + p.apiKey} p={p} onChanged={reload} onFound={remember} />)}
-          <AddProvider onDone={reload} />
-          <h2 style={{ marginBottom: 0 }}>Session and memory</h2>
-          <SessionCard onChanged={() => void refreshStatus()} />
-          <VramCard refreshKey={signature} />
-          <QueueCard />
-          <h2 style={{ marginBottom: 0 }}>Embeddings and story bible</h2>
-          <EmbeddingsCard />
-          <h2 style={{ marginBottom: 0 }}>Jobs</h2>
-          {jobs.map((j) => <JobRow key={JSON.stringify(j) + providers.length} j={j} providers={providers} models={models} status={status?.jobs[j.job]} onSaved={reload} />)}
-        </>
+        <div role="tabpanel" aria-label={TABS.find(([id]) => id === tab)?.[1]} className="stack" key={tab}>
+          {tab === 'setup' && (
+            <>
+              <p className="muted small" style={{ margin: 0 }}>Providers are where models live; each job picks a provider and a model, and can fall back to another. Save first, then Test.</p>
+              <h2 style={{ marginBottom: 0 }}>Providers</h2>
+              <ArgosPreset jobs={jobs} onDone={reload} />
+              {providers.map((p) => <ProviderCard key={p.id + p.name + p.baseUrl + p.location + p.apiKey} p={p} onChanged={reload} onFound={remember} />)}
+              <AddProvider onDone={reload} />
+              <h2 style={{ marginBottom: 0 }}>Jobs</h2>
+              {jobs.map((j) => <JobRow key={JSON.stringify(j) + providers.length} j={j} providers={providers} models={models} status={status?.jobs[j.job]} onSaved={reload} />)}
+            </>
+          )}
+          {tab === 'session' && <GameNightCard jobs={jobs} providers={providers} status={status?.jobs} onChanged={() => { void refreshStatus(); reload(); }} />}
+          {tab === 'memory' && (
+            <>
+              <VramCard refreshKey={signature} />
+              <QueueCard />
+            </>
+          )}
+          {tab === 'embeddings' && <EmbeddingsCard />}
+        </div>
       )}
     </div>
   );

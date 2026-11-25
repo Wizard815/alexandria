@@ -304,6 +304,8 @@ const withFacts = (body: string, facts: string) => (facts ? `${body}\n\n${facts}
 // dropped whenever any index row changes.
 const gens = new WeakMap<DB, number>();
 const nameCache = new WeakMap<DB, { gen: number; rows: Map<string, { id: string; toks: string[] }[]> }>();
+/** A number that changes whenever any page index is written. */
+export const indexGeneration = (db: DB): number => gens.get(db) ?? 0;
 const bump = (db: DB) => gens.set(db, (gens.get(db) ?? 0) + 1);
 
 /** The page's index rows for one scope, replacing what was there. `facts` is factsText() of the same copy. */

@@ -6,8 +6,10 @@
 import type { DB } from '../core/db.ts';
 import { one, all, run } from '../core/db.ts';
 import type { Library } from '../core/library.ts';
+import { jobsOf } from '../core/jobs.ts';
 import type { McpClient } from '../core/mcp.ts';
 import { HttpError, id, now } from '../core/util.ts';
+import { tick } from '../core/yield.ts';
 import { CallCounter, isRecord, type ConnectorContext, type SyncRecord, type TierState } from './connector.ts';
 import { connectorFor, makeMcpFactory } from './registry.ts';
 import { RECORD_CAPABILITY, heldImages, saveRecords } from './records.ts';
@@ -53,6 +55,8 @@ export interface RunOptions {
   tiered?: boolean;
   /** Ask for a complete listing, so pages the source dropped are removed and records are read again. */
   full?: boolean;
+  /** Run by another job (a crawl): that job is the one a restart starts again. */
+  nested?: boolean;
 }
 
 /** Make the context a connector runs with. */
@@ -93,6 +97,13 @@ export function prepareImages(d: SyncDeps, ctx: ConnectorContext, c: { capabilit
 
 /** Sync one source. Resolves with the finished run. */
 export async function runSync(d: SyncDeps, sourceId: string, by: string | null, opts: RunOptions = {}): Promise<any> {
+  const src0 = one<any>(d.db, 'SELECT id, name, world_id FROM sources WHERE id = ?', sourceId);
+  if (!src0 || running.has(sourceId)) return runSyncNow(d, sourceId, by, opts);
+  // Listed as a job (and started again after a restart); stopping it from the job list is the same as stopping the sync.
+  return jobsOf(d.db).track({ kind: 'sync', title: `Sync ${src0.name}`, worldId: src0.world_id, resume: opts.nested ? undefined : { sourceId, tiered: !!opts.tiered, full: !!opts.full }, cancel: () => stopSync(sourceId) }, (job) => runSyncNow(d, sourceId, by, opts, job));
+}
+
+async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts: RunOptions = {}, job?: { progress(done: number, total: number, message?: string): void }): Promise<any> {
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', sourceId);
   if (!src) throw new HttpError(404, 'Source not found');
   if (running.has(sourceId)) throw new HttpError(409, 'This source is already syncing');
@@ -111,6 +122,8 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
   };
   let close = () => {};
   let limiter: Limiter | null = null;
+  const dirty: string[] = [];
+  let linksDirty = false;
   try {
     const made = connectorContext(d, src, cfg, ctl.signal, log, { background: true });
     close = made.close;
@@ -146,6 +159,8 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
       try {
         const out = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e, by);
         if (out.how === 'demote') demoted.push(out.id!);
+        if (out.how === 'saved' && out.changed !== false) dirty.push(out.id!);
+        if (out.linksChanged) linksDirty = true;
         if (out.how === 'saved') {
           stats.pages++;
           if (e.depth === 'index') stats.indexed++;
@@ -156,7 +171,9 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
         log(`Skipped ${e.title}: ${err.message}`);
       }
       d.onEntry?.(stats);
-      if (stats.pages % 50 === 0) { save('running'); d.onProgress?.(runId, stats); }
+      if (stats.pages % 50 === 0) { save('running'); d.onProgress?.(runId, stats); job?.progress(stats.pages, 0, `${stats.pages} pages saved`); }
+      // A long listing gives the loop back now and then, so requests are answered while it runs.
+      if (stats.pages % 10 === 0) await tick();
     }
     if (tier || connectorFor(src.kind, cfg)?.tiered) { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; }
     // Pictures downloaded by this run are detail calls: they count against the source's totals like pages read later.
@@ -199,8 +216,10 @@ export async function runSync(d: SyncDeps, sourceId: string, by: string | null, 
   } finally {
     close();
     running.delete(sourceId);
-    // Always rebuild: a partial sync left batch-saved pages without player copies.
-    d.library.rebuildPlayerCopies(src.world_id);
+    // A partial sync left the pages it saved without player copies: rebuild them, in short steps so the server stays quick.
+    // Pages that did not change kept theirs. A page added, renamed, hidden or removed can change the links of any other page: then every page.
+    const removedSome = (stats.removed ?? 0) > 0;
+    if (dirty.length || linksDirty || removedSome) await d.library.rebuildPlayerCopiesAsync(src.world_id, { only: linksDirty || removedSome ? undefined : dirty });
     d.onProgress?.(runId, stats);
   }
   return getRun(d.db, runId);

@@ -55,8 +55,11 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
   busy.add(sessionId);
   try {
     const seen = one<any>(d.db, 'SELECT upto FROM audio_rule_seen WHERE session_id = ?', sessionId)?.upto ?? '';
-    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: true }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
-    const fresh = lines.filter((l) => l.updatedAt > seen);
+    // Only the lines that came in since the last pass are tested one by one (testing the whole night every 20 seconds froze the server);
+    // the lines around a match are tested when they are read for the excerpt.
+    const secret = (t: string) => d.library.containsClassified(worldId, t) || wouldBeRefused(d, t);
+    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: true });
+    const fresh = lines.filter((l) => l.updatedAt > seen && !secret(l.text));
     if (!fresh.length) return { checked: 0, flagged: 0 };
     const newest = fresh.reduce((m, l) => (l.updatedAt > m ? l.updatedAt : m), seen);
     run(d.db, 'INSERT INTO audio_rule_seen (session_id, upto) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET upto = excluded.upto', sessionId, newest);
@@ -76,7 +79,7 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
       const term: any = by.get(t.ref);
       if (!term) continue;
       const at = lines.findIndex((l) => l.id === t.line.id);
-      const excerpt = lines.slice(Math.max(0, at - 3), at + 5).map((l) => `${l.speaker || 'Someone'}: ${l.text}`).join('\n');
+      const excerpt = lines.slice(Math.max(0, at - 3), at + 5).filter((l) => l.id === t.line.id || !secret(l.text)).map((l) => `${l.speaker || 'Someone'}: ${l.text}`).join('\n');
       let j: any = null;
       try {
         j = await withPriority(0, () => chatJson(d, hasJob(d, 'audit') ? 'audit' : 'chat', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Rule: ${term.term}${term.moduleName ? ` (${term.moduleName})` : ''}\n${String(term.text ?? term.summary ?? '').slice(0, 2500)}\n\nTranscript (the rule came up in the line from ${t.line.speaker || 'someone'}: "${t.line.text.slice(0, 200)}"):\n${excerpt.slice(0, 3000)}` }]));
