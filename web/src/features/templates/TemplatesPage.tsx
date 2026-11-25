@@ -121,7 +121,7 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
     navigate(`/w/${slug}/dm/ws?l=${encodeURIComponent(panes.length > 1 ? t.spec.layout || 'cols' : 'one')}&p=${encodeURIComponent(panes.join(','))}`);
     if (t.spec.prompt) setTimeout(() => askAssistant(t.spec.prompt), 300);
   });
-  if (t.kind === 'shop') main = shop ? btn('Make a shop', () => { setOut(''); setAsk('shop'); }) : <span className="tiny muted">The shop generator is not installed yet.</span>;
+  if (t.kind === 'shop') main = shop ? btn('Make a shop', () => { setOut(''); setAsk('shop'); }, 'A shop draft from the shop generator, following this guide') : null;
   return (
     <>
       {main}
@@ -132,7 +132,8 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
           {ask !== 'shop' && <Field label={ask === 'page' ? 'Page name' : 'Macro name'}><input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus /></Field>}
           {ask === 'page' && <p className="tiny muted">Saved DM only in {t.spec.folder || 'the library root'}; share it when it is ready.</p>}
           {ask === 'macro' && <p className="tiny muted">The macro asks for {(t.spec.params ?? []).map((p: any) => p.label || p.name).join(', ') || 'nothing'} each time it runs, and {t.spec.mode === 'do' ? 'does it at once' : 'proposes each change for you to approve'}.</p>}
-          {out && <pre className="tpl-out">{out}</pre>}
+          {out && <pre className="tpl-out" data-testid="tpl-shop-draft">{out}</pre>}
+          {out && <p className="tiny muted">A draft only: make and stock a shop on the <a href={`/w/${slug}/dm/shops`} onClick={(e) => { e.preventDefault(); setAsk(null); navigate(`/w/${slug}/dm/shops`); }}>Shops</a> page.</p>}
           <div className="row">
             <button type="button" className="btn primary" disabled={busy || (ask !== 'shop' && !name.trim())} onClick={() => void run(async () => {
               if (ask === 'page') {
@@ -152,7 +153,9 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
                 toast(`Macro “${name.trim()}” made: run it from Macros.`);
               } else {
                 const r = await w.call<any>('POST', `/templates/${t.id}/shop`, {});
-                setOut(JSON.stringify(r.result, null, 2).slice(0, 4000));
+                const dr = r.draft ?? {};
+                const cp = (n: number | null) => (n == null ? '' : n >= 100 ? ` · ${Math.round(n / 100)} gp` : ` · ${n} cp`);
+                setOut([`${dr.name ?? 'Shop'} (${dr.kindLabel ?? dr.kind ?? ''}${dr.markupPct != null ? `, markup ${dr.markupPct}%` : ''})`, dr.description ?? '', '', ...(dr.stock ?? []).map((l: any) => `- ${l.name}${l.qty != null ? ` × ${l.qty}` : ''}${cp(l.priceCp)}${l.hidden ? ' (hidden)' : ''}`), ...(dr.notes ?? []).map((n: string) => `Note: ${n}`)].join('\n'));
               }
             })}>{ask === 'page' ? 'Make the page' : ask === 'macro' ? 'Make the macro' : 'Generate'}</button>
             <button type="button" className="btn" onClick={() => setAsk(null)}>Close</button>
@@ -191,7 +194,7 @@ function Editor({ initial, onDone, shop }: { initial: Tpl; onDone: () => void; s
       <ErrorBox error={error} />
       <TemplateFields t={t} setT={setT} sp={sp} />
       <label className="row tight"><input type="checkbox" checked={t.enabled} onChange={(e) => setT({ ...t, enabled: e.target.checked })} /> On (the assistant uses it)</label>
-      {t.kind === 'shop' && !shop && <p className="tiny muted">The shop generator is not installed yet; this guide is kept for when it is, and the assistant reads it for shop requests.</p>}
+      {t.kind === 'shop' && <p className="tiny muted">The shop generator follows this guide{shop ? '' : ' (not available here)'}; it understands “12 items”, “markup 20%”, “no magic”, “max rarity rare”.</p>}
       <div className="row">
         <button type="button" className="btn primary" disabled={busy || !t.name.trim()} onClick={() => void save()} data-testid="tpl-save">Save</button>
         <button type="button" className="btn" onClick={onDone}>Cancel</button>
@@ -265,7 +268,7 @@ function TemplateFields({ t, setT, sp }: { t: Tpl; setT: (t: Tpl) => void; sp: (
       </>}
       {t.kind === 'shop' && <>
         <Field label="Shop type"><input value={s.shopType ?? ''} onChange={(e) => sp({ shopType: e.target.value })} placeholder="apothecary" /></Field>
-        <Field label="Guide for the shop generator"><textarea rows={4} value={s.guide ?? ''} onChange={(e) => sp({ guide: e.target.value })} /></Field>
+        <Field label="Guide for the shop generator" help="E.g. “12 items, markup 20%, no magic, max rarity rare”, and the flavour you want."><textarea rows={4} value={s.guide ?? ''} onChange={(e) => sp({ guide: e.target.value })} /></Field>
         <Field label="Typical stock" help="One per line."><textarea rows={3} value={(s.stock ?? []).join('\n')} onChange={(e) => sp({ stock: lines(e.target.value) })} /></Field>
         <Field label="Prices"><input value={s.priceNotes ?? ''} onChange={(e) => sp({ priceNotes: e.target.value })} /></Field>
       </>}

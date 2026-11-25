@@ -8,7 +8,7 @@
 //   POST /templates/draft      the assistant drafts a template from the DM's description (and asks a few questions)
 //   POST /templates/derive     a guide from example library pages (their common structure)
 //   GET/PUT /templates/web, POST /templates/web/check, POST /templates/web/search
-//   POST /templates/:id/shop   a shop with this template's guide (when the shop generator is installed)
+//   POST /templates/:id/shop   a shop draft from the shop generator, with this template's guide
 //   MCP  list_dm_templates, get_dm_template, create_dm_template, update_dm_template, web_research
 import { Router } from 'express';
 import type { Feature, McpTool } from '../types.ts';
@@ -22,7 +22,7 @@ import { cleanTemplate, KIND_LABEL, KINDS, templateText, type Kind, type Templat
 import { createTemplate, deleteTemplate, getTemplate, listTemplates, SCHEMA, setWebConfig, templateVersions, updateTemplate, webConfig } from './store.ts';
 import { deriveGuide, draftTemplate } from './draft.ts';
 import { blockedQuery, blockedText, cleanQueries, webSearch } from './web.ts';
-import { generateShopWithTemplate, shopGenerator } from './shop.ts';
+import { generateShopWithTemplate } from './shop.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string | null, action: string, detail = '') =>
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -52,7 +52,7 @@ function routes(d: Deps) {
       const { listProviders } = await import('../models/providers.ts');
       providers = listProviders(d.db).filter((p) => /openrouter\.ai/i.test(p.base_url)).map((p) => ({ id: p.id, name: p.name }));
     } catch { /* no models feature */ }
-    res.json({ config: webConfig(d.db, W(res)), providers, shop: !!(await shopGenerator()) });
+    res.json({ config: webConfig(d.db, W(res)), providers, shop: true });
   });
   r.put('/web', (req, res) => {
     const before = webConfig(d.db, W(res));
@@ -127,9 +127,10 @@ function routes(d: Deps) {
   r.post('/:id/shop', async (req, res) => {
     const cur = found(res, String(req.params.id));
     if (cur.kind !== 'shop') throw new HttpError(400, 'Only a shop generation template makes shops');
-    const out = await generateShopWithTemplate(d, W(res), cur, req.body?.options && typeof req.body.options === 'object' ? req.body.options : {});
-    if (!out) throw new HttpError(501, 'The shop generator is not installed in this Alexandria yet.');
-    res.json(out);
+    const o = req.body?.options && typeof req.body.options === 'object' ? req.body.options : {};
+    const draft = await generateShopWithTemplate(d, W(res), cur, o);
+    audit(d, W(res), me(res), 'templates.shop', `${cur.name}: ${draft.name}`);
+    res.json({ draft });
   });
   return r;
 }
