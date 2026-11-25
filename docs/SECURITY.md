@@ -132,6 +132,27 @@ every world.
   here (the copies keep it out; this is the net). Words typed in a different
   order or paraphrased are not matched.
 
+## The model gateway and who can spend your credit
+
+Every route that reaches a model needs a sign-in (without one: 401): `/v1/*`, `/mcp` (a scribe key only), the search, the agent, the
+voice and the audio routes. The `/v1` gateway (a pass-through to your provider, for tools that speak the OpenAI API) is stricter:
+
+- It is for **the admin and DMs, signed in**. A player, a guest and every scribe or MCP key get `403`, even a scribe key made on the DM's
+  own account: a leaked key must not be able to spend the provider credit.
+- The admin lists the accounts or keys that may also use it, with limits of their own (Admin > Models, or
+  `PUT /api/admin/models/access {kind: "account" | "key", id, dailyRequests, dailyTokens}`).
+- Each caller has a rate a minute and a cap on requests and tokens a day (`ALX_V1_*` in HOSTING.md). Over it: `429` with a message that says
+  which and when it resets (00:00 UTC) and a `Retry-After`.
+- The per-IP limiter (`ALX_RATE_LIMIT`) covers `/api`, `/mcp` and `/v1`. CORS is closed unless `ALX_CORS_ORIGINS` names an origin.
+- Every call to a model, by the gateway or by a feature, is logged (`model_calls`: when, job, model, feature and function that asked, account,
+  tokens when the server says): `GET /api/admin/models/activity` shows who has been calling, per job, in the last hour and day.
+  `test/model-gateway.test.ts` covers the 401 and 403 cases and the caps.
+
+**Keep the model servers private.** Argos, Ollama, LM Studio, a whisper or a TTS server have no idea who Alexandria's users are: a model server
+that can be reached from the internet bypasses all of the above, and the classified-text guard too. Bind them to `127.0.0.1` or to the Docker
+network and never forward their ports on the router. Set an API key on them (Argos `apiKeys`, and `ARGOS_API_KEY` for Alexandria; Ollama
+behind a proxy that checks a key) so a neighbour on your LAN cannot use them either.
+
 ## What is stored, not just served
 
 `librarian/test/security-state.test.ts`:

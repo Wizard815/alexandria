@@ -15,6 +15,7 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
   { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
   { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
   { re: /\b(own (codex )?page|keeps? coming up|promote (him|her|them|it)|give (him|her|them) (a |his |her |their )?(own )?(codex )?page)\b/i, tools: ['promote', 'who_is', 'codex_upsert', 'context_for'] },
@@ -51,7 +52,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(quick events?|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['list_quick_events', 'send_quick_event', 'resolve_quick_event', 'cancel_quick_event'] },
   { re: /\b(arcs?|close the (current )?arc|new arc|start an arc)\b/i, tools: ['arc_close', 'arc_start', 'context_for', 'codex_upsert'] },
   { re: /\b(jot|jot down|note down|write (this |that |it )?down|an idea|idea:|log that|log this|file (this )?conversation|by speaker)\b/i, tools: ['memory_capture', 'conversation_log', 'memory_log'] },
-  { re: /\b(broker|special offers?|offers?|information for sale|sell (this|that|the) (fact|info)|may sell)\b/i, tools: ['add_broker_note', 'send_broker_offer', 'list_broker_requests', 'broker_answer', 'list_broker_offers', 'ask_broker_quote', 'broker_deliver', 'broker_refuse'] },
+  { re: /\b(broker|special offers?|offers?|information for sale|sell (this|that|the) (fact|info)|may sell)\b/i, tools: ['add_broker_note', 'send_broker_offer', 'list_broker_requests', 'broker_answer', 'list_broker_offers', 'ask_broker_quote', 'broker_pay_options', 'broker_deliver', 'broker_refuse'] },
   { re: /\b(item cards?|link .* (to )?(a )?page|magic items?)\b/i, tools: ['get_item_card', 'link_item_page'] },
   { re: /\b(related pages?|similar pages?|read like|other pages|everything we have|search everything)\b/i, tools: ['related_pages', 'search_world', 'story_bible'] },
   { re: /\b(relations?|relationships?|family links?|links between|connections between)\b/i, tools: ['list_relations', 'list_people'] },

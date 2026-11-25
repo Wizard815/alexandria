@@ -81,7 +81,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
           const before = one<any>(d.db, 'SELECT id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', src.world_id, src.id, (e as any).externalId);
           if (before) levelBefore.set(before.id, before.visibility);
           const r = storeEntry({ db: d.db, library: d.library }, src.world_id, src.id, prefix, e as any, null);
-          if (r.id) { readIds.push(r.id); out.read++; failures.delete(p.id); }
+          if (r.id) { if (r.changed !== false) readIds.push(r.id); out.read++; failures.delete(p.id); }
         }
         // Nothing came back for this page (gone at the source, or its document could not be read): leave it alone for a while.
         if (out.read === readBefore) noteFailure(p.id, Date.now());
@@ -112,7 +112,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
   if (readIds.length) {
     // A page whose level changed changes what other pages may say about it: rebuild the world. Otherwise only the pages that were read.
     const changed = readIds.some((id) => (one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ?', id)?.visibility ?? '') !== levelBefore.get(id));
-    d.library.rebuildPlayerCopies(src.world_id, changed ? undefined : readIds);
+    await d.library.rebuildPlayerCopiesAsync(src.world_id, { only: changed ? undefined : readIds });
   }
   return out;
 }
