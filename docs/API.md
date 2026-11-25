@@ -217,14 +217,15 @@ One answer for every page, file and folder: who can see it. `party` (everyone),
 `players` (chosen players only) or `dm`. Per-player page shares use the page
 shares of `features/sourcekeys`; a file share is its own row; a folder rule
 covers the pages and files in a folder, including ones added or moved in later
-(read live, so nothing goes stale). Classified items can never be shared, broker
+(read live, so nothing goes stale). A rule with an empty path covers a whole
+source; it is only made when `whole: true` is sent, never from a missing path. Classified items can never be shared, broker
 items are refused until their level is changed, and a folder rule skips both.
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | `/overview` | DM | `players[]`, `pages{id: {mode, to, via}}` (pages shared by a share or rule), `files{id: {mode, to, via}}` (every file), `folders[]` (the rules) and `shared[]` (everything players can open now) |
-| GET | `/preview` | DM | `?kind=page\|file\|folder&id=` (folder: `&sourceId=&path=`): counts, what is skipped, whether the page has classified text or parts players will not see |
-| PUT | `/share` | DM | `{kind: page\|file\|folder, id \| sourceId+path, mode: party\|players\|dm (folder: also off), players?, notify?, confirm?, withPage?, withFiles?}`. A folder, or an item with classified text, answers 409 `needsConfirm` until `confirm: true`. `notify` records it as new from the DM and sends a `libshare-new` event to the people it is for. |
+| GET | `/preview` | DM | `?kind=page\|file\|folder&id=` (folder: `&sourceId=&path=`, or `&whole=1` for a whole source): counts, what is skipped, whether the page has classified text or parts players will not see |
+| PUT | `/share` | DM | `{kind: page\|file\|folder, id \| sourceId+path (or sourceId+whole: true), mode: party\|players\|dm (folder: also off), players?, notify?, confirm?, withPage?, withFiles?}`. A folder, or an item with classified text, answers 409 `needsConfirm` until `confirm: true`. `notify` records it as new from the DM and sends a `libshare-new` event to the people it is for. |
 | GET | `/new` | player, DM | What was sent or shared with this player (checked again on every read), newest first, with `isNew`; the DM gets the send log |
 | POST | `/seen` | player | Marks everything seen |
 

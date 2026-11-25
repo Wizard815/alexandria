@@ -308,3 +308,32 @@ test('TestLibShare_PlayerLeavingTheWorldLosesAFileShare', async () => {
     assert.equal(ov.files[f.body.id].mode, 'dm');
   } finally { e.close(); }
 });
+
+test('TestLibShare_WholeSourceIsSharedOnlyWhenAskedForByName', async () => {
+  const e = await boot();
+  try {
+    await e.page('Town/Inn.md', 'dm', 'The inn.');
+    await e.page('Top.md', 'dm', 'At the top.');
+    await e.page('Vault/Sealed.md', 'classified', 'Sealed.');
+    // A missing path is never read as the whole source.
+    assert.equal((await e.share({ kind: 'folder', sourceId: '', mode: 'players', players: [e.ID.tom], confirm: true })).status, 400);
+    assert.equal((await e.call('GET', `${e.ls}/preview?kind=folder&sourceId=`, e.T.dm)).status, 400);
+    const pv = await e.ok('GET', `${e.ls}/preview?kind=folder&sourceId=&whole=1`, e.T.dm);
+    assert.equal(pv.pages, 3);
+    assert.equal(pv.skippedClassified, 1);
+    const ask = await e.share({ kind: 'folder', sourceId: '', path: '', whole: true, mode: 'players', players: [e.ID.tom] });
+    assert.equal(ask.status, 409);
+    assert.match(ask.body.error, /whole source/);
+    assert.equal((await e.share({ kind: 'folder', sourceId: '', path: '', whole: true, mode: 'players', players: [e.ID.tom], confirm: true })).status, 200);
+    assert.deepEqual(await e.titles('tom'), ['Inn', 'Top']);
+    assert.deepEqual(await e.titles('jess'), []);
+    // Added later, anywhere in the source.
+    await e.page('New Folder/Later.md', 'dm', 'Later.');
+    assert.deepEqual(await e.titles('tom'), ['Inn', 'Later', 'Top']);
+    const ov = await e.ok('GET', `${e.ls}/overview`, e.T.dm);
+    assert.equal(ov.folders.length, 1);
+    assert.equal(ov.folders[0].whole, true);
+    assert.equal((await e.share({ kind: 'folder', sourceId: '', path: '', whole: true, mode: 'off' })).status, 200);
+    assert.deepEqual(await e.titles('tom'), []);
+  } finally { e.close(); }
+});
