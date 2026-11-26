@@ -319,7 +319,7 @@ const ARGS: Record<string, Maker> = {
   give_shop_deal: async () => ({ shop: await shopId(), player: ID.jess, pct: 10, days: 2 }),
   present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
   set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
-  house_rule_grant: async () => { await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true }); return { mod: 'inspiration-rerolls', player: ID.jess, resource: 'personal', note: 'Stayed in character' }; },
+  house_rule_grant: async () => { await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true }); return { mod: 'inspiration-rerolls', player: ID.tom, resource: 'dm', note: 'Stayed in character' }; },
   house_rule_save: () => ({ mod: { kit: 1, id: 'coverage-points', name: 'Coverage points', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] } }),
 };
 
