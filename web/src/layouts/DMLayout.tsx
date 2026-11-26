@@ -42,6 +42,7 @@ export function DMLayout() {
         <DMRail base={base} badges={badges} />
         <div className="dmx-col">
           <DMTabs base={base} badges={badges} />
+          {F.dmBands.map((C, i) => <C key={i} />)}
           <main className={`main${inWorkspace ? ' main-ws' : ''}`}><OfflineBanner /><Outlet /></main>
         </div>
       </div>

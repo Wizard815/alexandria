@@ -21,7 +21,7 @@ export const FALLBACK_GROUP = 'More';
 const GROUP_OF: Record<string, string> = {};
 const put = (g: (typeof GROUPS)[number], ...ids: string[]) => ids.forEach((id) => { GROUP_OF[id] = g; });
 put('At the table', '', 'live', 'assistant', 'stage', 'chat', 'rules', 'whiteboard', 'map', 'ask');
-put('My character', 'me', 'codex', 'inventory', 'journal', 'audio', 'recordings', 'lights');
+put('My character', 'me', 'sheet', 'codex', 'inventory', 'journal', 'audio', 'recordings', 'lights');
 put('World', 'library', 'people', 'encounters', 'calendar', 'bible', 'log', 'broker', 'shop', 'messages');
 put('Settings & account', 'my-keys', 'connect');
 /** A page nobody has filed yet lands in "More", so a new feature never goes missing. */

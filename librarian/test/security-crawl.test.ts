@@ -708,6 +708,8 @@ const PLAYER_ROUTES = [
   'PATCH /inventory/:iid', 'PATCH /map/:mapId/marks/:mid', 'PATCH /sessionchat/messages/:mid',
   // Spells: a player edits their own spell sheet (when the world allows it), casts, asks to learn and takes back their own request.
   'PUT /spells/characters/:aid', 'POST /spells/cast', 'POST /spells/learn', 'POST /spells/learn/:lid/cancel',
+  // Sheet: a player arranges their own sheet and changes their own HP, conditions and mana (each one only their own; the log keeps it).
+  'PUT /sheet/me/modules', 'POST /sheet/:aid/vitals', 'POST /sheet/:aid/mana',
   'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
   'POST /audio/consent', 'POST /audio/mics', 'POST /audio/sessions/:sid/chunks', 'POST /audio/sessions/:sid/holds', 'DELETE /audio/mics/:id', 'POST /audio/sessions/:sid/chunks/:seq/text', 'POST /audio/mics/:id/stt',
