@@ -19,7 +19,7 @@ const FIX = JSON.parse(fs.readFileSync(new URL('./srd5e-fixture.json', import.me
 
 // ---- Open5e fixtures (trimmed real records) --------------------------------
 const doc = (key: string, name: string, lic = 'ogl-10a') => ({ key, name, display_name: name, licenses: [{ name: lic === 'ogl-10a' ? 'OPEN GAME LICENSE Version 1.0a' : 'Creative Commons Attribution 4.0', key: lic }], publisher: { name: 'Kobold Press', key: 'kobold-press' }, gamesystem: { name: '5th Edition 2014', key: '5e-2014' }, permalink: `https://koboldpress.example/${key}`, desc: `*Tagline*\r\n\r\nThe ${name} is a big book of things for fifth edition games.` });
-const DOCS = [doc('tob', 'Tome of Beasts'), doc('deepm', 'Deep Magic for 5th Edition'), doc('vom', 'Vault of Magic'), doc('srd-2024', 'System Reference Document 5.2', 'cc-by-40')];
+const DOCS = [doc('tob', 'Tome of Beasts'), doc('deepm', 'Deep Magic for 5th Edition'), doc('vom', 'Vault of Magic'), { ...doc('srd-2024', 'System Reference Document 5.2', 'cc-by-40'), gamesystem: { name: '5th Edition 2024', key: '5e-2024' } }];
 const ref = (key: string) => ({ key, name: DOCS.find((d) => d.key === key)!.name });
 const CREATURE = {
   key: 'tob_nihileth', name: 'Nihileth', document: ref('tob'), type: { name: 'Aberration', key: 'aberration' }, size: { name: 'Large', key: 'large' }, challenge_rating: 12.0,
@@ -156,9 +156,9 @@ test('Sources: Open5e records become the same shapes as SRD terms', () => {
 
 test('Sources: the DM sees the Open5e books; players do not', async () => {
   const r = await ok('GET', `${M()}/sources?open5e=${encodeURIComponent(O5.base)}`, T.dm);
-  assert.deepEqual(r.open5e.documents.map((d: any) => d.key), ['tob', 'deepm', 'vom', 'srd-2024']);
-  assert.equal(r.open5e.documents[0].license, 'OGL-1.0a');
-  assert.match(r.open5e.documents[0].desc, /big book of things/);
+  assert.deepEqual(r.open5e.documents.map((d: any) => d.key), ['srd-2024', 'tob', 'deepm', 'vom'], '2024 books first');
+  assert.equal(r.open5e.documents[1].license, 'OGL-1.0a');
+  assert.match(r.open5e.documents[1].desc, /big book of things/);
   assert.deepEqual(r.dnd5eapi.editions.map((e: any) => e.id), ['2024', '2014']);
   assert.equal((await call('GET', `${M()}/sources`, T.jess)).status, 403);
 });
@@ -241,4 +241,44 @@ test('Sources: a fresh 5e SRD API copy imports as its own module', async () => {
   const saved = await ok('POST', `${M()}/import`, T.dm, { ...req, feed: { items: true } });
   assert.equal(saved.fed.items.added, 0, 'the SRD 5.1 items are already in the item database by name');
   await ok('DELETE', `${M()}/imported/dnd5eapi-2014`, T.dm);
+});
+
+test('Sources: the server content library pulls a book once and every world can turn it on', async () => {
+  const A = '/api/admin/content';
+  const src = await ok('GET', `${A}/sources?open5e=${encodeURIComponent(O5.base)}`, T.admin);
+  assert.equal(src.open5e.documents[0].key, 'srd-2024', '2024 books first');
+  assert.equal(src.open5e.documents[0].edition, '2024');
+  assert.equal(src.open5e.documents.find((d: any) => d.key === 'tob').edition, '2014');
+  assert.equal((await call('GET', A, T.dm)).status, 403, 'admins only');
+  assert.equal((await call('POST', `${A}/preview`, T.admin, { type: 'git', url: 'https://x.test/r.git' })).status, 400);
+  const pre = await ok('POST', `${A}/preview`, T.admin, { type: 'open5e', ...O5, documents: ['tob'] });
+  assert.equal(pre.module.id, 'open5e-tob');
+  assert.equal(pre.edition, '2014');
+  const saved = await ok('POST', A, T.admin, { type: 'open5e', ...O5, documents: ['tob'] });
+  assert.deepEqual(saved.modules.map((m: any) => [m.id, m.server, m.edition, m.counts.monster]), [['open5e-tob', true, '2014', 1]]);
+  assert.equal((await call('POST', A, T.admin, { type: 'open5e', ...O5, documents: ['tob'] })).status, 409, 'replace must be asked for');
+
+  // A world lists it as available, turns it on with nothing downloaded, and its monsters are there.
+  const mods = await ok('GET', `${M()}/`, T.dm);
+  const lib = mods.available.find((m: any) => m.id === 'open5e-tob');
+  assert.ok(lib && lib.server === true && lib.terms === 2);
+  const before = hits.length;
+  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2024', 'open5e-tob'] });
+  const hit = (await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.jess)).terms[0];
+  assert.equal(hit.module, 'Tome of Beasts (Open5e)');
+  assert.equal(hits.length, before, 'turning it on downloads nothing');
+  // A world cannot import a second copy under the same id; it can feed it to the shop and Codex.
+  assert.equal((await ok('POST', `${M()}/import/preview`, T.dm, { type: 'open5e', ...O5, documents: ['tob'] })).reserved, true);
+  const fed = await ok('POST', `${M()}/feed`, T.dm, { id: 'open5e-tob' });
+  assert.ok(fed.fed && fed.fed.spells === undefined, 'Tome of Beasts has no spells');
+  assert.equal((await call('POST', `${M()}/feed`, T.jess, { id: 'open5e-tob' })).status, 403);
+
+  // Pull again, then remove: the world loses it.
+  clearSourceCache();
+  const n = hits.length;
+  await ok('POST', `${A}/open5e-tob/refresh`, T.admin);
+  assert.ok(hits.length > n, 'refresh fetched again');
+  await ok('DELETE', `${A}/open5e-tob`, T.admin);
+  assert.equal((await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.dm)).terms.length, 0);
+  assert.ok(!(await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-tob'));
 });

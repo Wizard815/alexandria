@@ -209,7 +209,7 @@ async function termsFromApi(b: any, d: Deps, meta: Partial<ModuleDoc>) {
 
 // ---- entry point ----------------------------------------------------------
 /** The raw request body of an import (preview or save) to a normalised module. */
-export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ module: ModuleDoc; warnings: string[]; source: string }> {
+export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ module: ModuleDoc; warnings: string[]; source: string; edition: string }> {
   if (!b || typeof b !== 'object') b = {};
   const meta = metaOf(b);
   const type = rawZip ? 'zip' : String(b.type ?? '');
@@ -257,7 +257,8 @@ export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ mo
       throw new HttpError(400, `type must be one of: json, zip, folder, git, api, open5e, dnd5eapi`);
   }
   const { module, warnings } = normalizeModule(r.raw, meta);
-  return { module, warnings: [...r.warnings, ...warnings], source };
+  const edition = r.raw?.edition === '2024' || r.raw?.edition === '2014' ? r.raw.edition : '';
+  return { module, warnings: [...r.warnings, ...warnings], source, edition };
 }
 
 void KINDS;

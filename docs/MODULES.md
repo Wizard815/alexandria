@@ -162,6 +162,27 @@ World settings → Game module → Import → **Open5e** or **5e SRD API**.
   download (kept 15 minutes). The credit line names each book, its
   publisher and licence (OGL 1.0a or CC-BY-4.0) and is shown in Credits.
 
+### The server content library (admins)
+
+Admin → Sources → **Content library** pulls a book once onto the server and
+keeps it, so every world can turn it on in World settings → Game module
+(under Available, marked "server library") with nothing downloaded and
+nothing to wait for, offline too. 2024 books are listed first and every book
+is labelled 5e 2024 or 5e 2014 (Open5e's Kobold Press and Level Up books are
+2014; its 2024 content is the SRD 5.2, which is also built in).
+
+- `GET /api/admin/content` lists the library; `GET /api/admin/content/sources`
+  the Open5e books and SRD API editions.
+- `POST /api/admin/content/preview` and `POST /api/admin/content` take an
+  `open5e`, `dnd5eapi` or `json` request as above (`"replace": true` to
+  overwrite). `POST /api/admin/content/:id/refresh` pulls the same request
+  again; `DELETE /api/admin/content/:id` removes it from every world.
+- A world cannot import its own copy under a library module's id.
+- `POST /api/worlds/:world/modules/feed { "id": "open5e-tob" }` (DM) puts a
+  module's spells into the Codex and its items into the shop's item
+  database, for a library module or an earlier import ("Add spells & items"
+  in World settings → Game module).
+
 ## Looking things up
 
 All under `/api/worlds/:world/modules`, open to every member (modules hold no

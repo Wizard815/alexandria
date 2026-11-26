@@ -33,6 +33,30 @@ CREATE TABLE IF NOT EXISTS modules_terms (
   PRIMARY KEY (world_id, module_id, id),
   FOREIGN KEY (world_id, module_id) REFERENCES modules_imported(world_id, id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS modules_server (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  version TEXT NOT NULL DEFAULT '',
+  license TEXT NOT NULL DEFAULT '',
+  attribution TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  request TEXT,
+  edition TEXT NOT NULL DEFAULT '',
+  counts TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS modules_server_terms (
+  module_id TEXT NOT NULL REFERENCES modules_server(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  term TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]',
+  kind TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  data TEXT,
+  PRIMARY KEY (module_id, id)
+);
 CREATE TABLE IF NOT EXISTS modules_world (
   world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
   enabled TEXT NOT NULL DEFAULT '[]'
@@ -65,6 +89,12 @@ export interface ModuleInfo {
   builtin: boolean;
   terms: number;
   source?: string;
+  /** In the server's content library: pulled once by an admin, any world can turn it on. */
+  server?: boolean;
+  /** "2024" or "2014" when the source says which rules it is for. */
+  edition?: string;
+  /** Terms per kind (server library modules). */
+  counts?: Record<string, number>;
 }
 
 const info = (m: ModuleDoc, isBuiltin: boolean, source?: string): ModuleInfo => ({ id: m.id, name: m.name, version: m.version, license: m.license, attribution: m.attribution, builtin: isBuiltin, terms: m.terms.length, ...(source ? { source } : {}) });
@@ -82,6 +112,68 @@ export interface WorldModules {
   enabled: ModuleInfo[];
   terms: MergedTerm[];
   byRef: Map<string, MergedTerm>;
+}
+
+// ---- the server's content library ----------------------------------------
+const serverVersions = new WeakMap<DB, number>();
+const serverDocs = new WeakMap<DB, Map<string, ModuleDoc>>();
+const serverVer = (db: DB) => serverVersions.get(db) ?? 0;
+
+export interface ServerModuleRow { id: string; name: string; version: string; license: string; attribution: string; source: string; request: string | null; edition: string; counts: string; created_at: string; updated_at: string }
+
+export function serverRows(db: DB): ServerModuleRow[] {
+  return all<ServerModuleRow>(db, 'SELECT * FROM modules_server ORDER BY CASE edition WHEN \'2024\' THEN 0 WHEN \'2014\' THEN 1 ELSE 2 END, name');
+}
+
+export function serverDoc(db: DB, id: string): ModuleDoc | null {
+  const c = serverDocs.get(db) ?? new Map<string, ModuleDoc>();
+  serverDocs.set(db, c);
+  const hit = c.get(id);
+  if (hit) return hit;
+  const m = one<ServerModuleRow>(db, 'SELECT * FROM modules_server WHERE id = ?', id);
+  if (!m) return null;
+  const terms = all<any>(db, 'SELECT * FROM modules_server_terms WHERE module_id = ? ORDER BY rowid', id).map((t) => ({
+    id: t.id, term: t.term, aliases: parseJson<string[]>(t.aliases, []), kind: t.kind as Kind, summary: t.summary, text: t.text, ...(t.data ? { data: parseJson<unknown>(t.data, null) } : {}),
+  }));
+  const doc = { id: m.id, name: m.name, version: m.version, license: m.license, attribution: m.attribution, terms };
+  c.set(id, doc);
+  return doc;
+}
+
+const serverInfo = (m: ServerModuleRow, n: number): ModuleInfo => ({ id: m.id, name: m.name, version: m.version, license: m.license, attribution: m.attribution, builtin: false, terms: n, source: m.source, server: true, ...(m.edition ? { edition: m.edition } : {}), counts: parseJson<Record<string, number>>(m.counts, {}) });
+
+export function serverModules(db: DB): ModuleInfo[] {
+  return serverRows(db).map((m) => serverInfo(m, Object.values(parseJson<Record<string, number>>(m.counts, {})).reduce((a, b) => a + b, 0)));
+}
+
+function serverChanged(db: DB) {
+  serverVersions.set(db, serverVer(db) + 1);
+  serverDocs.get(db)?.clear();
+  caches.get(db)?.clear();
+}
+
+/** Save (or replace) a module in the server library. Worlds that have it on see the new copy at once. */
+export function saveServer(db: DB, m: ModuleDoc, o: { source: string; request?: unknown; edition?: string; replace: boolean }) {
+  if ((BUILTIN_IDS as readonly string[]).includes(m.id)) throw new HttpError(400, `The id ${m.id} is used by a built-in module. Choose another.`);
+  const exists = one<{ created_at: string }>(db, 'SELECT created_at FROM modules_server WHERE id = ?', m.id);
+  if (exists && !o.replace) throw new HttpError(409, `The library already has ${m.id}. Send replace: true to refresh it.`);
+  const counts: Record<string, number> = {};
+  for (const t of m.terms) counts[t.kind] = (counts[t.kind] ?? 0) + 1;
+  tx(db, () => {
+    run(db, 'DELETE FROM modules_server_terms WHERE module_id = ?', m.id);
+    run(db, 'DELETE FROM modules_server WHERE id = ?', m.id);
+    run(db, 'INSERT INTO modules_server (id, name, version, license, attribution, source, request, edition, counts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', m.id, m.name, m.version, m.license, m.attribution, o.source.slice(0, 500), o.request === undefined ? null : JSON.stringify(o.request), o.edition ?? '', JSON.stringify(counts), exists?.created_at ?? now(), now());
+    for (const t of m.terms) {
+      run(db, 'INSERT INTO modules_server_terms (module_id, id, term, aliases, kind, summary, text, data) VALUES (?,?,?,?,?,?,?,?)', m.id, t.id, t.term, JSON.stringify(t.aliases), t.kind, t.summary, t.text, t.data === undefined ? null : JSON.stringify(t.data));
+    }
+  });
+  serverChanged(db);
+}
+
+export function removeServer(db: DB, id: string) {
+  if (!one(db, 'SELECT 1 FROM modules_server WHERE id = ?', id)) throw new HttpError(404, 'Not in the content library');
+  tx(db, () => { run(db, 'DELETE FROM modules_server_terms WHERE module_id = ?', id); run(db, 'DELETE FROM modules_server WHERE id = ?', id); });
+  serverChanged(db);
 }
 
 const versions = new WeakMap<DB, Map<string, number>>();
@@ -110,17 +202,20 @@ function importedDoc(db: DB, worldId: string, id: string): ModuleDoc | null {
   return { id: m.id, name: m.name, version: m.version, license: m.license, attribution: m.attribution, terms };
 }
 
-export function moduleDoc(db: DB, worldId: string, id: string): { doc: ModuleDoc; builtin: boolean; source?: string } | null {
+export function moduleDoc(db: DB, worldId: string, id: string): { doc: ModuleDoc; builtin: boolean; source?: string; server?: boolean } | null {
   const b = builtin(id);
   if (b) return { doc: b, builtin: true };
+  const sv = serverDoc(db, id);
+  if (sv) return { doc: sv, builtin: false, server: true, source: one<{ source: string }>(db, 'SELECT source FROM modules_server WHERE id = ?', id)?.source };
   const d = importedDoc(db, worldId, id);
   if (!d) return null;
   return { doc: d, builtin: false, source: one<{ source: string }>(db, 'SELECT source FROM modules_imported WHERE world_id = ? AND id = ?', worldId, id)?.source };
 }
 
-/** Every module this world could enable: both built-in ones and its imports. */
+/** Every module this world could enable: both built-in ones, the server's content library and its imports. */
 export function available(db: DB, worldId: string): ModuleInfo[] {
   const out: ModuleInfo[] = BUILTIN_IDS.map((id) => info(builtin(id)!, true));
+  out.push(...serverModules(db));
   for (const m of all<any>(db, 'SELECT m.*, (SELECT count(*) FROM modules_terms t WHERE t.world_id = m.world_id AND t.module_id = m.id) AS n FROM modules_imported m WHERE m.world_id = ? ORDER BY m.created_at', worldId)) {
     out.push({ id: m.id, name: m.name, version: m.version, license: m.license, attribution: m.attribution, builtin: false, terms: m.n, source: m.source });
   }
@@ -130,7 +225,7 @@ export function available(db: DB, worldId: string): ModuleInfo[] {
 /** The enabled modules in order, with their terms merged: earlier modules win on a clash. */
 export function worldModules(db: DB, worldId: string): WorldModules {
   const cached = caches.get(db)?.get(worldId);
-  if (cached && cached.version === ver(db, worldId)) return cached;
+  if (cached && cached.version === ver(db, worldId) + serverVer(db) * 1e6) return cached;
   const enabled: ModuleInfo[] = [];
   const terms: MergedTerm[] = [];
   const seen = new Set<string>();
@@ -138,7 +233,7 @@ export function worldModules(db: DB, worldId: string): WorldModules {
     const m = moduleDoc(db, worldId, id);
     if (!m) continue;
     const rank = enabled.length;
-    enabled.push(info(m.doc, m.builtin, m.source));
+    enabled.push(m.server ? { ...info(m.doc, false, m.source), server: true } : info(m.doc, m.builtin, m.source));
     for (const t of m.doc.terms) {
       const key = `${t.kind}|${t.term.toLowerCase()}`;
       if (seen.has(key)) continue;
@@ -146,7 +241,7 @@ export function worldModules(db: DB, worldId: string): WorldModules {
       terms.push({ ...t, ref: `${m.doc.id}:${t.id}`, moduleId: m.doc.id, moduleName: m.doc.name, rank });
     }
   }
-  const w: WorldModules = { version: ver(db, worldId), enabled, terms, byRef: new Map(terms.map((t) => [t.ref, t])) };
+  const w: WorldModules = { version: ver(db, worldId) + serverVer(db) * 1e6, enabled, terms, byRef: new Map(terms.map((t) => [t.ref, t])) };
   const c = caches.get(db) ?? new Map<string, WorldModules>();
   c.set(worldId, w);
   caches.set(db, c);
@@ -166,6 +261,7 @@ export function setEnabled(db: DB, worldId: string, ids: string[]) {
 
 export function saveImported(db: DB, worldId: string, m: ModuleDoc, source: string, replace: boolean, enable: boolean) {
   if ((BUILTIN_IDS as readonly string[]).includes(m.id)) throw new HttpError(400, `The id ${m.id} is used by a built-in module. Choose another.`);
+  if (one(db, 'SELECT 1 FROM modules_server WHERE id = ?', m.id)) throw new HttpError(400, `${m.name} is already in the server's content library: turn it on instead of importing it (or give this one another id).`);
   const exists = one(db, 'SELECT 1 FROM modules_imported WHERE world_id = ? AND id = ?', worldId, m.id);
   if (exists && !replace) throw new HttpError(409, `A module with the id ${m.id} is already imported. Send replace: true to overwrite it.`);
   tx(db, () => {
