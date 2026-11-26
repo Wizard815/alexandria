@@ -146,7 +146,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
   const [paste, setPaste] = useState(false);
   const [json, setJson] = useState('');
   const [preview, setPreview] = useState<DdbCharacter | null>(null);
-  const [opt, setOpt] = useState({ health: true, conditions: true, name: true, stats: true, counters: true, spells: false, items: false });
+  const [opt, setOpt] = useState({ health: true, conditions: true, name: true, stats: true, sheetStats: true, counters: true, spells: false, items: false });
   const [progress, setProgress] = useState('');
   const src = () => (paste ? { json } : { url });
   const path = `/sheet/${own ? 'me' : account}/import/ddb`;
@@ -156,7 +156,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
     setPreview(out.character);
   });
   const go = () => act.run(async () => {
-    const out = await w.call<Applied>('POST', path, { ...src(), apply: { health: opt.health, conditions: opt.conditions, name: opt.name, stats: opt.stats, counters: opt.counters, spells: dm && opt.spells } });
+    const out = await w.call<Applied>('POST', path, { ...src(), apply: { health: opt.health, conditions: opt.conditions, name: opt.name, stats: opt.stats, sheetStats: opt.sheetStats, counters: opt.counters, spells: dm && opt.spells } });
     let sent = 0, skipped = 0;
     if (opt.items && preview?.items.length) {
       const have = await w.call<any>('GET', '/inventory', undefined, { owner: own ? 'me' : account });
@@ -207,6 +207,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
           </div>
           <div className="stack tight">
             <span className="tiny faint">The Character module always updates. Also:</span>
+            {box('sheetStats', 'Fill the Stats module: AC, initiative, speed, passives, spell DC', '(your own rows stay)')}
             {box('health', 'Set HP, max HP and temporary HP', '(logged as an import)')}
             {preview.conditions.length > 0 && box('conditions', `Add conditions: ${preview.conditions.join(', ')}`)}
             {box('name', `Use “${preview.name}” as the character name`)}

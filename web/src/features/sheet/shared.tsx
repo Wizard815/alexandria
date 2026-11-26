@@ -4,7 +4,7 @@ import { timeShort, dateLong } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, Loading } from '../../ui/index.tsx';
 
-export type ModuleType = 'character' | 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
+export type ModuleType = 'character' | 'stats' | 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 export interface Mana { on: boolean; now?: number | null; max?: number | null }
 export interface Sheet {
@@ -18,7 +18,8 @@ export interface LogLine { id: string; accountId: string; kind: string; before: 
 
 /** The kinds of module a player can add, with what each is for. */
 export const KINDS: { type: ModuleType; label: string; desc: string; icon: string }[] = [
-  { type: 'character', label: 'Character', desc: 'Your character imported from D&D Beyond (unofficial)', icon: 'fa-id-card' },
+  { type: 'character', label: 'Character', desc: 'Your character imported from D&D Beyond (house rule, unofficial)', icon: 'fa-id-card' },
+  { type: 'stats', label: 'Stats', desc: 'AC, initiative, speed, passive Perception, spell DC and your own numbers', icon: 'fa-shield-halved' },
   { type: 'vitals', label: 'Health', desc: 'HP, temporary HP and conditions', icon: 'fa-heart-pulse' },
   { type: 'mana', label: 'Mana', desc: 'Your mana pool, when the world uses it', icon: 'fa-droplet' },
   { type: 'rerolls', label: 'Re-rolls', desc: 'Re-roll tokens the DM gives for good role play (house rule)', icon: 'fa-dice' },
@@ -31,7 +32,7 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
 ];
-export const SINGLE: ModuleType[] = ['character', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
+export const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
 export const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 export const CONDITIONS = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Concentrating', 'Blessed', 'Hasted'];
 
@@ -155,6 +156,10 @@ export const CSS = `
 .sht-mod details > summary::-webkit-details-marker { display: none; }
 .sht-mod details > summary::before { content: '▸'; transition: transform .15s; }
 .sht-mod details[open] > summary::before { transform: rotate(90deg); }
+.sht-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px; }
+.sht-kv > div { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); min-width: 0; }
+.sht-kv strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.sht-kv input.sht-in { width: 100%; min-height: 28px; font-weight: 700; }
 .sht-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
 .sht-stats > div { display: flex; flex-direction: column; align-items: center; padding: 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-variant-numeric: tabular-nums; }
 .sht-stats > div.save { border-color: var(--accent); }

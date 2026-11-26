@@ -70,7 +70,7 @@ test('Sheet_ModulesValidate: types, one of each live module, sizes and private o
 
 test('Sheet_Layout: a new sheet has the default modules; the player arranges it; private modules hide from the DM', async () => {
   const fresh = await ok('GET', `${SH()}/me`, T.jess);
-  assert.deepEqual(fresh.modules.map((m: any) => m.type), ['vitals', 'mana', 'counters', 'dm', 'notes', 'inventory', 'contacts', 'recent']);
+  assert.deepEqual(fresh.modules.map((m: any) => m.type), ['vitals', 'mana', 'stats', 'counters', 'dm', 'notes', 'inventory', 'contacts', 'recent']);
   assert.equal(fresh.name, 'Jessamine');
   const mods = [
     { id: 'vitals', type: 'vitals' },

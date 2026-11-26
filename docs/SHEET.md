@@ -8,7 +8,8 @@ widen, rename, fold or remove modules. Nothing on it replaces the paper sheet.
 
 | Module | What it shows | Who edits |
 |---|---|---|
-| Character | a character imported from D&D Beyond (unofficial): scores, AC, skills, spells, items | Import / Update |
+| Character | a character imported from D&D Beyond (house rule, unofficial): scores, AC, skills, spells, items | Import / Update |
+| Stats | AC, initiative, speed, proficiency, passive Perception / Insight / Investigation, spell save DC and attack, plus any rows the player adds (Edit rows) | the player; the D&D Beyond import fills rows with the same names |
 | Health | HP, max HP, temporary HP and conditions; Damage / Heal / Temp buttons | the player and the DM |
 | Mana | the mana pool from the Codex (only when the world uses mana); Spend / Restore with a reason | the player (within the pool) and the DM |
 | Inventory | the player's pack, read from Inventory | in Inventory |
@@ -29,7 +30,9 @@ bold name under *People met*. A tap adds a person as an ally or an enemy.
 
 ## Import from D&D Beyond (unofficial)
 
-**Import** on the sheet (the player on their own, the DM on any player's) reads a character from D&D Beyond.
+It is a house rule (`mods/dndbeyond-import.alxmod.json`, setting `sheetDdbImport`, off by default): the DM turns on
+**D&D Beyond import** under World → House rules, and then **Import** shows on the sheet (the player on their own, the DM
+on any player's). It reads a character from D&D Beyond.
 D&D Beyond has **no official API**: this reads the character data the D&D Beyond site uses for itself
 (`character-service.dndbeyond.com/character/v5/character/<id>`), so it can break or change without notice. The import
 screen and the Character module both say so.
@@ -41,7 +44,8 @@ screen and the Character module both say so.
   estimate from worn armour, speed, initiative, passive Perception, inspiration, hit dice, spell slots and pact slots as
   they were when imported, attacks with worn weapons (an estimate assuming proficiency), class features and racial
   traits, limited uses, skills, languages, feats, spells, items, coin, personality and backstory) is always written; the
-  rest is chosen: limited uses (Rage, Ki, Second Wind…) and hit dice as **Counters** (an entry with the same name is
+  rest is chosen: the **Stats** module's rows (AC, initiative, speed, passives, spell DC and attack; the player's own rows
+  stay), limited uses (Rage, Ki, Second Wind…) and hit dice as **Counters** (an entry with the same name is
   updated), HP / max / temporary HP (logged with source *import*), conditions (added, not replaced), the character name,
   class, level and ability scores for spells and mana (skipped for a player when the DM keeps them, `spellPlayerStats`),
   items sent to **Inventory** (a player's wait for the DM's approval as usual; names already there are skipped) and, for
@@ -103,7 +107,7 @@ Under `/api/worlds/:world/sheet` (`:aid` is `me`, or for the DM any player's
 account id or character name):
 
 - `GET /:aid`: the sheet (vitals, mana, modules).
-- `POST /:aid/import/ddb { url | json, dryRun?, apply?: { health, conditions, name, stats, counters, spells } }`: import from D&D Beyond (unofficial; `spells` is the DM's only).
+- `POST /:aid/import/ddb { url | json, dryRun?, apply?: { health, conditions, name, stats, sheetStats, counters, spells } }` (403 unless the house rule is on): import from D&D Beyond (unofficial; `spells` is the DM's only).
 - `PUT /me/modules { modules }`: the player's own layout.
 - `POST /:aid/vitals { damage | heal | hp | maxHp | tempHp | setTempHp | conditions, note? }`.
 - `POST /:aid/mana { delta | set | full, note? }` (mana must be on).

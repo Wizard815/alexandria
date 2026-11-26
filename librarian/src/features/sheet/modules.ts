@@ -4,27 +4,34 @@
 // notes, free text, counters, checklists). "From the DM" holds the DM's secret
 // notes and goals for this player; it can be moved but not removed. A module the player marks private
 // is hidden from everyone else, the DM included. "Character" is the summary of
-// a character imported from D&D Beyond (see ddb.ts).
+// a character imported from D&D Beyond (see ddb.ts). "Stats" holds the
+// numbers a player looks up all game (AC, initiative, passives, spell DC…):
+// typed in by the player, or filled by the D&D Beyond import.
 import { HttpError } from '../../core/util.ts';
 import { cleanCharacter } from './ddb.ts';
 
-export const TYPES = ['character', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
+export const TYPES = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
 export type ModuleType = (typeof TYPES)[number];
 /** Modules that show the player's own live data once; the DM always sees them. */
-const SINGLE: ModuleType[] = ['character', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
+const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
 const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 const MAX_MODULES = 24;
 const MAX_JSON = 128_000;
 
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 
-const TITLES: Record<ModuleType, string> = { character: 'Character', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
+const TITLES: Record<ModuleType, string> = { character: 'Character', stats: 'Stats', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
+
+/** The Stats module's rows on a new sheet; the D&D Beyond import fills the same labels. */
+export const STAT_LABELS = ['AC', 'Initiative', 'Speed', 'Proficiency', 'Passive Perception', 'Passive Insight', 'Passive Investigation', 'Spell save DC', 'Spell attack'];
+export const statEntries = () => STAT_LABELS.map((label, i) => ({ id: `s${i}`, label, value: '' }));
 
 // Most used at the top: health and mana side by side, then what a player
 // reaches for during play, then what they read between scenes.
 export const DEFAULT_MODULES: Module[] = [
   { id: 'vitals', type: 'vitals', title: TITLES.vitals, wide: false, private: false, collapsed: false },
   { id: 'mana', type: 'mana', title: TITLES.mana, wide: false, private: false, collapsed: false },
+  { id: 'stats', type: 'stats', title: TITLES.stats, wide: false, private: false, collapsed: false, data: { entries: statEntries() } },
   { id: 'counters', type: 'counters', title: TITLES.counters, wide: false, private: false, collapsed: false, data: { entries: [] } },
   { id: 'dm', type: 'dm', title: TITLES.dm, wide: false, private: false, collapsed: false },
   { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },
@@ -74,6 +81,13 @@ function cleanData(type: ModuleType, data: any, at: string): any {
         const label = txt(e?.label, `${at}.entries[${i}].label`, 40).trim();
         if (!label) throw new HttpError(400, `${at}.entries[${i}] needs a label`);
         return { id: eid(e?.id, i), label, value: whole(e?.value ?? 0, `${at}.entries[${i}].value`, -9999, 99999), max: whole(e?.max, `${at}.entries[${i}].max`, 0, 99999, true) };
+      }),
+    };
+    case 'stats': return {
+      entries: list(d.entries, `${at}.entries`, 30).map((e: any, i: number) => {
+        const label = txt(e?.label, `${at}.entries[${i}].label`, 30).trim();
+        if (!label) throw new HttpError(400, `${at}.entries[${i}] needs a label`);
+        return { id: eid(e?.id, i), label, value: txt(e?.value === undefined || e?.value === null ? '' : String(e.value), `${at}.entries[${i}].value`, 24).trim() };
       }),
     };
     case 'list': return {

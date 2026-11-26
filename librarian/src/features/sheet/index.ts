@@ -20,9 +20,9 @@ import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { manaRules } from '../spells/index.ts';
 import { poolMax, poolNow } from '../spells/mana.ts';
 import { addKnown, character, findSpell, logEntry, saveCharacter } from '../spells/store.ts';
-import { DDB_WARNING, ddbCharacterId, fetchDdb, mapDdb, type DdbCharacter } from './ddb.ts';
+import { DDB_WARNING, ddbCharacterId, ddbStats, fetchDdb, mapDdb, type DdbCharacter } from './ddb.ts';
 import type { Feature } from '../types.ts';
-import { cleanModules, DEFAULT_MODULES, shownTo, type Module } from './modules.ts';
+import { cleanModules, DEFAULT_MODULES, shownTo, statEntries, type Module } from './modules.ts';
 import { recentFor } from './recent.ts';
 import { changeReroll, REROLL_SCHEMA, rerollsOf } from './rerolls.ts';
 import { changeVitals, vitalsLog, vitalsOf, type VitalsChange } from './vitals.ts';
@@ -153,7 +153,8 @@ function routes(d: Deps) {
   });
 
   // ---- import a character from D&D Beyond (unofficial: it can break without notice) ----
-  // { url | json, dryRun?, apply?: { health, conditions, name, stats, counters, spells } }. The player imports onto their own
+  // { url | json, dryRun?, apply?: { health, conditions, name, stats, sheetStats, counters, spells } }. Off unless the
+  // DM turns on the "D&D Beyond import" house rule (sheetDdbImport). The player imports onto their own
   // sheet, the DM onto anyone's. dryRun only reads it, so the screen can show what will change first.
   // Items are not added here: the sheet sends them through Inventory, where the DM approves them as usual.
   r.post('/:aid/import/ddb', requirePlayerOrDM, async (req, res) => {
@@ -161,6 +162,7 @@ function routes(d: Deps) {
     const w = W(res);
     const b = req.body ?? {};
     const dm = isDM(res);
+    if (featureSetting<boolean>(settings(res), 'sheetDdbImport') !== true) throw new HttpError(403, dm ? 'Turn on the D&D Beyond import under World → House rules first' : 'The DM has not turned on the D&D Beyond import in this world');
     let raw: unknown;
     let url = '';
     if (b.json !== undefined && b.json !== null && b.json !== '') {
@@ -174,7 +176,7 @@ function routes(d: Deps) {
     const ch = mapDdb(raw, url);
     if (b.dryRun === true) return res.json({ character: ch, warning: DDB_WARNING, applied: [] });
 
-    const want = { health: true, conditions: true, name: true, stats: true, counters: true, spells: false, ...(b.apply && typeof b.apply === 'object' ? b.apply : {}) };
+    const want = { health: true, conditions: true, name: true, stats: true, sheetStats: true, counters: true, spells: false, ...(b.apply && typeof b.apply === 'object' ? b.apply : {}) };
     const applied: string[] = [];
     const notes: string[] = [];
     const s = settings(res);
@@ -199,6 +201,22 @@ function routes(d: Deps) {
           list = ci >= 0 ? list.map((m, i) => (i === ci ? { ...m, data: { entries } } : m)) : [...list, { id: 'counters', type: 'counters', title: 'Counters', wide: false, private: false, collapsed: false, data: { entries } }];
           applied.push('counters');
         }
+      }
+      // The Stats module: rows with the same label get D&D Beyond's number, the player's own rows stay.
+      if (want.sheetStats) {
+        const vals = ddbStats(ch);
+        const si = list.findIndex((m) => m.type === 'stats');
+        const entries: any[] = si >= 0 ? [...(list[si].data?.entries ?? [])] : statEntries();
+        for (const [label, value] of Object.entries(vals)) {
+          if (!value) continue;
+          const j = entries.findIndex((x) => String(x.label).toLowerCase() === label.toLowerCase());
+          if (j >= 0) entries[j] = { ...entries[j], value };
+          else if (entries.length < 30) entries.push({ id: id('s'), label, value });
+        }
+        const statsMod: Module = { id: 'stats', type: 'stats', title: 'Stats', wide: false, private: false, collapsed: false, data: { entries } };
+        if (si >= 0) list = list.map((m, i) => (i === si ? { ...m, data: { entries } } : m));
+        else { const ci = list.findIndex((m) => m.type === 'character'); list = [...list.slice(0, ci + 1), statsMod, ...list.slice(ci + 1)]; }
+        applied.push('sheetStats');
       }
       const next = cleanModules(list);
       run(db, `INSERT INTO sheets (world_id, account_id, conditions, modules, updated_at) VALUES (?, ?, '[]', ?, ?)
@@ -382,7 +400,10 @@ const feature: Feature = {
   settings: {
     sheetRerolls: { type: 'boolean', default: false },
     sheetRerollCap: { type: 'int', default: 3, min: 1, max: 20 },
+    // House rule "D&D Beyond import" (mods/dndbeyond-import.alxmod.json) turns it on.
+    sheetDdbImport: { type: 'boolean', default: false },
   },
+  houseRules: ['dndbeyond-import'],
   worldMount: 'sheet',
   worldRoutes: routes,
   mcpTools: [

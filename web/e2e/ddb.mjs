@@ -40,6 +40,13 @@ const character = {
 };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('ddb'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
+// The import is a house rule: the DM turns it on first (World → House rules).
+{
+  const dmTok = (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'dm', password: 'dungeon master 123' }) })).json()).token;
+  const wid = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmTok } })).json())[0].id;
+  const r = await fetch(`${base}/api/worlds/${wid}/mods/dndbeyond-import/enabled`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dmTok }, body: JSON.stringify({ on: true }) });
+  if (!r.ok) throw new Error(`turning on the house rule: ${r.status} ${await r.text()}`);
+}
 const browser = await chromium.launch();
 function watch(page, who) {
   page.on('pageerror', (e) => problems.push(`${who} page error on ${page.url()}: ${e.message}`));
@@ -95,6 +102,10 @@ try {
   check(await vit.getByText('Poisoned').count() > 0, 'the condition came across');
   check(/Passive Perception/.test(await mod.innerText()) && /Quarterstaff/.test(await mod.innerText()), 'the module shows passive Perception and attacks');
   check(await pl.getByTestId('mod-counters').getByText('Arcane Recovery').count() === 1, 'limited uses became counters');
+  const stats = pl.getByTestId('mod-stats');
+  check(await stats.getByLabel('Passive Perception').inputValue() === '11', 'the Stats module has passive Perception from D&D Beyond');
+  check(await stats.getByLabel('Spell save DC').inputValue() === '14', 'the Stats module has the spell save DC');
+  if (SHOTS) await stats.screenshot({ path: path.join(SHOTS, '3c-stats-module.png') });
   await mod.scrollIntoViewIfNeeded();
   await shot(pl, '3-character-module');
   if (SHOTS) await mod.screenshot({ path: path.join(SHOTS, '3b-character-module-full.png') });

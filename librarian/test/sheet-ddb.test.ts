@@ -124,6 +124,17 @@ before(async () => {
   }
 });
 
+test('SheetDdb_IsAHouseRule: off until the DM turns on the D&D Beyond import house rule, which switches sheetDdbImport', async () => {
+  const off = await call('POST', `${SH()}/me/import/ddb`, T.jess, { json: JSON.stringify(ddbJson()), dryRun: true });
+  assert.equal(off.status, 403);
+  assert.match(off.body.error, /DM has not turned on/);
+  assert.match((await call('POST', `${SH()}/me/import/ddb`, T.dm, { json: '{}', dryRun: true })).body.error, /House rules/);
+  await ok('PUT', `/api/worlds/${W}/mods/dndbeyond-import/enabled`, T.dm, { on: true });
+  const s = await ok('GET', `/api/worlds/${W}/settings`, T.dm);
+  assert.equal(s.sheetDdbImport, true);
+  assert.equal((await ok('POST', `${SH()}/me/import/ddb`, T.jess, { json: JSON.stringify(ddbJson()), dryRun: true })).character.name, 'Brindle Ashvale');
+});
+
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 /** D&D Beyond as the server sees it: `answer` decides what each character id returns. */
@@ -254,11 +265,14 @@ test('SheetDdb_PlayerImport: Character module first, HP and conditions logged as
   fakeDdb(() => ({ status: 200, body: ddbJson() }));
   try {
     const out = await ok('POST', `${SH()}/me/import/ddb`, T.jess, { url: '87654321', apply: { spells: true } });
-    assert.deepEqual(out.applied, ['counters', 'character', 'health', 'conditions', 'name', 'stats']);
+    assert.deepEqual(out.applied, ['counters', 'sheetStats', 'character', 'health', 'conditions', 'name', 'stats']);
     assert.equal(out.learned, 0);
     const sheet = await ok('GET', `${SH()}/me`, T.jess);
     assert.equal(sheet.modules[0].type, 'character');
     assert.equal(sheet.modules[0].data.level, 5);
+    // The Stats module: the default rows filled from D&D Beyond.
+    const stats = Object.fromEntries(sheet.modules.find((m: any) => m.type === 'stats').data.entries.map((e: any) => [e.label, e.value]));
+    assert.deepEqual(stats, { AC: '16', Initiative: '+2', Speed: '25 ft', Proficiency: '+3', 'Passive Perception': '11', 'Passive Insight': '11', 'Passive Investigation': '13', 'Spell save DC': '14', 'Spell attack': '+6' });
     const counters = sheet.modules.find((m: any) => m.type === 'counters').data.entries;
     assert.deepEqual(counters.filter((e: any) => /Arcane|Second|Lucky|Hit dice/.test(e.label)).map((e: any) => [e.label, e.value, e.max]),
       [['Arcane Recovery', 1, 1], ['Second Wind', 0, 1], ['Lucky', 2, 3], ['Hit dice (d6)', 3, 4], ['Hit dice (d10)', 1, 1]]);

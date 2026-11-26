@@ -12,6 +12,7 @@ for the format.
 | `mana-pool.alxmod.json` | Simple mana pool | Alexandria's own mana numbers (spells feature) |
 | `mana-system.alxmod.json` | MANA spell system | Wizard's MANA rules; needs the MANA engine |
 | `spell-crafting.alxmod.json` | Spell crafting (Codex) | Learning spells by combining known ones (spells feature) |
+| `dndbeyond-import.alxmod.json` | D&D Beyond import | Import on the player sheet: Character and Stats modules, HP, counters, items (sheet feature; unofficial) |
 
 `examples/` holds rules that are not built in. The assistant reads them as
 patterns when it makes a rule for you (`house_rule_file`), and you can paste

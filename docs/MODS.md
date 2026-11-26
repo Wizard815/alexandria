@@ -41,6 +41,7 @@ every world.
 | Simple mana pool | magic | Alexandria's own mana numbers (4 per level plus the casting modifier). |
 | MANA spell system | magic | Wizard's MANA rules. Needs the MANA engine (`spellRulesOn`); until it is on this server the rule shows but cannot be turned on. |
 | Spell crafting (Codex) | | Learn new spells by combining known ones, with the DM's approval or automatically. |
+| D&D Beyond import | | Import on the player sheet reads a public D&D Beyond character into the Character and Stats modules, HP, counters and Inventory (`sheetDdbImport`). Unofficial: D&D Beyond has no official API, so it can break without notice; it never writes back. |
 
 Rules in the same **group** are exclusive: turning on spell points turns the
 simple mana pool or MANA off first. With no magic rule on, spells use slots.

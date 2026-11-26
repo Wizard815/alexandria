@@ -9,6 +9,18 @@
 // (sheets), class, level and ability scores (the spells feature's sheet).
 import { HttpError } from '../../core/util.ts';
 
+const sgn = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+/** What the import writes into the Stats module, by row label. */
+export function ddbStats(c: DdbCharacter): Record<string, string> {
+  const out: Record<string, string> = {
+    AC: c.ac === null ? '' : String(c.ac), Initiative: sgn(c.initiative), Speed: c.speed === null ? '' : `${c.speed} ft`, Proficiency: sgn(c.prof),
+    'Passive Perception': String(c.passivePerception), 'Passive Insight': String(c.passiveInsight), 'Passive Investigation': String(c.passiveInvestigation),
+  };
+  if (c.spellDc !== null) out['Spell save DC'] = String(c.spellDc);
+  if (c.spellAttack !== null) out['Spell attack'] = sgn(c.spellAttack);
+  return out;
+}
+
 export const DDB_WARNING = 'D&D Beyond has no official API. This import reads the character data the D&D Beyond site uses for itself, so it can break or change without notice. Check the numbers after importing.';
 const HOST = 'https://character-service.dndbeyond.com/character/v5/character/';
 const MAX_BYTES = 6_000_000;
@@ -61,6 +73,11 @@ export interface DdbCharacter {
   conditions: string[];
   initiative: number;
   passivePerception: number;
+  passiveInsight: number;
+  passiveInvestigation: number;
+  /** Spell save DC and attack bonus with the casting ability, or null for a character who casts nothing. */
+  spellDc: number | null;
+  spellAttack: number | null;
   inspiration: boolean;
   hitDice: { die: number; total: number; used: number }[];
   /** Spell slots by spell level 1-9 (index 0 = level 1); pact magic separately. */
@@ -200,6 +217,12 @@ export function mapDdb(raw: unknown, url = ''): DdbCharacter {
   const initiative = dex + sum('bonus', 'initiative');
   const percProf = has('expertise', 'perception') ? 2 * prof : has('proficiency', 'perception') ? prof : 0;
   const passivePerception = 10 + mod(abilities.wis) + percProf + sum('bonus', 'passive-perception');
+  const skillProf = (skill: string) => (has('expertise', skill) ? 2 * prof : has('proficiency', skill) ? prof : 0);
+  const passiveInsight = 10 + mod(abilities.wis) + skillProf('insight') + sum('bonus', 'passive-insight');
+  const passiveInvestigation = 10 + mod(abilities.int) + skillProf('investigation') + sum('bonus', 'passive-investigation');
+  const castMod = castingAbility ? mod(abilities[castingAbility]) : null;
+  const spellDc = castMod === null ? null : 8 + prof + castMod + sum('bonus', 'spell-save-dc');
+  const spellAttack = castMod === null ? null : prof + castMod + sum('bonus', 'spell-attacks');
 
   const hitDice = arr(c.classes).map((k) => ({ die: int(k?.definition?.hitDice, 4, 12) ?? 8, total: int(k?.level, 1, 20) ?? 1, used: int(k?.hitDiceUsed, 0, 20) ?? 0 }));
 
@@ -290,7 +313,7 @@ export function mapDdb(raw: unknown, url = ''): DdbCharacter {
     classes, level, abilities, castingAbility,
     hp: { max, now, temp }, ac, speed, prof, saves, skills, languages, feats,
     spells: spells.slice(0, 300), items, coins, conditions,
-    initiative, passivePerception, inspiration: c.inspiration === true, hitDice, slots, pact, attacks: attacks.slice(0, 12), features: features.slice(0, 60), uses, traits,
+    initiative, passivePerception, passiveInsight, passiveInvestigation, spellDc, spellAttack, inspiration: c.inspiration === true, hitDice, slots, pact, attacks: attacks.slice(0, 12), features: features.slice(0, 60), uses, traits,
   };
 }
 
@@ -339,6 +362,10 @@ export function cleanCharacter(d: any): DdbCharacter | Record<string, never> {
     conditions: arr(d.conditions).slice(0, 20).map((x) => str(x, 40)).filter(Boolean),
     initiative: int(d.initiative, -20, 40) ?? 0,
     passivePerception: int(d.passivePerception, 0, 60) ?? 10,
+    passiveInsight: int(d.passiveInsight, 0, 60) ?? 10,
+    passiveInvestigation: int(d.passiveInvestigation, 0, 60) ?? 10,
+    spellDc: int(d.spellDc, 0, 40),
+    spellAttack: int(d.spellAttack, -10, 30),
     inspiration: d.inspiration === true,
     hitDice: arr(d.hitDice).slice(0, 6).map((h) => ({ die: int(h?.die, 4, 12) ?? 8, total: int(h?.total, 1, 20) ?? 1, used: int(h?.used, 0, 20) ?? 0 })),
     slots: arr(d.slots).slice(0, 9).map((x) => ({ level: int(x?.level, 1, 9) ?? 1, max: int(x?.max, 0, 9) ?? 0, used: int(x?.used, 0, 9) ?? 0 })),
