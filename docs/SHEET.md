@@ -86,4 +86,6 @@ account id or character name):
 - `POST /:aid/rerolls { kind: personal|party|dm, delta, note? }` (re-rolls on; the DM gives or takes back, a player spends their own).
 - `POST /:aid/dm-notes { kind: note|goal, text }` (DM), `PATCH /:aid/dm-notes/:id` (DM: text/kind/done; the player: done on a goal), `DELETE /:aid/dm-notes/:id` (DM).
 
-Assistant tools: `party_status` (read), and `change_player_hp` and `give_reroll` (writes the DM approves).
+Assistant tools: `party_status` (DM read), `read_sheet` and `sheet_log` (reads for both: a player's helper only ever gets that player's own sheet and log, and the DM's assistant never gets a module the player marked private), and `change_player_hp`, `change_player_mana`, `give_reroll`, `add_sheet_note` and `update_sheet_note` (writes the DM approves). The player helper is also given the goals and notes the DM put on that player's sheet with every question, so it can answer "what does the DM want me to do" without a tool call.
+
+A check against real models (Hy4 Flash for the DM, Ternary Bonsai 9B for a player) is in `web/e2e/features-real.mjs` (`FEATURES_REAL=1`; it costs under a cent).

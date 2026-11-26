@@ -4,7 +4,7 @@
 // nothing carries her name. Text is the library's own player copy (secret
 // blocks cut out), and a player's writes only ever touch their own root.
 import type { Deps } from '../../app.ts';
-import { one } from '../../core/db.ts';
+import { all, one } from '../../core/db.ts';
 import { HttpError } from '../../core/util.ts';
 import { searchTerms } from '../agent/intent.ts';
 import { autoApproved, currentSession, openArc } from './store.ts';
@@ -114,6 +114,11 @@ export function brokerContext(d: Deps, worldId: string, accountId: string, quest
   const L: string[] = [];
   if (v.knowledge && clip(v.knowledge.body, 1000)) L.push(`What this player knows (clues they found, what they worked out). Answer only from this, the party's shared pages and the library pages shown:\n${v.knowledge.body.slice(0, 2500)}`);
   if (v.goals.length) L.push(`This player's goals:\n${v.goals.map((g) => `- ${g.title} (${g.heat ?? 'ongoing'}): ${clip(g.body, 200)}`).join('\n').slice(0, 1500)}`);
+  // What the DM put on this player's sheet (features/sheet, From the DM): only this player and the DM see it.
+  try {
+    const fromDm = all<any>(d.db, 'SELECT kind, text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? ORDER BY kind DESC, done, created_at LIMIT 10', worldId, accountId);
+    if (fromDm.length) L.push(`What the DM put on this player's sheet (goals and notes, for this player only):\n${fromDm.map((x) => `- ${x.kind === 'goal' ? `Goal${x.done ? ' (done)' : ''}` : 'Note'}: ${clip(String(x.text), 300)}`).join('\n').slice(0, 1500)}`);
+  } catch { /* no sheet feature */ }
   if (v.journal.length) L.push(`This player's recent journal:\n${v.journal.slice(-2).map((j) => `${j.title}: ${clip(j.body, 500)}`).join('\n').slice(0, 1500)}`);
   const terms = searchTerms(question);
   const score = (x: View) => terms.reduce((n, t) => n + (norm(`${x.title} ${x.body}`).includes(t) ? 1 : 0), 0);

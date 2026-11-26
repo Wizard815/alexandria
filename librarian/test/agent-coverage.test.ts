@@ -197,6 +197,7 @@ const scene = () => once('scene', async () => (await dm('POST', '/scenes', { nam
 const pendingCoin = () => once('coin', async () => (await dm('GET', '/approvals')).coin[0].id as string);
 const request = () => once('request', async () => (await as('jess')('POST', '/requests', { kind: 'question', title: 'Can I recall the keeper?', body: 'Jessamine grew up here.' })).id as string);
 const dmTemplate = () => once('dm-template', async () => (await dm('POST', '/templates', { kind: 'library', name: 'Coverage page', spec: { sections: ['Overview'] } })).id as string);
+const sheetNote = () => once('sheet-note', async () => (await dm('POST', `/sheet/${ID.jess}/dm-notes`, { kind: 'goal', text: 'Ask the keeper about the lamp.' })).fromDm.at(-1).id as string);
 const movableItem = () => once('movable', async () => (await dm('POST', '/inventory', { owner: ID.tom, name: 'Rope', qty: 3, reason: 'Bought' })).id as string);
 
 const shopId = () => once('shop', async () => (await dm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'cov', save: true, status: 'open' })).shop.id as string);
@@ -281,6 +282,10 @@ const ARGS: Record<string, Maker> = {
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),
+  add_sheet_note: () => ({ accountId: 'jess', kind: 'goal', text: 'Find out who darkened the lighthouse.' }),
+  update_sheet_note: async () => ({ accountId: 'jess', noteId: await sheetNote(), done: true }),
+  // Mana is off by default: the first time a mana tool runs, it is switched on and Jessamine gets a pool.
+  change_player_mana: async () => { await once('mana-on', async () => { await dm('PATCH', '/settings', { spellMana: true }); await dm('PUT', `/spells/characters/${ID.jess}`, { manaMax: 10 }); }); return { accountId: 'jess', delta: -2, note: 'coverage' }; },
   add_recall: async () => ({ personId: await person(), accountId: ID.jess, text: 'Jessamine knew him as a child.', success: true }),
   resolve_quick_event: async () => ({ id: await quickEvent('resolve') }),
   cancel_quick_event: async () => ({ id: await quickEvent('cancel') }),
@@ -443,7 +448,7 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
   assert.deepEqual(failures, [], `player tools that did not run:\n${failures.join('\n')}`);
   console.log(`Player harness: ${readTools.length - denied.length} ran, ${denied.length} are the DM's and were refused (${denied.join(', ')})`);
   // The ones a player is meant to have are not among the refused.
-  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory']) assert.ok(!denied.includes(n), `${n} works for a player`);
+  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory', 'read_sheet', 'sheet_log']) assert.ok(!denied.includes(n), `${n} works for a player`);
   // What the tools returned to a player holds nothing of the DM's.
   for (const marker of DM_ONLY) assert.ok(!results.some((r) => r.includes(marker)), `a tool result for a player held ${marker}`);
 
@@ -481,4 +486,32 @@ test('Coverage: no classified text, and no DM-only text for a player, reaches an
   assert.ok(dms.some((s) => DM_ONLY.some((m) => s.body.includes(m))), 'the DM agent saw DM-only text');
   // Calls were audited.
   assert.ok(one<any>(deps.db, `SELECT COUNT(*) AS n FROM audit WHERE world_id = ? AND action = 'agent.action'`, W)!.n >= 30);
+});
+
+test('Coverage: a player helper reads their own sheet only, and never what is hidden from them', async () => {
+  // The DM's note for Tomas, and a module Jessamine keeps private.
+  await dm('POST', `/sheet/${ID.tom}/dm-notes`, { kind: 'note', text: 'TOMONLY_NOTE your brother is alive' });
+  const mods = (await as('jess')('GET', '/sheet/me')).modules;
+  await as('jess')('PUT', '/sheet/me/modules', { modules: [...mods, { id: 'diary', type: 'notes', title: 'Diary', private: true, data: { text: 'JESSPRIVATE_DIARY I stole the lamp oil' } }] });
+  await as('jess')('POST', '/sheet/me/vitals', { maxHp: 20, hp: 20 });
+  await as('jess')('POST', '/sheet/me/vitals', { damage: 1, note: 'stubbed a toe' });
+
+  // Jessamine's helper reads her own sheet, private module and all, and her log.
+  const own = await drive('jess', 'read_sheet', {});
+  assert.ok(own.result.includes('JESSPRIVATE_DIARY') && !own.result.includes('TOMONLY_NOTE'), own.result.slice(0, 300));
+  assert.match((await drive('jess', 'sheet_log', {})).result, /stubbed a toe/);
+  // Another player's sheet is refused, by account id or by name.
+  for (const who of [ID.tom, 'tom']) assert.match((await drive('jess', 'read_sheet', { accountId: who })).result, /^Error 404/);
+  // A player asking about their own health is offered the sheet tool.
+  assert.ok(selectTools('how much hp do I have left?', toolsFor(false).filter((t) => !t.dmOnly).map((t) => t.name), undefined, false).includes('read_sheet'));
+
+  // The DM's assistant sees Tomas's note and Jessamine's sheet, but not her private module.
+  assert.match((await drive('dm', 'read_sheet', { accountId: 'tom' })).result, /TOMONLY_NOTE/);
+  const dmView = await drive('dm', 'read_sheet', { accountId: 'jess' });
+  assert.ok(!dmView.result.includes('JESSPRIVATE_DIARY'), 'the DM agent did not get a private module');
+  assert.ok(selectTools("put a goal on Jess's sheet", toolsFor(true).map((t) => t.name)).includes('add_sheet_note'));
+
+  // No model request for Jessamine carried Tomas's note; none for the DM carried her diary.
+  for (const s of model.seen.filter((x) => x.who === 'player')) assert.ok(!s.body.includes('TOMONLY_NOTE'), "a player's request carried another player's DM note");
+  for (const s of model.seen.filter((x) => x.who === 'dm')) assert.ok(!s.body.includes('JESSPRIVATE_DIARY'), "the DM's request carried a player's private module");
 });
