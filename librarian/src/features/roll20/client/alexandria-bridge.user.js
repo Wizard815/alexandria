@@ -7,6 +7,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        unsafeWindow
 // @connect      *
 // @run-at       document-idle
 // ==/UserScript==
@@ -42,6 +43,7 @@
   var MOD_WAIT_MS = 8000;
   var WATCH_MS = 1000;
 
+  // The page's own window: a userscript sandbox cannot see Roll20's variables (window.Campaign) without it.
   var root = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   var store = {
     get: function (k, d) { try { return typeof GM_getValue === 'function' ? GM_getValue(k, d) : (root.localStorage.getItem('alx.' + k) ?? d); } catch (e) { return d; } },
@@ -152,7 +154,7 @@
     if (m.t === 'hi') {
       modVersion = m.version;
       mode = 'mod';
-      api('/hello', { modVersion: m.version, campaign: m.campaign, bridgeVersion: VERSION, mode: 'mod' }).then(function () { status('Connected'); }, function (e) { status(e.message, true); });
+      api('/hello', { modVersion: m.version, campaign: m.campaign || gameName(), bridgeVersion: VERSION, mode: 'mod' }).then(function () { status('Connected'); }, function (e) { status(e.message, true); });
     } else if (m.t === 'events') {
       // One at a time, in order; the Mod drops what Alexandria acknowledged.
       eventQ = eventQ.then(function () {
@@ -163,6 +165,9 @@
       });
     }
   }
+
+  // The game's name: Roll20 puts it in the tab title ("Name | Roll20").
+  function gameName() { return String(document.title || '').replace(/\s*[|\-–]\s*Roll20.*$/i, '').trim().slice(0, 120); }
 
   // ======== without the Mod: this browser tab does the work ========
   var cfgMod = { hpAttr: 'hp', tempAttr: 'hp_temp', bar: 'bar1', managed: [], rollsIn: true, hp: true, conditions: true };
@@ -385,7 +390,7 @@
   function goFree() {
     if (mode !== 'wait') return;
     mode = 'free';
-    api('/hello', { bridgeVersion: VERSION, mode: 'free', campaign: (camp() && camp().get && camp().get('name')) || '' }).then(function (r) {
+    api('/hello', { bridgeVersion: VERSION, mode: 'free', campaign: gameName() }).then(function (r) {
       if (r.config) cfgMod = r.config;
       if (camp()) { snapshotFree(); watchFree(); }
       else status('Connected (no Mod script): rolls and chat only', false);
@@ -439,7 +444,8 @@
   }
 
   function boot() {
-    var log = document.querySelector('#textchat .content');
+    // The chat log; Roll20's own CSS names it both ways.
+    var log = document.querySelector('#textchat .content') || document.querySelector('.textchatcontainer .content') || document.querySelector('.textchatcontainer');
     if (!log || !chatBox()) { setTimeout(boot, 1000); return; }
     // What is already in the chat is history: not sent as new rolls.
     scan(log);
