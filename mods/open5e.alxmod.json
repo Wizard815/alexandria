@@ -1,0 +1,9 @@
+{
+  "kit": 2,
+  "id": "open5e",
+  "name": "Open5e and the 5e SRD API",
+  "version": "1.0.0",
+  "scope": "server",
+  "onByDefault": true,
+  "summary": "Free rules books from Open5e and the 5e SRD API: the Admin → Content library page, the Open5e and 5e SRD API import tabs in World settings → Game module, and the assistant's import tools. Books already in the library stay usable while it is off."
+}
