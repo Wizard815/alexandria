@@ -1,0 +1,28 @@
+/* The popover follows Owlbear Rodeo's own theme (set from OBR.theme in popover.tsx). */
+:root { --obr-bg: #222639; --obr-text: #fff; --obr-muted: rgba(255,255,255,.7); --obr-accent: #bb99ff; --obr-accent-text: #222; color-scheme: dark; }
+:root[data-mode="light"] { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; color: var(--obr-text); font: 14px/1.4 Roboto, system-ui, sans-serif; }
+main { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+p { margin: 0; }
+ol { margin: 0; padding-left: 18px; }
+.muted { color: var(--obr-muted); }
+.small { font-size: 12px; margin-top: -6px; }
+.err { color: #ff8a80; }
+.note { padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--obr-text) 8%, transparent); }
+.note.error { color: #ff8a80; }
+label { display: flex; flex-direction: column; gap: 4px; font-weight: 500; }
+label.row { flex-direction: row; align-items: flex-start; gap: 8px; font-weight: 400; }
+label.row input { margin-top: 3px; }
+input:not([type]), input[inputmode], select {
+  font: inherit; color: inherit; background: color-mix(in srgb, var(--obr-text) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--obr-text) 25%, transparent); border-radius: 6px; padding: 6px 8px; width: 100%;
+}
+select option { color: #000; }
+fieldset { border: 1px solid color-mix(in srgb, var(--obr-text) 20%, transparent); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; margin: 0; }
+legend { padding: 0 4px; font-weight: 500; }
+.buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn { font: inherit; cursor: pointer; border-radius: 20px; padding: 6px 14px; border: 1px solid var(--obr-accent); background: transparent; color: var(--obr-accent); text-decoration: none; text-align: center; }
+.btn.primary { background: var(--obr-accent); color: var(--obr-accent-text); }
+.btn.quiet { border-color: transparent; color: var(--obr-muted); }
+.btn:disabled { opacity: .5; cursor: default; }
