@@ -113,7 +113,7 @@ const valuables: Gen = (rc, p, r) => {
 };
 
 // ---- encounters ----
-interface Mon { name: string; ref: string; cr: number; xp: number; ac: number; hp: number; type: string; dex?: number }
+interface Mon { name: string; ref: string; cr: number; xp: number; ac: number; hp: number; type: string; dex?: number; env?: string[] }
 const monsterCache = new WeakMap<object, Mon[]>();
 const FALLBACK_MON: Mon[] = [
   { name: 'Goblin', ref: '', cr: 0.25, xp: 50, ac: 15, hp: 7, type: 'humanoid' }, { name: 'Wolf', ref: '', cr: 0.25, xp: 50, ac: 13, hp: 11, type: 'beast' },
@@ -130,7 +130,8 @@ export function monstersOf(rc: RenderCtx): Mon[] {
     if (t.kind !== 'monster') continue;
     const d: any = t.data;
     if (!d || typeof d !== 'object' || typeof d.cr !== 'number') continue;
-    out.push({ name: t.term, ref: t.ref, cr: d.cr, xp: Number(d.xp) || 0, ac: Number(d.ac) || 10, hp: Number(d.hp) || 1, type: String(d.type ?? "").toLowerCase(), dex: Number(d.abilities?.dex) || 10 });
+    // Habitats from the source; a creature tagged with a dozen or more (every plane) is "anywhere" and goes by type.
+    out.push({ name: t.term, ref: t.ref, cr: d.cr, xp: Number(d.xp) || 0, ac: Number(d.ac) || 10, hp: Number(d.hp) || 1, type: String(d.type ?? "").toLowerCase(), dex: Number(d.abilities?.dex) || 10, ...(Array.isArray(d.environments) && d.environments.length && d.environments.length <= 12 ? { env: d.environments.map((e: unknown) => String(e).toLowerCase()) } : {}) });
   }
   out.sort((a, b) => a.xp - b.xp || a.name.localeCompare(b.name));
   monsterCache.set(wm, out);
@@ -155,6 +156,12 @@ export const ENVIRONMENTS: Record<string, string[]> = {
   arctic: ['beast', 'giant', 'elemental', 'undead', 'monstrosity'],
   plains: ['beast', 'humanoid', 'monstrosity', 'giant', 'fey'],
 };
+/** Habitat names in monster data that count as each environment. */
+const ENV_WORDS: Record<string, string[]> = {
+  forest: ['forest', 'jungle', 'woodland'], swamp: ['swamp', 'marsh', 'bog'], mountain: ['mountain', 'hill'], coast: ['coast', 'shore', 'sea', 'ocean', 'water'],
+  desert: ['desert', 'badlands'], dungeon: ['dungeon', 'ruin', 'tomb', 'lair'], urban: ['urban', 'city', 'settlement', 'sewer'],
+  underground: ['underground', 'underdark', 'underworld', 'cave', 'cavern'], arctic: ['arctic', 'tundra', 'polar', 'ice'], plains: ['plain', 'grassland', 'steppe', 'farm'],
+};
 const encounter: Gen = (rc, p, r) => {
   const level = num(p.level, rc.partyLevel(), 1, 20);
   const size = num(p.size, Number(rc.vars()['party.size']) || 4, 1, 10);
@@ -163,7 +170,9 @@ const encounter: Gen = (rc, p, r) => {
   let all = monstersOf(rc);
   if (!all.length) all = FALLBACK_MON;
   const types = ENVIRONMENTS[(p.env || p.environment || '').toLowerCase()];
-  let cands = types ? all.filter((m) => types.includes(m.type) || types.some((t) => m.type.startsWith(t))) : all;
+  // A monster whose source names its habitats (Open5e books do) goes by those; the rest by creature type.
+  const words = ENV_WORDS[(p.env || p.environment || '').toLowerCase()] ?? [];
+  let cands = types ? all.filter((m) => (m.env ? m.env.some((e) => words.some((w) => e.includes(w))) : types.includes(m.type) || types.some((t) => m.type.startsWith(t)))) : all;
   if (cands.length < 4) cands = all;
   const groups: { m: Mon; n: number }[] = [];
   let used = 0;

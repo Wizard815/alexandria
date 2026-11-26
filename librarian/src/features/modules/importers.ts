@@ -4,6 +4,8 @@
 //   folder files picked in the browser, one term per file
 //   git    a repository cloned read-only into a temp folder, then as a folder
 //   api    a JSON API with a simple field mapping
+//   open5e    books from the Open5e API (sources.ts)
+//   dnd5eapi  the 5e SRD API's database, fresh (sources.ts)
 // Every path ends in normalizeModule(), which applies the size limits.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -16,6 +18,7 @@ import { htmlToMarkdown } from '../../intake/html.ts';
 import { pick } from '../../intake/connectors/api.ts';
 import { KINDS, LIMITS, asKind, normalizeModule, slug, type ModuleDoc } from './format.ts';
 import { readZip, ZIP_LIMITS } from './zip.ts';
+import { readDnd5eApi, readOpen5e } from './sources.ts';
 
 export interface SourceFile { path: string; text: string }
 
@@ -206,7 +209,7 @@ async function termsFromApi(b: any, d: Deps, meta: Partial<ModuleDoc>) {
 
 // ---- entry point ----------------------------------------------------------
 /** The raw request body of an import (preview or save) to a normalised module. */
-export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ module: ModuleDoc; warnings: string[]; source: string }> {
+export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ module: ModuleDoc; warnings: string[]; source: string; edition: string }> {
   if (!b || typeof b !== 'object') b = {};
   const meta = metaOf(b);
   const type = rawZip ? 'zip' : String(b.type ?? '');
@@ -240,11 +243,22 @@ export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ mo
       r = await termsFromApi(b, d, meta);
       source = `api ${String(b.url)}`;
       break;
+    case 'open5e':
+      r = await readOpen5e(b, d);
+      r = { ...r, raw: { ...r.raw, ...meta } };
+      source = `open5e ${(Array.isArray(b.documents) ? b.documents : []).map(String).join(',').slice(0, 200)}`;
+      break;
+    case 'dnd5eapi':
+      r = await readDnd5eApi(b, d);
+      r = { ...r, raw: { ...r.raw, ...meta } };
+      source = `dnd5eapi ${String(b.edition ?? '2024')}`;
+      break;
     default:
-      throw new HttpError(400, `type must be one of: json, zip, folder, git, api`);
+      throw new HttpError(400, `type must be one of: json, zip, folder, git, api, open5e, dnd5eapi`);
   }
   const { module, warnings } = normalizeModule(r.raw, meta);
-  return { module, warnings: [...r.warnings, ...warnings], source };
+  const edition = r.raw?.edition === '2024' || r.raw?.edition === '2014' ? r.raw.edition : '';
+  return { module, warnings: [...r.warnings, ...warnings], source, edition };
 }
 
 void KINDS;
