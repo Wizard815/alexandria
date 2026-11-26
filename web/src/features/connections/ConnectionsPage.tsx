@@ -32,7 +32,7 @@ export default function ConnectionsPage() {
 
   return (
     <div className="page">
-      <PageHead title="Connections" lead="Your accounts in other apps: a Kanka token, a LegendKeeper key, an MCP address. Keep each one here once, then point any world's sources at it. A source adds what is specific to its world: the campaign or project, a schedule, and who may see it.">
+      <PageHead title="Connections" lead="Your accounts in other apps: a Kanka token, a LegendKeeper key, World Anvil keys, an MCP address. Keep each one here once, then point any world's sources at it. A source adds what is specific to its world: the campaign or project, a schedule, and who may see it.">
         <button type="button" className="btn primary" onClick={() => setEditing('new')}>New connection</button>
       </PageHead>
       <ErrorBox error={conns.error || connectors.error} />

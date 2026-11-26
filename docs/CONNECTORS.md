@@ -19,6 +19,7 @@ is the same for every source:
 | `legendkeeper-mcp` | LegendKeeper through its MCP server (`api_request` GET only) | Hidden resources, hidden ancestors, hidden documents, "No Access" permissions on a resource or ancestor, `secret` blocks, hidden sidebar and infobox properties |
 | `legendkeeper-api` | LegendKeeper REST v3 (`https://www.legendkeeper.com/api/v3/projects/<id>`) with an Admin API key; waits out 429s | Same |
 | `kanka-api` | Kanka API with a token (`?related=1` on every page, waits out 429s) | `is_private` entities, posts not "all"/"members" or with a deny permission, private attributes, `is_attributes_private`, hidden personality traits, private races and families, private tags |
+| `worldanvil-api` | World Anvil API v2 ("Boromir") with an application key and a user token; waits out 429s (see "World Anvil") | Drafts, `private` articles, categories, maps, markers and events (unless shared with a player subscriber group), `[secret:id]` secrets, `[subcontainer:id]`, `[userstate:…]`, `/* comments */`, storyteller seeds (unless shown) and the scrapbook |
 | `kanka-mcp` | The mcp-kanka server (`find_entities`, `get_entities`) | `is_hidden`. Posts are DM-only unless "trust post visibility" is on. |
 | `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- dm -->`, DM headings |
 | `git` | A repo of Markdown reference files, cloned read-only | Same as Markdown |
@@ -459,8 +460,8 @@ no connection has its own.
 
 | Setting (on the connection) | Default | Meaning |
 |---|---|---|
-| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 200, generic API 60 | never more in any 60 seconds |
-| `maxPerSecond` ("Max calls per second") | LegendKeeper 2, others 0 (no cap) | never more in any second |
+| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 200, World Anvil 60, generic API 60 | never more in any 60 seconds |
+| `maxPerSecond` ("Max calls per second") | LegendKeeper 2, World Anvil 2, others 0 (no cap) | never more in any second |
 | `maxPerHour` ("Max calls per hour") | LegendKeeper 6,000, others 0 (no cap) | never more in any hour |
 | `spreadMinutes` ("Spread the first scan over (minutes)") | 1 | see below; 0: as fast as the limits allow |
 
@@ -789,6 +790,7 @@ model and the broker never get it. The list endpoint never carries it.
 |---|---|---|
 | Kanka | `https://app.kanka.io/w/<campaign id>/entities/<entity id>`. The API's own `urls.view` is used when it sends one; a self-hosted Kanka uses its own host. | Documented in the API (`urls.view`). |
 | LegendKeeper | `https://www.legendkeeper.com/app/project/{project}/resource/{id}`, from the project id and the resource id. The project id is read from the API URL, or set as **Project id** for the MCP connector. | Not documented: LegendKeeper's API docs give no app address. Treat the default as a best guess and set **Page address in the LegendKeeper app** (`webUrl`, with `{project}`, `{id}`, `{doc}`) if it does not open the page. |
+| World Anvil | The article's own `url` from the API (`https://www.worldanvil.com/w/<world>/a/<article>`). | Documented in the API (`url`). |
 | Markdown, Obsidian | `obsidian://open?vault=<vault name>&file=<path without .md>` when **Obsidian vault name** is set; no button otherwise. Git sources have none. | Obsidian URI documentation. It opens the note in Obsidian on the computer where the browser runs. |
 
 ## What each source keeps
@@ -800,7 +802,12 @@ tasks, columns (flattened), mentions, `lk://` links, hidden pages and
 documents, map pins and timelines. Kanka keeps names, type, tags,
 image, nesting, facts, attributes, posts (as sections; secret unless
 shared), mentions, relations, timelines, calendars and map markers.
-Markdown keeps frontmatter as facts, tags (also `#tags`), aliases,
+World Anvil keeps titles, tags, template type, category tree, cover,
+the main text and the sidebar, footer, footnotes and author's notes
+(BBCode: headings, bold, lists, tables, quotes, links, `[img:id]`
+pictures, `@[Title](type:id)` mentions), template fields as facts (a
+linked article becomes a mention), secrets, map pictures and markers,
+and timelines. Markdown keeps frontmatter as facts, tags (also `#tags`), aliases,
 wiki and relative links, callouts, tables, lists, secrets and levels.
 
 Still lossy: LegendKeeper columns become one column; `collection` blocks
@@ -809,6 +816,57 @@ collection properties, text colour and highlight, and map vector shapes
 are not imported; Markdown images and embedded files that are not an
 `http(s)` address are dropped; Kanka entity icons and tag colours are not
 imported.
+
+## World Anvil
+
+`worldanvil-api` reads one world through World Anvil's public API v2
+("Boromir", `https://www.worldanvil.com/api/external/boromir`,
+[docs](https://www.worldanvil.com/api/external/boromir/documentation)). It is
+read-only.
+
+**What you need.** Every call carries two keys:
+
+1. **An application key** (`x-application-key`). World Anvil gives it to the
+   person who runs an app, through the request form linked from the API docs.
+   For now only members of the **Grandmaster guild rank and above** may build
+   API apps. One key serves the whole server: put it on the connection
+   ("Application key") or set `ALX_WORLDANVIL_APP_KEY` for every connection.
+   World Anvil's API licence forbids commercial use without its permission.
+2. **A user token** (`x-auth-token`), made on the user's own **API Tokens** page
+   on World Anvil. It reads what that user can read: the world owner's token
+   reads drafts, private pages and every secret, which is what the DM needs.
+
+Then add a source with **World**: the world's id, or its name or address
+(`https://www.worldanvil.com/w/<world>`); the connection test lists your worlds.
+
+**Who sees what.** World Anvil hides things with access settings and subscriber
+groups, not a GM flag. Alexandria fails closed:
+- a draft is DM-only; a `public` article, category, map, marker or event is the
+  players' (when the source shares, as for every source);
+- a `private` one is the players' only when one of its subscriber groups is
+  named in **Player subscriber groups** (names or ids, comma separated);
+- a secret (`[secret:id]` in the text, or linked to the article) is a secret
+  block unless it is shared with a player group; `[subcontainer:<group>]` is a
+  secret block unless the group is a player group; `[userstate:…]` blocks,
+  `/* comments */`, the scrapbook and storyteller seeds (unless the article
+  shows them) are always secret blocks.
+
+**Tiers and calls.** World Anvil lists 50 items a call and has no "changed since"
+filter, so every listing is complete (it may remove pages). Tier 1 lists
+categories, articles, maps and images (for `[img:id]`), plus, with the switches
+on, one call per changed map, per marker on it and per changed timeline event
+(unchanged ones come from the last listing). Tier 3 reads an article
+(granularity 3, which adds its parent article; 2 when 3 is refused) and one
+call per secret it holds. World Anvil publishes no rate limit: the connection
+defaults to 60 calls a minute and 2 a second.
+
+**Maps.** A map's picture is stored as a map of its page; markers are records
+with `latitude` = `geoY` and `longitude` = `geoX` (World Anvil's pixel
+coordinates on that picture) and a link to the marker's target article.
+
+**Not yet.** Writing back (a WorldLore workspace in World Anvil), per-player
+World Anvil keys, block templates and statblocks, manuscripts, notebooks and
+the family tree, diplomacy and chronicle views.
 
 ## Records
 

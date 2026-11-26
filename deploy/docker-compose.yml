@@ -19,6 +19,7 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY:-}
       LOCAL_LLM_URL: ${LOCAL_LLM_URL:-}
       ALX_MCP_STDIO: ${ALX_MCP_STDIO:-}
+      ALX_WORLDANVIL_APP_KEY: ${ALX_WORLDANVIL_APP_KEY:-}
     volumes:
       - alexandria-data:/data
       - ${VAULTS_DIR:-./vaults}:/vaults:ro

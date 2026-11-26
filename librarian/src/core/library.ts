@@ -1157,6 +1157,7 @@ export function sourceApp(kind: string | null): string {
   const k = String(kind ?? '');
   if (k.startsWith('legendkeeper') || k === 'mcp:legendkeeper') return 'legendkeeper';
   if (k.startsWith('kanka') || k === 'mcp:kanka') return 'kanka';
+  if (k.startsWith('worldanvil')) return 'worldanvil';
   if (['markdown-folder', 'vault', 'git', 'mcp-files'].includes(k)) return 'markdown';
   return 'other';
 }
