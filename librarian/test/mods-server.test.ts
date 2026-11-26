@@ -64,10 +64,10 @@ test('ModsServer: a server rule has no per-world parts, and onByDefault is only 
 
 test('ModsServer: the admin lists and switches server rules; needs and conflicts follow; others cannot', async () => {
   const list = (await ok('GET', '/api/admin/mods', T.admin)).mods;
-  assert.deepEqual(list.map((m: any) => [m.id, m.enabled]).sort(), [['srv-a', true], ['srv-b', false], ['srv-c', false]]);
+  assert.deepEqual(list.filter((m: any) => m.id.startsWith('srv-')).map((m: any) => [m.id, m.enabled]).sort(), [['srv-a', true], ['srv-b', false], ['srv-c', false]]);
   assert.equal((await call('GET', '/api/admin/mods', T.dm)).status, 403);
   assert.equal((await call('PUT', '/api/admin/mods/srv-b/enabled', T.dm, { on: true })).status, 403);
-  assert.deepEqual((await ok('GET', '/api/server-mods', T.dm)).on, ['srv-a']);
+  assert.deepEqual((await ok('GET', '/api/server-mods', T.dm)).on.filter((id: string) => id.startsWith('srv-')), ['srv-a'], 'shipped rules (open5e) aside');
   assert.equal((await call('GET', '/api/server-mods')).status, 401);
   // Off: what needs it goes off too. On: what it needs comes on. A conflict turns the other off.
   await ok('PUT', '/api/admin/mods/srv-a/enabled', T.admin, { on: false });
@@ -78,7 +78,7 @@ test('ModsServer: the admin lists and switches server rules; needs and conflicts
   await ok('PUT', '/api/admin/mods/srv-a/enabled', T.admin, { on: true });
   const c = await ok('PUT', '/api/admin/mods/srv-c/enabled', T.admin, { on: true });
   assert.deepEqual(c.turnedOff, ['srv-a']);
-  assert.deepEqual((await ok('GET', '/api/server-mods', T.dm)).on, ['srv-c']);
+  assert.deepEqual((await ok('GET', '/api/server-mods', T.dm)).on.filter((id: string) => id.startsWith('srv-')), ['srv-c']);
   assert.equal(serverModOn(db, 'srv-a'), false);
   assert.equal(serverModOn(db, 'nope'), false);
   await call('PUT', '/api/admin/mods/nope/enabled', T.admin, { on: true }).then((r) => assert.equal(r.status, 404));

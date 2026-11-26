@@ -162,6 +162,18 @@ World settings → Game module → Import → **Open5e** or **5e SRD API**.
   download (kept 15 minutes). The credit line names each book, its
   publisher and licence (OGL 1.0a or CC-BY-4.0) and is shown in Credits.
 
+### Open5e is a server mod
+
+Open5e and the 5e SRD API ship as a server rule, `mods/open5e.alxmod.json`
+(on by default). The server admin turns it off under **Admin → Mods**. While
+it is off, the Content library page and its menu entry hide, the Open5e and
+5e SRD API tabs leave World settings → Game module, the `open5e` and
+`dnd5eapi` import types and `GET /modules/sources` answer 404, and the
+assistant loses `list_content_books` and `import_content`. Books already in
+the content library stay usable by worlds, because they are stored on the
+server. The code is `features/open5e` (server and web); the converters stay
+in `features/modules`.
+
 ### The server content library (admins)
 
 Admin → Sources → **Content library** pulls a book once onto the server and

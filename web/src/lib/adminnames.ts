@@ -22,7 +22,6 @@ export const ADMIN_NAMES: Record<string, AdminName> = {
   library: { group: 'worlds', label: 'Library', icon: 'fa-book', desc: 'The pages and files of every world.' },
 
   sources: { group: 'sources', label: 'Sources', icon: 'fa-cloud-arrow-down', desc: 'Where pages come from: connections, world sources, keys and held files.' },
-  content: { group: 'sources', label: 'Content library', icon: 'fa-book-skull', desc: 'Rules books pulled once from Open5e and the 5e SRD API, for every world.' },
 
   models: { group: 'ai', label: 'Models', icon: 'fa-microchip', desc: 'Which model does each job, and loading them for game night.' },
   keys: { group: 'ai', label: 'Connect AI', icon: 'fa-key', desc: 'Link an AI app to the library.' },

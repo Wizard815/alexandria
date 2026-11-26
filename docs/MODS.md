@@ -331,16 +331,17 @@ House rules page, shown while that rule is on (DownTime's activities, say).
 ## Server rules: a whole feature as a mod (Admin → Mods)
 
 Some mods are not a table's rule but a part of the server: a content source
-(Open5e, say) or an admin page. These are **server rules**: a file in
+(Open5e, say: `mods/open5e.alxmod.json` with `features/open5e`, see
+MODULES.md) or an admin page. These are **server rules**: a file in
 `mods/` with `"scope": "server"`. The server admin turns them on or off
 under **Admin → Mods**, for every world at once. Worlds never list them in
 House rules, and `POST /mods/import` refuses one (only the server admin
 installs them, by adding the file to the folder).
 
 ```json
-{ "kit": 2, "id": "open5e", "name": "Open5e", "version": "1.0.0",
+{ "kit": 2, "id": "open5e", "name": "Open5e and the 5e SRD API", "version": "1.0.0",
   "scope": "server", "onByDefault": true,
-  "summary": "Import SRD monsters, spells and items from Open5e." }
+  "summary": "Free rules books from Open5e and the 5e SRD API ..." }
 ```
 
 A server rule holds only the manifest parts: `requires.mods` (other server

@@ -314,3 +314,22 @@ test('Sources: a DM browses a module and leaves single entries out of the world'
   assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.dm)).terms.length, 1, 'put back');
   await ok('DELETE', `${M()}/imported/${id}`, T.dm);
 });
+
+test('Sources: Open5e is a server mod; off hides the sources and the content library, the stored books stay', async () => {
+  const A = '/api/admin/content';
+  await ok('POST', A, T.admin, { type: 'open5e', ...O5, documents: ['vom'], replace: true });
+  assert.ok((await ok('GET', '/api/server-mods', T.dm)).on.includes('open5e'), 'on by default');
+  await ok('PUT', '/api/admin/mods/open5e/enabled', T.admin, { on: false });
+  assert.ok(!(await ok('GET', '/api/server-mods', T.dm)).on.includes('open5e'));
+  const off = await call('GET', A, T.admin);
+  assert.equal(off.status, 404);
+  assert.match(JSON.stringify(off.body), /turned off/);
+  assert.equal((await call('GET', `${M()}/sources`, T.dm)).status, 404);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'open5e', ...O5, documents: ['tob'] })).status, 404);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'dnd5eapi', edition: '2014' })).status, 404);
+  // A book already pulled is still there for worlds: nothing needs the network.
+  assert.ok((await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-vom'));
+  await ok('PUT', '/api/admin/mods/open5e/enabled', T.admin, { on: true });
+  assert.ok((await ok('GET', A, T.admin)).modules.some((m: any) => m.id === 'open5e-vom'));
+  await ok('DELETE', `${A}/open5e-vom`, T.admin);
+});
