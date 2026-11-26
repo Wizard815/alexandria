@@ -51,6 +51,8 @@ export interface Switcher {
   renaming: string | null; setRenaming: (v: string | null) => void;
   confirmDel: boolean; setConfirmDel: (v: boolean) => void;
   open: (id: string) => void; fresh?: () => void; rename: (id: string, title: string) => void; remove: () => void;
+  /** Delete the open chat but keep a note of what it made (a throwaway chat). */
+  toss?: () => void;
   /** The open chat's title, wherever it is listed (main or template chats). */
   titleOf?: (id: string) => string;
 }
@@ -87,8 +89,8 @@ export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
             <button type="button" className={btn('ghost')} aria-label="Delete this chat" title="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
           </>}
           {chat && confirmDel && <>
-            <span className="tiny">Delete this chat?</span>
-            <button type="button" className={btn('danger')} disabled={busy} onClick={() => s.remove()}>Delete</button>
+            {s.toss && <button type="button" className={btn('primary')} disabled={busy} title="Delete the chat, keep a note of what it made" onClick={() => s.toss?.()} data-testid="ag-toss">Toss</button>}
+            <button type="button" className={btn('danger')} disabled={busy} title="Delete the chat and keep nothing" onClick={() => s.remove()}>Delete</button>
             <button type="button" className={btn('')} onClick={() => setConfirmDel(false)}>Keep</button>
           </>}
         </>

@@ -49,6 +49,20 @@ CREATE TABLE IF NOT EXISTS agent_actions (
   auto INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS agent_actions_world ON agent_actions (world_id, status, created_at);
+-- A tossed chat leaves a note: what it made and its gist, so later chats still know (the chat itself is gone).
+CREATE TABLE IF NOT EXISTS agent_chat_notes (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  harness TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  gist TEXT NOT NULL DEFAULT '',
+  made TEXT NOT NULL DEFAULT '[]',
+  chat_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_chat_notes_owner ON agent_chat_notes (world_id, account_id, harness, created_at);
 CREATE TABLE IF NOT EXISTS agent_leaks (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -149,3 +163,37 @@ export const actionView = (a: any) => ({
   id: a.id, chatId: a.chat_id, tool: a.tool, args: parseJson(a.args, {}), summary: a.summary, call: parseJson(a.call, {}),
   status: a.status, result: a.result ? String(a.result).slice(0, 2000) : null, auto: !!a.auto, alwaysAsk: alwaysAsk(a.tool), createdAt: a.created_at, decidedAt: a.decided_at,
 });
+
+/** How many tossed-chat notes the assistant is handed with each message, and how many are kept at all. */
+export const NOTES_IN_CONTEXT = 5;
+export const NOTES_KEPT = 50;
+
+export interface ChatNote { id: string; title: string; gist: string; made: string[]; chatAt: string; createdAt: string }
+const noteView = (r: any): ChatNote => ({ id: r.id, title: r.title, gist: r.gist, made: parseJson<string[]>(r.made, []), chatAt: r.chat_at, createdAt: r.created_at });
+
+/**
+ * Toss a chat: keep a short note (its title, the changes it made, and its gist: the running summary, or else what was
+ * asked) and delete the chat. Whatever the chat made in the world stays; only the conversation goes.
+ */
+export function tossChat(db: DB, chatId: string): ChatNote {
+  const c = one<any>(db, 'SELECT * FROM agent_chats WHERE id = ?', chatId)!;
+  const made = all<any>(db, "SELECT summary FROM agent_actions WHERE chat_id = ? AND status = 'done' ORDER BY created_at", chatId).map((a) => String(a.summary).slice(0, 200)).slice(0, 20);
+  const asked = all<any>(db, "SELECT content FROM agent_messages WHERE chat_id = ? AND role = 'user' AND content <> '' ORDER BY rowid LIMIT 4", chatId).map((m) => String(m.content).replace(/\s+/g, ' ').trim().slice(0, 160));
+  const gist = (String(c.summary ?? '').trim() || (asked.length ? `Asked: ${asked.join(' / ')}` : '')).slice(0, 1200);
+  const n = { id: id('note_'), title: c.title || 'Untitled chat', gist, made, chat_at: c.updated_at, created_at: now() };
+  run(db, 'INSERT INTO agent_chat_notes (id, world_id, account_id, harness, mode, title, gist, made, chat_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', n.id, c.world_id, c.account_id, c.harness, c.mode ?? '', n.title, n.gist, JSON.stringify(made), n.chat_at, n.created_at);
+  run(db, 'DELETE FROM agent_chats WHERE id = ?', chatId);
+  // Only the newest notes are kept.
+  run(db, 'DELETE FROM agent_chat_notes WHERE world_id = ? AND account_id = ? AND harness = ? AND id NOT IN (SELECT id FROM agent_chat_notes WHERE world_id = ? AND account_id = ? AND harness = ? ORDER BY created_at DESC LIMIT ?)', c.world_id, c.account_id, c.harness, c.world_id, c.account_id, c.harness, NOTES_KEPT);
+  return noteView({ ...n, made: JSON.stringify(made) });
+}
+
+export const chatNotes = (db: DB, worldId: string, accountId: string, harness: string, mode: string, limit = NOTES_KEPT): ChatNote[] =>
+  all<any>(db, 'SELECT * FROM agent_chat_notes WHERE world_id = ? AND account_id = ? AND harness = ? AND mode = ? ORDER BY created_at DESC LIMIT ?', worldId, accountId, harness, mode, limit).map(noteView);
+
+/** The notes as a block of the assistant's context ('' when there are none). */
+export function notesContext(db: DB, worldId: string, accountId: string, harness: string, mode: string): string {
+  const notes = chatNotes(db, worldId, accountId, harness, mode, NOTES_IN_CONTEXT);
+  if (!notes.length) return '';
+  return `Earlier chats this user tossed (the conversation is gone; these notes are what is left, newest first):\n${notes.map((n) => `- "${n.title}" (${n.chatAt.slice(0, 10)})${n.made.length ? `. Made: ${n.made.join('; ')}` : ''}${n.gist ? `. Gist: ${n.gist.slice(0, 400)}` : ''}`).join('\n')}`;
+}

@@ -38,7 +38,7 @@ import { semanticPages } from '../search/embeddings.ts';
 import { MORE_TOOLS_TOOL, claimsChange, describeTools, matchTools, rewriteClaim } from './moretools.ts';
 import { BLOCKED_REPLY, SentenceGate, leakChecker, treeText } from './leak.ts';
 import { LOOKING } from '../sourcekeys/escalation.ts';
-import { actionView, clearPartial, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
+import { actionView, clearPartial, notesContext, finishMessage, setPartial, type Citation, type Timings } from './store.ts';
 import { AUTO_NEVER, runsWithoutAsking } from './auto.ts';
 import { HISTORY_WINDOW, summarizeLater } from './summary.ts';
 import { sourceSummary } from '../connections/summary.ts';
@@ -470,6 +470,9 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   // The campaign status first (DM), or what this player knows (the broker): the retrieval order of the memory vault.
   if (dm && opts.status) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
   else { const mine = brokerContext(d, c.worldId, c.accountId, text); if (mine) L.push(mine); }
+  // What the user's tossed chats made, so a throwaway chat is not forgotten along with its words.
+  const tossed = notesContext(d.db, c.worldId, c.accountId, c.harness, c.mode === 'helper' ? 'helper' : '');
+  if (tossed) L.push(tossed);
   const cb = dm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
   if (hits.length) {

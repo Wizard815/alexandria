@@ -1,8 +1,9 @@
 // The chat list as folders. Outside a session the DM (or player) sees their chats as a file tree: folders they made,
-// chats at the top level, and template chats in their own "Templates" branch so they never mix with the main chats.
+// chats at the top level, and template chats in one dropdown of their own so they never mix with the main chats.
 // During a session the compact dropdown of recent chats is shown instead (ChatSwitcher), and either view can be picked
 // by hand; the choice is remembered on this device. Folders are only paths that chats carry ("Bloodearth/Session 3"),
-// so an empty folder made here lives on this device until a chat is put in it.
+// so an empty folder made here lives on this device until a chat is put in it. A chat can be tossed: it goes, and a
+// short note of what it made is kept for the assistant (listed at the bottom, each can be forgotten).
 import { useMemo, useState, type DragEvent, type ReactNode } from 'react';
 import type { ChatRow, Switcher } from './ChatParts.tsx';
 
@@ -63,7 +64,12 @@ export interface TreeTools {
   freshIn: (folder: string) => void;
   move: (id: string, folder: string) => void;
   renameFolder: (from: string, to: string) => void;
+  /** Notes kept from tossed chats, and forgetting one. */
+  notes: ChatNote[]; forget: (id: string) => void;
 }
+
+/** What is left of a tossed chat: its title, the changes it made and its gist. */
+export interface ChatNote { id: string; title: string; gist: string; made: string[]; chatAt: string; createdAt: string }
 
 const date = (iso: string) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? '' : t.toLocaleDateString(); };
 
@@ -190,7 +196,6 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
     return [...renameRow, row, ...inside];
   });
 
-  const tplOpen = isOpen('\u0000templates');
   return (
     <div className="stack tight ag-tree-wrap" aria-label="Your chats" data-testid="ag-chats">
       <div className="row ag-chats" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
@@ -211,27 +216,36 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
           {!s.list.length && !t.templates.length && <li className="tiny muted">No chats yet. Ask something below to start one.</li>}
           {tplGroups.length > 0 && <>
             <li className="ag-tree-sep" aria-hidden="true" />
+            {/* Template chats: one dropdown, out of the way of the main chats. */}
+            <li className="ag-tree-tpl">
+              <label className="row" style={{ flexWrap: 'nowrap', alignItems: 'center', gap: 6 }}>
+                <i className="fa-solid fa-scroll" aria-hidden="true" /><span className="sr-only">Template chats</span>
+                <select style={{ flex: 1, minWidth: 0 }} value={t.templates.some((c) => c.id === s.chat?.id) ? s.chat!.id : ''} onChange={(e) => { if (e.target.value) { s.open(e.target.value); if (phone) setFoldedState(true); } }} data-testid="ag-tree-templates">
+                  <option value="">Template chats ({t.templates.length})</option>
+                  {tplGroups.map((g) => <optgroup key={g.id} label={g.name}>{g.chats.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'} · {date(c.updatedAt)}</option>)}</optgroup>)}
+                </select>
+              </label>
+            </li>
+          </>}
+          {t.notes.length > 0 && <>
+            <li className="ag-tree-sep" aria-hidden="true" />
             <li>
               <div className="ag-tree-folder">
-                <button type="button" className="ag-tree-open" aria-expanded={tplOpen} onClick={() => flip('\u0000templates')} data-testid="ag-tree-templates">
-                  <i className="fa-solid fa-scroll" aria-hidden="true" /> <span className="ag-tree-title">Templates</span> <span className="tiny muted">{t.templates.length}</span>
+                <button type="button" className="ag-tree-open" aria-expanded={isOpen('\u0000notes')} onClick={() => flip('\u0000notes')} data-testid="ag-tree-notes" title="Notes kept from tossed chats. The assistant reads the newest few.">
+                  <i className="fa-solid fa-box-archive" aria-hidden="true" /> <span className="ag-tree-title">Remembered from tossed chats</span> <span className="tiny muted">{t.notes.length}</span>
                 </button>
               </div>
             </li>
-            {tplOpen && tplGroups.flatMap((g) => {
-              const k = `\u0000templates/${g.id}`;
-              const o = isOpen(k);
-              return [
-                <li key={k} style={{ paddingLeft: 14 }}>
-                  <div className="ag-tree-folder">
-                    <button type="button" className="ag-tree-open" aria-expanded={o} onClick={() => flip(k)}>
-                      <i className={`fa-solid ${o ? 'fa-folder-open' : 'fa-folder'}`} aria-hidden="true" /> <span className="ag-tree-title">{g.name}</span> <span className="tiny muted">{g.chats.length}</span>
-                    </button>
+            {isOpen('\u0000notes') && t.notes.map((n) => (
+              <li key={n.id} style={{ paddingLeft: 14 }} data-testid="ag-note">
+                <div className="ag-tree-chat">
+                  <div className="ag-tree-open" style={{ cursor: 'default' }} title={[n.made.length ? `Made: ${n.made.join('; ')}` : 'Made nothing', n.gist].filter(Boolean).join('\n')}>
+                    <i className="fa-regular fa-note-sticky" aria-hidden="true" /> <span className="ag-tree-title">{n.title}</span> <span className="tiny muted">{n.made.length ? `${n.made.length} made` : date(n.chatAt)}</span>
                   </div>
-                </li>,
-                ...(o ? g.chats.map((c) => chatRow(c, 2, true)) : []),
-              ];
-            })}
+                  <button type="button" className={btn('ghost')} aria-label={`Forget the note of ${n.title}`} title="Forget this note" onClick={() => t.forget(n.id)}><i className="fa-solid fa-xmark" aria-hidden="true" /></button>
+                </div>
+              </li>
+            ))}
           </>}
         </ul>
       )}
@@ -259,7 +273,7 @@ function MoveForm({ folders, current, onMove, onCancel, phone }: { folders: stri
   );
 }
 
-/** Rename or delete the open chat, under the tree. */
+/** Rename, toss or delete the open chat, under the tree. */
 function OpenChatTools({ s, phone }: { s: Switcher; phone?: boolean }) {
   const { chat, renaming, setRenaming, confirmDel, setConfirmDel, busy } = s;
   if (!chat) return null;
@@ -272,15 +286,19 @@ function OpenChatTools({ s, phone }: { s: Switcher; phone?: boolean }) {
     </form>
   );
   if (confirmDel) return (
-    <div className="row"><span className="tiny">Delete this chat?</span>
-      <button type="button" className={btn('danger')} disabled={busy} onClick={() => s.remove()}>Delete</button>
-      <button type="button" className={btn('')} onClick={() => setConfirmDel(false)}>Keep</button>
+    <div className="stack tight">
+      <span className="tiny">Toss keeps a short note of what this chat made, for the assistant. Delete keeps nothing. What it made in the world stays either way.</span>
+      <div className="row">
+        {s.toss && <button type="button" className={btn('primary')} disabled={busy} onClick={() => s.toss?.()} data-testid="ag-toss">Toss</button>}
+        <button type="button" className={btn('danger')} disabled={busy} onClick={() => s.remove()}>Delete</button>
+        <button type="button" className={btn('')} onClick={() => setConfirmDel(false)}>Keep</button>
+      </div>
     </div>
   );
   return (
     <div className="row ag-tree-tools">
       <button type="button" className={btn('ghost')} aria-label="Rename this chat" onClick={() => setRenaming(s.titleOf?.(chat.id) ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /> Rename</button>
-      <button type="button" className={btn('ghost')} aria-label="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>
+      <button type="button" className={btn('ghost')} aria-label="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /> Toss or delete</button>
     </div>
   );
 }
