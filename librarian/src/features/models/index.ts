@@ -54,6 +54,7 @@ const USES: Record<Job, string> = {
   dm: 'The DM’s assistant. Not set: the Chat model',
   player: 'What players ask: the broker and their helper. Not set: the Chat model',
   bible: 'Reading pages for the story bible. Not set: the Chat model',
+  helper: 'The players’ quick helper: a small model (4B or less) for rules, turn options and sheet summaries. Not set: the Players model',
   vision: 'Map vision: a model that can see pictures reads a map (where the rooms are) so the assistant uncovers fog in the right place. Not set: the DM assistant model, if it can see pictures',
 };
 

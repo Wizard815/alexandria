@@ -29,16 +29,17 @@ import { classifiedMatch } from './levels.ts';
 import { run, type DB } from './db.ts';
 import { recordCall } from './modelcalls.ts';
 
-export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible' | 'vision';
+export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible' | 'helper' | 'vision';
 /** Jobs that answer in text. */
-export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible' | 'vision';
+export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible' | 'helper' | 'vision';
 export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
 /**
  * Parts of the chat job that may have a model of their own: the DM's assistant, what players ask, the story bible,
- * and map vision (a model that can see pictures, for reading maps: features/fog/vision.ts). Unset: the chat model
- * (map vision: the DM assistant's model first).
+ * the players' quick helper (a small second model, features/playerhelp/quick.ts) and map vision (a model that can
+ * see pictures, for reading maps: features/fog/vision.ts). Unset: the chat model (the quick helper: the Players
+ * model first; map vision: the DM assistant's model first).
  */
-export const CHAT_PARTS: Job[] = ['dm', 'player', 'bible', 'vision'];
+export const CHAT_PARTS: Job[] = ['dm', 'player', 'bible', 'helper', 'vision'];
 export const ALL_JOBS: Job[] = [...JOBS, ...CHAT_PARTS];
 const isPart = (job: Job) => CHAT_PARTS.includes(job);
 const isText = (job: Job) => job === 'chat' || job === 'audit' || isPart(job);
@@ -200,7 +201,7 @@ let resolver: Resolver = envResolver;
 export function setJobResolver(r: Resolver | null) { resolver = r ?? envResolver; }
 /** What is set for exactly this job. */
 export function ownJobConfig(d: Deps, job: Job): JobConfig | null { return resolver(d, job) ?? (resolver === envResolver ? null : envResolver(d, job)); }
-export function jobConfig(d: Deps, job: Job): JobConfig | null { return ownJobConfig(d, job) ?? (job === 'vision' ? ownJobConfig(d, 'dm') : null) ?? (isPart(job) ? ownJobConfig(d, 'chat') : null); }
+export function jobConfig(d: Deps, job: Job): JobConfig | null { return ownJobConfig(d, job) ?? (job === 'helper' ? ownJobConfig(d, 'player') : null) ?? (job === 'vision' ? ownJobConfig(d, 'dm') : null) ?? (isPart(job) ? ownJobConfig(d, 'chat') : null); }
 /** Every job that has settings of its own: the six, and the parts of chat that were given another model. */
 export const activeJobs = (d: Deps): Job[] => [...JOBS, ...CHAT_PARTS.filter((j) => ownJobConfig(d, j))];
 export const hasJob = (d: Deps, job: Job) => !!jobConfig(d, job);
