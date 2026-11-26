@@ -62,6 +62,7 @@ export const DM_NAMES: Record<string, DMName> = {
   audio: { group: 'setup', label: 'Microphones', icon: 'fa-microphone', desc: 'Choose the mics the table transcript listens to.' },
   phone: { group: 'setup', label: 'Phone', icon: 'fa-mobile-screen', desc: 'Your pocket remote and assistant.' },
   settings: { group: 'setup', label: 'Settings', icon: 'fa-gear', desc: 'Visibility, invites and options for this world.' },
+  roll20: { group: 'setup', label: 'Roll20', icon: 'fa-dice-d20', desc: 'Keep a Roll20 game in step: HP, conditions, rolls and handouts.' },
   connect: { group: 'setup', label: 'Connect AI', icon: 'fa-plug', desc: 'Make a key to link an AI app to this world.' },
 };
 
