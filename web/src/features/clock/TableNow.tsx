@@ -27,7 +27,18 @@ export default function TableNow() {
     await w.call('POST', '/clock/advance', { ...body, reason: reason || undefined });
     await Promise.all([c.reload(), log.reload()]);
   });
-  const undo = () => last && act.run(async () => { await w.call('POST', `/clock/log/${last.id}/undo`); await Promise.all([c.reload(), log.reload()]); });
+  // Undo reads the log again first: another screen (the phone, a second window) may have moved the clock since this one
+  // loaded, and only the newest live move can be undone. If someone else still wins the race, the block just catches up.
+  const undo = () => act.run(async () => {
+    const fresh = await w.call<LogEntry[]>('GET', '/clock/log');
+    const top = fresh.find((e) => !e.undone && e.undoable);
+    try {
+      if (top) await w.call('POST', `/clock/log/${top.id}/undo`);
+    } catch (e: any) {
+      if (!/later changes|Already undone/.test(e?.message ?? '')) throw e;
+    }
+    await Promise.all([c.reload(), log.reload()]);
+  });
   if (!d) return <TableCard id="clock" title="The world" icon="fa-moon" link={['clock', 'Clock']}><ErrorBox error={c.error} /></TableCard>;
   return (
     <TableCard id="clock" title="The world" icon={lightIcon(d.hour)} link={['clock', 'Clock']} className="tb-clock">
