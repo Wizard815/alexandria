@@ -365,6 +365,7 @@ test('SpellRules: studying a spell: the plan, days, DM approval, the final check
   assert.deepEqual(plan.missing, ['know Misty Step', "know 2 of its recipe's spells that are one level lower (knows 1)"]);
   assert.deepEqual([plan.needed, plan.perDay, plan.days, plan.materials, plan.mentorFee, plan.finalDC, plan.checkBonus, plan.scrollPoints], [13, 2, { alone: 13, text: 7, mentor: 5 }, 250, 0, 15, 6, 3]);
   assert.equal((await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:lightning-bolt', source: 'mentor' })).mentorFee, 250, 'a mentor doubles the gold: 500 in all');
+  assert.deepEqual(plan.gold, { alone: 250, text: 250, mentor: 500 }, 'the plan table');
   assert.match((await call('POST', `${SP()}/study`, T.jess, { spellId: 'srd:lightning-bolt', source: 'text' })).body.error, /Not yet: know Misty Step/);
   await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: 'srd:misty-step' });
   plan = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:lightning-bolt', source: 'text' });

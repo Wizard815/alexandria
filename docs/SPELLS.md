@@ -349,8 +349,16 @@ under Others. Each spell has a status: `known`, `gift`, `studying`, `stopped`,
 teaches it but something is missing, listed in `missing`), `hidden` (a hidden
 recipe, DM only; a player sees it as dark) or `dark` (no recipe yet).
 
-Not yet: the fuse insight toward recipes, the cast panel, Study panel and tree
-view in the app.
+In the app: Codex → **Spell tree** (players see their own; the DM picks a
+character). Picking a spell opens its panel: what is missing, the study table,
+Start learning, days of study, the final check and the scroll. The view lives
+in `web/src/features/spells/tree/` and is copied from the standalone Spell
+Tree app ([Wizard815/DND-Spell-Tree](https://github.com/Wizard815/DND-Spell-Tree),
+`scripts/sync-alexandria.sh`): change it there. That app can also sign in to
+a world and show its tree; the server must list the app's address in
+`ALX_CORS_ORIGINS`.
+
+Not yet: the fuse insight toward recipes, and the cast panel.
 
 ## Settings
 

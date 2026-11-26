@@ -3,12 +3,13 @@
 // the spell crafting recipes (by tier, drafts from the assistant, import and
 // export); and requests to learn.
 import { useMemo, useState } from 'react';
+import TreeTab from './TreeTab.tsx';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { RecipeCard, SheetButton } from './PlayerCodex.tsx';
 import { ABILITIES, ManaBar, SpellCard, SpellSearch, levelText, useSpell, type Character, type RecipeView, type Spell } from './shared.tsx';
 
-type Tab = 'spells' | 'characters' | 'recipes' | 'requests';
+type Tab = 'spells' | 'characters' | 'tree' | 'recipes' | 'requests';
 
 export default function DMCodex() {
   const { w, info } = useWorld();
@@ -18,9 +19,10 @@ export default function DMCodex() {
   return (
     <div className="page wide">
       <PageHead title="Codex" lead={`Every spell in ${info.name}: the SRD 5.2.1 list, your homebrew and imports. Players read the ones they know or you make public.`} />
-      <Tabs label="Codex" value={tab} onChange={setTab} items={[['spells', 'Spells'], ['characters', 'Characters'], ['recipes', 'Recipes'], ['requests', `Requests${pending ? ` (${pending})` : ''}`]]} />
+      <Tabs label="Codex" value={tab} onChange={setTab} items={[['spells', 'Spells'], ['characters', 'Characters'], ['tree', 'Spell tree'], ['recipes', 'Recipes'], ['requests', `Requests${pending ? ` (${pending})` : ''}`]]} />
       {tab === 'spells' && <SpellsTab />}
       {tab === 'characters' && <CharactersTab />}
+      {tab === 'tree' && <TreeTab />}
       {tab === 'recipes' && <RecipesTab />}
       {tab === 'requests' && <RequestsTab />}
     </div>
