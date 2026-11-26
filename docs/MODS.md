@@ -192,4 +192,6 @@ editing them:
   `postChat` posts a message as someone.
 - `addTermSource` (`features/modules/store.ts`) adds glossary terms.
 
-On the web, a feature may add `chatActions` (buttons under a chat message).
+On the web, a feature may add `chatActions` (buttons under a chat message)
+and `houseRuleTabs: [{ mod, title, component }]`: its own tab on the DM's
+House rules page, shown while that rule is on (DownTime's activities, say).

@@ -31,6 +31,8 @@ export interface WebFeature {
   dmBand?: ComponentType;
   /** Extra buttons under a session chat message (e.g. Reroll on a roll, from house rules). */
   chatActions?: ComponentType<{ message: ChatActionMessage; channel: 'table' | 'party' }>[];
+  /** Tabs on the DM's House rules page for a system rule (shown while the rule `mod` is on), e.g. DownTime's activities. */
+  houseRuleTabs?: { mod: string; title: string; component: ComponentType }[];
 }
 /** What a chat action sees of a message. */
 export interface ChatActionMessage { id: string; authorId: string; kind: 'text' | 'roll'; roll: { total: number; expr: string } | null }
@@ -52,3 +54,4 @@ export const overlays = flat((f) => f.overlay);
 export const topbars = flat((f) => f.topbar);
 export const dmBands = flat((f) => f.dmBand);
 export const chatActions = flat((f) => f.chatActions);
+export const houseRuleTabs = flat((f) => f.houseRuleTabs);

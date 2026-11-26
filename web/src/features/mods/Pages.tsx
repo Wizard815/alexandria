@@ -6,26 +6,32 @@ import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { MakeHouseRule, RulesList } from './Settings.tsx';
+import { houseRuleTabs } from '../registry.ts';
 import { Chip, useHouseRules, type HouseRule, type LogLine } from './shared.tsx';
 
 const withCounters = (list: HouseRule[]) => list.filter((r) => r.enabled && r.resources.length);
 
-type Tab = 'play' | 'rules' | 'make';
+type Tab = string; // 'play' | 'rules' | 'make' | `x:<mod>:<title>` for a system rule's own tab
 
 /** The DM's house rules hub: counters in play, every rule with its switch, and making or adding one. */
 export function DMHouseRules() {
   const { list, rules } = useHouseRules();
   const [tab, setTab] = useState<Tab | null>(null);
-  const shown: Tab = tab ?? (withCounters(list).length ? 'play' : 'rules');
   const on = list.filter((r) => r.enabled).length;
+  const extra = houseRuleTabs.filter((t) => list.some((r) => r.id === t.mod && r.enabled)).map((t) => ({ key: `x:${t.mod}:${t.title}`, ...t }));
+  const fallback = withCounters(list).length ? 'play' : 'rules';
+  const shown: Tab = tab && (!tab.startsWith('x:') || extra.some((t) => t.key === tab)) ? tab : fallback;
+  const Extra = extra.find((t) => t.key === shown)?.component;
   return (
     <div className="stack">
       <PageHead title="House rules" lead="Your table’s own rules, from a reroll token to a whole spell system. Turn them on, reward players, or make your own." />
       <Tabs<Tab> label="House rules" value={shown} onChange={setTab} items={[
         ['play', 'In play'],
         ['rules', rules.data ? `Rules (${on} on of ${list.length})` : 'Rules'],
+        ...extra.map((t) => [t.key, t.title] as [Tab, string]),
         ['make', 'Make or add one'],
       ]} />
+      {Extra && <Extra />}
       {shown === 'play' && <InPlay onRules={() => setTab('rules')} />}
       {shown === 'rules' && <RulesList />}
       {shown === 'make' && <MakeHouseRule />}
