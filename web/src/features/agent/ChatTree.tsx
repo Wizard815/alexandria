@@ -77,7 +77,7 @@ export function ChatNav({ s, t, phone, recent }: { s: Switcher; t: TreeTools; ph
   // One button that switches to the other view (the tree in a session, the dropdown outside one).
   const toggle = shown === 'recent'
     ? <button type="button" className={`${btn} ghost`} aria-label="Show chats in folders" title="Chats in folders" onClick={() => pick('tree')} data-testid="ag-view-tree"><i className="fa-solid fa-folder-tree" aria-hidden="true" /></button>
-    : <button type="button" className={`${btn} ghost`} aria-label="Show recent chats" title="Recent chats (a dropdown)" onClick={() => pick('recent')} data-testid="ag-view-recent"><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /></button>;
+    : <button type="button" className={`${btn} ghost`} aria-label="Show recent chats" title="Recent chats (a dropdown)" onClick={() => pick('recent')} data-testid="ag-view-recent"><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" />{phone && ' Recent chats dropdown'}</button>;
   if (shown === 'recent') return <div className="row ag-nav"><div style={{ flex: '1 1 220px', minWidth: 0 }}>{recent}</div>{toggle}</div>;
   return <ChatTree s={s} t={t} phone={phone} toggle={toggle} />;
 }
@@ -91,7 +91,7 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
   const [moving, setMoving] = useState<string | null>(null);
   const [naming, setNaming] = useState<{ path: string; value: string; mode: 'new' | 'rename' } | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const [acts, setActs] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
   const tree = useMemo(() => buildTree(s.list, made), [s.list, made]);
   const folders = useMemo(() => { const out: string[] = []; const walk = (n: Node) => { for (const f of n.folders) { out.push(f.path); walk(f); } }; walk(tree); return out; }, [tree]);
   const tplGroups = useMemo(() => {
@@ -149,20 +149,20 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
       <li key={c.id} style={{ paddingLeft: depth * 14 }}>
         <div className={`ag-tree-chat${active ? ' on' : ''}`} draggable={!inTemplates && !phone} onDragStart={(e) => { e.dataTransfer.setData('text/x-alx-chat', c.id); e.dataTransfer.effectAllowed = 'move'; }}>
           <button type="button" className="ag-tree-open" aria-current={active ? 'true' : undefined} onClick={() => { setMoving(null); s.open(c.id); if (phone) setFoldedState(true); }} data-testid="ag-tree-chat">
-            <i className="fa-regular fa-message" aria-hidden="true" /> <span className="ag-tree-title">{c.title || 'New chat'}</span> <span className="tiny muted">{date(c.updatedAt)}</span>
+            <i className="fa-regular fa-message" aria-hidden="true" /> <span className="ag-tree-title">{c.title || 'New chat'}</span>{!phone && <span className="tiny muted">{date(c.updatedAt)}</span>}
           </button>
-          {active && !inTemplates && <button type="button" className={btn('ghost')} aria-label="Move this chat to a folder" title="Move to a folder" onClick={() => setMoving(moving === c.id ? null : c.id)} data-testid="ag-move"><i className="fa-solid fa-folder-open" aria-hidden="true" /></button>}
+          {active && !inTemplates && !phone && <button type="button" className={btn('ghost')} aria-label="Move this chat to a folder" title="Move to a folder" onClick={() => setMoving(moving === c.id ? null : c.id)} data-testid="ag-move"><i className="fa-solid fa-folder-open" aria-hidden="true" /></button>}
         </div>
-        {moving === c.id && <MoveForm phone={phone} folders={folders} current={cleanFolder(c.folder ?? '')} onCancel={() => setMoving(null)} onMove={(f) => { setMoving(null); if (f) addMade(f); t.move(c.id, f); if (f) expand(f); }} />}
+        {!phone && moving === c.id && <MoveForm phone={phone} folders={folders} current={cleanFolder(c.folder ?? '')} onCancel={() => setMoving(null)} onMove={(f) => { setMoving(null); if (f) addMade(f); t.move(c.id, f); if (f) expand(f); }} />}
       </li>
     );
   };
 
-  // A folder's actions: inline on a desktop (shown on hover), behind one button on a phone so the name keeps its room.
+  // A folder's actions, shown on hover on a desktop. A phone keeps its rows bare: the More menu acts on the open chat's folder.
   const folderActs = (f: Node) => <>
-    <button type="button" className={btn('ghost')} aria-label={`New chat in ${f.name}`} title="New chat here" onClick={() => { setActs(null); expand(f.path); t.freshIn(f.path); }}><i className="fa-solid fa-plus" aria-hidden="true" />{phone && ' New chat'}</button>
-    <button type="button" className={btn('ghost')} aria-label={`New folder in ${f.name}`} title="New folder inside" onClick={() => { setActs(null); expand(f.path); setNaming({ path: f.path, value: '', mode: 'new' }); }}><i className="fa-solid fa-folder-plus" aria-hidden="true" />{phone && ' Folder'}</button>
-    <button type="button" className={btn('ghost')} aria-label={`Rename ${f.name}`} title="Rename folder" onClick={() => { setActs(null); setNaming({ path: f.path, value: f.name, mode: 'rename' }); }}><i className="fa-solid fa-pen" aria-hidden="true" />{phone && ' Rename'}</button>
+    <button type="button" className={btn('ghost')} aria-label={`New chat in ${f.name}`} title="New chat here" onClick={() => { expand(f.path); t.freshIn(f.path); }}><i className="fa-solid fa-plus" aria-hidden="true" /></button>
+    <button type="button" className={btn('ghost')} aria-label={`New folder in ${f.name}`} title="New folder inside" onClick={() => { expand(f.path); setNaming({ path: f.path, value: '', mode: 'new' }); }}><i className="fa-solid fa-folder-plus" aria-hidden="true" /></button>
+    <button type="button" className={btn('ghost')} aria-label={`Rename ${f.name}`} title="Rename folder" onClick={() => setNaming({ path: f.path, value: f.name, mode: 'rename' })}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
   </>;
 
   const folderRows = (n: Node, depth: number): ReactNode[] => n.folders.flatMap((f) => {
@@ -174,12 +174,9 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
             <button type="button" className="ag-tree-open" aria-expanded={o} onClick={() => flip(f.path)} data-testid="ag-tree-folder">
               <i className={`fa-solid ${o ? 'fa-folder-open' : 'fa-folder'}`} aria-hidden="true" /> <span className="ag-tree-title">{f.name}</span> <span className="tiny muted">{f.count}</span>
             </button>
-            {phone
-              ? <button type="button" className={btn(`ghost${acts === f.path ? ' on' : ''}`)} aria-label={`Folder actions for ${f.name}`} aria-expanded={acts === f.path} onClick={() => setActs(acts === f.path ? null : f.path)}><i className="fa-solid fa-ellipsis" aria-hidden="true" /></button>
-              : folderActs(f)}
+            {!phone && folderActs(f)}
           </div>
         )}
-        {phone && acts === f.path && <div className="row ag-tree-acts">{folderActs(f)}</div>}
       </li>
     );
     const renameRow = naming?.mode === 'rename' && naming.path === f.path ? [<NameSlot key={`r:${f.path}`}>{nameForm(depth)}</NameSlot>] : [];
@@ -187,22 +184,37 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
       ...(naming?.mode === 'new' && naming.path === f.path ? [<NameSlot key={`n:${f.path}`}>{nameForm(depth + 1)}</NameSlot>] : []),
       ...folderRows(f, depth + 1),
       ...f.chats.map((c) => chatRow(c, depth + 1)),
-      ...(f.count === 0 ? [<li key={`e:${f.path}`} className="tiny muted" style={{ paddingLeft: (depth + 1) * 14 + 6 }}>Empty. Drag a chat here or press + to start one.</li>] : []),
+      ...(f.count === 0 ? [<li key={`e:${f.path}`} className="tiny muted" style={{ paddingLeft: (depth + 1) * 14 + 6 }}>{phone ? 'Empty. Move a chat here from its Move button.' : 'Empty. Drag a chat here or press + to start one.'}</li>] : []),
     ] : [];
     return [...renameRow, row, ...inside];
   });
 
+  // The folder of the open chat: where the phone's "New chat in" and "Rename folder" act.
+  const openFolder = cleanFolder(s.list.find((c) => c.id === s.chat?.id)?.folder ?? '');
+  const menuLabel = (text: string) => (phone ? <span> {text}</span> : null);
+  const incognitoBtn = <button type="button" role={phone ? 'menuitem' : undefined} className={btn('ghost')} aria-label="New incognito chat" title="Incognito chat: not saved, deleted when you leave it" disabled={s.busy} onClick={() => { setMore(false); t.incognito(); }} data-testid="ag-incognito"><i className="fa-solid fa-user-secret" aria-hidden="true" />{menuLabel('Incognito chat')}</button>;
+  const newFolderBtn = <button type="button" role={phone ? 'menuitem' : undefined} className={btn('ghost')} aria-label="New folder" title="New folder" onClick={() => { setMore(false); setFolded(false); setNaming({ path: '', value: '', mode: 'new' }); }} data-testid="ag-tree-newfolder"><i className="fa-solid fa-folder-plus" aria-hidden="true" />{menuLabel('New folder')}</button>;
   return (
     <div className="stack tight ag-tree-wrap" aria-label="Your chats" data-testid="ag-chats">
-      <div className="row ag-chats" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
-        <button type="button" className="ag-tree-open" style={{ flex: 1, minWidth: 0 }} aria-expanded={!folded} onClick={() => setFolded((f) => !f)} data-testid="ag-tree-fold">
-          <i className={`fa-solid ${folded ? 'fa-chevron-right' : 'fa-chevron-down'}`} aria-hidden="true" /> <strong>Chats</strong>{folded && s.chat ? <span className="tiny muted ag-tree-title"> · {s.list.find((c) => c.id === s.chat?.id)?.title || t.templates.find((c) => c.id === s.chat?.id)?.title || 'New chat'}</span> : null}
+      <div className="row ag-chats ag-tree-head">
+        <button type="button" className="ag-tree-open" style={{ flex: 1, minWidth: 0 }} aria-expanded={!folded} onClick={() => { setMore(false); setFolded((f) => !f); }} data-testid="ag-tree-fold">
+          <i className={`fa-solid ${folded ? 'fa-chevron-right' : 'fa-chevron-down'}`} aria-hidden="true" /> <strong>Chats</strong>
+          {folded && s.chat ? <span className="muted ag-tree-title">{s.chat.incognito ? 'Incognito chat' : s.titleOf?.(s.chat.id) || 'New chat'}</span> : null}
         </button>
         <button type="button" className={btn('ghost')} aria-label="New chat" title="New chat" disabled={s.busy} onClick={() => t.freshIn('')} data-testid="ag-tree-new"><i className="fa-solid fa-plus" aria-hidden="true" /></button>
-        <button type="button" className={btn('ghost')} aria-label="New incognito chat" title="Incognito chat: not saved, deleted when you leave it" disabled={s.busy} onClick={() => t.incognito()} data-testid="ag-incognito"><i className="fa-solid fa-user-secret" aria-hidden="true" /></button>
-        <button type="button" className={btn('ghost')} aria-label="New folder" title="New folder" onClick={() => { setFolded(false); setNaming({ path: '', value: '', mode: 'new' }); }} data-testid="ag-tree-newfolder"><i className="fa-solid fa-folder-plus" aria-hidden="true" /></button>
-        {toggle}
+        {phone
+          ? <button type="button" className={btn(`ghost${more ? ' on' : ''}`)} aria-label="More chat actions" aria-expanded={more} onClick={() => setMore((m) => !m)} data-testid="ag-tree-more"><i className="fa-solid fa-ellipsis-vertical" aria-hidden="true" /></button>
+          : <>{incognitoBtn}{newFolderBtn}{toggle}</>}
       </div>
+      {phone && more && (
+        <div className="stack tight ag-tree-menu" role="menu" aria-label="More chat actions">
+          {incognitoBtn}
+          {newFolderBtn}
+          {openFolder && <button type="button" role="menuitem" className={btn('ghost')} onClick={() => { setMore(false); expand(openFolder); t.freshIn(openFolder); }}><i className="fa-solid fa-plus" aria-hidden="true" /> New chat in {openFolder.split('/').pop()}</button>}
+          {openFolder && <button type="button" role="menuitem" className={btn('ghost')} onClick={() => { setMore(false); setFolded(false); setNaming({ path: openFolder, value: openFolder.split('/').pop() ?? '', mode: 'rename' }); }}><i className="fa-solid fa-pen" aria-hidden="true" /> Rename folder {openFolder.split('/').pop()}</button>}
+          {toggle}
+        </div>
+      )}
       {!folded && (
         <ul className={`ag-tree${phone ? ' phone' : ''}`} data-testid="ag-tree">
           {naming?.mode === 'new' && naming.path === '' && nameForm(0)}
@@ -226,7 +238,8 @@ function ChatTree({ s, t, phone, toggle }: { s: Switcher; t: TreeTools; phone?: 
           </>}
         </ul>
       )}
-      {s.chat && <OpenChatTools s={s} phone={phone} />}
+      {s.chat && !(phone && folded) && <OpenChatTools s={s} phone={phone} onMove={phone && s.list.some((c) => c.id === s.chat?.id) ? () => setMoving(moving === s.chat!.id ? null : s.chat!.id) : undefined} />}
+      {phone && !folded && moving && moving === s.chat?.id && <MoveForm phone folders={folders} current={openFolder} onCancel={() => setMoving(null)} onMove={(f) => { setMoving(null); if (f) addMade(f); t.move(moving, f); if (f) expand(f); }} />}
     </div>
   );
 }
@@ -251,7 +264,7 @@ function MoveForm({ folders, current, onMove, onCancel, phone }: { folders: stri
 }
 
 /** Rename or delete the open chat, under the tree (an incognito chat has its own bar). */
-function OpenChatTools({ s, phone }: { s: Switcher; phone?: boolean }) {
+function OpenChatTools({ s, phone, onMove }: { s: Switcher; phone?: boolean; onMove?: () => void }) {
   const { chat, renaming, setRenaming, confirmDel, setConfirmDel, busy } = s;
   if (!chat || chat.incognito) return null;
   const btn = (extra: string) => (phone ? `b ${extra}` : `btn small ${extra}`).trim();
@@ -271,6 +284,7 @@ function OpenChatTools({ s, phone }: { s: Switcher; phone?: boolean }) {
   return (
     <div className="row ag-tree-tools">
       <button type="button" className={btn('ghost')} aria-label="Rename this chat" onClick={() => setRenaming(s.titleOf?.(chat.id) ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /> Rename</button>
+      {onMove && <button type="button" className={btn('ghost')} aria-label="Move this chat to a folder" onClick={onMove} data-testid="ag-move"><i className="fa-solid fa-folder-open" aria-hidden="true" /> Move</button>}
       <button type="button" className={btn('ghost')} aria-label="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete</button>
     </div>
   );
