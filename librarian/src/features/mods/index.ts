@@ -507,8 +507,8 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_guide', dmOnly: true,
-      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings) and manifest (targets, requires, conflicts) give every field.',
-      props: { part: { type: 'string', enum: ['start', 'counters', 'data', 'presets', 'manifest'], description: 'Which part (default start)' } },
+      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings), manifest (targets, requires, conflicts) and assistant (how the DM assistant and the player helper help with the rule) give every field.',
+      props: { part: { type: 'string', enum: ['start', 'counters', 'data', 'presets', 'manifest', 'assistant'], description: 'Which part (default start)' } },
       call: (a) => ({ method: 'GET', path: `/mods/guide${a.part ? `?part=${enc(a.part)}` : ''}` }),
     },
     {

@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { ModFile } from './format.ts';
 import { MODS_DIR } from './catalog.ts';
 
-export const GUIDE_PARTS = ['start', 'counters', 'data', 'presets', 'manifest'] as const;
+export const GUIDE_PARTS = ['start', 'counters', 'data', 'presets', 'manifest', 'assistant'] as const;
 export type GuidePart = typeof GUIDE_PARTS[number];
 
 const START = `# Making a house rule
@@ -26,6 +26,7 @@ If none of these can do it, it needs code: say so plainly and offer the closest 
 Every file has: "kit": 2, "id" (lowercase-with-dashes), "name", "version" ("1.0.0"), "author", "summary"
 (one sentence a DM reads), and "rules": [{ "term", "text" }] with the rule in plain words for the glossary.
 Add "targets": { "builtFor": [...], "worksWith": [...] } with the parts it is made for (part "manifest").
+Add "assistant" so the DM's assistant and the player helper know how to help with it (part "assistant").
 
 How to work:
 - Look at a close example first: house_rule_file with one of the example ids below. Copy its shape.
@@ -99,6 +100,22 @@ Limits: 8 kinds, 16 fields each, 24 record actions, 8 timers, 4 prompts (6 choic
 Example id: downtime-lite (activities by tier, tasks with days, a Downtime day popup, DM add/take days).
 Tiers of time (common 1 day ... legendary 3 months) are just an enum field plus a days field on the activity.`;
 
+const ASSISTANT = `# Assistant: how the DM's assistant and the player helper work with the rule
+
+"assistant": { "words": ["downtime", "a day passes"], "dm": "...", "player": "...", "tools": ["my_spell_codex"] }
+When a message to the DM's assistant or a player's helper mentions the rule (its name, counters, record kinds,
+prompt button, chat words, or any of "words"), they get a note: the rule's summary, its guidance text for them,
+the exact calls they can make with it, and what they may see now (a player: shared lists and their own records
+and counters). The house rule tools are offered with it.
+- words: up to 24 extra words or phrases (3 to 40 letters) that bring the rule up.
+- dm: guidance only the DM's assistant sees (up to 1200 letters): when to open a prompt, how to reward, what to
+  watch for.
+- player: guidance only the player helper sees: how to help a player choose, plan or spend. Write it as advice
+  to the helper ("suggest two activities that fit ...").
+- tools: other tools to offer when the rule comes up, from a feature: the Codex's my_spell_codex, read_spell,
+  list_spell_recipes, draft_spell_recipe, list_spells. A tool this server does not have is left out.
+Example ids: spell-crafting, spell-points, downtime-lite.`;
+
 const MANIFEST = `# Manifest (kit 2)
 
 "targets": { "builtFor": ["sheet"], "worksWith": ["chat"] }
@@ -134,7 +151,7 @@ ${lines.join('\n')}`;
 
 export function guideText(part: string | undefined, defaults: Record<string, unknown>, exampleIds: string[]): string {
   const p = (GUIDE_PARTS as readonly string[]).includes(part ?? '') ? part as GuidePart : 'start';
-  const body = p === 'counters' ? COUNTERS : p === 'data' ? DATA : p === 'manifest' ? MANIFEST : p === 'presets' ? presetsPart(defaults) : START;
+  const body = p === 'counters' ? COUNTERS : p === 'data' ? DATA : p === 'manifest' ? MANIFEST : p === 'assistant' ? ASSISTANT : p === 'presets' ? presetsPart(defaults) : START;
   const more = p === 'start' ? `\n\nParts: ${GUIDE_PARTS.join(', ')}. Example ids: ${exampleIds.join(', ')}.` : '';
   return body + more;
 }
@@ -197,6 +214,7 @@ export function previewMod(mod: ModFile): string[] {
   if (mod.group) L.push(`Only one rule of the ${mod.group} group is on at a time`);
   for (const [id, r] of Object.entries(mod.requires.mods)) L.push(`Needs the house rule ${id} ${r}`);
   if (mod.conflicts.length) L.push(`Turns off: ${mod.conflicts.join(', ')}`);
+  if (mod.assistant) L.push(`The assistant knows it${mod.assistant.words.length ? ` when someone says ${mod.assistant.words.slice(0, 4).join(', ')}` : ''}${mod.assistant.dm ? '; guidance for the DM' : ''}${mod.assistant.player ? '; guidance for the player helper' : ''}${mod.assistant.tools.length ? `; offers ${mod.assistant.tools.join(', ')}` : ''}`);
   if (!L.length) L.push('Does nothing in play yet: add counters (resources and actions), records or presets');
   for (const r of mod.rules) L.push(`Adds to the glossary: ${r.term}`);
   return L;

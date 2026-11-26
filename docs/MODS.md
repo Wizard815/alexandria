@@ -121,6 +121,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `targets` | Kit 2: `{ builtFor: [...], worksWith: [...] }`. The parts it is made for (`sheet`, `codex`, `chat`, `table`, `combat`, `inventory`, `clock`, `map`, `shop`, `encounters`, `stage`, `assistant`, `library`, or a game module id such as `dnd-2024`) and the ones it only adds to. Shown as badges; a missing `builtFor` part keeps it off. |
 | `conflicts` | Kit 2: ids of rules that cannot be on at the same time. Turning this one on turns them off, like a `group`. |
 | `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
+| `assistant` | Kit 2: how the DM's assistant and the player helper work with the rule (see below). |
 | `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
 Limits: 128 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
@@ -156,6 +157,51 @@ deletes its records and log.
 
 ![The DM's downtime tab](screenshots/house-rules/8-dm-downtime-tab.png)
 ![A player's downtime popup](screenshots/house-rules/9-player-downtime-popup.png)
+
+## How the assistant and the player helper work with a rule
+
+A rule that is on is known to the DM's assistant and to each player's table
+helper without any code. When a message is about the rule (its name, its
+counters, its record kinds, its prompt button, its chat words, or the words in
+its `assistant` part), they get a short note with:
+
+- the rule's summary and the guidance written for them. The DM's text is
+  only for the DM, and the player's text only for players.
+- the exact calls they can make with it, such as
+  `house_rule_my_record {"mod":"downtime-lite","action":"start","values":{"activity":...}}`.
+- what they may see now. The DM sees every record and counter. A player sees
+  shared lists (the activities) and their own records and counters, never
+  another player's.
+
+They are also offered the house rule tools, and any feature tools the rule
+names. That is how a Codex rule hooks the assistant into the Codex:
+
+```json
+"assistant": {
+  "words": ["craft a spell", "combine spells", "spell recipe", "codex"],
+  "tools": ["my_spell_codex", "list_spell_recipes", "read_spell", "draft_spell_recipe"],
+  "player": "To help a player craft: read their codex with my_spell_codex, then list_spell_recipes; say which recipes they can make now and what each still needs.",
+  "dm": "draft_spell_recipe proposes a new recipe for the DM to approve. When a player asks to craft, check they know every spell the recipe needs."
+}
+```
+
+| Field | Holds |
+| --- | --- |
+| `words` | Up to 24 extra words or phrases (3 to 40 letters) that bring the rule up. |
+| `dm` | Guidance only the DM's assistant sees (up to 1,200 letters). |
+| `player` | Guidance only the player helper sees. Write it as advice to the helper. |
+| `tools` | Tools from features to offer with the rule (Codex: `my_spell_codex`, `read_spell`, `list_spell_recipes`, `draft_spell_recipe`, `list_spells`). A tool the server does not have is left out. |
+
+Spell crafting, spell points and the simple mana pool ship with an
+`assistant` part, and so does `mods/examples/downtime-lite.alxmod.json`. In a
+test with the real player model, a player asked their helper "what should I
+do for downtime? I want gold or contacts". The helper suggested Work a trade
+and Carouse from the rule's list. Told "a day passes", the DM's assistant
+proposed opening the Downtime day (`web/e2e/houserule-helpers-real.mjs`).
+
+What goes wrong: a word that is too common (`day`, `rest`) brings the rule
+into messages that are not about it. Use phrases. At most three rules are
+added to one message.
 
 ## Making one with the assistant (the Mod studio)
 

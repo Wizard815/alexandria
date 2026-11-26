@@ -93,7 +93,11 @@ export interface ModFile {
   permissions: Permission[];
   /** Kit 2 data system: its own lists, record actions, timers, prompts and views (system.ts). */
   system: System;
+  /** Kit 2: how the assistant works with the rule: words that bring it up, guidance for the DM's assistant and the
+   *  player helper (each sees only its own), and other tools to offer with it (a feature's, such as the Codex's). */
+  assistant: Assistant | null;
 }
+export interface Assistant { words: string[]; dm: string; player: string; tools: string[] }
 
 export interface Checked { mod: ModFile | null; errors: string[] }
 
@@ -149,7 +153,7 @@ export function checkMod(raw: unknown): Checked {
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
     options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
     requires: { settings: [], mods: {} },
-    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(),
+    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null,
   };
 
   // ---- options
@@ -342,6 +346,18 @@ export function checkMod(raw: unknown): Checked {
     mod.permissions = [...new Set(list(o.permissions, 'permissions', 16).filter((x: unknown, i: number) => typeof x === 'string' && x in PERMISSIONS ? true : (err(`permissions[${i}] "${String(x)}" is not a permission (${Object.keys(PERMISSIONS).join(', ')})`), false)))] as Permission[];
   }
 
+  // ---- kit 2 assistant: when the rule comes up in a message, and what the assistant should know
+  if (o.assistant !== undefined && o.assistant !== null) {
+    const a = o.assistant;
+    if (!a || typeof a !== 'object' || Array.isArray(a)) err('assistant must be { words, dm, player, tools }');
+    else {
+      for (const k of Object.keys(a)) if (!['words', 'dm', 'player', 'tools'].includes(k)) err(`assistant.${k} is not part of assistant (words, dm, player, tools)`);
+      const words = list(a.words, 'assistant.words', 24).filter((w: unknown, i: number) => typeof w === 'string' && w.trim().length >= 3 && w.length <= 40 ? true : (err(`assistant.words[${i}] must be a word or short phrase (3 to 40 letters)`), false)).map((w: string) => w.trim().toLowerCase());
+      const tools = list(a.tools, 'assistant.tools', 12).filter((t: unknown, i: number) => typeof t === 'string' && /^[a-z][a-z0-9_]{1,60}$/.test(t) ? true : (err(`assistant.tools[${i}] must be a tool name like codex_search`), false));
+      mod.assistant = { words: [...new Set(words)] as string[], dm: text(a.dm, 'assistant.dm', 1200), player: text(a.player, 'assistant.player', 1200), tools: [...new Set(tools)] as string[] };
+    }
+  }
+
   // ---- kit 2 data system
   if (['records', 'recordActions', 'timers', 'prompts', 'views'].some((k) => o[k] !== undefined)) {
     mod.system = checkSystem(o, { err, hasOption: (name, type) => !!mod.options[name] && (!type || mod.options[name].type === type) });
@@ -350,7 +366,7 @@ export function checkMod(raw: unknown): Checked {
     for (const ra of mod.system.recordActions) if (taken.has(ra.id)) err(`recordActions: "${ra.id}" is also the id of an action; give it another`);
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views']);
+  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
   if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
@@ -360,7 +376,8 @@ export function checkMod(raw: unknown): Checked {
 
 /** A checked rule back in the shape of a file (what is saved, exported and shown to the assistant). */
 export function toFile(mod: ModFile): Record<string, unknown> {
-  const { system, ...rest } = mod;
+  const { system, assistant, ...rest0 } = mod;
+  const rest = assistant ? { ...rest0, assistant } : rest0;
   if (!system.records.length) return rest;
   return {
     ...rest,
@@ -385,6 +402,7 @@ export function impliedPermissions(mod: ModFile): Permission[] {
   if (Object.keys(mod.presets).length) p.add('settings.write');
   if (mod.rules.length) p.add('glossary');
   if (mod.system.records.length) p.add('records');
+  if (mod.assistant?.tools.length) p.add('assistant.tools');
   if (mod.system.prompts.length || mod.system.recordActions.some((a) => a.effect?.chat) || mod.system.timers.some((t) => t.done.chat)) p.add('chat.post');
   if (mod.system.timers.some((t) => !t.on.startsWith('prompt:'))) p.add('clock.read');
   if (mod.system.views.some((v) => v.place === 'sheet')) p.add('sheet.card');
