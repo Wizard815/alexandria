@@ -138,6 +138,8 @@ export const CSS = `
 .sht-seg button.on { background: var(--accent-bg); color: var(--accent-strong); }
 .sht-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .sht-people li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--line); }
+.sht-people li.tap { cursor: pointer; } .sht-people li.tap:hover { background: color-mix(in srgb, var(--accent) 8%, var(--panel-2)); }
+.sht-people button.sht-av { cursor: pointer; font: inherit; }
 .sht-people li.rel-ok { border-left-color: var(--ok); } .sht-people li.rel-bad { border-left-color: var(--danger); }
 .sht-av { flex: 0 0 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--bg); border: 1px solid var(--line); }
 .rel-ok .sht-av { color: var(--ok-text); border-color: var(--ok); } .rel-bad .sht-av { color: var(--danger-text); border-color: var(--danger); }

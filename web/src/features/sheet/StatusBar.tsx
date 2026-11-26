@@ -7,8 +7,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { ErrorBox, Loading, Modal, useAction, useToast } from '../../ui/index.tsx';
+import { FromDm } from './people.tsx';
 import { REROLL, RerollChips, RerollMod, type RerollKind } from './rerolls.tsx';
-import { ManaMod, Vitals } from './Sheet.tsx';
+import { ManaMod, poolName, Vitals } from './Sheet.tsx';
 import { HpBar, ManaMeter, type PartyRow, type Sheet } from './shared.tsx';
 
 export default function PartyStatusBar() {
@@ -58,7 +59,7 @@ export default function PartyStatusBar() {
   );
 }
 
-/** The DM's quick panel for one player: health, conditions and mana. */
+/** The DM's quick panel for one player: health, conditions, mana, re-rolls and secret notes. */
 function Quick({ account, slug, onClose }: { account: string; slug: string; onClose: () => void }) {
   const { w, info } = useWorld();
   const sheet = useLoad<Sheet>(() => w.call('GET', `/sheet/${account}`), [w, account, (info.settings as any).sheetRerolls], ['sheet', 'spells-char', 'combat', 'settings']);
@@ -71,8 +72,9 @@ function Quick({ account, slug, onClose }: { account: string; slug: string; onCl
         <ErrorBox error={act.error} />
         <div className="sht-quick">
           <section className="stack tight"><span className="tiny faint">Health and conditions</span><Vitals s={s} onChange={post('vitals')} busy={act.busy} /></section>
-          {(info.settings as any).spellMana === true && <section className="stack tight"><span className="tiny faint">Mana</span><ManaMod s={s} onChange={post('mana')} busy={act.busy} /></section>}
+          {(info.settings as any).spellMana === true && <section className="stack tight"><span className="tiny faint">{poolName(info.settings)}</span><ManaMod s={s} onChange={post('mana')} busy={act.busy} name={poolName(info.settings)} /></section>}
           {s.rerolls?.on && <section className="stack tight"><span className="tiny faint">Re-rolls (reward good role play)</span><RerollMod account={account} r={s.rerolls} dm onChanged={() => void sheet.reload()} /></section>}
+          <section className="stack tight"><span className="tiny faint">Secret notes and goals for {s.name}</span><FromDm account={account} notes={s.fromDm ?? []} dm onChanged={() => void sheet.reload()} /></section>
         </div>
         <span className="tiny faint">Every change is logged and the player sees it at once.</span>
         <Link className="btn small" to={`/w/${slug}/dm/sheets?player=${account}`} onClick={onClose}>Open the whole sheet</Link>

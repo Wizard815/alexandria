@@ -52,16 +52,17 @@ export function PeopleMod({ entries, readOnly, onChange, onAsk }: { entries: Per
       {!entries.length && <span className="tiny muted">Nobody yet. Add the people your character knows, or add them from Recently.</span>}
       <ul className={`sht-people${shown.length > 5 ? ' sht-scroll' : ''}`}>
         {shown.map((p) => (
-          <li key={p.id} className={`rel-${REL[p.kind].tone}`}>
-            <span className="sht-av" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
+          // Tap a person to edit them (the name link and Ask keep their own job).
+          <li key={p.id} className={`rel-${REL[p.kind].tone}${readOnly ? '' : ' tap'}`} onClick={readOnly ? undefined : (e) => { if (!(e.target as HTMLElement).closest('a, button')) setEdit(p); }}>
+            {readOnly ? <span className="sht-av" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
+              : <button type="button" className="sht-av" aria-label={`Edit ${p.name}`} title="Edit" onClick={() => setEdit(p)}>{p.name.slice(0, 1).toUpperCase()}</button>}
             <span className="grow stack" style={{ gap: 0, minWidth: 0 }}>
               <span className="row" style={{ gap: 6, minWidth: 0 }}>
                 {p.pageId ? <Link className="sht-pname" to={libraryHref(p.pageId)} title="Open their page">{p.name} <i className="fa-solid fa-book-open tiny" aria-hidden="true" /></Link> : <strong className="sht-pname">{p.name}</strong>}
               </span>
               <span className="tiny muted sht-pnote"><i className={`fa-solid ${REL[p.kind].icon}`} aria-hidden="true" /> {REL[p.kind].label}{p.note ? ` · ${p.note}` : ''}</span>
             </span>
-            {onAsk && <button type="button" className="btn small ghost" title="Ask the broker about them" aria-label={`Ask the broker about ${p.name}`} onClick={() => onAsk({ name: p.name, what: 'person', pageId: p.pageId })}><i className="fa-solid fa-comment-dots" aria-hidden="true" /></button>}
-            {!readOnly && <button type="button" className="btn small ghost" aria-label={`Edit ${p.name}`} onClick={() => setEdit(p)}><i className="fa-solid fa-pen" aria-hidden="true" /></button>}
+            {onAsk && <button type="button" className="btn small" title="Ask the broker about them" aria-label={`Ask the broker about ${p.name}`} onClick={() => onAsk({ name: p.name, what: 'person', pageId: p.pageId })}>Ask</button>}
           </li>
         ))}
       </ul>

@@ -14,6 +14,9 @@ import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EVENTS = ['sheet', 'spells-char', 'combat', 'settings'];
 
+/** What the world calls its spell pool: "Spell points" when the DM's house rule names it so (the mod kit sets spellManaName), else Mana. */
+export const poolName = (settings: unknown): string => { const n = (settings as any)?.spellManaName; return typeof n === 'string' && n.trim() ? n.trim() : 'Mana'; };
+
 /** Sheets saved before "From the DM" became a module get it after Health and Mana. */
 const withDm = (list: Module[]): Module[] => (list.some((m) => m.type === 'dm') ? list
   : [...list.slice(0, 2), { id: 'dm', type: 'dm', title: 'From the DM', wide: false, private: false, collapsed: false }, ...list.slice(2)]);
@@ -93,6 +96,7 @@ export default function Sheet({ account, page = false }: { account: string; page
     toast(`${p.name} added`);
   };
   const manaOn = (info.settings as any).spellMana === true;
+  const pool = poolName(info.settings);
   const buttons = (
     <span className="row" style={{ gap: 6 }}>
       <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)} title={isDM ? 'Every HP and mana change for this player' : 'Every change to your HP and mana (the DM sees these too)'}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
@@ -115,7 +119,7 @@ export default function Sheet({ account, page = false }: { account: string; page
             <div className="card-head">
               {editing
                 ? <input className="sht-in" aria-label="Module title" value={m.title} maxLength={60} onChange={(e) => update(m.id, { title: e.target.value })} style={{ flex: 1 }} />
-                : <h3><i className={`fa-solid ${KINDS.find((k) => k.type === m.type)?.icon}`} aria-hidden="true" />{m.title}{m.private && <i className="fa-solid fa-lock faint" title="Only you see this" aria-label="Private" />}</h3>}
+                : <h3><i className={`fa-solid ${KINDS.find((k) => k.type === m.type)?.icon}`} aria-hidden="true" />{m.type === 'mana' && m.title === 'Mana' ? pool : m.title}{m.private && <i className="fa-solid fa-lock faint" title="Only you see this" aria-label="Private" />}</h3>}
               {!editing && <button type="button" className="btn small ghost" aria-expanded={!m.collapsed} aria-label={m.collapsed ? `Show ${m.title}` : `Fold ${m.title}`} onClick={() => update(m.id, { collapsed: !m.collapsed }, 0)}>{m.collapsed ? '▸' : '▾'}</button>}
             </div>
             {/* Arrange: bodies fold away and every control is a full-size touch target, so it works on a phone. */}
@@ -132,7 +136,7 @@ export default function Sheet({ account, page = false }: { account: string; page
               m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'rerolls' ? <RerollMod account={own ? 'me' : account} r={s.rerolls ?? { on: false }} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
-              : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} /> : <p className="tiny muted">Mana is off in this world.</p>)
+              : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} name={pool} /> : <p className="tiny muted">{pool} is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
               : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? (x) => setAdding1(x) : undefined} onAsk={own && canAsk ? setAsking : undefined} />
               : m.type === 'contacts' ? <PeopleMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries) => update(m.id, { data: { entries } }, 0)} onAsk={own && canAsk ? setAsking : undefined} />
@@ -215,11 +219,11 @@ function SetHp({ s, onSave }: { s: SheetT; onSave: (b: Record<string, unknown>) 
 
 // ---- mana (the spells feature keeps the numbers) ----
 
-export function ManaMod({ s, onChange, busy }: { s: SheetT; onChange: (b: Record<string, unknown>) => void; busy: boolean }) {
+export function ManaMod({ s, onChange, busy, name = 'Mana' }: { s: SheetT; onChange: (b: Record<string, unknown>) => void; busy: boolean; name?: string }) {
   const [n, setN] = useState('');
   const [note, setNote] = useState('');
-  if (!s.mana.on) return <p className="tiny muted">Mana is off in this world.</p>;
-  if (s.mana.max === null || s.mana.max === undefined) return <p className="tiny muted">Set your level in the <Link to="../codex">Codex</Link> to get a mana pool.</p>;
+  if (!s.mana.on) return <p className="tiny muted">{name} is off in this world.</p>;
+  if (s.mana.max === null || s.mana.max === undefined) return <p className="tiny muted">Set your level in the <Link to="../codex">Codex</Link> to get your {name.toLowerCase()}.</p>;
   const amt = Number(n);
   const okAmt = n !== '' && Number.isInteger(amt) && amt > 0;
   const go = (sign: 1 | -1) => { if (okAmt) { onChange({ delta: sign * amt, ...(note.trim() ? { note: note.trim() } : {}) }); setN(''); setNote(''); } };
@@ -228,12 +232,12 @@ export function ManaMod({ s, onChange, busy }: { s: SheetT; onChange: (b: Record
       <span className="sht-big" data-testid="mana-now">{s.mana.now ?? s.mana.max}<span className="muted" style={{ fontSize: 15 }}> / {s.mana.max}</span></span>
       <ManaMeter mana={s.mana} />
       <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
-        <input className="sht-num" inputMode="numeric" aria-label="Mana amount" placeholder="0" value={n} onChange={(e) => setN(e.target.value.replace(/[^\d]/g, ''))} />
+        <input className="sht-num" inputMode="numeric" aria-label={`${name} amount`} placeholder="0" value={n} onChange={(e) => setN(e.target.value.replace(/[^\d]/g, ''))} />
         <button type="button" className="btn small" disabled={busy || !okAmt} onClick={() => go(-1)}>Spend</button>
         <button type="button" className="btn small" disabled={busy || !okAmt} onClick={() => go(1)}>Restore</button>
       </div>
       {n && <input className="sht-in" placeholder="Why (a potion, a scroll…)" aria-label="Why" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />}
-      <span className="tiny faint">Casting from the <Link to="../codex">Codex</Link> spends mana on its own.</span>
+      <span className="tiny faint">Casting from the <Link to="../codex">Codex</Link> spends {name.toLowerCase()} on its own.</span>
     </div>
   );
 }
@@ -269,8 +273,8 @@ function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Par
         <li key={x.name}>
           <span className="grow small" title={`Session ${x.session}: ${x.sessionTitle}`}>{x.pageId ? <Link to={`../library?page=${encodeURIComponent(x.pageId)}`}>{x.name}</Link> : x.name}</span>
           <span className="tiny faint" title={x.sessionTitle}>#{x.session}</span>
-          {onAsk && <button type="button" className="btn small ghost" title="Ask the broker" aria-label={`Ask the broker about ${x.name}`} onClick={() => onAsk({ name: x.name, what, pageId: x.pageId })}><i className="fa-solid fa-comment-dots" aria-hidden="true" /></button>}
-          {what === 'person' && onAdd && <button type="button" className="btn small ghost" title="Add to my people" aria-label={`Add ${x.name} to my people`} onClick={() => onAdd({ name: x.name, kind: 'ally', note: '', pageId: x.pageId, personId: x.personId })}><i className="fa-solid fa-user-plus" aria-hidden="true" /></button>}
+          {onAsk && <button type="button" className="btn small" title="Ask the broker about this" aria-label={`Ask the broker about ${x.name}`} onClick={() => onAsk({ name: x.name, what, pageId: x.pageId })}>Ask</button>}
+          {what === 'person' && onAdd && <button type="button" className="btn small ghost" title="Add to my people" aria-label={`Add ${x.name} to my people`} onClick={() => onAdd({ name: x.name, kind: 'ally', note: '', pageId: x.pageId, personId: x.personId })}>＋ Add</button>}
         </li>
       ))}</ul>
     </div>
@@ -279,6 +283,14 @@ function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Par
 }
 
 // ---- the modules a player fills in ----
+
+/** Example counters for the add box: ones the player does not have yet. */
+const COUNTER_IDEAS = ['Hit dice', 'Arrows', 'Rations', 'Torches', 'Luck points', 'Ki points', 'Bardic inspiration', 'Rages', 'Healing potions', 'Spell scrolls', 'Days of travel'];
+const counterHint = (entries: { label: string }[]) => {
+  const have = new Set(entries.map((e) => e.label.toLowerCase().replace(/\s*\(.*\)$/, '')));
+  const ideas = COUNTER_IDEAS.filter((x) => ![...have].some((h) => h.startsWith(x.toLowerCase().replace(/s$/, ''))));
+  return ideas.length ? `${ideas.slice(0, 3).join(', ')}…` : 'Name a new counter';
+};
 
 function Editable({ m, readOnly, onData }: { m: Module; readOnly: boolean; onData: (data: any, wait?: number) => void }) {
   const entries: any[] = m.data?.entries ?? [];
@@ -309,7 +321,7 @@ function Editable({ m, readOnly, onData }: { m: Module; readOnly: boolean; onDat
           </li>
         ))}</ul>
         {!readOnly && entries.length > 0 && <button type="button" className={`btn small ghost${tweak ? ' on' : ''}`} style={{ alignSelf: 'flex-end' }} aria-pressed={tweak} onClick={() => setTweak((v) => !v)}><i className="fa-solid fa-sliders" aria-hidden="true" /> {tweak ? 'Done' : 'Edit counters'}</button>}
-        {!readOnly && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder="Inspiration, hit dice, arrows…" aria-label="New counter" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
+        {!readOnly && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder={counterHint(entries)} aria-label="New counter" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
       </div>
     );
   }
