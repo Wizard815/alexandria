@@ -7,10 +7,12 @@
 //                     3. warm the caches the first search or model request would otherwise build while somebody waits
 //
 // A memory guard watches the heap; see core/memguard.ts.
+import { REFRESH_KIND, startRefresh } from './features/knowledge/refresh.ts';
 import type { Server } from 'node:http';
 import { createApp, type AppOptions, type Deps } from './app.ts';
 import { all, run } from './core/db.ts';
 import { takeInterrupted } from './core/jobs.ts';
+import { BULK_KIND, startBulkBuild } from './features/search/bulkbuild.ts';
 import { startMemoryGuard } from './core/memguard.ts';
 import { now } from './core/util.ts';
 import { tick } from './core/yield.ts';
@@ -42,6 +44,8 @@ export async function resumeJobs(d: Deps) {
     try {
       if (j.kind === 'crawl' && j.params?.worldId) startCrawl(d, j.params.worldId, { mode: j.params.mode, sourceIds: j.params.sourceIds, by: null, full: !!j.params.full });
       else if (j.kind === 'sync' && j.params?.sourceId) void runSync({ db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp }, j.params.sourceId, null, { tiered: !!j.params.tiered, full: !!j.params.full }).catch(() => {});
+      else if (j.kind === REFRESH_KIND && j.params?.worldId) startRefresh(d, j.params.worldId, { by: null, full: !!j.params.full });
+      else if (j.kind === BULK_KIND && j.params?.worldId) startBulkBuild(d, j.params.worldId, { embeddings: !!j.params.embeddings, bible: !!j.params.bible });
       else if (j.kind === 'rebuild' && j.params?.worldId) void d.library.rebuildPlayerCopiesAsync(j.params.worldId).catch(() => {});
       else continue;
       console.log(`Resumed: ${j.title}`);

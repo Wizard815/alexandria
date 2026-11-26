@@ -7,7 +7,7 @@ import { parseJson } from '../../core/util.ts';
 import { one } from '../../core/db.ts';
 
 /** Tool names (a trailing * is a prefix) that always wait for the DM's approval, in Auto mode and for tasks too. */
-export const ALWAYS_ASK = ['delete_*', 'lore_delete', 'end_game_session', 'stop_recording', 'start_recording', 'decide_*', 'publish_*', 'broker_*', 'save_page', 'edit_session_log_draft', 'update_person', 'promote*', 'arc_close', 'source_lookup', 'set_shop_status'];
+export const ALWAYS_ASK = ['delete_*', 'lore_delete', 'end_game_session', 'stop_recording', 'start_recording', 'decide_*', 'publish_*', 'broker_*', 'save_page', 'edit_session_log_draft', 'update_person', 'promote*', 'arc_close', 'source_lookup', 'set_shop_status', 'present_shop'];
 const esc = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
 /** Never run by a task or by Auto mode on its own, whatever the allowlist says. */
 export const AUTO_NEVER = new RegExp(`^(?:${ALWAYS_ASK.map((n) => esc(n.replace(/\*$/, ''))).join('|')})`);

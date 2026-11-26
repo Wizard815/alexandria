@@ -29,11 +29,15 @@ import { available, enabledIds } from '../modules/store.ts';
 import { selfCall } from '../sculpt/outputs.ts';
 import { firstLeak, makeCtx } from '../sculpt/ctx.ts';
 import { priceText } from '../generators/tavern.ts';
+import { getClock } from '../clock/api.ts';
 import * as I from './items.ts';
-import { SCHEMA as SHOP_SCHEMA, KIND_LABEL, RESTOCK_RULES, SHOP_KINDS, STATUSES, dmShop, keeperOf, playerShop, playerVisible, restock, settleRestock, stockRows, unitPrice, type Keeper, type ShopRow, type StockRow } from './shops.ts';
+import { SCHEMA as SHOP_SCHEMA, KIND_LABEL, RESTOCK_RULES, SHOP_KINDS, STATUSES, dmShop, keeperOf, playerShop, playerVisible, priceWord, restock, settleRestock, stockRows, townPctOf, unitPrice, type Keeper, type ShopRow, type StockRow } from './shops.ts';
 import { SIZES, generateKeeper, generateShop, type ShopDraft } from './gen.ts';
+import * as M from './market.ts';
 
 export { generateShop } from './gen.ts';
+/** For other features (NPC encounters): put a shop on players' screens. See market.ts presentShop. */
+export { presentShop, type PresentOpts } from './market.ts';
 
 /** The audit log (features write it directly: importing app.ts from a feature would be an import cycle). */
 const audit = (db: DB, worldId: string, accountId: string | null, action: string, detail = '') =>
@@ -60,6 +64,8 @@ const cfg = (res: Response) => {
     sellPct: Number(featureSetting<number>(s, 'shopSellBackPct') ?? 50),
     partyPay: !!s.partyPurse && featureSetting<boolean>(s, 'shopPartyPay') !== false,
     partyPurse: !!s.partyPurse, coins: String(s.coins ?? 'gsc'),
+    haggle: featureSetting<boolean>(s, 'shopHaggle') !== false,
+    repEffect: Number(featureSetting<number>(s, 'shopRepEffect') ?? 10),
   };
 };
 
@@ -71,6 +77,7 @@ function routes(d: Deps) {
   r.use(requirePlayerOrDM);
 
   const seed = (res: Response) => I.ensureSeeded(db, W(res), enabledIds(db, W(res)));
+  const getNow = (w: string) => getClock(db, w).minutes;
 
   // ---- live events ----
   /** A shop changed. Players hear about shops they can see (or could see until now); the DM about all. */
@@ -97,12 +104,19 @@ function routes(d: Deps) {
     if (!it) throw new HttpError(404, 'Item not found');
     return it;
   };
-  const viewOf = (res: Response, s: ShopRow) => (isDM(res) ? dmShop(d, db, s, ctx(res).viewer) : playerShop(d, db, s, ctx(res).viewer));
+  const viewOf = (res: Response, s: ShopRow) => (isDM(res) ? dmShop(d, db, s, ctx(res).viewer) : M.personalize(db, s, playerShop(d, db, s, ctx(res).viewer), me(res), cfg(res).repEffect));
+  /** What a shop offers this player for what they sell, in percent of the item's price: the shop's (or world's) rate plus their good reputation. */
+  const sellPctFor = (res: Response, s: ShopRow) => {
+    const c = cfg(res);
+    const base = s.sell_pct ?? c.sellPct;
+    const rep = M.repOf(db, s.id, me(res))?.rep ?? 0;
+    return Math.max(0, Math.min(100, base + Math.max(0, M.repDiscount(rep, c.repEffect))));
+  };
 
   // ---- settings players need to see ----
   r.get('/config', (_req, res) => {
     const c = cfg(res);
-    res.json({ approval: c.approval, sellBack: c.sellBack, sellPct: c.sellPct, partyPay: c.partyPay, coins: c.coins, kinds: SHOP_KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), sizes: SIZES, ...(isDM(res) ? { model: hasJob(d, 'chat'), types: I.ITEM_TYPES, rarities: I.ITEM_RARITIES } : {}) });
+    res.json({ approval: c.approval, sellBack: c.sellBack, sellPct: c.sellPct, partyPay: c.partyPay, coins: c.coins, haggle: c.haggle, repEffect: c.repEffect, kinds: SHOP_KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), sizes: SIZES, ...(isDM(res) ? { model: hasJob(d, 'chat'), types: I.ITEM_TYPES, rarities: I.ITEM_RARITIES } : {}) });
   });
 
   // ================= the item database (DM only) =================
@@ -234,7 +248,7 @@ function routes(d: Deps) {
     const s = shopFor(res, String(req.params.sid));
     const v: any = viewOf(res, s);
     const c = cfg(res);
-    if (!isDM(res)) v.sellPct = c.sellBack ? (s.sell_pct ?? c.sellPct) : null;
+    if (!isDM(res)) { v.sellPct = c.sellBack ? sellPctFor(res, s) : null; v.haggles = v.haggles && c.haggle; }
     res.json(v);
   });
 
@@ -247,6 +261,13 @@ function routes(d: Deps) {
   const checkPage = (res: Response, pid: unknown): string | null => {
     if (pid === undefined || pid === null || pid === '') return null;
     try { return String((d.library.get(W(res), str(pid, 'pageId', { max: 300 }), ctx(res).viewer) as any).id); } catch { throw new HttpError(400, 'Pick a library page of this world'); }
+  };
+
+  const checkTown = (res: Response, tid: unknown): string | null => {
+    if (tid === undefined || tid === null || tid === '') return null;
+    const t = one<M.TownRow>(db, 'SELECT * FROM shop_towns WHERE id = ? AND world_id = ?', str(tid, 'townId', { max: 80 }), W(res));
+    if (!t) throw new HttpError(400, 'Pick a town of this world');
+    return t.id;
   };
 
   function writeShop(res: Response, b: any, cur?: ShopRow): string {
@@ -264,16 +285,19 @@ function routes(d: Deps) {
       rule: b.restock?.rule === undefined && cur ? cur.restock_rule : oneOf(b.restock?.rule ?? 'manual', 'restock.rule', RESTOCK_RULES),
       days: b.restock?.days === undefined && cur ? cur.restock_days : int(b.restock?.days ?? 7, 'restock.days', { min: 1, max: 3650 })!,
       sellPct: b.sellPct === undefined ? cur?.sell_pct ?? null : b.sellPct === null || b.sellPct === '' ? null : int(b.sellPct, 'sellPct', { min: 0, max: 100 }),
+      town: b.townId === undefined ? cur?.town_id ?? null : checkTown(res, b.townId),
+      gold: b.goldCp === undefined ? cur?.gold_cp ?? null : b.goldCp === null || b.goldCp === '' ? null : int(b.goldCp, 'goldCp', { min: 0, max: 10_000_000_000 }),
+      barter: b.barterPct === undefined ? cur?.barter_pct ?? 10 : int(b.barterPct, 'barterPct', { min: 0, max: 90 })!,
     };
     const t = now();
     if (cur) {
-      run(db, 'UPDATE shops SET name = ?, kind = ?, description = ?, keeper = ?, location_page_id = ?, markup_pct = ?, haggle = ?, dm_notes = ?, status = ?, restock_rule = ?, restock_days = ?, sell_pct = ?, updated_at = ? WHERE id = ?',
-        v.name, v.kind, v.description, JSON.stringify(k), v.location, v.markup, v.haggle, v.dmNotes, v.status, v.rule, v.days, v.sellPct, t, cur.id);
+      run(db, 'UPDATE shops SET name = ?, kind = ?, description = ?, keeper = ?, location_page_id = ?, markup_pct = ?, haggle = ?, dm_notes = ?, status = ?, restock_rule = ?, restock_days = ?, sell_pct = ?, town_id = ?, gold_cp = ?, barter_pct = ?, updated_at = ? WHERE id = ?',
+        v.name, v.kind, v.description, JSON.stringify(k), v.location, v.markup, v.haggle, v.dmNotes, v.status, v.rule, v.days, v.sellPct, v.town, v.gold, v.barter, t, cur.id);
       return cur.id;
     }
     const sid = newId('shp_');
-    run(db, 'INSERT INTO shops (id, world_id, name, kind, description, keeper, location_page_id, markup_pct, haggle, dm_notes, status, restock_rule, restock_days, sell_pct, gen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      sid, W(res), v.name, v.kind, v.description, JSON.stringify(k), v.location, v.markup, v.haggle, v.dmNotes, v.status, v.rule, v.days, v.sellPct, JSON.stringify(b.gen && typeof b.gen === 'object' ? b.gen : {}), t, t);
+    run(db, 'INSERT INTO shops (id, world_id, name, kind, description, keeper, location_page_id, markup_pct, haggle, dm_notes, status, restock_rule, restock_days, sell_pct, town_id, gold_cp, barter_pct, gen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      sid, W(res), v.name, v.kind, v.description, JSON.stringify(k), v.location, v.markup, v.haggle, v.dmNotes, v.status, v.rule, v.days, v.sellPct, v.town, v.gold, v.barter, JSON.stringify(b.gen && typeof b.gen === 'object' ? b.gen : {}), t, t);
     return sid;
   }
 
@@ -393,11 +417,13 @@ function routes(d: Deps) {
   r.post('/generate', requireDM, async (req, res) => {
     const b = req.body ?? {};
     const guide = typeof b.guide === 'string' ? b.guide.slice(0, 8000) : undefined;
-    const draft = await guard(() => generateShop(d, W(res), { kind: b.kind, size: b.size, level: b.level, theme: b.theme, seed: b.seed, count: b.count, name: b.name, enrich: b.enrich === true, flavour: b.flavour }, guide));
+    const townId = checkTown(res, b.townId);
+    const town = townId ? one<M.TownRow>(db, 'SELECT * FROM shop_towns WHERE id = ?', townId)! : null;
+    const draft = await guard(() => generateShop(d, W(res), { kind: b.kind, size: b.size ?? town?.size, level: b.level, theme: b.theme, seed: b.seed, count: b.count, name: b.name, enrich: b.enrich === true, flavour: b.flavour }, guide));
     if (b.save !== true) return res.json({ draft });
     let sid = '';
     tx(db, () => {
-      sid = writeShop(res, { name: draft.name, kind: draft.kind, description: draft.description, keeper: draft.keeper, markupPct: draft.markupPct, haggle: draft.haggle, dmNotes: draft.dmNotes, status: b.status ?? 'hidden', locationPageId: b.locationPageId, gen: { seed: draft.seed, size: draft.size, level: draft.level, theme: draft.theme } });
+      sid = writeShop(res, { name: draft.name, kind: draft.kind, description: draft.description, keeper: draft.keeper, markupPct: draft.markupPct, haggle: draft.haggle, dmNotes: draft.dmNotes, status: b.status ?? 'hidden', locationPageId: b.locationPageId ?? town?.location_page_id ?? undefined, townId, goldCp: draft.goldCp, barterPct: draft.barterPct, gen: { seed: draft.seed, size: draft.size, level: draft.level, theme: draft.theme } });
       addStock(sid, W(res), draftStock(draft));
     });
     const s = one<ShopRow>(db, 'SELECT * FROM shops WHERE id = ?', sid)!;
@@ -483,6 +509,14 @@ function routes(d: Deps) {
     return { id: iid, name: it.name, qty };
   }
 
+  /** A purchase went through: the keeper's purse grows and they remember the buyer more kindly. */
+  function paid(shopId: string, buyer: string, total: number) {
+    const s = one<ShopRow>(db, 'SELECT * FROM shops WHERE id = ?', shopId);
+    if (!s) return;
+    if (s.gold_cp !== null && s.gold_cp !== undefined) run(db, 'UPDATE shops SET gold_cp = gold_cp + ? WHERE id = ?', total, s.id);
+    M.remember(db, s, buyer, { rep: M.purchaseRep(total), spent: total, purchase: true });
+  }
+
   r.post('/shops/:sid/buy', (req, res) => {
     const w = W(res);
     const s = shopFor(res, String(req.params.sid));
@@ -508,9 +542,14 @@ function routes(d: Deps) {
       const st = one<StockRow>(db, 'SELECT * FROM shop_stock WHERE id = ? AND shop_id = ?', stid, s.id);
       if (!st || (st.hidden && !isDM(res))) throw new HttpError(404, 'That is not for sale here');
       const it = one<I.ItemRow>(db, 'SELECT * FROM shop_items WHERE id = ?', st.item_id)!;
-      const unit = unitPrice(s, st, it);
-      if (unit === null) throw new HttpError(409, `${it.name} has no price: ask the shopkeeper (the DM)`);
+      const list = unitPrice(s, st, it, townPctOf(db, s));
+      if (list === null) throw new HttpError(409, `${it.name} has no price: ask the shopkeeper (the DM)`);
       if (st.qty !== null && st.qty < qty) throw new HttpError(409, st.qty === 0 ? `${it.name} is sold out` : `Only ${st.qty} ${it.name} left`);
+      // This buyer's price: their reputation with the keeper, and their best deal on this line (used up by this purchase).
+      M.settleDeals(db, w);
+      const deal = isDM(res) ? null : M.bestDeal(db, s.id, buyer, st.id);
+      const repPct = isDM(res) ? 0 : M.repDiscount(M.repOf(db, s.id, buyer)?.rep ?? 0, c.repEffect);
+      const unit = M.personalPrice(list, repPct, deal?.pct ?? 0);
       const total = unit * qty;
       if (total > 0) {
         const have = spendable(db, w, payer);
@@ -527,8 +566,10 @@ function routes(d: Deps) {
       if (st.qty !== null && run(db, 'UPDATE shop_stock SET qty = qty - ? WHERE id = ? AND qty >= ?', qty, st.id, qty) !== 1) throw new HttpError(409, `${it.name} just sold out`);
       const oid = newId('sho_');
       const status = c.approval ? 'pending' : 'approved';
-      run(db, `INSERT INTO shop_orders (id, world_id, shop_id, stock_id, item_id, kind, account_id, payer, dest, qty, unit_cp, total_cp, ledger_id, item_name, status, created_at, decided_at) VALUES (?, ?, ?, ?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        oid, w, s.id, st.id, it.id, buyer, payer, owner, qty, unit, total, ledgerId, it.name, status, now(), c.approval ? null : now());
+      run(db, `INSERT INTO shop_orders (id, world_id, shop_id, stock_id, item_id, kind, account_id, payer, dest, qty, unit_cp, total_cp, ledger_id, item_name, status, created_at, decided_at, deal_id, list_cp) VALUES (?, ?, ?, ?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        oid, w, s.id, st.id, it.id, buyer, payer, owner, qty, unit, total, ledgerId, it.name, status, now(), c.approval ? null : now(), deal?.id ?? null, list);
+      if (deal) run(db, `UPDATE shop_deals SET status = 'used', order_id = ? WHERE id = ?`, oid, deal.id);
+      if (!c.approval) paid(s.id, isDM(res) ? '' : buyer, total);
       const delivered = c.approval ? null : deliver(w, owner, it, qty, buyer);
       if (delivered) run(db, 'UPDATE shop_orders SET inv_item_id = ? WHERE id = ?', delivered.id, oid);
       return { order: one<any>(db, 'SELECT * FROM shop_orders WHERE id = ?', oid), delivered, total, ledgerId, note };
@@ -556,8 +597,9 @@ function routes(d: Deps) {
     if (inv.qty < qty) throw new HttpError(409, `You have only ${inv.qty}`);
     if (one(db, `SELECT 1 FROM shop_orders WHERE inv_item_id = ? AND kind = 'sell' AND status = 'pending'`, inv.id)) throw new HttpError(409, 'That item is already offered for sale');
     const known = one<I.ItemRow>(db, 'SELECT * FROM shop_items WHERE world_id = ? AND name_key = ?', w, I.nameKey(inv.name));
-    const pct = s.sell_pct ?? c.sellPct;
+    const pct = sellPctFor(res, s);
     const unit = known?.cost_cp !== null && known?.cost_cp !== undefined ? Math.floor((known.cost_cp * pct) / 100) : 0;
+    if (s.gold_cp !== null && s.gold_cp !== undefined && s.gold_cp < unit * qty) throw new HttpError(409, `${keeperOf(s).name || 'The keeper'} cannot afford that right now`);
     const oid = newId('sho_');
     run(db, `INSERT INTO shop_orders (id, world_id, shop_id, item_id, kind, account_id, payer, dest, qty, unit_cp, total_cp, inv_item_id, item_name, status, note, created_at) VALUES (?, ?, ?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
       oid, w, s.id, known?.id ?? null, me(res), inv.owner, inv.owner, qty, unit, unit * qty, inv.id, inv.name, str(b.note, 'note', { max: 300, optional: true }), now());
@@ -591,6 +633,8 @@ function routes(d: Deps) {
     tx(db, () => {
       if (o.ledger_id) run(db, `UPDATE ledger SET status = 'rejected', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'`, by, now(), o.ledger_id);
       if (o.kind === 'buy' && o.stock_id) run(db, 'UPDATE shop_stock SET qty = qty + ? WHERE id = ? AND qty IS NOT NULL', o.qty, o.stock_id);
+      // A deal used on a purchase that did not happen can be used again (until it expires).
+      if (o.deal_id) run(db, `UPDATE shop_deals SET status = 'active', order_id = NULL WHERE id = ? AND status = 'used'`, o.deal_id);
       run(db, 'UPDATE shop_orders SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?', status, now(), by, o.id);
     });
   }
@@ -610,6 +654,7 @@ function routes(d: Deps) {
         if (o.ledger_id) run(db, `UPDATE ledger SET status = 'approved', decided_by = ?, decided_at = ? WHERE id = ?`, me(res), now(), o.ledger_id);
         const got = deliver(w, o.dest, it ?? ({ name: o.item_name, rarity: 'mundane', type: 'other', attunement: 0, weight: null } as any), o.qty, o.account_id);
         run(db, `UPDATE shop_orders SET status = 'approved', inv_item_id = ?, decided_at = ?, decided_by = ? WHERE id = ?`, got.id, now(), me(res), o.id);
+        paid(o.shop_id, o.account_id, o.total_cp);
         o.delivered = got;
       });
       itemChanged(w, o.dest, o.delivered);
@@ -618,6 +663,13 @@ function routes(d: Deps) {
       tx(db, () => {
         const inv = one<any>(db, `SELECT * FROM items WHERE id = ? AND world_id = ? AND status = 'approved'`, o.inv_item_id, w);
         if (!inv || inv.qty < o.qty) throw new HttpError(409, 'The seller no longer has that item');
+        // The keeper pays from their purse (when it is counted).
+        const purse = shop ? one<ShopRow>(db, 'SELECT * FROM shops WHERE id = ?', shop.id) : null;
+        if (purse && purse.gold_cp !== null && purse.gold_cp !== undefined) {
+          if (purse.gold_cp < total) throw new HttpError(409, `${keeperOf(purse).name || 'The keeper'} has only ${money(purse.gold_cp)}: lower the price or top up the purse`);
+          run(db, 'UPDATE shops SET gold_cp = gold_cp - ? WHERE id = ?', total, purse.id);
+        }
+        if (shop) M.remember(db, shop, o.account_id, { sold: total });
         if (inv.qty === o.qty) run(db, 'DELETE FROM items WHERE id = ?', inv.id);
         else run(db, 'UPDATE items SET qty = qty - ?, updated_at = ?, updated_by = ? WHERE id = ?', o.qty, now(), me(res), inv.id);
         if (total > 0) run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, newId('led_'), w, o.payer, total, (o.payer === 'party' ? 'Shop sale (to the party pouch)' : `Sold ${o.item_name}${o.qty > 1 ? ` x${o.qty}` : ''}`).slice(0, 200), o.account_id, now());
@@ -657,13 +709,205 @@ function routes(d: Deps) {
     res.json(orderOut(res, after));
   });
 
+  // ================= towns: a price level for every shop in them =================
+
+  const townOut = (t: M.TownRow) => ({
+    id: t.id, name: t.name, size: t.size, pricePct: t.price_pct, prices: priceWord(t.price_pct), description: t.description, dmNotes: t.dm_notes, locationPageId: t.location_page_id,
+    shops: all<{ id: string; name: string; status: string }>(db, 'SELECT id, name, status FROM shops WHERE town_id = ? ORDER BY name COLLATE NOCASE', t.id),
+    createdAt: t.created_at, updatedAt: t.updated_at,
+  });
+  const townFor = (res: Response, tid: string) => {
+    const t = one<M.TownRow>(db, 'SELECT * FROM shop_towns WHERE id = ? AND world_id = ?', tid, W(res));
+    if (!t) throw new HttpError(404, 'Town not found');
+    return t;
+  };
+  /** Every shop in a town changes price at once. */
+  const townShopsChanged = (w: string, tid: string) => { for (const s of all<ShopRow>(db, 'SELECT * FROM shops WHERE town_id = ?', tid)) shopEvent(w, s); };
+
+  r.get('/towns', requireDM, (_req, res) => {
+    res.json({ towns: all<M.TownRow>(db, 'SELECT * FROM shop_towns WHERE world_id = ? ORDER BY name COLLATE NOCASE', W(res)).map(townOut), sizes: SIZES });
+  });
+  function writeTown(res: Response, b: any, cur?: M.TownRow) {
+    const v = {
+      name: b.name === undefined && cur ? cur.name : str(b.name, 'name', { max: 120 }),
+      size: b.size === undefined && cur ? cur.size : oneOf(b.size ?? 'town', 'size', SIZES),
+      pct: b.pricePct === undefined && cur ? cur.price_pct : int(b.pricePct ?? 0, 'pricePct', { min: -90, max: 500 })!,
+      description: b.description === undefined && cur ? cur.description : str(b.description, 'description', { max: 2000, optional: true }),
+      dmNotes: b.dmNotes === undefined && cur ? cur.dm_notes : str(b.dmNotes, 'dmNotes', { max: 4000, optional: true }),
+      page: b.locationPageId === undefined && cur ? cur.location_page_id : checkPage(res, b.locationPageId),
+    };
+    if (cur) {
+      run(db, 'UPDATE shop_towns SET name = ?, size = ?, price_pct = ?, description = ?, dm_notes = ?, location_page_id = ?, updated_at = ? WHERE id = ?', v.name, v.size, v.pct, v.description, v.dmNotes, v.page, now(), cur.id);
+      return cur.id;
+    }
+    const tid = newId('twn_');
+    run(db, 'INSERT INTO shop_towns (id, world_id, name, size, price_pct, description, dm_notes, location_page_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', tid, W(res), v.name, v.size, v.pct, v.description, v.dmNotes, v.page, now(), now());
+    return tid;
+  }
+  r.post('/towns', requireDM, (req, res) => {
+    const tid = writeTown(res, req.body ?? {});
+    // Shops named here move into the new town.
+    if (Array.isArray(req.body?.shopIds)) for (const sid of req.body.shopIds.slice(0, 200)) run(db, 'UPDATE shops SET town_id = ? WHERE id = ? AND world_id = ?', tid, String(sid), W(res));
+    const t = townFor(res, tid);
+    audit(db, W(res), me(res), 'shop.town.create', `${t.name} (${t.price_pct}%)`);
+    townShopsChanged(W(res), tid);
+    d.hub.emit(W(res), 'shop-towns', {}, (v) => v.role === 'dm');
+    res.status(201).json(townOut(t));
+  });
+  r.patch('/towns/:tid', requireDM, (req, res) => {
+    const cur = townFor(res, String(req.params.tid));
+    writeTown(res, req.body ?? {}, cur);
+    const t = townFor(res, cur.id);
+    audit(db, W(res), me(res), 'shop.town.edit', `${t.name} (${t.price_pct}%)`);
+    townShopsChanged(W(res), t.id);
+    d.hub.emit(W(res), 'shop-towns', {}, (v) => v.role === 'dm');
+    res.json(townOut(t));
+  });
+  r.delete('/towns/:tid', requireDM, (req, res) => {
+    const cur = townFor(res, String(req.params.tid));
+    const shops = all<ShopRow>(db, 'SELECT * FROM shops WHERE town_id = ?', cur.id);
+    tx(db, () => {
+      run(db, 'UPDATE shops SET town_id = NULL WHERE town_id = ?', cur.id);
+      run(db, 'DELETE FROM shop_towns WHERE id = ?', cur.id);
+    });
+    audit(db, W(res), me(res), 'shop.town.delete', cur.name);
+    for (const s of shops) shopEvent(W(res), s);
+    d.hub.emit(W(res), 'shop-towns', {}, (v) => v.role === 'dm');
+    res.json({ ok: true });
+  });
+
+  // ================= what a keeper remembers: reputation and deals =================
+
+  /** The DM's view of a keeper's memory: every player they know, with reputation, money spent and sold, haggles, and deals. */
+  r.get('/shops/:sid/memory', requireDM, (req, res) => {
+    const s = shopFor(res, String(req.params.sid));
+    const w = W(res);
+    M.settleDeals(db, w);
+    const nm = names(db, w);
+    const c = cfg(res);
+    const reps = new Map(all<M.RepRow>(db, 'SELECT * FROM shop_rep WHERE shop_id = ?', s.id).map((r) => [r.account_id, r]));
+    const players = all<{ account_id: string }>(db, `SELECT account_id FROM members WHERE world_id = ? AND role = 'player'`, w).map((x) => x.account_id);
+    const lines = new Map(stockRows(db, s.id).map((l) => [l.id, l.item.name]));
+    const deals = all<M.DealRow>(db, 'SELECT * FROM shop_deals WHERE shop_id = ? ORDER BY created_at DESC LIMIT 200', s.id);
+    res.json({
+      goldCp: s.gold_cp ?? null, barterPct: s.barter_pct ?? 0, repEffect: c.repEffect,
+      players: [...new Set([...players, ...reps.keys()])].map((a) => {
+        const r = reps.get(a);
+        const rep = r?.rep ?? 0;
+        return { accountId: a, name: nm[a] ?? 'Someone', rep, standing: M.standing(rep), repPct: M.repDiscount(rep, c.repEffect), spentCp: r?.spent_cp ?? 0, soldCp: r?.sold_cp ?? 0, purchases: r?.purchases ?? 0, hagglesWon: r?.haggles_won ?? 0, hagglesLost: r?.haggles_lost ?? 0, note: r?.note ?? '', lastAt: r?.last_at ?? null };
+      }),
+      deals: deals.map((x) => ({ ...M.dealOut(x, x.stock_id ? lines.get(x.stock_id) ?? '(gone)' : undefined), accountId: x.account_id, name: nm[x.account_id] ?? 'Someone', askedPct: x.asked_pct, note: x.note })),
+    });
+  });
+
+  // The DM sets how a keeper sees a player: { rep (-100..100), note }.
+  r.put('/shops/:sid/memory/:aid', requireDM, (req, res) => {
+    const s = shopFor(res, String(req.params.sid));
+    const aid = String(req.params.aid);
+    if (!one(db, `SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'player'`, W(res), aid)) throw new HttpError(404, 'No such player in this world');
+    const b = req.body ?? {};
+    M.remember(db, s, aid, { setRep: b.rep === undefined ? undefined : int(b.rep, 'rep', { min: M.REP_MIN, max: M.REP_MAX })!, note: b.note === undefined ? undefined : str(b.note, 'note', { max: 1000, optional: true }) });
+    audit(db, W(res), me(res), 'shop.rep', `${s.name}: ${aid} ${b.rep ?? ''}`);
+    d.hub.emit(W(res), 'shop', { id: s.id }, dmAnd(aid));
+    const r = M.repOf(db, s.id, aid)!;
+    res.json({ accountId: aid, rep: r.rep, standing: M.standing(r.rep), note: r.note });
+  });
+
+  // The DM gives a player a deal: { accountId, stockId (blank: the whole shop), pct, days (blank: until used), note }.
+  r.post('/shops/:sid/deals', requireDM, (req, res) => {
+    const s = shopFor(res, String(req.params.sid));
+    const b = req.body ?? {};
+    const aid = str(b.accountId, 'accountId', { max: 80 });
+    if (!one(db, `SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'player'`, W(res), aid)) throw new HttpError(404, 'No such player in this world');
+    const stockId = b.stockId ? str(b.stockId, 'stockId', { max: 80 }) : null;
+    if (stockId && !one(db, 'SELECT 1 FROM shop_stock WHERE id = ? AND shop_id = ?', stockId, s.id)) throw new HttpError(404, 'Stock line not found');
+    const pct = int(b.pct, 'pct', { min: 1, max: 90 })!;
+    const days = b.days === undefined || b.days === null || b.days === '' ? null : int(b.days, 'days', { min: 1, max: 3650 })!;
+    const deal = M.addDeal(db, s, { accountId: aid, stockId, pct, source: 'dm', minutes: days === null ? null : days * 1440, note: str(b.note, 'note', { max: 300, optional: true }) });
+    audit(db, W(res), me(res), 'shop.deal', `${s.name}: ${pct}% for ${aid}`);
+    d.hub.emit(W(res), 'shop', { id: s.id }, dmAnd(aid));
+    res.status(201).json(M.dealOut(deal));
+  });
+  r.delete('/shops/:sid/deals/:did', requireDM, (req, res) => {
+    const s = shopFor(res, String(req.params.sid));
+    const x = one<M.DealRow>(db, `SELECT * FROM shop_deals WHERE id = ? AND shop_id = ?`, String(req.params.did), s.id);
+    if (!x) throw new HttpError(404, 'Deal not found');
+    run(db, `UPDATE shop_deals SET status = 'cancelled' WHERE id = ? AND status = 'active'`, x.id);
+    audit(db, W(res), me(res), 'shop.deal.cancel', `${s.name}: ${x.id}`);
+    d.hub.emit(W(res), 'shop', { id: s.id }, dmAnd(x.account_id));
+    res.json({ ok: true });
+  });
+
+  /**
+   * A player haggles over one line: { stockId, pct } asks for pct% off. The keeper's barter percent and the player's
+   * reputation decide it (market.ts haggleOutcome). A win is a deal on that line for one game day; a refusal may come
+   * with a smaller counter-offer (also a deal), costs a little reputation, and the keeper will not haggle over that
+   * line with that player again until the next game day.
+   */
+  r.post('/shops/:sid/haggle', (req, res) => {
+    const w = W(res);
+    const c = cfg(res);
+    if (!c.haggle) throw new HttpError(403, 'Haggling is off in this world');
+    if (isDM(res)) throw new HttpError(400, 'Players haggle; set a deal for a player instead');
+    const s = shopFor(res, String(req.params.sid));
+    if (s.status !== 'open') throw new HttpError(409, 'This shop is closed');
+    const b = req.body ?? {};
+    const st = one<StockRow>(db, 'SELECT * FROM shop_stock WHERE id = ? AND shop_id = ?', str(b.stockId, 'stockId', { max: 80 }), s.id);
+    if (!st || st.hidden) throw new HttpError(404, 'That is not for sale here');
+    const askPct = int(b.pct, 'pct', { min: 1, max: 90 })!;
+    const keeper = keeperOf(s).name || 'The keeper';
+    const it = one<I.ItemRow>(db, 'SELECT * FROM shop_items WHERE id = ?', st.item_id)!;
+    const buyer = me(res);
+    const out = tx(db, () => {
+      M.settleDeals(db, w);
+      const nowMin = getNow(w);
+      if (one(db, `SELECT 1 FROM shop_deals WHERE shop_id = ? AND account_id = ? AND stock_id = ? AND status = 'active' AND source IN ('haggle', 'counter')`, s.id, buyer, st.id)) throw new HttpError(409, `You already have a deal on ${it.name}`);
+      if (one(db, `SELECT 1 FROM shop_deals WHERE shop_id = ? AND account_id = ? AND stock_id = ? AND source IN ('haggle', 'counter', 'refused') AND created_min > ?`, s.id, buyer, st.id, nowMin - M.DEAL_MINUTES)) throw new HttpError(429, `${keeper} will not haggle over ${it.name} with you again today`);
+      const rep = M.repOf(db, s.id, buyer)?.rep ?? 0;
+      const h = M.haggleOutcome({ askPct, barterPct: s.barter_pct ?? 0, rep, roll: Math.random() });
+      if (h.mood === 'never') return { h, deal: null };
+      let deal: M.DealRow | null = null;
+      if (h.accepted) deal = M.addDeal(db, s, { accountId: buyer, stockId: st.id, pct: h.pct, source: 'haggle', minutes: M.DEAL_MINUTES, askedPct: askPct });
+      else if (h.counterPct > 0) deal = M.addDeal(db, s, { accountId: buyer, stockId: st.id, pct: h.counterPct, source: 'counter', minutes: M.DEAL_MINUTES, askedPct: askPct });
+      else M.addDeal(db, s, { accountId: buyer, stockId: st.id, pct: 0, source: 'refused', minutes: 0, askedPct: askPct, status: 'refused' });
+      M.remember(db, s, buyer, { rep: h.repDelta, won: h.accepted, lost: !h.accepted });
+      return { h, deal };
+    });
+    const { h, deal } = out;
+    const said = h.mood === 'never' ? `${keeper} does not haggle. The price is the price.`
+      : h.mood === 'agreed' ? `${keeper} nods: ${askPct}% off ${it.name}.`
+      : h.mood === 'grudging' ? `${keeper} sighs, and agrees: ${askPct}% off ${it.name}.`
+      : h.mood === 'insulted' ? `${keeper} is insulted by the offer and will not deal on ${it.name} today.`
+      : `${keeper} shakes their head${h.counterPct ? `, but offers ${h.counterPct}% off ${it.name}` : ''}.`;
+    audit(db, w, buyer, 'shop.haggle', `${s.name}: ${it.name} asked ${askPct}% -> ${h.mood}${deal ? ` ${deal.pct}%` : ''}`);
+    if (h.mood !== 'never') { d.hub.emit(w, 'shop', { id: s.id }, dmAnd(buyer)); d.hub.emit(w, 'shop-haggle', { shopId: s.id }, (v) => v.role === 'dm'); }
+    res.json({ accepted: h.accepted, mood: h.mood, askedPct: askPct, pct: deal?.pct ?? 0, counter: !h.accepted && !!deal, message: said, deal: deal ? M.dealOut(deal, it.name) : null });
+  });
+
+  // ================= sending a shop to players (an NPC offers their wares) =================
+
+  /** { to: [accountId] | 'all', open?: true (opens a hidden or closed shop), message? }: the shop pops up on those players' screens. */
+  r.post('/shops/:sid/present', requireDM, (req, res) => {
+    const s = shopFor(res, String(req.params.sid));
+    const b = req.body ?? {};
+    const to = b.to === 'all' || b.to === undefined ? 'all' as const : Array.isArray(b.to) ? b.to.slice(0, 50).map((x: unknown, i: number) => str(x, `to[${i}]`, { max: 80 })) : [str(b.to, 'to', { max: 80 })];
+    const was = playerVisible(s);
+    const out = M.presentShop(d, W(res), s.id, { to, open: b.open === true, message: str(b.message, 'message', { max: 300, optional: true }), by: me(res) });
+    audit(db, W(res), me(res), 'shop.present', `${s.name} -> ${out.sentTo.length} player(s)${out.opened ? ' (opened)' : ''}`);
+    if (out.opened) shopEvent(W(res), out.shop, was);
+    res.json({ ok: true, sentTo: out.sentTo, opened: out.opened, shop: dmShop(d, db, out.shop, ctx(res).viewer) });
+  });
+
   return r;
 }
 
 const feature: Feature = {
   id: 'shop',
-  schema: I.SCHEMA + SHOP_SCHEMA,
+  schema: I.SCHEMA + SHOP_SCHEMA + M.SCHEMA,
+  migrate: M.migrate,
   settings: {
+    shopHaggle: { type: 'boolean', default: true },
+    shopRepEffect: { type: 'int', default: 10, min: 0, max: 50 },
     shopApproval: { type: 'boolean', default: false },
     shopPartyPay: { type: 'boolean', default: true },
     shopSellBack: { type: 'boolean', default: false },
@@ -706,9 +950,9 @@ const feature: Feature = {
     },
     {
       name: 'generate_shop', write: true,
-      description: 'Generate a shop (no model needed) and save it, hidden from players until opened: kind general, blacksmith, alchemist, magic, tavern or fence; settlement size hamlet, village, town, city or metropolis; party level 1-20 (default: the party). Stock is drawn from the item database (rarity limited by size and level), the shopkeeper comes from the NPC generator. A theme or guide steers it ("12 items", "markup 20%", "no magic", "max rarity rare", or words like "elven", "fire").',
-      props: { kind: S('Shop kind', { enum: [...SHOP_KINDS] }), size: S('Settlement size', { enum: [...SIZES] }), level: N('Party level 1-20'), theme: S('Optional theme words'), guide: S('Optional instructions that steer the shop'), name: S('Optional shop name'), seed: S('Optional seed'), open: B('Open it to players at once') },
-      call: (a) => ({ method: 'POST', path: '/shop/generate', body: { kind: a.kind ?? 'general', size: a.size ?? 'town', level: a.level, theme: a.theme, guide: a.guide, name: a.name, seed: a.seed, save: true, status: a.open === true ? 'open' : 'hidden' } }),
+      description: 'Generate a shop (no model needed) and save it, hidden from players until opened: kind general, blacksmith, weaponsmith, armorer, alchemist (potions), enchanter, magic, curio (trinkets), tavern or fence; town (an id from list_towns) puts it in that town and takes its size; settlement size hamlet, village, town, city or metropolis; party level 1-20 (default: the party). Stock is drawn from the item database (rarity limited by size and level), the shopkeeper comes from the NPC generator. A theme or guide steers it ("12 items", "markup 20%", "no magic", "max rarity rare", or words like "elven", "fire").',
+      props: { kind: S('Shop kind', { enum: [...SHOP_KINDS] }), size: S('Settlement size', { enum: [...SIZES] }), town: S('Optional town id'), level: N('Party level 1-20'), theme: S('Optional theme words'), guide: S('Optional instructions that steer the shop'), name: S('Optional shop name'), seed: S('Optional seed'), open: B('Open it to players at once') },
+      call: (a) => ({ method: 'POST', path: '/shop/generate', body: { kind: a.kind ?? 'general', size: a.size ?? (a.town ? undefined : 'town'), townId: a.town, level: a.level, theme: a.theme, guide: a.guide, name: a.name, seed: a.seed, save: true, status: a.open === true ? 'open' : 'hidden' } }),
     },
     {
       name: 'create_shopkeeper', write: true,
@@ -724,6 +968,41 @@ const feature: Feature = {
       call: (a) => (a.restock === true || !Array.isArray(a.items) || !a.items.length
         ? { method: 'POST', path: `/shop/shops/${enc(String(a.shop ?? ''))}/restock`, body: {} }
         : { method: 'POST', path: `/shop/shops/${enc(String(a.shop ?? ''))}/stock`, body: { items: a.items.map((x: any) => ({ itemId: x.item_id ?? x.itemId, qty: x.qty, priceCp: x.price_cp ?? x.priceCp, hidden: x.hidden })) } }),
+    },
+    {
+      name: 'list_towns', dmOnly: true,
+      description: "List the world's towns for shops: each with its price level in percent (positive: everything costs more there, negative: less), its size and its shops.",
+      props: {},
+      call: () => ({ method: 'GET', path: '/shop/towns' }),
+    },
+    {
+      name: 'set_town', write: true,
+      description: "Create a town (no id) or change one (with its id from list_towns): name, size (hamlet, village, town, city, metropolis) and price_pct, the town's price level in percent (e.g. 25 for a siege-inflated town, -10 for a cheap market town). Every shop in the town follows it at once.",
+      props: { town: S('Town id to change; leave out to create one'), name: S('Town name'), size: S('Settlement size', { enum: [...SIZES] }), price_pct: N('Price level in percent, -90 to 500'), description: S('What players read about its market'), dm_notes: S('DM-only notes') },
+      call: (a) => {
+        const body = Object.fromEntries(Object.entries({ name: a.name, size: a.size, pricePct: a.price_pct, description: a.description, dmNotes: a.dm_notes }).filter(([, v]) => v !== undefined));
+        return a.town ? { method: 'PATCH', path: `/shop/towns/${enc(String(a.town))}`, body } : { method: 'POST', path: '/shop/towns', body: { name: 'New town', ...body } };
+      },
+    },
+    {
+      name: 'shop_memory', dmOnly: true,
+      description: "What a shopkeeper remembers: each player's reputation (-100 to 100) and standing, coin spent and sold there, haggles won and lost, and the deals given; plus the keeper's purse and how far they haggle.",
+      props: { shop: S('Shop id (from list_shops)') }, required: ['shop'],
+      call: (a) => ({ method: 'GET', path: `/shop/shops/${enc(String(a.shop ?? ''))}/memory` }),
+    },
+    {
+      name: 'give_shop_deal', write: true,
+      description: 'Give a player a deal at a shop: pct percent off one stock line (stock_id) or everything (no stock_id), for some game days or until used.',
+      props: { shop: S('Shop id'), player: S('Player account id'), pct: N('Percent off, 1-90'), stock_id: S('Optional stock line id'), days: N('Optional game days it lasts'), note: S('Why (DM only)') },
+      required: ['shop', 'player', 'pct'],
+      call: (a) => ({ method: 'POST', path: `/shop/shops/${enc(String(a.shop ?? ''))}/deals`, body: { accountId: a.player, pct: a.pct, stockId: a.stock_id, days: a.days, note: a.note } }),
+    },
+    {
+      name: 'present_shop', write: true,
+      description: "Send a shop to players' screens, as if its keeper walked up offering their wares: players (account ids) or all of them, with an optional line from the keeper. open: true opens a hidden or closed shop first.",
+      props: { shop: S('Shop id'), players: { type: 'array', items: { type: 'string' }, description: 'Player account ids; leave out for every player' }, message: S("Optional line from the keeper"), open: B('Open the shop first if it is hidden or closed') },
+      required: ['shop'],
+      call: (a) => ({ method: 'POST', path: `/shop/shops/${enc(String(a.shop ?? ''))}/present`, body: { to: Array.isArray(a.players) && a.players.length ? a.players : 'all', message: a.message, open: a.open === true } }),
     },
     {
       name: 'set_shop_status', write: true,
