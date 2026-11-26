@@ -62,6 +62,7 @@ export const DM_NAMES: Record<string, DMName> = {
   audio: { group: 'setup', label: 'Microphones', icon: 'fa-microphone', desc: 'Choose the mics the table transcript listens to.' },
   phone: { group: 'setup', label: 'Phone', icon: 'fa-mobile-screen', desc: 'Your pocket remote and assistant.' },
   settings: { group: 'setup', label: 'Settings', icon: 'fa-gear', desc: 'Visibility, invites and options for this world.' },
+  foundry: { group: 'setup', label: 'Foundry VTT', icon: 'fa-chess-rook', desc: 'Keep a Foundry world in step: maps, tokens, fog, HP and conditions.' },
   connect: { group: 'setup', label: 'Connect AI', icon: 'fa-plug', desc: 'Make a key to link an AI app to this world.' },
 };
 

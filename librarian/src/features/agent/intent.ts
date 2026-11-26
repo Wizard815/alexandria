@@ -15,6 +15,7 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\bfoundry\b|\bvtt\b|\b(move|drag|put) (the |my |our )?[\w' -]{0,30}token\b|\btokens?\b.*\b(scene|map)\b/i, tools: ['foundry_status', 'foundry_move_token', 'foundry_send_map', 'foundry_send_handout', 'foundry_say', 'list_pages'] },
   { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
   { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
   { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
