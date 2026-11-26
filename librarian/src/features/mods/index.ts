@@ -7,7 +7,7 @@
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
 import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
-import { all, one, run, type DB } from '../../core/db.ts';
+import { all, one, run, tx, type DB } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, settingsFor, type Role } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
@@ -16,10 +16,11 @@ import { addTermSource, enabledIds as gameModuleIds } from '../modules/store.ts'
 import { targetInfo } from './catalog.ts';
 import { satisfies } from './semver.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
+import { SCHEMA as RECORDS_SCHEMA, answerPrompt, closePrompt, listRecords, openPrompt, openRounds, readRecordLog, recordAct, runTimers, type Rec, type Said } from './recstore.ts';
 import { addCommandResolver, latestRoll, postChat, rollMessage } from '../sessionchat/hooks.ts';
 import type { Feature } from '../types.ts';
 import { VERSION } from '../../version.ts';
-import { MAX_PACKAGE, MOD_API, PERMISSIONS, commandActions, impliedPermissions, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
+import { MAX_PACKAGE, MOD_API, PERMISSIONS, commandActions, impliedPermissions, toFile, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
 import {
   SCHEMA, act, counters, enabledMods, getMod, getModRaw, importMod, listMods, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
   type Actor, type Installed,
@@ -39,6 +40,11 @@ function view(m: Installed, dm: boolean) {
     commands: commandActions(mod).map((c) => `/${c.word}${c.arg ? ` ${c.arg}` : ''}`),
     sheet: mod.sheet, dmBand: mod.dmBand, table: mod.table, rules: mod.rules,
     kit: mod.kit, targets: m.targets, requires: mod.requires.mods, conflicts: mod.conflicts,
+    system: mod.system.records.length ? {
+      records: mod.system.records.map((k) => ({ id: k.id, label: k.label, plural: k.plural, owned: k.owned, title: k.title, fields: k.fields })),
+      recordActions: mod.system.recordActions.map((a) => ({ id: a.id, label: a.label, by: a.by, record: a.record, do: a.do, ask: a.ask, field: a.field ?? null, amount: a.amount ?? null, where: a.where })),
+      prompts: mod.system.prompts, views: mod.system.views,
+    } : null,
     ...(dm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting, needs: m.needs, alexandria: mod.alexandria || null, api: mod.api, permissions: impliedPermissions(mod).map((k) => PERMISSIONS[k]) } : {}),
   };
 }
@@ -94,6 +100,93 @@ function routes(d: Deps) {
     const when = type === 'rest' ? (data?.kind === 'long' ? 'longRest' : data?.kind === 'short' ? 'shortRest' : null) : type === 'session-start' ? 'sessionStart' : type === 'session-end' ? 'sessionEnd' : null;
     if (!when) return;
     for (const aid of runTriggers(db, worldId, when)) changedCounts(worldId, aid);
+    // Data systems: timers on rests and sessions.
+    for (const m of enabledMods(db, worldId)) {
+      if (!m.mod.system.timers.some((t) => t.on === when)) continue;
+      const out = runTimers(db, worldId, m, when, nameFn(worldId));
+      if (out.players.length) { changedRecords(worldId, m.mod.id); say(worldId, null, out.said, m.mod.id); }
+    }
+  });
+
+  // ---- data systems (kit 2): records, record actions, prompts ----
+
+  const nameFn = (w: string) => { const nm = names(db, w); return (aid: string | null) => (aid ? nm[aid] ?? 'someone' : 'everyone'); };
+  const changedRecords = (w: string, modId: string) => d.hub.emit(w, 'mods-records', { mod: modId }, () => true);
+  /** Post what a change says: chat lines to the table (as the actor, or the DM), DM notes to the DM. */
+  const say = (w: string, who: Actor | null, said: Said, modId: string) => {
+    const author = who ?? (() => { const dm = one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' ORDER BY rowid LIMIT 1", w); return dm ? { accountId: dm.account_id as string, role: 'dm' as Role } : null; })();
+    for (const line of said.chat) if (author && line.trim()) { try { postChat(d, w, 'table', author.accountId, author.role, line); } catch { /* no session running: the log has it */ } }
+    for (const line of said.dmnote) if (line.trim()) d.hub.emit(w, 'mods-note', { mod: modId, text: line }, (v) => v.role === 'dm');
+  };
+  /** A record as a viewer may see it: the DM all, a player shared records and their own. */
+  const canSee = (res: Response, rec: Rec) => isDM(res) || rec.player === null || rec.player === me(res);
+  const liveMod = (res: Response, idParam: string) => {
+    const m = getModRaw(db, W(res), idParam);
+    if (!m.enabled && !isDM(res)) throw new HttpError(404, `No house rule ${idParam.slice(0, 60)}`);
+    return m;
+  };
+
+  r.get('/:id/records', requirePlayerOrDM, (req, res) => {
+    const m = liveMod(res, String(req.params.id));
+    const kinds = req.query.kind ? [String(req.query.kind)] : m.mod.system.records.map((k) => k.id);
+    const player = typeof req.query.player === 'string' && req.query.player ? req.query.player : undefined;
+    const out: Record<string, Rec[]> = {};
+    for (const k of kinds) out[k] = listRecords(db, W(res), m, k, { player }).filter((x) => canSee(res, x));
+    res.json({ records: out });
+  });
+
+  r.get('/:id/records-log', requirePlayerOrDM, (req, res) => {
+    const m = liveMod(res, String(req.params.id));
+    const lines = readRecordLog(db, W(res), { modId: m.mod.id, recordId: typeof req.query.record === 'string' ? req.query.record : undefined, player: isDM(res) ? (typeof req.query.player === 'string' ? req.query.player : undefined) : me(res), limit: Number(req.query.limit) || 100 });
+    res.json({ log: lines });
+  });
+
+  r.post('/:id/records/:action', requirePlayerOrDM, (req, res) => {
+    const w = W(res);
+    const m = liveMod(res, String(req.params.id));
+    const b = req.body ?? {};
+    const who = actor(res);
+    const player = b.player === undefined ? undefined : findPlayer(db, w, b.player);
+    const out = tx(db, () => recordAct(db, w, m, String(req.params.action), who, { recordId: typeof b.recordId === 'string' ? b.recordId : undefined, player, values: b.values, amount: b.amount, note: typeof b.note === 'string' ? b.note.slice(0, 300) : '' }, nameFn(w)));
+    audit(db, w, me(res), 'mods.record', `${m.mod.id}:${out.action}:${out.record.id}`);
+    say(w, who, out.said, m.mod.id);
+    changedRecords(w, m.mod.id);
+    res.status(out.before === null ? 201 : 200).json(out);
+  });
+
+  // The DM opens a prompt: every player gets its choices.
+  r.post('/:id/prompts/:prompt', requireDM, (req, res) => {
+    const w = W(res);
+    const m = getModRaw(db, w, String(req.params.id));
+    const round = openPrompt(db, w, m, String(req.params.prompt), me(res));
+    audit(db, w, me(res), 'mods.prompt', `${m.mod.id}:${round.prompt}`);
+    d.hub.emit(w, 'mods-prompt', { mod: m.mod.id, round: round.id }, () => true);
+    res.status(201).json(round);
+  });
+
+  r.get('/prompts/open', requirePlayerOrDM, (_req, res) => {
+    const w = W(res);
+    const rounds = openRounds(db, w).filter((x) => { try { return getModRaw(db, w, x.modId).enabled; } catch { return false; } });
+    res.json({ rounds: rounds.map((x) => (isDM(res) ? x : { ...x, answers: x.answers[me(res)] ? { [me(res)]: x.answers[me(res)] } : {} })) });
+  });
+
+  r.post('/:id/prompts/round/:round/answer', requirePlayerOrDM, (req, res) => {
+    const w = W(res);
+    const m = liveMod(res, String(req.params.id));
+    const b = req.body ?? {};
+    const who = actor(res);
+    const out = tx(db, () => answerPrompt(db, w, m, String(req.params.round), who, Number(b.choice), { recordId: typeof b.recordId === 'string' ? b.recordId : undefined, values: b.values, note: typeof b.note === 'string' ? b.note.slice(0, 300) : '' }, nameFn(w)));
+    say(w, who, out.said, m.mod.id);
+    changedRecords(w, m.mod.id);
+    d.hub.emit(w, 'mods-prompt', { mod: m.mod.id, round: out.round.id }, (v) => v.role === 'dm' || v.accountId === who.accountId);
+    res.json(out);
+  });
+
+  r.post('/:id/prompts/round/:round/close', requireDM, (req, res) => {
+    const w = W(res);
+    const round = closePrompt(db, w, String(req.params.round));
+    d.hub.emit(w, 'mods-prompt', { mod: round.modId, round: round.id }, () => true);
+    res.json(round);
   });
 
   r.get('/', (_req, res) => {
@@ -129,7 +222,7 @@ function routes(d: Deps) {
       const taken = have.find((m) => m.mod.id === mod.id);
       if (taken) notes.push(taken.source === 'shipped' ? `${at}the id ${mod.id} belongs to a rule that comes with Alexandria: pick another id` : `${at}saving replaces the world's rule ${mod.id} (counters of kept resources stay)`);
     }
-    res.json({ ok: true, errors: [], notes, mod: mods[0], mods, package: info });
+    res.json({ ok: true, errors: [], notes, mod: toFile(mods[0]), mods: mods.map(toFile), package: info });
   });
 
   r.post('/import', requireDM, (req, res) => {
@@ -137,7 +230,7 @@ function routes(d: Deps) {
     if (!mods.length) throw new HttpError(400, `This house rule has problems: ${errors.join('; ')}`);
     const shipped = mods.filter((m) => listMods(db, W(res)).some((x) => x.mod.id === m.id && x.source === 'shipped'));
     if (shipped.length) throw new HttpError(409, `${shipped.map((m) => m.id).join(', ')} ${shipped.length > 1 ? 'are ids' : 'is the id'} of a house rule that comes with Alexandria; give yours another id`);
-    const out = mods.map((m) => importMod(db, W(res), m, me(res)));
+    const out = mods.map((m) => importMod(db, W(res), toFile(m), me(res)));
     for (const o of out) audit(db, W(res), me(res), o.updated ? 'mods.update' : 'mods.import', o.mod.id);
     changedList(W(res));
     const views = out.map((o) => view(getMod(db, W(res), o.mod.id), true));
@@ -319,7 +412,7 @@ export function migrateSheetRerolls(db: DB) {
 
 const feature: Feature = {
   id: 'mods',
-  schema: SCHEMA,
+  schema: SCHEMA + RECORDS_SCHEMA,
   migrate: migrateSheetRerolls,
   worldMount: 'mods',
   worldRoutes: routes,
@@ -344,6 +437,38 @@ const feature: Feature = {
       },
       required: ['mod', 'player'],
       call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/act`, body: { action: a.action ?? 'grant', player: a.player, resource: a.resource, note: a.note } }),
+    },
+    {
+      name: 'house_rule_records',
+      description: "A house rule's own lists (a data system such as downtime: its activities, each player's tasks and how far along they are). The DM sees every record; a player sees shared ones and their own. Use house_rules first to see each rule's record kinds and actions.",
+      props: { mod: { type: 'string', description: 'The rule id, e.g. downtime' }, kind: { type: 'string', description: 'A record kind of the rule, e.g. task (default: all)' }, player: { type: 'string', description: 'DM: only this player\'s (account id)' } },
+      required: ['mod'],
+      call: (a) => ({ method: 'GET', path: `/mods/${enc(a.mod)}/records?${new URLSearchParams(Object.entries({ kind: a.kind, player: a.player }).filter(([, v]) => v) as [string, string][]).toString()}` }),
+    },
+    {
+      name: 'house_rule_record_act', write: true, dmOnly: true,
+      description: "DM: run one of a house rule's record actions: create a record (values for the fields it asks), change one (recordId), add to a number (amount, negative takes away, e.g. days of downtime lost) or remove one. Logged with the note. For a player's own record, pass player when creating.",
+      props: {
+        mod: { type: 'string' }, action: { type: 'string', description: 'The record action id' }, recordId: { type: 'string' },
+        player: { type: 'string', description: 'Whose (account id or name), for a record a player owns' }, values: { type: 'object', description: 'Field values the action asks for' },
+        amount: { type: 'number', description: 'For an add action that asks how much' }, note: { type: 'string' },
+      },
+      required: ['mod', 'action'],
+      call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/records/${enc(a.action)}`, body: { recordId: a.recordId, player: a.player, values: a.values, amount: a.amount, note: a.note } }),
+    },
+    {
+      name: 'house_rule_prompt', write: true, dmOnly: true,
+      description: "DM: open one of a house rule's prompts, e.g. a downtime day: every player gets its choices (keep working, start something, skip) and their answers move their records.",
+      props: { mod: { type: 'string' }, prompt: { type: 'string', description: 'The prompt id' } },
+      required: ['mod', 'prompt'],
+      call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/prompts/${enc(a.prompt)}`, body: {} }),
+    },
+    {
+      name: 'house_rule_my_record', playerOnly: true,
+      description: "Run one of a house rule's record actions on your own records (start a downtime activity, keep working, drop it) or make a shared one (a new activity), when the rule lets a player do it.",
+      props: { mod: { type: 'string' }, action: { type: 'string' }, recordId: { type: 'string' }, values: { type: 'object' }, note: { type: 'string' } },
+      required: ['mod', 'action'],
+      call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/records/${enc(a.action)}`, body: { recordId: a.recordId, values: a.values, note: a.note } }),
     },
     {
       name: 'house_rule_spend', playerOnly: true,

@@ -123,7 +123,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
 | `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
-Limits: 64 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
+Limits: 128 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
 options. A world holds up to 50 of its own rules.
 
 ## Making one with the assistant

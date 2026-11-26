@@ -16,6 +16,7 @@ interface Category { re: RegExp; tools: string[] }
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
   { re: /\b(house ?rules?|table rules?|variant rules?|re-?rolls?|inspiration|hero points?|luck (tokens?|points?)|reward (the |their |good )?(rp|roleplay|role-play))\b/i, tools: ['house_rule_grant', 'house_rules', 'house_rule_counters', 'house_rule_spend', 'house_rule_check', 'house_rule_save'] },
+  { re: /\b(down ?time|activit(y|ies)|tasks?|projects?|crafting queue|reputation|a (downtime )?day passes|house rule (list|records?))\b/i, tools: ['house_rules', 'house_rule_records', 'house_rule_record_act', 'house_rule_prompt', 'house_rule_my_record'] },
   { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
   { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
   { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
