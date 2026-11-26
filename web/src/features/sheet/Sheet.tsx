@@ -17,12 +17,47 @@ const EVENTS = ['sheet', 'spells-char', 'combat', 'settings'];
 /** What the world calls its spell pool: "Spell points" when the DM's house rule names it so (the mod kit sets spellManaName), else Mana. */
 export const poolName = (settings: unknown): string => { const n = (settings as any)?.spellManaName; return typeof n === 'string' && n.trim() ? n.trim() : 'Mana'; };
 
+/** How many 250px columns fit the grid's width (one on a phone). */
+function useColumns(ref: React.RefObject<HTMLDivElement | null>) {
+  const [n, setN] = useState(1);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => setN(Math.max(1, Math.floor((el.clientWidth + 10) / 260)));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  return n;
+}
+
+/**
+ * Lays modules out row by row, left to right: the first few sit side by side
+ * at the top (Health next to Mana), each column stacks with no gap under a
+ * short card, and a wide module takes a whole row of its own.
+ */
+function layout(mods: Module[], n: number): ({ wide: Module; cols?: never } | { wide?: never; cols: Module[][] })[] {
+  const out: ({ wide: Module } | { cols: Module[][] })[] = [];
+  let run: Module[] = [];
+  const flush = () => { if (!run.length) return; const cols: Module[][] = Array.from({ length: Math.min(n, run.length) }, () => []); run.forEach((m, i) => cols[i % cols.length].push(m)); out.push({ cols }); run = []; };
+  for (const m of mods) { if (m.wide) { flush(); out.push({ wide: m }); } else run.push(m); }
+  flush();
+  return out as any;
+}
+
 /** Sheets saved before "From the DM" became a module get it after Health and Mana. */
 const withDm = (list: Module[]): Module[] => (list.some((m) => m.type === 'dm') ? list
   : [...list.slice(0, 2), { id: 'dm', type: 'dm', title: 'From the DM', wide: false, private: false, collapsed: false }, ...list.slice(2)]);
 /** With the re-roll house rule on, every sheet has the Re-rolls module (after Health). */
-const withRerolls = (list: Module[], on: boolean): Module[] => (!on || list.some((m) => m.type === 'rerolls') ? list
-  : [...list.slice(0, 1), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(1)]);
+const withRerolls = (list: Module[], on: boolean): Module[] => {
+  if (!on || list.some((m) => m.type === 'rerolls')) return list;
+  const at = list.findIndex((m) => m.type === 'mana') + 1 || 1;
+  return [...list.slice(0, at), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(at)];
+};
+/** The default order, most used first; "Sort like the default" puts a player's own modules in it (their data stays). */
+const RANK: ModuleType[] = ['vitals', 'mana', 'rerolls', 'counters', 'dm', 'notes', 'list', 'inventory', 'contacts', 'text', 'recent'];
+const byRank = (list: Module[]) => [...list].sort((a, b) => RANK.indexOf(a.type) - RANK.indexOf(b.type));
 
 /** `page`: the player's own page, where the character's name is the page title. */
 export default function Sheet({ account, page = false }: { account: string; page?: boolean }) {
@@ -39,6 +74,8 @@ export default function Sheet({ account, page = false }: { account: string; page
   const { toast, toastNode } = useToast();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const own = account === 'me' || account === me;
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cols = useColumns(gridRef);
 
   // Local copy of the modules: edits show at once and save a moment later. The owner's copy is the truth once loaded
   // (a reload racing a save must not bring back an older layout); the DM's follows the server.
@@ -104,17 +141,7 @@ export default function Sheet({ account, page = false }: { account: string; page
     </span>
   );
 
-  return (
-    <div className="stack" data-testid="sheet">
-      {page ? <PageHead title={s.name} lead="Your quick sheet next to the paper one.">{buttons}</PageHead>
-        : <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
-          <span className="row" style={{ gap: 8 }}><strong style={{ fontSize: 18 }}>{s.name}</strong>{isDM && !own && <span className="tiny faint">played by {s.player}</span>}</span>
-          {buttons}
-        </div>}
-      <ErrorBox error={act.error} />
-      {showLog && <section className="card sht-mod"><h3 style={{ margin: 0, fontSize: 15 }}>HP and mana changes</h3><ChangeLog account={own ? me : account} /></section>}
-      <div className="sht-grid">
-        {mods.map((m, i) => (
+  const card = (m: Module, i: number) => (
           <section key={m.id} className={`card sht-mod${m.wide ? ' wide' : ''}${editing ? ' editing' : ''}${m.type === 'dm' ? ' sht-dm' : ''}`} data-testid={`mod-${m.type}`}>
             <div className="card-head">
               {editing
@@ -143,14 +170,31 @@ export default function Sheet({ account, page = false }: { account: string; page
               : <Editable m={m} readOnly={!own} onData={(data, wait) => update(m.id, { data }, wait)} />
             )}
           </section>
-        ))}
+);
+
+  return (
+    <div className="stack" data-testid="sheet">
+      {page ? <PageHead title={s.name} lead="Your quick sheet next to the paper one.">{buttons}</PageHead>
+        : <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
+          <span className="row" style={{ gap: 8 }}><strong style={{ fontSize: 18 }}>{s.name}</strong>{isDM && !own && <span className="tiny faint">played by {s.player}</span>}</span>
+          {buttons}
+        </div>}
+      <ErrorBox error={act.error} />
+      {showLog && <section className="card sht-mod"><h3 style={{ margin: 0, fontSize: 15 }}>HP and mana changes</h3><ChangeLog account={own ? me : account} /></section>}
+      <div className="sht-grid" ref={gridRef}>
+        {layout(mods, cols).map((block, b) => (block.wide
+          ? <div key={b} className="sht-row">{card(block.wide, mods.indexOf(block.wide))}</div>
+          : <div key={b} className="sht-cols">{block.cols.map((col, c) => <div key={c} className="sht-col">{col.map((m) => card(m, mods.indexOf(m)))}</div>)}</div>))}
       </div>
       {own && editing && (adding
         ? <section className="card sht-mod"><div className="card-head"><h3>Add a module</h3><button type="button" className="btn small ghost" onClick={() => setAdding(false)}>Cancel</button></div>
             <div className="sht-add">{KINDS.filter((k) => k.type !== 'dm' && k.type !== 'rerolls' && (!SINGLE.includes(k.type) || !mods.some((m) => m.type === k.type))).map((k) => (
               <button key={k.type} type="button" className="btn" onClick={() => add(k.type)} data-testid={`add-${k.type}`}><strong><i className={`fa-solid ${k.icon}`} aria-hidden="true" /> {k.label}</strong><span className="tiny muted">{k.desc}</span></button>
             ))}</div></section>
-        : <button type="button" className="btn" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>)}
+        : <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" className="btn grow" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>
+            <button type="button" className="btn" onClick={() => persist(byRank(mods), 0)} title="Health and mana first, then what you use most">Sort like the default</button>
+          </div>)}
       {asking && <AskModal subject={asking} onClose={() => setAsking(null)} />}
       {adding1 && <PersonModal person={adding1} onClose={() => setAdding1(null)} onSave={(p) => { saveContact(p); setAdding1(null); }} />}
       {!mods.length && <Empty>This sheet has no modules. {own ? 'Tap Arrange to add some.' : ''}</Empty>}

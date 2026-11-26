@@ -1,6 +1,6 @@
 // End-to-end test of the player sheet and the DM's status bar: a player on a
 // phone sets their HP, takes damage, adds a condition and an enemy, spends
-// mana and adds a counter module; their private note never reaches the DM.
+// mana and adds a checklist and a counter; their private note never reaches the DM.
 // The DM's status bar shows the player's health, conditions and mana live,
 // and opens the player's sheet and the change log.
 // Run from web/: npm run build && node e2e/sheet.mjs   (SHEET_PORT, default 19812)
@@ -82,7 +82,7 @@ try {
   await mana.getByTestId('mana-now').filter({ hasText: new RegExp(`^${before - 3}`) }).waitFor({ timeout: 8000 });
   note(`player: mana ${before} -> ${before - 3}`);
 
-  // 4. An enemy, a private note, a counter module.
+  // 4. An enemy, a private note, a checklist, a counter.
   const people = pl.getByTestId('mod-contacts');
   await people.getByTestId('person-add').click();
   const dlg = pl.locator('.modal[role=dialog]');
@@ -110,7 +110,8 @@ try {
   await pl.getByTestId('sheet-edit').click();
   await pl.getByTestId('mod-notes').getByRole('button', { name: 'Private' }).click();
   await pl.getByTestId('sheet-add').click();
-  await pl.getByTestId('add-counters').click();
+  await pl.getByTestId('add-list').click();
+  await pl.getByTestId('mod-list').waitFor();
   await pl.getByTestId('sheet-edit').click();
   const ctr = pl.getByTestId('mod-counters');
   await ctr.getByLabel('New counter').fill('Inspiration');

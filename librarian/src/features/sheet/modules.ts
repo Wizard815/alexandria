@@ -18,13 +18,16 @@ export interface Module { id: string; type: ModuleType; title: string; wide: boo
 
 const TITLES: Record<ModuleType, string> = { vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
 
+// Most used at the top: health and mana side by side, then what a player
+// reaches for during play, then what they read between scenes.
 export const DEFAULT_MODULES: Module[] = [
   { id: 'vitals', type: 'vitals', title: TITLES.vitals, wide: false, private: false, collapsed: false },
   { id: 'mana', type: 'mana', title: TITLES.mana, wide: false, private: false, collapsed: false },
+  { id: 'counters', type: 'counters', title: TITLES.counters, wide: false, private: false, collapsed: false, data: { entries: [] } },
   { id: 'dm', type: 'dm', title: TITLES.dm, wide: false, private: false, collapsed: false },
+  { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },
   { id: 'inventory', type: 'inventory', title: TITLES.inventory, wide: false, private: false, collapsed: false },
   { id: 'contacts', type: 'contacts', title: 'People I know', wide: false, private: false, collapsed: false, data: { entries: [] } },
-  { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },
   { id: 'recent', type: 'recent', title: TITLES.recent, wide: false, private: false, collapsed: false },
 ];
 
