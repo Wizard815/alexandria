@@ -76,6 +76,14 @@ const fakeFetch = (async (url: any, init?: any) => {
     // Every other job (sculpting, statblocks, session summaries, voice, the broker) goes to the stock fake models.
     return fetch(u.replace('http://fake.test/v1', fakes.baseUrl), init);
   }
+  // The free content sources (import_content, list_content_books): one small book, never the real services.
+  if (u.startsWith('https://api.open5e.com/')) {
+    const tob = { key: 'tob', name: 'Tome of Beasts', licenses: [{ name: 'OPEN GAME LICENSE Version 1.0a', key: 'ogl-10a' }], publisher: { name: 'Kobold Press' } };
+    const list = new URL(u).pathname.replace(/^\/v2\/|\/$/g, '');
+    const results = list === 'documents' ? [tob] : list === 'conditions' ? [{ name: 'Void Sick', document: { key: 'tob' }, descriptions: [{ desc: 'You feel the void.' }] }] : [];
+    return new Response(JSON.stringify({ count: results.length, next: null, results }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.startsWith('https://raw.githubusercontent.com/5e-bits/')) return new Response(u.endsWith('5e-SRD-Conditions.json') ? JSON.stringify([{ index: 'dazed', name: 'Dazed', desc: ['You are dazed.'] }]) : '404: Not Found', { status: u.endsWith('5e-SRD-Conditions.json') ? 200 : 404 });
   return fetch(url, init);
 }) as typeof fetch;
 
@@ -204,6 +212,7 @@ const shopItem = () => once('shopitem', async () => (await dm('POST', '/shop/ite
 
 /** Arguments that need real ids or values. A tool not listed gets values made from its schema. */
 const ARGS: Record<string, Maker> = {
+  import_content: () => ({ source: 'open5e', books: ['tob'], kinds: ['condition'] }),
   run_macro: () => once('macro', async () => { await dm('POST', '/actions/macros', { name: 'Coverage roll', steps: [{ action: 'dice.roll' }] }); return 'ok'; }).then(() => ({ macro: 'Coverage roll' })),
   share_library_item: () => ({ kind: 'page', id: ID.saltmarsh, to: 'party', notify: true }),
   read_page: () => ({ page: ID.saltmarsh }),
