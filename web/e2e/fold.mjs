@@ -68,7 +68,19 @@ const AUDIT = () => {
   }
   return { scrollW: document.scrollingElement.scrollWidth, vw, small: [...new Set(small)] };
 };
-const closeQuick = async (page) => { const c = page.locator('.modal[role=dialog]').getByRole('button', { name: 'Close' }); if (await c.count()) await c.first().click().catch(() => {}); };
+// A quick event still waiting for this player pops up on every new sign-in: answer it and close it.
+// Several may be queued (one per fold size above): one after another.
+const closeQuick = async (page) => {
+  const m = page.locator('.modal[role=dialog]');
+  for (let i = 0; i < 6; i++) {
+    if (!(await m.first().waitFor({ timeout: 1500 }).then(() => true, () => false))) return;
+    const roll = m.getByRole('button', { name: 'Roll for me' });
+    if (await roll.count()) { await roll.first().click().catch(() => {}); await sleep(300); }
+    const c = m.getByRole('button', { name: 'Close' });
+    if (await c.count()) await c.first().click().catch(() => {});
+    await sleep(200);
+  }
+};
 
 for (const f of FOLDS) {
   const { width: W, height: H } = f.viewport;
@@ -187,6 +199,61 @@ for (const f of FOLDS) {
   check(b && b.width >= 389 && b.y + b.height >= 843, `phone 390x844: the tab bar is not at the bottom (${JSON.stringify(b)})`);
   await ctx.close();
   note('phone 390x844: bottom bar');
+}
+
+// ---- the tab panel can sit left, right, top or bottom (per device), for the player and the DM ----
+const where = (b, W, H) => !b ? 'missing' : b.x <= 1 && b.height >= H * 0.5 && b.width < W / 2 ? 'left' : b.x + b.width >= W - 1 && b.height >= H * 0.5 && b.width < W / 2 ? 'right' : b.width >= W - 2 && b.y + b.height >= H - 1 ? 'bottom' : b.width >= W * 0.8 && b.y < H / 3 ? 'top' : `odd ${JSON.stringify(b)}`;
+for (const vp of [{ width: 700, height: 850 }, { width: 390, height: 844 }, { width: 960, height: 720 }]) {
+  for (const side of ['left', 'right', 'top', 'bottom']) {
+    for (const [user, pass, url, sel] of [['jess', 'player pass 123', /\/w\/saltreach/, '[data-testid=tabbar]'], ['dm', 'dungeon master 123', /\/w\/saltreach\/dm/, '.dmx-rail']]) {
+      const ctx = await browser.newContext({ viewport: vp, isMobile: true, hasTouch: true });
+      await ctx.addInitScript((s) => { try { localStorage.setItem('alx.navSide', s); } catch { /* */ } }, side);
+      const page = await ctx.newPage();
+      await page.goto(base + '/login');
+      await page.getByLabel(/username/i).fill(user);
+      await page.getByLabel(/password/i).fill(pass);
+      await page.getByRole('button', { name: /sign in|log in/i }).click();
+      await page.waitForURL(url, { timeout: 15000 });
+      await page.waitForSelector(sel);
+      await sleep(500);
+      await closeQuick(page);
+      const b = await box(page, sel);
+      const got = where(b, vp.width, vp.height);
+      const who = user === 'dm' ? 'DM' : 'player';
+      check(got === side, `${vp.width}x${vp.height} ${who}: panel set to ${side} sits ${got}`);
+      const a = await page.evaluate(AUDIT);
+      check(a.scrollW <= a.vw, `${vp.width}x${vp.height} ${who} ${side}: sideways scroll`);
+      // Nothing of the page hides under the panel: the first heading is clear of it.
+      const h = await page.locator('main h1, main h2').first().boundingBox();
+      if (h && b) check(!(h.x < b.x + b.width && h.x + h.width > b.x && h.y < b.y + b.height && h.y + h.height > b.y), `${vp.width}x${vp.height} ${who} ${side}: the panel covers the page heading`);
+      await shot(page, `side-${vp.width}-${side}-${user}`);
+      await ctx.close();
+    }
+  }
+  note(`${vp.width}x${vp.height}: panel left, right, top and bottom`);
+}
+// The player picks it in More > Edit tabs; the DM in the world menu.
+{
+  const { ctx, page } = await player({ width: 700, height: 850 });
+  await page.waitForSelector('[data-testid=tabbar]');
+  await closeQuick(page);
+  await page.getByTestId('more-btn').click();
+  await page.getByRole('button', { name: 'Edit tabs' }).click();
+  await page.getByTestId('nav-side').getByRole('radio', { name: /Right/ }).click();
+  check(await page.evaluate(() => document.documentElement.dataset.navSide === 'right' && localStorage.getItem('alx.navSide') === 'right'), 'More > Edit tabs: Right was not kept');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await page.waitForSelector('[data-testid=tabbar]');
+  await closeQuick(page);
+  check(where(await box(page, '[data-testid=tabbar]'), 700, 850) === 'right', 'the tab bar did not stay on the right after a reload');
+  await ctx.close();
+  const d = await dmOpen({ width: 700, height: 850 });
+  await d.page.getByRole('button', { name: /worlds and account/ }).click();
+  await d.page.getByTestId('nav-side').getByRole('radio', { name: /Top/ }).click();
+  await sleep(200);
+  check(where(await box(d.page, '.dmx-rail'), 700, 850) === 'top', 'DM world menu: Top did not move the rail');
+  await d.ctx.close();
+  note('picked from More and from the DM world menu');
 }
 
 await browser.close();

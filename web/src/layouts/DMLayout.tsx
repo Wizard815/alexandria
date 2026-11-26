@@ -8,6 +8,7 @@ import { OPEN_EVENT } from '../features/search/SearchBox.tsx';
 import { ShareHost, openShare } from '../features/sourcekeys/ShareButton.tsx';
 import { setWorkspaceHidden, workspaceHidden } from '../lib/workspace.ts';
 import { DMRail, DMTabs } from './DMMenu.tsx';
+import { NavSidePicker, useNavSide, useTopHeight } from '../lib/navSide.tsx';
 import { SessionButton } from './SessionButton.tsx';
 
 // Search has its own wide box in this bar, so its small button is left out.
@@ -16,6 +17,9 @@ const TOPBARS = F.FEATURES.filter((f) => f.topbar && f.id !== 'search').map((f) 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
   const inWorkspace = /\/dm\/ws\/?$/.test(useLocation().pathname);
+  const top = useRef<HTMLElement>(null);
+  useTopHeight(top);
+  useNavSide();
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isDM) return <Navigate to={`/w/${info.slug}`} replace />;
@@ -26,7 +30,7 @@ export function DMLayout() {
   const badges = { inbox: waiting };
   return (
     <div className="t-fantasy dmx">
-      <header className="dmx-top">
+      <header className="dmx-top" ref={top}>
         <AccountMenu connected={connected} />
         <SessionButton />
         <button type="button" className="dmx-search" onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))} aria-keyshortcuts="/" data-testid="menu-find">
@@ -78,6 +82,8 @@ function AccountMenu({ connected }: { connected: boolean }) {
           <Link role="menuitem" to="/">Your worlds</Link>
           {me?.account.is_admin && <Link role="menuitem" to="/admin">Library admin</Link>}
           <button type="button" role="menuitem" data-testid="ws-toggle" onClick={() => { setWorkspaceHidden(!workspaceHidden()); setOpen(false); }}>{workspaceHidden() ? 'Show workspaces' : 'Hide workspaces'}</button>
+          <span className="tiny faint dmx-menu-h">Menu on a phone or foldable</span>
+          <NavSidePicker />
           <button type="button" role="menuitem" onClick={() => void signOut()}>Sign out</button>
         </div>
       )}

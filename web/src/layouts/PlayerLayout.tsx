@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { FALLBACK_GROUP, GROUPS, availableLinks, groupOf, loadPinned, savePinned, tabsFor } from '../lib/playerNav.ts';
 import { useKeyboardInset } from '../lib/viewport.ts';
+import { useNavSide, useTopHeight } from '../lib/navSide.tsx';
 import QuickPrompt from '../pages/player/QuickPrompt.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
 import './dmmenu.css';
@@ -17,6 +18,9 @@ export function PlayerLayout() {
   const [pinned, setPinned] = useState<string[] | null>(() => loadPinned(info.slug));
   const loc = useLocation();
   const kb = useKeyboardInset();
+  const top = useRef<HTMLElement>(null);
+  useTopHeight(top);
+  useNavSide();
   useEffect(() => setMenu(false), [loc.pathname]);
   useEffect(() => setPinned(loadPinned(info.slug)), [info.slug]);
   const update = (next: string[] | null) => { setPinned(next); savePinned(info.slug, next); };
@@ -37,7 +41,7 @@ export function PlayerLayout() {
   const areas = [...GROUPS, FALLBACK_GROUP].map((g) => ({ g, list: links.filter((l) => groupOf(l.to) === g) })).filter((a) => a.list.length);
   return (
     <div className="t-fantasy player">
-      <header className="topbar">
+      <header className="topbar" ref={top}>
         <Link to={base} className="brand">{info.name}</Link>
         {F.topbars.map((C, i) => <C key={i} />)}
         <span className="phone-only"><span className={`live-dot${connected ? '' : ' off'}`} title={connected ? 'Live updates on' : 'Reconnecting'} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} /></span>

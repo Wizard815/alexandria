@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { FALLBACK_GROUP, GROUPS, MAX_TABS, groupOf, type NavItem } from '../lib/playerNav.ts';
+import { NavSidePicker } from '../lib/navSide.tsx';
 
 interface Props {
   base: string;
@@ -85,6 +86,9 @@ export function MoreSheet({ base, links, tabIds, isDefault, badge, name, onPins,
                 ))}
               </ol>
               <button type="button" className="btn" onClick={() => { setNote('Tab bar reset.'); onPins(null); }} disabled={isDefault}>Reset to default</button>
+              <h3>Where the tab bar sits</h3>
+              <p className="small muted">On this device. Auto: bottom on a phone, left on a foldable opened up.</p>
+              <NavSidePicker onPick={(s) => setNote(s === 'auto' ? 'Tab bar back to its usual place.' : `Tab bar on the ${s}.`)} />
             </section>
           )}
           <p className="small muted more-note" role="status">{note}</p>

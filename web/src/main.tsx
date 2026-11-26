@@ -8,6 +8,9 @@ import './theme.css';
 import './phone.css';
 import './fold.css';
 import './lib/install.tsx';
+import { initNavSide } from './lib/navSide.tsx';
+
+initNavSide();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

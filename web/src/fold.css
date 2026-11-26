@@ -89,3 +89,86 @@
   .dmx .lib-tree { height: calc(100dvh - 260px); }
   .set-shell { grid-template-columns: 180px minmax(0, 1fr); } .set-nav { position: sticky; top: 120px; } .set-list { flex-direction: column; } .set-link { min-height: 44px; }
 }
+
+/* ---- Where the tab panel sits (lib/navSide.tsx: Left, Right, Top or Bottom, per device) ----
+   Phones and foldables only; with no choice (Auto) the rules above apply: bottom on a phone,
+   left on a foldable. Each choice spells out its whole look, because it overrides either. */
+@media (max-width: 760px), (pointer: coarse) and (min-width: 761px) and (max-width: 1180px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2) {
+  /* -- player: a rail (left or right) -- */
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav { display: flex; position: fixed; top: 0; bottom: 0; width: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); height: auto; z-index: 30; flex-direction: column; justify-content: flex-start; gap: 4px; padding: calc(10px + var(--safe-top)) 6px calc(10px + env(safe-area-inset-bottom, 0px)); min-height: 0; background: var(--side); border-top: 0; overflow-y: auto; scrollbar-width: none; transform: none; transition: none; box-sizing: border-box; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav.bottomnav > :is(a, button) { flex: 0 0 auto; min-height: 64px; width: 100%; min-width: 0; justify-content: center; gap: 4px; padding: 6px 2px; border-radius: 12px; font: 500 12.5px var(--font); white-space: normal; text-align: center; line-height: 1.1; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav :is(a.active, button.active, button[aria-expanded="true"]) { background: var(--accent-bg); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav .icon { font-size: 20px; line-height: 24px; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav [data-testid="more-btn"] { margin-top: auto; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .sheet-backdrop .sheet.more { top: 0; bottom: 0; width: min(380px, calc(100vw - var(--rail-w) - 24px)); max-height: none; border-top: 0; padding-top: calc(12px + var(--safe-top)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .sheet.more .sheet-handle { display: none; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.bottomnav) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.bottomnav) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.bottomnav) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .toast { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=left] .player { padding-left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); padding-right: 0; }
+  :root[data-nav-side=left] .player .bottomnav { left: 0; right: auto; border-left: 0; border-right: 1px solid var(--line-strong); padding-left: calc(6px + env(safe-area-inset-left, 0px)); }
+  :root[data-nav-side=left] .player .sheet-backdrop .sheet.more { left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); right: auto; border-right: 1px solid var(--line-strong); border-left: 0; border-radius: 0 16px 16px 0; }
+  :root[data-nav-side=right] .player { padding-right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); padding-left: 0; }
+  :root[data-nav-side=right] .player .bottomnav { right: 0; left: auto; width: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); border-right: 0; border-left: 1px solid var(--line-strong); padding-right: calc(6px + env(safe-area-inset-right, 0px)); }
+  :root[data-nav-side=right] .player .sheet-backdrop .sheet.more { right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); left: auto; border-left: 1px solid var(--line-strong); border-right: 0; border-radius: 16px 0 0 16px; }
+  :root[data-nav-side=right] body:has(.bottomnav) .dock, :root[data-nav-side=right] body:has(.bottomnav) .dock-panel { right: calc(var(--rail-w) + 12px + env(safe-area-inset-right, 0px)); }
+  :root[data-nav-side=right] .player .toast { right: calc(var(--rail-w) + 16px); left: auto; }
+
+  /* -- player: a bar (top or bottom) -- */
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player { padding-left: 0; padding-right: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav { display: flex; position: fixed; left: 0; right: 0; width: auto; height: auto; z-index: 30; flex-direction: row; justify-content: stretch; gap: 0; min-height: var(--nav-h); box-sizing: content-box; padding: 0 calc(4px + env(safe-area-inset-right, 0px)) 0 calc(4px + env(safe-area-inset-left, 0px)); background: var(--side); border-left: 0; border-right: 0; overflow: visible; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav.bottomnav > :is(a, button) { flex: 1 1 0; min-height: var(--nav-h); width: auto; min-width: 0; margin: 0; justify-content: center; gap: 2px; padding: 4px 2px; border-radius: 0; font: 500 12px var(--font); white-space: nowrap; flex-direction: column; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav :is(a.active, button.active) { background: none; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav .icon { font-size: 19px; line-height: 22px; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet-backdrop .sheet.more { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: min(88dvh, calc(100dvh - 24px)); border: 0; border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; padding-top: 8px; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet.more .sheet-handle { display: block; }
+  :root[data-nav-side=bottom] .player .bottomnav { top: auto; bottom: 0; border-top: 1px solid var(--line-strong); border-bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  :root[data-nav-side=bottom] .player .bottomnav.kb-open { transform: translateY(100%); }
+  :root[data-nav-side=bottom] body:has(.bottomnav) { --dock-reserve: calc(var(--nav-h) + 76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=bottom] body:has(.bottomnav) .dock { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] body:has(.bottomnav) .dock-panel { bottom: calc(var(--nav-h) + 66px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] .player .toast { bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] .player .sticky-actions { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 8px); }
+  :root[data-nav-side=top] .player .bottomnav { top: var(--top-h, 52px); bottom: auto; border-top: 0; border-bottom: 1px solid var(--line-strong); transform: none; }
+  :root[data-nav-side=top] .player main { padding-top: var(--nav-h); }
+  :root[data-nav-side=top] body:has(.bottomnav) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=top] body:has(.bottomnav) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] body:has(.bottomnav) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] .player .toast { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] { scroll-padding-top: calc(var(--top-h, 52px) + var(--nav-h) + 16px); }
+
+  /* -- DM: the area rail (left or right) -- */
+  :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; height: calc(100dvh - var(--top-h, 48px)); width: auto; flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-bottom: 0; z-index: 25; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-area { flex: 0 0 auto; min-height: 64px; justify-content: center; padding: 6px 2px; font-size: 12.5px; border-radius: 12px; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=left] .dmx-body { flex-direction: row; }
+  :root[data-nav-side=left] .dmx-rail { border-left: 0; border-right: 1px solid var(--line); }
+  :root[data-nav-side=right] .dmx-body { flex-direction: row-reverse; }
+  :root[data-nav-side=right] .dmx-rail { border-right: 0; border-left: 1px solid var(--line); }
+  :root[data-nav-side=right] body:has(.dmx-rail) .dock, :root[data-nav-side=right] body:has(.dmx-rail) .dock-panel { right: calc(var(--rail-w) + 12px); }
+
+  /* -- DM: the area bar (top or bottom) -- */
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx-rail { height: auto; width: auto; flex: none; flex-direction: row; gap: 2px; border-left: 0; border-right: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx-area { flex: 1 1 0; min-height: 52px; justify-content: center; padding: 6px 2px; font-size: 12px; border-radius: 8px; }
+  :root[data-nav-side=bottom] .dmx-body { flex-direction: row; }
+  :root[data-nav-side=bottom] .dmx-rail { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30; padding: 2px 4px env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--line-strong); border-bottom: 0; }
+  :root[data-nav-side=bottom] body:has(.dmx-rail) { --dock-reserve: calc(132px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=bottom] body:has(.dmx-rail) .dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] body:has(.dmx-rail) .dock-panel { bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] .dmx-body { flex-direction: column; }
+  :root[data-nav-side=top] .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; z-index: 25; padding: 2px 4px; border-top: 0; border-bottom: 1px solid var(--line-strong); }
+  :root[data-nav-side=top] .dmx-tabs { position: static; }
+  :root[data-nav-side=top] body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=top] body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+}
+/* The position buttons (More > Edit tabs for players, the world menu for the DM). */
+.nav-side { display: flex; flex-wrap: wrap; gap: 6px; }
+.nav-side .btn { flex: 1 1 auto; }
+.dmx-menu .nav-side { padding: 0 8px 6px; }
+.dmx-menu-h { padding: 6px 8px 0; }
