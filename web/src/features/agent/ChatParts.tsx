@@ -29,7 +29,8 @@ export function GuideBox({ guides, phone }: { guides: GuideNote[]; phone?: boole
   );
 }
 export interface Act { id: string; tool: string; summary: string; call: unknown; args?: Record<string, unknown>; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
-export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
+/** `incognito`: not saved; never listed, and deleted when it is left. */
+export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean; incognito?: boolean }
 export interface Live { text: string; status: string; queue?: string }
 /** A chat in the list: `folder` is its path ('' = top level), `template` the template it was started from ('' = a main chat). */
 export interface ChatRow { id: string; title: string; updatedAt: string; folder?: string; template?: string }
@@ -51,8 +52,6 @@ export interface Switcher {
   renaming: string | null; setRenaming: (v: string | null) => void;
   confirmDel: boolean; setConfirmDel: (v: boolean) => void;
   open: (id: string) => void; fresh?: () => void; rename: (id: string, title: string) => void; remove: () => void;
-  /** Delete the open chat but keep a note of what it made (a throwaway chat). */
-  toss?: () => void;
   /** The open chat's title, wherever it is listed (main or template chats). */
   titleOf?: (id: string) => string;
 }
@@ -80,17 +79,17 @@ export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
             <select style={{ width: '100%' }} value={chat?.id ?? ''} onChange={(e) => { if (e.target.value) s.open(e.target.value); }} data-testid="ag-chat-select">
               {!chat && <option value="">New chat</option>}
               {recent.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'}{c.folder ? ` (${c.folder})` : ''} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
-              {chat && !recent.some((c) => c.id === chat.id) && <option value={chat.id}>{s.titleOf?.(chat.id) || 'New chat'}</option>}
+              {chat && !recent.some((c) => c.id === chat.id) && <option value={chat.id}>{chat.incognito ? 'Incognito chat' : s.titleOf?.(chat.id) || 'New chat'}</option>}
             </select>
           </label>
-          {chat && !confirmDel && <>
+          {chat && !confirmDel && !chat.incognito && <>
             {phone && s.fresh && <button type="button" className="b" aria-label="New chat" title="New chat" disabled={busy} onClick={() => s.fresh?.()} data-testid="ag-new"><i className="fa-solid fa-plus" aria-hidden="true" /></button>}
             <button type="button" className={btn('ghost')} aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(s.titleOf?.(chat.id) ?? list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
             <button type="button" className={btn('ghost')} aria-label="Delete this chat" title="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
           </>}
           {chat && confirmDel && <>
-            {s.toss && <button type="button" className={btn('primary')} disabled={busy} title="Delete the chat, keep a note of what it made" onClick={() => s.toss?.()} data-testid="ag-toss">Toss</button>}
-            <button type="button" className={btn('danger')} disabled={busy} title="Delete the chat and keep nothing" onClick={() => s.remove()}>Delete</button>
+            <span className="tiny">Delete this chat?</span>
+            <button type="button" className={btn('danger')} disabled={busy} onClick={() => s.remove()}>Delete</button>
             <button type="button" className={btn('')} onClick={() => setConfirmDel(false)}>Keep</button>
           </>}
         </>

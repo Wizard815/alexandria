@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
-import { chatFolder, notesContext } from '../src/features/agent/store.ts';
+import { chatFolder } from '../src/features/agent/store.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
@@ -98,27 +98,25 @@ test('AgentFolders: template chats are listed apart from the main chats', async 
   assert.equal((await ok('GET', `${A}/chats?template=only`, dmT)).chats.find((c: any) => c.id === t1.id).template, 'starter:quick-event');
 });
 
-test('AgentFolders: tossing a chat keeps a note of what it made, which the assistant is handed later', async () => {
-  const { ok, call, dmT, jess, A } = await boot();
+test('AgentFolders: an incognito chat is never listed, and starting another or going idle deletes it', async () => {
+  const { ok, call, dmT, A } = await boot();
   const { deps } = (globalThis as any).__alxFolders;
-  const c = await ok('POST', `${A}/chats`, dmT, { title: 'Pickpocket in the market' });
-  const row = deps.db.prepare('SELECT world_id, account_id FROM agent_chats WHERE id = ?').get(c.id);
-  // A question, a finished change and a rejected one, as a real chat would have them.
-  const now = new Date().toISOString();
-  deps.db.prepare("INSERT INTO agent_messages (id, chat_id, role, content, status, created_at) VALUES ('m1', ?, 'user', ?, 'done', ?)").run(c.id, 'Make a pickpocket event for the market', now);
-  const act = deps.db.prepare("INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, summary, status, created_at) VALUES (?, ?, ?, ?, 'save_page', ?, ?, ?)");
-  act.run('a1', row.world_id, c.id, row.account_id, 'Save page "Market pickpocket"', 'done', now);
-  act.run('a2', row.world_id, c.id, row.account_id, 'Give 5 gp', 'rejected', now);
-  const { note } = await ok('POST', `${A}/chats/${c.id}/toss`, dmT, {});
-  assert.equal(note.title, 'Pickpocket in the market');
-  assert.deepEqual(note.made, ['Save page "Market pickpocket"'], 'only what was really made');
-  assert.match(note.gist, /pickpocket event/);
-  assert.equal((await call('GET', `${A}/chats/${c.id}`, dmT)).status, 404, 'the chat itself is gone');
-  assert.equal((await ok('GET', `${A}/notes`, dmT)).notes.length, 1);
-  assert.equal((await ok('GET', `${A}/notes`, jess)).notes.length, 0, 'notes are per account');
-  assert.match(notesContext(deps.db, row.world_id, row.account_id, 'dm', ''), /Pickpocket in the market.*Made: Save page "Market pickpocket"/);
-  assert.equal(notesContext(deps.db, row.world_id, row.account_id, 'dm', 'helper'), '', 'the helper keeps its own notes');
-  assert.equal((await call('DELETE', `${A}/notes/${note.id}`, jess)).status, 404, "a player cannot forget the DM's note");
-  await ok('DELETE', `${A}/notes/${note.id}`, dmT);
-  assert.equal((await ok('GET', `${A}/notes`, dmT)).notes.length, 0);
+  const kept = await ok('POST', `${A}/chats`, dmT, { title: 'Saved' });
+  const a = await ok('POST', `${A}/chats`, dmT, { incognito: true });
+  assert.equal(a.incognito, true);
+  assert.equal((await ok('GET', `${A}/chats/${a.id}`, dmT)).incognito, true, 'it works like any chat while open');
+  assert.deepEqual((await ok('GET', `${A}/chats`, dmT)).chats.map((c: any) => c.id), [kept.id], 'never in the list');
+  // Starting another incognito chat ends the first (a screen closed without leaving it).
+  const b = await ok('POST', `${A}/chats`, dmT, { incognito: true });
+  assert.equal((await call('GET', `${A}/chats/${a.id}`, dmT)).status, 404);
+  // One nobody has written to for hours is cleared when the list is read; a saved chat that old is not.
+  const old = new Date(Date.now() - 7 * 3600_000).toISOString();
+  deps.db.prepare('UPDATE agent_chats SET updated_at = ?').run(old);
+  await ok('GET', `${A}/chats`, dmT);
+  assert.equal((await call('GET', `${A}/chats/${b.id}`, dmT)).status, 404);
+  assert.equal((await call('GET', `${A}/chats/${kept.id}`, dmT)).status, 200);
+  // Leaving one deletes it (the screen calls DELETE).
+  const c = await ok('POST', `${A}/chats`, dmT, { incognito: true });
+  await ok('DELETE', `${A}/chats/${c.id}`, dmT);
+  assert.equal((await call('GET', `${A}/chats/${c.id}`, dmT)).status, 404);
 });
