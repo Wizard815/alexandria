@@ -806,7 +806,7 @@ test('TestSecurityAuth_RevokedAndSignedOutCredentialsStopWorking', async () => {
 
 test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
   const bad: string[] = [];
-  const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media|^\/api\/trigger/.test(r.path));
+  const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media|^\/api\/trigger|^\/api\/owlbear\//.test(r.path));
   for (const [label, key] of [['jess read key', S.K.jessRead], ['dm read key', S.K.dmRead]] as const) {
     for (const r of writes) for (const url of urlsFor(r).slice(0, 4)) {
       const res = await call(r.method, url, key, {});
@@ -814,6 +814,8 @@ test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
     }
   }
   assert.deepEqual(bad, []);
+  // The Owlbear Rodeo extension's routes take only an Owlbear link key: any other key is not signed in there.
+  for (const r of routes.filter((x) => x.path.startsWith('/api/owlbear/') && !x.path.startsWith('/api/owlbear/pic'))) for (const key of [S.K.jessRead, S.K.dmRead]) assert.equal((await call(r.method, r.path, key, r.method === 'GET' ? undefined : {})).status, 401, r.path);
   // A write key whose owner is a player is read-only too: players cannot make one.
   const made = await call('POST', '/api/keys', S.T.jess, { scope: 'scribe', worldId: S.W, label: 'sneaky', access: 'write' });
   assert.equal(made.status, 403);
