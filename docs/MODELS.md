@@ -357,6 +357,11 @@ How it works (`librarian/src/features/playerhelp/quick.ts`):
 - One question at a time per player. A second tap while one is running gets
   a 429.
 
+Real-model tests (`web/e2e/quickhelp.mjs` with `QUICK_HELPER_URL`, and
+`web/e2e/tablenight.mjs`) use Bonsai 2 9B on OpenRouter
+(`prism-ml/ternary-bonsai-2-9b`) for this job; the agentic jobs there use
+`tencent/hy4-flash`.
+
 Turn it off for a world with the setting `quickHelper: false`. The DM can see
 exactly what a player's helper is given at
 `GET /api/worlds/:w/helper/quick/brief?task=sheet&account=<player id>`.
