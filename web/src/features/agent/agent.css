@@ -59,3 +59,7 @@
 .ag-nav { gap: 6px; align-items: center; justify-content: flex-end; }
 .ag-tree-tpl { padding: 2px 6px; }
 .ag-incognito { gap: 8px; align-items: center; flex-wrap: nowrap; padding: 6px 8px; border: 1px dashed var(--line-strong, var(--line)); border-radius: 6px; }
+.ag-tree-head { flex-wrap: nowrap; align-items: center; gap: 6px; }
+.ag-tree-head .ag-tree-title { font-size: 0.9em; margin-left: 4px; }
+.ag-tree-menu { padding: 4px; border: 1px solid var(--line); border-radius: 8px; }
+.ag-tree-menu > button, .ag-tree-menu > button.b { justify-content: flex-start; width: 100%; }
