@@ -67,6 +67,25 @@ try {
     console.log(`  approved: Jess sees ${(open.rounds ?? open.prompts ?? []).length} open prompt(s)`);
     if (!(open.rounds ?? open.prompts ?? []).length) problems.push('no open prompt for the player after approval');
   }
+
+  // The table rules that ship in mods/: a rules-only one reaches the helper, a data one reaches the DM.
+  for (const id of ['potion-bonus-action', 'lingering-injuries']) await j('PUT', `${P}/mods/${id}/enabled`, dm, { on: true, cascade: true });
+  const h2 = (await j('POST', `${P}/agent/chats`, jess, { mode: 'helper' })).x;
+  const pc = await wait(P, jess, h2.id, 'Can I drink a healing potion and still attack this turn?');
+  const pr = String(pc.messages?.at(-1)?.text ?? '');
+  console.log(`helper on potions: ${pr.replace(/\n/g, ' ').slice(0, 300)}`);
+  if (!/bonus action/i.test(pr)) problems.push('the helper did not know potions are a bonus action here');
+  const c2 = (await j('POST', `${P}/agent/chats`, dm, {})).x;
+  const ic = await wait(P, dm, c2.id, 'Jessamine just took a critical hit to the chest. Give her a lingering injury that fits.');
+  const inj = (ic.actions ?? []).find((a) => a.tool === 'house_rule_record_act');
+  console.log(`DM on injuries: ${inj ? `${inj.status} (${inj.summary})` : 'no card'} / ${String(ic.messages?.at(-1)?.text ?? '').slice(0, 200)}`);
+  if (!inj) problems.push('the DM assistant did not propose an injury');
+  else if (inj.status === 'pending') {
+    const r = await j('POST', `${P}/agent/actions/${inj.id}`, dm, { decision: 'approve' });
+    const mine = (await j('GET', `${P}/mods/lingering-injuries/records?kind=injury`, jess)).x.records?.injury ?? [];
+    console.log(`  approved -> ${r.x.status}; Jess has ${mine.length} injur${mine.length === 1 ? 'y' : 'ies'}: ${mine.map((x) => `${x.name} (${x.effect}, ${x.days} days)`).join('; ')}`);
+    if (r.x.status !== 'done' || !mine.length) problems.push('the injury did not land on Jess');
+  }
 } catch (e) { problems.push('run failed: ' + e.message); } finally { srv.kill(); }
 const spend1 = await usage();
 console.log(`spend: ${spend0 !== null && spend1 !== null ? `$${(spend1 - spend0).toFixed(4)}` : 'unknown'}`);
