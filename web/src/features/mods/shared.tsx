@@ -28,7 +28,16 @@ export interface HouseRule {
   requires: Record<string, string>; conflicts: string[];
   /** DM only: why it cannot be turned on here, the Alexandria range, the mod API and what it touches. */
   needs?: string[]; alexandria?: string | null; api?: number; permissions?: string[];
+  /** Kit 2 data system: the rule's own lists, record actions, prompts and views. */
+  system: SystemView | null;
 }
+export interface FieldSpec { type: 'text' | 'int' | 'bool' | 'enum' | 'ref'; label: string; optional: boolean; values?: string[]; ref?: string; min?: number; max?: number; default?: unknown }
+export interface RecordKindView { id: string; label: string; plural: string; owned: boolean; title: string; fields: Record<string, FieldSpec> }
+export interface RecordActionView { id: string; label: string; by: 'dm' | 'owner' | 'player' | 'any'; record: string; do: 'create' | 'set' | 'add' | 'remove'; ask: string[]; field: string | null; amount: number | string | null; where: Record<string, unknown> }
+export interface PromptView { id: string; button: string; title: string; text: string; choices: { label: string; action?: string; skip?: boolean }[] }
+export interface ViewSpec { id: string; title: string; record: string; place: 'dm' | 'sheet' | 'player'; columns: string[]; where: Record<string, unknown>; actions: string[]; groupByPlayer: boolean }
+export interface SystemView { records: RecordKindView[]; recordActions: RecordActionView[]; prompts: PromptView[]; views: ViewSpec[] }
+export interface Rec { id: string; kind: string; player: string | null; createdAt: string; updatedAt: string; removed: boolean; [field: string]: unknown }
 export interface Target { id: string; label: string; ok: boolean }
 export interface Counter { id: string; label: string; icon: string; value: number; max: number | null; private: boolean }
 export interface PlayerCounters { accountId: string; name: string; mods: Record<string, Counter[]> }

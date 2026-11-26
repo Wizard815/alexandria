@@ -116,6 +116,29 @@ try {
   await dm.getByRole('tab', { name: /^Rules/ }).click();
   await dm.getByRole('switch', { name: 'Hero points on' }).waitFor({ timeout: 8000 });
   note('dm: rules tab lists every rule; a shared package was added');
+
+  // 6. A data system from a file (Downtime lite): the DM presses Downtime, Jess starts an activity in the popup.
+  const dt = JSON.parse(fs.readFileSync(path.join(root, 'mods/examples/downtime-lite.alxmod.json'), 'utf8'));
+  await api(dmLogin.token, 'POST', '/mods/import', { mod: dt });
+  await api(dmLogin.token, 'PUT', '/mods/downtime-lite/enabled', { on: true });
+  await dm.reload();
+  await dm.getByRole('tab', { name: 'Downtime' }).click();
+  await dm.getByRole('button', { name: 'Downtime', exact: true }).click();
+  await dm.getByText(/Downtime\b.* is open: 0 of/).waitFor({ timeout: 8000 });
+  await pl.goto(`${W}`);
+  await pl.getByRole('dialog').getByText('A downtime day').waitFor({ timeout: 8000 });
+  await pl.getByRole('button', { name: 'Start something' }).click();
+  await pl.getByLabel('Activity').selectOption({ label: 'Carouse' });
+  await shot(pl, '9-player-downtime-popup');
+  await pl.getByRole('dialog').getByRole('button', { name: 'Start' }).click();
+  await pl.getByRole('heading', { name: 'My downtime' }).waitFor({ timeout: 8000 });
+  await pl.getByRole('cell', { name: 'Carouse' }).waitFor({ timeout: 8000 });
+  await dm.getByText(/is open: 1 of/).waitFor({ timeout: 8000 });
+  await dm.getByRole('region', { name: 'Downtime' }).getByRole('cell', { name: 'Carouse' }).waitFor({ timeout: 8000 });
+  await shot(dm, '8-dm-downtime-tab');
+  const tasks = (await api(dmLogin.token, 'GET', '/mods/downtime-lite/records?kind=task')).records.task;
+  check(tasks.length === 1 && tasks[0].done === 1 && tasks[0].goal === 3, `Jess's task got its first day (${JSON.stringify(tasks)})`);
+  note('downtime: the DM opened a day, Jess started an activity in the popup');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {
