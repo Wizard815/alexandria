@@ -54,6 +54,7 @@ const USES: Record<Job, string> = {
   dm: 'The DM’s assistant. Not set: the Chat model',
   player: 'What players ask: the broker and their helper. Not set: the Chat model',
   bible: 'Reading pages for the story bible. Not set: the Chat model',
+  helper: 'The players’ quick helper: a small model (4B or less) for rules, turn options and sheet summaries. Not set: the Players model',
 };
 
 const saved = (d: Deps, job: Job) => one<Row>(d.db, 'SELECT * FROM models_jobs WHERE job = ?', job);
