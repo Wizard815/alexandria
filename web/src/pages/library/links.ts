@@ -22,7 +22,7 @@ export function sourceLink(pg: { url?: unknown; source_app?: unknown }): { href:
   const obsidian = /^obsidian:\/\/\S+$/i.test(t);
   if (!web && !obsidian) return null;
   const app = String(pg.source_app ?? '');
-  const label = app === 'legendkeeper' ? 'Open in LegendKeeper' : app === 'kanka' ? 'Open in Kanka' : app === 'worldanvil' ? 'Open in World Anvil' : app === 'obsidian-publish' ? 'Open on the site' : app === 'notion' ? 'Open in Notion' : app === 'markdown' ? 'Open file' : 'Open in source';
+  const label = app === 'legendkeeper' ? 'Open in LegendKeeper' : app === 'kanka' ? 'Open in Kanka' : app === 'worldanvil' ? 'Open in World Anvil' : app === 'obsidian-publish' ? 'Open on the site' : app === 'notion' ? 'Open in Notion' : app === 'obsidian-portal' ? 'Open in Obsidian Portal' : app === 'markdown' ? 'Open file' : 'Open in source';
   return { href: t, label, custom: obsidian };
 }
 
