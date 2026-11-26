@@ -6,7 +6,7 @@ import { Field } from '../../ui/index.tsx';
 
 interface Hit { id: string; title: string; kind?: string; source?: string | null; visibility?: string }
 
-export function PagePicker({ value, onChange }: { value: string | null | undefined; onChange: (pageId: string | null) => void }) {
+export function PagePicker({ value, onChange, label = 'Linked page (optional)', help = "Its title, facts and opening show on the item's card", onPick }: { value: string | null | undefined; onChange: (pageId: string | null) => void; label?: string; help?: string; onPick?: (page: { id: string; title: string }) => void }) {
   const { w } = useWorld();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[]>([]);
@@ -29,7 +29,7 @@ export function PagePicker({ value, onChange }: { value: string | null | undefin
   }, [w, value]);
 
   return (
-    <Field label="Linked page (optional)" help="Its title, facts and opening show on the item's card">
+    <Field label={label} help={help}>
       <div className="stack tight">
         {value && (
           <div className="row" style={{ gap: 6, alignItems: 'center' }}>
@@ -44,7 +44,7 @@ export function PagePicker({ value, onChange }: { value: string | null | undefin
             {hits.length === 0 && <li className="tiny faint">No pages found.</li>}
             {hits.map((h) => (
               <li key={h.id}>
-                <button type="button" className="btn small ghost" style={{ textAlign: 'left', width: '100%' }} onClick={() => { onChange(h.id); setTitle(h.title); setQ(''); }}>
+                <button type="button" className="btn small ghost" style={{ textAlign: 'left', width: '100%' }} onClick={() => { onChange(h.id); setTitle(h.title); setQ(''); onPick?.(h); }}>
                   {h.title}{h.source ? <span className="tiny faint"> · {h.source}</span> : null}{h.visibility === 'dm' ? <span className="tiny faint"> · DM only</span> : null}
                 </button>
               </li>

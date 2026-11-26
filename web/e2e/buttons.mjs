@@ -98,11 +98,13 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
     for (const c of first) if (!todo.includes(c)) seen.add(c.key + '#' + c.nth);
     for (const c of todo.slice(0, 40)) {
       const urlBefore = page.url();
+      // Controls already on screen are not "new" when a click opens a dialog over them.
+      const was = new Set((await page.evaluate(() => window.__crawl.list()).catch(() => [])).map((x) => x.key + '#' + x.nth));
       const res = await press(c);
       if (res === 'gone' || res === 'skipped') continue;
       // New controls (a panel or dialog opened): press those too, one level down.
       const now = await page.evaluate(() => window.__crawl.list()).catch(() => []);
-      const fresh = now.filter((n) => !seen.has(n.key + '#' + n.nth) && n.region !== 'main' && (c.region === 'shell' || n.region !== 'shell')).slice(0, 14);
+      const fresh = now.filter((n) => !seen.has(n.key + '#' + n.nth) && !(was.has(n.key + '#' + n.nth) && n.region === c.region) && n.region !== 'main' && (c.region === 'shell' || n.region !== 'shell')).slice(0, 14);
       for (const n of fresh) if (clickable(n, seen)) { await press(n); }
       const stuck = await page.evaluate(() => !!document.querySelector('.modal-back, .sx-back, [role=dialog], [aria-modal=true]')).catch(() => false);
       if (page.url() !== urlBefore || fresh.length || stuck) await open(url);
