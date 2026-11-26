@@ -12,7 +12,7 @@ import { Empty, ErrorBox, Field, Loading, PageHead, Switch, useAction, useToast 
 interface Link { id: string; name: string; controlledBy: string[]; accountId: string | null; player: string | null; seenAt: string }
 interface Status {
   key: { prefix: string; createdAt: string } | null;
-  lastSeen: string | null; online: boolean; modVersion: string | null; latestModVersion: string; campaign: string | null;
+  lastSeen: string | null; online: boolean; modVersion: string | null; mode: 'mod' | 'free' | null; latestModVersion: string; campaign: string | null;
   links: Link[]; markers: Record<string, string>; activity: { dir: 'in' | 'out'; text: string; at: string }[];
 }
 
@@ -50,7 +50,7 @@ export default function Roll20Page() {
 }
 
 function StatusCard({ s }: { s: Status }) {
-  const old = s.modVersion && s.modVersion !== s.latestModVersion;
+  const old = s.mode === 'mod' && s.modVersion && s.modVersion !== s.latestModVersion;
   return (
     <section className="card row between" aria-label="Connection" style={{ justifyContent: 'space-between' }}>
       <span className="row">
@@ -59,7 +59,7 @@ function StatusCard({ s }: { s: Status }) {
           <strong style={{ fontWeight: 500 }}>{s.online ? `Connected${s.campaign ? ` to ${s.campaign}` : ''}` : s.key ? 'Not connected' : 'Not set up'}</strong>
           <span className="small muted">
             {s.key ? `Bridge last seen ${ago(s.lastSeen)}` : 'Make a bridge key below to start.'}
-            {s.modVersion ? ` · Mod script ${s.modVersion}` : ''}
+            {s.mode === 'mod' ? ` · With the Mod script${s.modVersion ? ` ${s.modVersion}` : ''}` : s.mode === 'free' ? ' · Without the Mod script (bridge only)' : ''}
           </span>
         </span>
       </span>
@@ -95,16 +95,20 @@ function Install({ s, reload }: { s: Status; reload: () => Promise<void> }) {
     <section className="card stack" aria-label="Set up">
       <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Set up</h2>
       <ErrorBox error={act.error} />
+      <div className="row" style={{ alignItems: 'stretch', flexWrap: 'wrap' }} aria-label="Two ways to host">
+        <div className="card stack tight" style={{ flex: '1 1 260px' }}>
+          <strong style={{ fontWeight: 500 }}><i className="fa-solid fa-crown" aria-hidden="true" /> With Roll20 Pro</strong>
+          <span className="small muted">The game creator adds the Alexandria Mod script. Roll20 itself makes the changes: HP, conditions, handouts and rolls, on every page. The most reliable way.</span>
+        </div>
+        <div className="card stack tight" style={{ flex: '1 1 260px' }}>
+          <strong style={{ fontWeight: 500 }}><i className="fa-solid fa-feather" aria-hidden="true" /> Without Pro</strong>
+          <span className="small muted">Just the bridge, in your browser. Rolls and chat lines always work. HP, conditions and handouts go through Roll20's page data, which Roll20 does not document, so a Roll20 update can stop them until the bridge is updated.</span>
+        </div>
+      </div>
+      <p className="small muted" style={{ margin: 0 }}>The bridge picks the way by itself: it looks for the Mod script when the game opens and works alone when there is none.</p>
       <ol className="stack" style={{ margin: 0, paddingLeft: 20 }}>
         <li className="stack tight">
-          <span><strong style={{ fontWeight: 500 }}>Add the Alexandria Mod script to your Roll20 game.</strong> <span className="small muted">In the game: Settings → Mod (API) Scripts → New Script, paste it, Save. Mod scripts need the game creator's Pro plan; players need nothing.</span></span>
-          <span className="row">
-            <button type="button" className="btn small" disabled={act.busy} onClick={() => void mod('copy')}><i className="fa-solid fa-copy" aria-hidden="true" /> Copy the Mod script</button>
-            <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void mod('save')}><i className="fa-solid fa-download" aria-hidden="true" /> Download</button>
-          </span>
-        </li>
-        <li className="stack tight">
-          <span><strong style={{ fontWeight: 500 }}>Make a bridge key.</strong> <span className="small muted">Roll20's scripts cannot reach the internet, so a small script in your browser carries the data. It can only use this page's Roll20 features.</span></span>
+          <span><strong style={{ fontWeight: 500 }}>Make a bridge key.</strong> <span className="small muted">The bridge, a small script in your browser, uses it to reach Alexandria. The key only opens the Roll20 connection.</span></span>
           {s.key && !key && <span className="small muted">Key {s.key.prefix}… made {ago(s.key.createdAt)}.</span>}
           {key && (
             <span className="row" role="status">
@@ -121,6 +125,13 @@ function Install({ s, reload }: { s: Status; reload: () => Promise<void> }) {
           <span className="row">
             <button type="button" className="btn small primary" disabled={act.busy || !key} onClick={() => void bridge()}><i className="fa-solid fa-download" aria-hidden="true" /> Download the bridge</button>
             {!key && <span className="small muted">{s.key ? 'The key is only shown once: make a new key to download the bridge again.' : 'Make a key first (it goes into the file).'}</span>}
+          </span>
+        </li>
+        <li className="stack tight">
+          <span><strong style={{ fontWeight: 500 }}>With Roll20 Pro only: add the Alexandria Mod script to the game.</strong> <span className="small muted">In the game: Settings → Mod (API) Scripts → New Script, paste it, Save. Without Pro, skip this step.</span></span>
+          <span className="row">
+            <button type="button" className="btn small" disabled={act.busy} onClick={() => void mod('copy')}><i className="fa-solid fa-copy" aria-hidden="true" /> Copy the Mod script</button>
+            <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void mod('save')}><i className="fa-solid fa-download" aria-hidden="true" /> Download</button>
           </span>
         </li>
       </ol>

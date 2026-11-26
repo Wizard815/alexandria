@@ -295,3 +295,18 @@ test('Roll20_Mod: GM-only commands, long messages in pieces, status', async () =
   g.sb.say(g.gm.id, '!alx status');
   assert.match(g.sb.chat[g.sb.chat.length - 1].content, /Alexandria 1\.0\.0: bridge online/);
 });
+
+test('Roll20_Modes: the bridge says which way the game runs; without the Mod there is no Mod version', async () => {
+  await ok('POST', '/api/roll20/bridge/hello', KEY, { modVersion: '1.0.0', mode: 'mod' });
+  let st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  assert.equal(st.mode, 'mod');
+  assert.equal(st.modVersion, '1.0.0');
+  await ok('POST', '/api/roll20/bridge/hello', KEY, { mode: 'free', campaign: 'No Pro game' });
+  st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  assert.equal(st.mode, 'free');
+  assert.equal(st.modVersion, null);
+  assert.equal(st.campaign, 'No Pro game');
+  // A hello that names no way keeps the last one.
+  await ok('POST', '/api/roll20/bridge/hello', KEY, {});
+  assert.equal((await ok('GET', `/api/worlds/${W}/roll20`, T.dm)).mode, 'free');
+});
