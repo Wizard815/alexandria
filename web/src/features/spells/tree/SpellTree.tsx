@@ -7,11 +7,9 @@
 // days of study, the final check and the scroll.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ELEMENT_COLOR, SCHOOL_COLOR, TREE_CSS } from './treeCss.ts';
+import TreeGraph, { GRAPH_CSS, STATUS_LABEL } from './TreeGraph.tsx';
 import { SOURCES, SOURCE_LABEL, type CheckOut, type SpellDetail, type Study, type StudyPlan, type StudySource, type TreeBackend, type TreeData, type TreeSpell, type TreeStatus } from './types.ts';
 
-const STATUS_LABEL: Record<TreeStatus, string> = {
-  known: 'Known', gift: 'Gift', studying: 'Studying', stopped: 'Paused', learn: 'Can learn', locked: 'Locked', hidden: 'Hidden recipe', dark: 'Unknown',
-};
 const FILTERS: { key: string; label: string; has: (s: TreeSpell) => boolean }[] = [
   { key: 'all', label: 'All', has: () => true },
   { key: 'learn', label: 'Can learn', has: (s) => s.status === 'learn' },
@@ -37,6 +35,7 @@ export default function SpellTree({ backend, reloadKey, onChanged }: SpellTreePr
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [sel, setSel] = useState<string | null>(null);
+  const [view, setView] = useState<'tree' | 'list'>('tree');
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -68,9 +67,14 @@ export default function SpellTree({ backend, reloadKey, onChanged }: SpellTreePr
 
   return (
     <div className="st">
-      <style>{TREE_CSS}</style>
+      <style>{TREE_CSS + GRAPH_CSS}</style>
       <div className="st-bar">
-        <input className="st-search" type="search" placeholder={`Search ${total} spells`} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search spells" />
+        <div className="st-chips" role="group" aria-label="View">
+          <button type="button" className="st-chip" aria-pressed={view === 'tree'} onClick={() => setView('tree')}>Tree</button>
+          <button type="button" className="st-chip" aria-pressed={view === 'list'} onClick={() => setView('list')}>List</button>
+        </div>
+        <input className="st-search" type="search" placeholder={`Search ${total} spells (Enter opens it)`} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search spells"
+          onKeyDown={(e) => { if (e.key === 'Enter' && ql) { const hit = all.find((x) => x.name.toLowerCase() === ql) ?? all.find(show); if (hit) setSel(hit.id); } }} />
         <div className="st-chips" role="group" aria-label="Show">
           {FILTERS.map((x) => (
             <button key={x.key} type="button" className="st-chip" aria-pressed={filter === x.key} onClick={() => setFilter(x.key)}>
@@ -80,22 +84,22 @@ export default function SpellTree({ backend, reloadKey, onChanged }: SpellTreePr
         </div>
       </div>
       <div className="st-legend" aria-label="Legend">
-        <span><i style={{ background: '#e0523d' }} /> Known {(c.known ?? 0) + (c.gift ?? 0)}</span>
-        <span><i style={{ background: '#8e96a4', border: '1px solid #dfe3ea' }} /> Can learn {c.learn ?? 0}</span>
-        <span><i style={{ border: '1px solid #e0523d' }} /> Studying {(c.studying ?? 0) + (c.stopped ?? 0)}</span>
+        <span><i style={{ background: '#f0c040' }} /> Known {(c.known ?? 0) + (c.gift ?? 0)}</span>
+        <span><i style={{ background: '#e4e7ee', border: '1px solid #fff' }} /> Can learn {c.learn ?? 0}</span>
+        <span><i style={{ border: '2px solid #f0c040' }} /> Studying {(c.studying ?? 0) + (c.stopped ?? 0)}</span>
         <span><i style={{ background: '#2c2a35' }} /> Locked {c.locked ?? 0}</span>
         <span><i style={{ background: '#17161d', border: '1px solid #3b3846' }} /> Unknown {(c.dark ?? 0) + (c.hidden ?? 0)}</span>
       </div>
       {!data.engine && <p className="st-note">The spell rules are off, so studying is not available. The tree still shows what is known.</p>}
       <div className={`st-layout${picked ? ' open' : ''}`}>
-        <div className="st" style={{ gap: 10 }}>
+        {view === 'tree' ? <TreeGraph data={data} sel={sel} onPick={setSel} dim={(s) => !show(s)} /> : <div className="st" style={{ gap: 10 }}>
           {schools.map((g) => <Group key={g.name} title={g.name} color={SCHOOL_COLOR[g.name] ?? SCHOOL_COLOR.Others} spells={g.spells.filter(show)} all={g.spells} sel={sel} onPick={setSel} />)}
           {[...pairs].sort((a, b) => b[1].length - a[1].length).map(([k, list]) => {
             const [a, b] = k.split(' + ');
             return <Group key={k} title={k} hint="spells where these lines meet" hybrid colorA={ELEMENT_COLOR[a]} colorB={ELEMENT_COLOR[b]} spells={list.filter(show)} all={list} sel={sel} onPick={setSel} />;
           })}
           {others && <Group title="Others" color={SCHOOL_COLOR.Others} spells={others.spells.filter(show)} all={others.spells} sel={sel} onPick={setSel} />}
-        </div>
+        </div>}
         {picked && <Panel key={picked.id} backend={backend} spell={picked} engine={data.engine} study={studies.find((x) => x.spellId === picked.id && x.status !== 'learned') ?? null} onClose={() => setSel(null)} onChanged={changed} />}
       </div>
     </div>

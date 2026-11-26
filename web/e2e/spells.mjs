@@ -136,12 +136,14 @@ try {
   await api(dmLogin.token, 'POST', '/spells/recipes', { result: 'Shatter', prereqs: ['Burning Hands', 'Magic Missile'] });
   await api(dmLogin.token, 'POST', `/spells/characters/${jessId}/known`, { spellId: 'srd:magic-missile' });
   await pl.getByRole('tab', { name: 'Spell tree' }).click();
-  await pl.getByRole('region', { name: 'Evocation' }).waitFor({ timeout: 8000 });
-  const nodes = await pl.locator('.st-node').count();
+  await pl.getByRole('group', { name: 'Evocation' }).waitFor({ timeout: 8000 });
+  const nodes = await pl.locator('.stg-node').count();
   check(nodes > 300, `every SRD spell is on the tree (${nodes})`);
   check(await pl.getByRole('button', { name: 'Scorching Ray, Level 2, Known' }).count() === 1, 'Scorching Ray shows as known');
   check(await pl.getByRole('button', { name: 'Wish, Level 9, Unknown' }).count() === 1, 'Wish is dark');
-  await pl.getByRole('button', { name: 'Shatter, Level 2, Can learn' }).click();
+  check(await pl.getByRole('button', { name: 'Shatter, Level 2, Can learn' }).count() === 1, 'Shatter can be learned');
+  await pl.getByLabel('Search spells').fill('Shatter');
+  await pl.getByLabel('Search spells').press('Enter');
   const panel = pl.getByRole('complementary', { name: 'Shatter details' });
   await panel.getByRole('button', { name: 'Start learning' }).click();
   await panel.getByLabel('Downtime days').fill('3');
