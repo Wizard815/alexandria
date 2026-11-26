@@ -314,3 +314,22 @@ export function readLog(db: DB, worldId: string, opts: { accountId?: string; mod
   return all<any>(db, `SELECT * FROM mod_log WHERE ${where.join(' AND ')} ORDER BY at DESC, rowid DESC LIMIT ?`, ...args, Math.min(200, Math.max(1, opts.limit ?? 50)))
     .map((l) => ({ id: l.id, modId: l.mod_id, accountId: l.account_id, resource: l.resource, before: l.before, after: l.after, action: l.action, by: l.by, note: l.note, at: l.at }));
 }
+
+// ---- for features that keep their own screens on a rule's counters (the player sheet's re-rolls) ----------------
+
+/** A counter's value, whether or not the rule is on (its start value until it is first changed). */
+export function readCounter(db: DB, worldId: string, modId: string, accountId: string, resource: string): number {
+  const m = getMod(db, worldId, modId);
+  const r = m.mod.resources.find((x) => x.id === resource);
+  if (!r) throw new HttpError(400, `${m.mod.name} has no ${resource}`);
+  return count(db, worldId, m, accountId, r);
+}
+
+/** Set a counter to `next`, logged like an action. The caller has checked who may do it and the limits. */
+export function writeCounter(db: DB, worldId: string, modId: string, accountId: string, resource: string, next: number, action: string, by: string | null, note: string) {
+  const m = getMod(db, worldId, modId);
+  const r = m.mod.resources.find((x) => x.id === resource);
+  if (!r) throw new HttpError(400, `${m.mod.name} has no ${resource}`);
+  const before = count(db, worldId, m, accountId, r);
+  if (before !== next) write(db, worldId, m, accountId, r, before, next, action, by, note);
+}
