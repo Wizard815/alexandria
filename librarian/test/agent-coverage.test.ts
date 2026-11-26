@@ -320,6 +320,13 @@ const ARGS: Record<string, Maker> = {
   present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
   set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
   house_rule_grant: async () => { await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true }); return { mod: 'inspiration-rerolls', player: ID.tom, resource: 'dm', note: 'Stayed in character' }; },
+  // A player spends a personal reroll they really hold (for a roll made with real dice), so the run shows a spend, not a refusal.
+  house_rule_spend: async () => {
+    await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true });
+    const held = (await dm('GET', '/mods/counters')).players.find((p: any) => p.accountId === ID.jess).mods['inspiration-rerolls'].find((c: any) => c.id === 'personal').value;
+    if (held < 1) await dm('POST', '/mods/inspiration-rerolls/act', { action: 'grant', player: ID.jess, resource: 'personal', note: 'coverage' });
+    return { mod: 'inspiration-rerolls', action: 'use-personal', atTable: true, note: 'coverage' };
+  },
   house_rule_save: () => ({ mod: { kit: 1, id: 'coverage-points', name: 'Coverage points', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] } }),
 };
 
@@ -447,7 +454,10 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
   assert.deepEqual(failures, [], `player tools that did not run:\n${failures.join('\n')}`);
   console.log(`Player harness: ${readTools.length - denied.length} ran, ${denied.length} are the DM's and were refused (${denied.join(', ')})`);
   // The ones a player is meant to have are not among the refused.
-  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory']) assert.ok(!denied.includes(n), `${n} works for a player`);
+  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory', 'house_rule_spend']) assert.ok(!denied.includes(n), `${n} works for a player`);
+  // The spend really happened: Jess's personal reroll is used and logged as hers.
+  const spent = (await dm('GET', '/mods/log')).log.find((l: any) => l.action === 'use-personal' && l.accountId === ID.jess);
+  assert.ok(spent && spent.after === spent.before - 1, 'house_rule_spend spent a personal reroll for the player');
   // What the tools returned to a player holds nothing of the DM's.
   for (const marker of DM_ONLY) assert.ok(!results.some((r) => r.includes(marker)), `a tool result for a player held ${marker}`);
 
