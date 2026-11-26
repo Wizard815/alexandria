@@ -92,10 +92,11 @@ export function ChangeLog({ account, limit = 40 }: { account: string | null; lim
 }
 
 export const CSS = `
-/* Masonry: modules pack into columns, so a short card leaves no hole under it. A wide module spans every column. */
-.sht-grid { columns: 250px; column-gap: 10px; }
-.sht-grid > .sht-mod { break-inside: avoid; margin: 0 0 10px; width: 100%; box-sizing: border-box; }
-.sht-grid > .wide { column-span: all; }
+/* Rows of columns (see layout() in Sheet.tsx): read left to right, and a short card leaves no hole under it. */
+.sht-grid { display: flex; flex-direction: column; gap: 10px; }
+.sht-cols { display: flex; gap: 10px; align-items: flex-start; }
+.sht-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.sht-row > .sht-mod, .sht-col > .sht-mod { width: 100%; box-sizing: border-box; margin: 0; }
 .sht-mod { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .sht-mod .card-head { margin: 0; gap: 6px; }
 .sht-mod .card-head h3 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 6px; }
