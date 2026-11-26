@@ -9,6 +9,7 @@
 import type { DB } from './db.ts';
 import { all, one, run } from './db.ts';
 import { id, now } from './util.ts';
+import { withPriority } from './ai.ts';
 
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled' | 'interrupted';
 
@@ -108,7 +109,8 @@ export class Jobs {
       },
     };
     try {
-      const out = await fn(ctx);
+      // A tracked job is background work: its model calls wait behind the DM and the players, whoever started it.
+      const out = await withPriority(0, () => fn(ctx));
       info.status = ctl.signal.aborted ? 'cancelled' : 'done';
       return out;
     } catch (err: any) {
