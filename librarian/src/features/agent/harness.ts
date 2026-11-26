@@ -332,6 +332,7 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
       '- The message starts with a context block: who you are helping, their items, tonight so far, library matches. Use it first; most questions need no tool.',
       '- You know only what this player knows. Never guess at secrets, hidden plots, monster stats the players have not seen, or what the DM has planned; say that is up to the DM.',
       '- You cannot change anything. For their own journal and goals use my_memory_log and my_goal_update (the DM looks them over); for anything else, say what to ask the DM.',
+      SPELL_RULE,
       '- Rules answers: name the rule, give the short version, then what it means for them right now. Cite pages as [Page title].',
       '- Be brief. Lead with the answer; short bullets in Markdown; no preamble.',
     ] : [
@@ -343,6 +344,7 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
       '- Cite what you used inline as [Page title] with the exact title.',
       '- Prefer a tool to a guess: search_library, read_page, search_transcript.',
       '- You can only add to this player\'s own journal and goals (my_memory_log, my_goal_update); the DM looks them over. For anything else, say the DM has to do it.',
+      SPELL_RULE,
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble.',
     ];
   if (summary) L.push(`\nEarlier in this chat (summary): ${summary}`);
@@ -368,6 +370,53 @@ async function get(d: Deps, c: Caller, path: string): Promise<any> {
     const r = await d.fetch(`http://127.0.0.1:${c.port}/api/worlds/${enc(c.worldId)}${path}`, { headers: { Authorization: `Bearer ${c.token}`, 'X-Alexandria-Caller': 'model' } });
     return r.ok ? await r.json() : null;
   } catch { return null; }
+}
+
+async function post(d: Deps, c: Caller, path: string, body: unknown): Promise<any> {
+  try {
+    const r = await d.fetch(`http://127.0.0.1:${c.port}/api/worlds/${enc(c.worldId)}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'X-Alexandria-Caller': 'model', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
+const WANTS_SPELLS = /\b(spells?|mana|cast(ing)?|cantrips?|learn(ing)?|stud(y|ying|ies)|scrolls?|arcana|spell ?book|codex)\b/i;
+
+/**
+ * A player's spell state for a spell question, from the same routes as their Codex: pool, highest level, what
+ * they may start learning now, what they are studying, and the plan or cast cost of any spell the message names.
+ * Small models answer from this block far more reliably than they call the tools.
+ */
+async function spellContext(d: Deps, c: Caller, text: string): Promise<string> {
+  const [me, tree] = await Promise.all([get(d, c, '/spells/characters/me'), get(d, c, '/spells/tree?compact=1&status=learn,locked,studying,stopped,known,gift&limit=100')]);
+  if (!me) return '';
+  const L: string[] = [];
+  const m = me.mana;
+  if (m?.on) L.push(`Mana now ${m.now} of ${m.max} (their pool); they can cast spells up to level ${m.maxCastLevel ?? '?'}.`);
+  const lv = (n: number) => (n === 0 ? 'cantrip' : `L${n}`);
+  if (me.known?.length) L.push(`Spells they know: ${me.known.map((k: any) => `${k.name} (${lv(k.level)})`).join(', ').slice(0, 1500)}.`);
+  if (tree?.engine) {
+    const by = (st: string[]) => (tree.spells ?? []).filter((x: any) => st.includes(x.status));
+    const open = by(['learn']);
+    L.push(open.length ? `They can START studying now (${open.length}): ${open.map((x: any) => `${x.name} (${lv(x.level)})`).join(', ').slice(0, 1500)}.` : 'They can start studying no spell right now.');
+    const st = by(['studying', 'stopped']);
+    if (st.length) L.push(`Studying: ${st.map((x: any) => `${x.name} (${x.study ? `${x.study.banked}/${x.study.needed} points` : ''}${x.status === 'stopped' ? ', paused' : ''})`).join(', ')}.`);
+    L.push('Study: each 8-hour downtime day earns 1 point alone, 2 with a text, 3 with a mentor (+1 in a lab); a final check (d20 + casting modifier + proficiency) when the points are in. Spells not listed as "can start" are locked or out of reach: do not offer them.');
+    // Spells the message names: their plan (days and gold each way) and cast cost.
+    const lower = text.toLowerCase();
+    const named = (tree.spells ?? []).filter((x: any) => lower.includes(String(x.name).toLowerCase())).slice(0, 2);
+    for (const x of named) {
+      if (x.status === 'known' || x.status === 'gift') {
+        const at = Number((text.match(/level (\d)/i) ?? [])[1]) || x.level;
+        const q = x.level > 0 ? await post(d, c, '/spells/cast/quote', { spellId: x.id, level: Math.max(x.level, at) }) : null;
+        if (q) L.push(`${x.name} cast at level ${Math.max(x.level, at)} costs ${q.cost} mana${q.allowed === false && q.reasons?.length ? ` (not now: ${q.reasons.join('; ')})` : ''}.`);
+        continue;
+      }
+      const p = await post(d, c, '/spells/study/plan', { spellId: x.id, source: 'text' });
+      if (!p) continue;
+      L.push(`Studying ${x.name} (${lv(x.level)}): ${p.needed} points; alone ${p.days.alone ?? '-'} days / ${p.gold.alone} gp, with a text ${p.days.text ?? '-'} days / ${p.gold.text} gp, with a mentor ${p.days.mentor ?? '-'} days / ${p.gold.mentor} gp; final check DC ${p.finalDC} (they roll d20 + ${p.checkBonus})${p.arcanaDC !== null ? `; an Arcana check DC ${p.arcanaDC} to start` : ''}; a scroll of it adds ${p.scrollPoints} points.${p.missing.length ? ` Still missing before they can start: ${p.missing.join('; ')}.` : ' They can start it now.'}`);
+    }
+  }
+  return L.length ? `This player's spells (from their Codex; trust these numbers):\n${L.join('\n')}` : '';
 }
 
 export interface MessageContext { page?: string; selection?: string }
@@ -421,6 +470,7 @@ export async function prefetchHybrid(d: Deps, c: Caller, text: string, max = 5):
 /** A request to prepare a session: the context carries the status, the active arc and the last session so few searches are needed. */
 const WANTS_PREP = /\b(prep|prepare|preparation|next session|next game|strong start|session plan|plan (the|next|a) (session|game)|what should i)\b/i;
 const WANTS_TRANSCRIPT = /\b(session|last (time|session|game)|recap|transcript|happened|said|told|heard|earlier|just now|we (met|found|fought|saw|decided))\b/i;
+const SPELL_RULE = "- Their spells: answer from the \"This player's spells\" block (pool, highest level, what they can start now, study days and gold, cast costs). For a spell it does not cover, call my_study_plan (days and gold), my_cast_quote (mana) or my_spell_tree (what is open or locked). Never work these numbers out yourself, and never offer a spell that is not listed as one they can start. Start a study (my_start_study) only when they ask.";
 const WANTS_ITEMS = /\b(my items?|inventory|i (have|carry|own|bought)|my (gold|coins?|loot|stuff))\b/i;
 const WANTS_BROKER = /\b(broker|bought|purchased|paid for|information i)\b/i;
 const WANTS_PEOPLE = /\b(npc|people|person|who (is|was)|met|my notes?)\b/i;
@@ -449,11 +499,12 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const dm = c.harness === 'dm';
   const { text } = input;
   const ctxIn = input.context;
-  const [combat, inv, brk, ppl] = await Promise.all([
+  const [combat, inv, brk, ppl, spells] = await Promise.all([
     dm ? get(d, c, '/live/combat') : null,
     !dm && (c.mode === 'helper' || WANTS_ITEMS.test(text)) ? get(d, c, '/inventory?owner=me') : null,
     !dm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
     !dm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
+    !dm && WANTS_SPELLS.test(text) ? spellContext(d, c, text) : '',
   ]);
   const opts = agentOptions(d);
   let hits = opts.retrieval === 'hybrid' ? await prefetchHybrid(d, c, text, hasJob(d, 'rerank') ? 20 : 5) : prefetchLibrary(d, c, text, hasJob(d, 'rerank') ? 20 : 5);
@@ -503,6 +554,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   }
   else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
   if (!dm) {
+    if (spells) L.push(spells);
     if (inv?.items?.length) L.push(`This player's items: ${inv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1500)}`);
     // The helper says an empty pack is empty, rather than that it has no list.
     else if (c.mode === 'helper' && inv) L.push("This player's items: none (their own inventory is empty; the party pouch is separate).");
