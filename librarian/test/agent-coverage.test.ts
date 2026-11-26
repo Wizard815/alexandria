@@ -290,6 +290,9 @@ const ARGS: Record<string, Maker> = {
   reveal_fog: async () => { await once('fog-on', () => dm('PUT', '/fog/map/world/enabled', { pic: 'none', enabled: true })); return { shape: 'circle', x: 40, y: 50, r: 10 }; },
   set_fog: () => ({ enabled: true }),
   run_light_scene: () => once('light-scene', async () => (await dm('POST', '/lights/scenes', { name: 'Candlelight', color: '#ff9933', brightness: 40 })).name as string).then((scene) => ({ scene })),
+  // Session prep: each call drafts its own fresh prep for Jessamine, so the order the tools run in does not matter.
+  edit_session_prep: async () => ({ id: (await dm('POST', '/prep', { accountIds: [ID.jess] })).preps[0].id, text: 'See you Friday at the crypt.' }),
+  send_session_prep: async () => ({ ids: [(await dm('POST', '/prep', { accountIds: [ID.jess] })).preps[0].id] }),
   add_sheet_note: () => ({ accountId: 'jess', kind: 'goal', text: 'Find out who darkened the lighthouse.' }),
   update_sheet_note: async () => ({ accountId: 'jess', noteId: await sheetNote(), done: true }),
   // Mana is off by default: the first time a mana tool runs, it is switched on and Jessamine gets a pool.
