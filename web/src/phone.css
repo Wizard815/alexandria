@@ -1,4 +1,4 @@
-/* The player app on a phone (<= 760px wide). Everything here is scoped to .player
+/* The player app on a phone (<= 760px wide; fold.css builds the foldable layout on top). Everything here is scoped to .player
    (the player layout), so the DM and admin screens keep their own look.
    Rules of thumb: text >= 14px (body 16px), touch targets >= 44px, inputs 16px
    (iOS zooms the page on anything smaller), nothing wider than the screen,
@@ -31,7 +31,8 @@
 .more-note { min-height: 20px; }
 .modal-grip { display: none; }
 
-@media (max-width: 760px) {
+/* Also the Fold's inner screen held sideways (fold.css): touch sizes there too. */
+@media (max-width: 760px), (pointer: coarse) and (min-width: 761px) and (max-width: 1180px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2) {
   /* ---- shell ---- */
   .player { overflow-x: clip; }
   .player main { min-width: 0; }
@@ -85,6 +86,10 @@
   .player .tabs .btn { flex: 0 0 auto; }
   .player .list-item, .player button.list-item, .player a.list-item { min-height: 48px; padding: 8px 14px; }
   .player summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+  /* display:flex drops the open/closed triangle, so draw one (and keep a gap before a summary's note). */
+  .player summary { gap: 8px; flex-wrap: wrap; }
+  .player details > summary:not(.shop-line summary)::before { content: ''; flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 2px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(-45deg); transition: transform 0.15s; }
+  .player details[open] > summary:not(.shop-line summary)::before { transform: rotate(45deg); }
   .player .nav-link.small { min-height: 44px; }
 
   /* ---- layout: columns stack, tables scroll or become cards, media fits ---- */

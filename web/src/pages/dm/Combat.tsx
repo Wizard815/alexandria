@@ -41,7 +41,7 @@ export default function DMCombat() {
       <div className="cols">
         <section className="col-3 stack" aria-label="Initiative order">
           {combat.loading ? <Loading /> : list.length ? list.map((x, i) => <Row key={x.id} x={x} current={!!c.active && i === turnIdx} mode={info.settings.monsterHealth} allNames={list.map((o) => ({ id: o.id, name: o.name }))} />) : (
-            <div className="card"><Empty>No one in the fight yet. Add combatants on the right.</Empty></div>
+            <div className="card"><Empty>No one in the fight yet. Add combatants under Add to the fight.</Empty></div>
           )}
           {list.length > 0 && (
             <div className="row">
