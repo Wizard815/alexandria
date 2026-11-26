@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
-import { checkMod, commandActions, makePackage, presetValues, resolveOptions, unpack } from '../src/features/mods/format.ts';
+import { checkMod, commandActions, impliedPermissions, makePackage, presetValues, resolveOptions, unpack } from '../src/features/mods/format.ts';
 import { MODS_DIR, loadModsDir, shippedMod, shippedMods } from '../src/features/mods/catalog.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST } from '../src/features/spells/mana.ts';
 
@@ -308,7 +308,7 @@ test('Mods: the DM checks, imports, exports and removes a rule; shipped ids are 
   assert.equal(imp.body.enabled, false);
   const ex = await ok('GET', `${M()}/hero-points/export`, T.dm);
   assert.equal(ex.type, 'alexandria-house-rules');
-  assert.equal(ex.kit, 1);
+  assert.equal(ex.kit, 2);
   assert.deepEqual(ex.mods.map((m: any) => m.id), ['hero-points']);
   assert.equal(ex.mods[0].name, 'Hero points');
   assert.equal((await call('DELETE', `${M()}/inspiration-rerolls`, T.dm)).status, 400);
@@ -386,4 +386,73 @@ test('Mods: a world that used the sheet\'s re-roll switch gets the house rule on
   // Turning it off now goes back to the sheet's defaults.
   await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: false });
   assert.equal((await settings()).sheetRerolls, false);
+});
+
+// ---- kit 2: versions, targets, needed rules, conflicts, permissions -----------------------------------------------
+
+test('Mods: a kit 2 manifest is checked field by field', () => {
+  const good = checkMod({
+    kit: 2, id: 'downtime-lite', name: 'Downtime lite', version: '1.2.0', alexandria: '>=0.1', api: 0,
+    targets: { builtFor: ['sheet', 'table'], worksWith: ['codex', 'sheet'] },
+    requires: { mods: { 'inspiration-rerolls': '^1' } }, conflicts: ['hero-points'], permissions: ['records', 'chat.post'],
+    commands: [{ word: 'rest', action: 'x' }], actions: [{ id: 'x', label: 'X', by: 'dm', resource: 'r', add: 1 }], resources: [{ id: 'r', label: 'R' }],
+  });
+  assert.deepEqual(good.errors, []);
+  assert.equal(good.mod!.kit, 2);
+  assert.deepEqual(good.mod!.targets.worksWith, ['codex'], 'a target in builtFor is not repeated in worksWith');
+  assert.deepEqual(impliedPermissions(good.mod!), ['chat.post', 'chat.commands', 'records']);
+  const bad = checkMod({
+    kit: 3, id: 'bad', name: 'Bad', version: 'one', alexandria: 'soon', api: 'x', targets: { builtFor: ['Sheet!'], other: [] },
+    requires: { mods: { bad: '1', 'hero-points': 'whenever' } }, conflicts: ['bad'], permissions: ['root'],
+  });
+  for (const want of [/kit 3 needs a newer Alexandria/, /version must look like/, /alexandria must be a version range/, /api must be/, /targets.builtFor\[0\]/, /targets.other/, /cannot need itself/, /requires.mods.hero-points/, /conflicts\[0\]/, /permissions\[0\] "root"/]) {
+    assert.ok(bad.errors.some((e) => want.test(e)), `${want} in ${bad.errors.join(' | ')}`);
+  }
+});
+
+test('Mods: a rule built for a missing part, or a newer Alexandria, cannot be turned on and says why', async () => {
+  const rule = (id: string, extra: object) => ({ kit: 2, id, name: id, ...extra });
+  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, mods: [
+    rule('for-space', { targets: { builtFor: ['spaceships'] } }),
+    rule('for-later', { alexandria: '>=99' }),
+    rule('for-sheet', { targets: { builtFor: ['sheet', 'dnd-2024'], worksWith: ['codex'] } }),
+  ] } });
+  const list = (await ok('GET', `${M()}/`, T.dm)).mods;
+  const by = (id: string) => list.find((r: any) => r.id === id);
+  assert.match(by('for-space').needs[0], /Built for spaceships/);
+  assert.match(by('for-later').needs[0], /Needs Alexandria >=99/);
+  assert.deepEqual(by('for-sheet').needs, []);
+  assert.deepEqual(by('for-sheet').targets.builtFor.map((t: any) => [t.label, t.ok]), [['Player sheet', true], ['dnd-2024', true]]);
+  const r = await call('PUT', `${M()}/for-space/enabled`, T.dm, { on: true });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /cannot be turned on here: Built for spaceships/);
+  const chk = await ok('POST', `${M()}/check`, T.dm, { mod: rule('for-later-2', { alexandria: '>=99', requires: { mods: { nowhere: '*' } } }) });
+  assert.ok(chk.notes.some((n: string) => /built for Alexandria >=99/.test(n)));
+  assert.ok(chk.notes.some((n: string) => /needs the house rule nowhere/.test(n)));
+  for (const id of ['for-space', 'for-later', 'for-sheet']) await ok('DELETE', `${M()}/${id}`, T.dm);
+});
+
+test('Mods: turning a rule on turns on what it needs and off what it conflicts with; its needed rules stay until it goes', async () => {
+  const base = { kit: 2, version: '1.4.0', resources: [{ id: 'p', label: 'P' }], actions: [{ id: 'g', label: 'G', by: 'dm', resource: 'p', add: 1 }] };
+  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, mods: [
+    { ...base, id: 'k-base', name: 'Base' },
+    { ...base, id: 'k-rival', name: 'Rival' },
+    { ...base, id: 'k-addon', name: 'Addon', requires: { mods: { 'k-base': '^1.2' } }, conflicts: ['k-rival'] },
+    { ...base, id: 'k-old', name: 'Old addon', requires: { mods: { 'k-base': '^2' } } },
+  ] } });
+  await ok('PUT', `${M()}/k-rival/enabled`, T.dm, { on: true });
+  const on = await ok('PUT', `${M()}/k-addon/enabled`, T.dm, { on: true });
+  assert.deepEqual(on.turnedOn, ['k-base']);
+  assert.deepEqual(on.turnedOff, ['k-rival']);
+  const list = (await ok('GET', `${M()}/`, T.dm)).mods;
+  assert.equal(list.find((r: any) => r.id === 'k-base').enabled, true);
+  assert.match(list.find((r: any) => r.id === 'k-old').needs[0], /Needs Base \^2 \(this world has 1.4.0\)/);
+  // Turning the base off would leave the addon without it: refused, unless the DM turns both off.
+  const no = await call('PUT', `${M()}/k-base/enabled`, T.dm, { on: false });
+  assert.equal(no.status, 409);
+  assert.match(no.body.error, /Addon needs Base/);
+  const both = await ok('PUT', `${M()}/k-base/enabled`, T.dm, { on: false, cascade: true });
+  assert.deepEqual(both.turnedOff, ['k-addon']);
+  assert.equal((await ok('GET', `${M()}/`, T.dm)).mods.find((r: any) => r.id === 'k-addon').enabled, false);
+  for (const id of ['k-base', 'k-rival', 'k-addon', 'k-old']) await ok('DELETE', `${M()}/${id}`, T.dm);
 });

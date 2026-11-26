@@ -1,11 +1,15 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "mana-pool",
   "name": "Simple mana pool",
   "version": "1.0.0",
   "author": "Alexandria",
   "group": "magic",
   "summary": "Alexandria's own simple mana: a pool of 4 per level plus the casting modifier, spells cost 2 per spell level. Every number is editable under Spells & mana.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex", "sheet"]
+  },
   "presets": {
     "spellMana": true,
     "spellManaName": "Mana",

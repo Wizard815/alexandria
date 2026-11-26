@@ -47,12 +47,12 @@ export function RulesList() {
         <section key={g} className="card stack">
           <h3>{GROUP_LABEL[g] ?? g}</h3>
           <p className="tiny muted">Only one of these is on at a time. With none on, spells use slots as written.</p>
-          {list.filter((r) => r.group === g).map((r) => <RuleCard key={r.id} r={r} dm={isDM} onDone={done} />)}
+          {list.filter((r) => r.group === g).map((r) => <RuleCard key={r.id} r={r} all={list} dm={isDM} onDone={done} />)}
         </section>
       ))}
       <section className="card stack">
         <h3>Table rules</h3>
-        {loose.map((r) => <RuleCard key={r.id} r={r} dm={isDM} onDone={done} />)}
+        {loose.map((r) => <RuleCard key={r.id} r={r} all={list} dm={isDM} onDone={done} />)}
       </section>
       {isDM && on.length > 0 && (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -111,16 +111,28 @@ export function MakeHouseRule() {
   );
 }
 
-function RuleCard({ r, dm, onDone }: { r: HouseRule; dm: boolean; onDone: (t: string) => void }) {
+function RuleCard({ r, all, dm, onDone }: { r: HouseRule; all: HouseRule[]; dm: boolean; onDone: (t: string) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [open, setOpen] = useState(false);
-  const blocked = (r.missing ?? []).length > 0;
+  const needs = r.needs ?? r.missing ?? [];
+  const blocked = needs.length > 0;
+  const nameOf = (id: string) => all.find((x) => x.id === id)?.name ?? id;
   const toggle = (on: boolean) => act.run(async () => {
     const sets = Object.keys(r.presets ?? {}).filter((k) => !(r.waiting ?? []).includes(k));
-    if (sets.length && !window.confirm(`${on ? 'Turn on' : 'Turn off'} ${r.name}? This ${on ? 'changes' : 'puts back'} these world settings: ${sets.join(', ')}.`)) return;
-    const out = await w.call<any>('PUT', `/mods/${r.id}/enabled`, { on });
-    onDone(on ? `${r.name} is on${out.turnedOff?.length ? ` (turned off ${out.turnedOff.join(', ')})` : ''}` : `${r.name} is off`);
+    const lines: string[] = [];
+    if (sets.length) lines.push(`This ${on ? 'changes' : 'puts back'} these world settings: ${sets.join(', ')}.`);
+    const dependents = on ? [] : all.filter((x) => x.enabled && x.requires?.[r.id]);
+    if (on) {
+      const needOn = Object.keys(r.requires ?? {}).filter((id) => !all.find((x) => x.id === id)?.enabled);
+      if (needOn.length) lines.push(`It needs ${needOn.map(nameOf).join(', ')}, which will be turned on too.`);
+      const clash = all.filter((x) => x.enabled && x.id !== r.id && (r.conflicts?.includes(x.id) || x.conflicts?.includes(r.id)));
+      if (clash.length) lines.push(`It conflicts with ${clash.map((x) => x.name).join(', ')}, which will be turned off.`);
+    } else if (dependents.length) lines.push(`${dependents.map((x) => x.name).join(', ')} ${dependents.length > 1 ? 'need' : 'needs'} it and will be turned off too.`);
+    if (lines.length && !window.confirm(`${on ? 'Turn on' : 'Turn off'} ${r.name}?\n\n${lines.join('\n')}`)) return;
+    const out = await w.call<any>('PUT', `/mods/${r.id}/enabled`, { on, ...(dependents.length ? { cascade: true } : {}) });
+    const also = [out.turnedOn?.length ? `turned on ${out.turnedOn.map(nameOf).join(', ')}` : '', out.turnedOff?.length ? `turned off ${out.turnedOff.map(nameOf).join(', ')}` : ''].filter(Boolean).join('; ');
+    onDone(`${r.name} is ${on ? 'on' : 'off'}${also ? ` (${also})` : ''}`);
   });
   const remove = () => act.run(async () => {
     if (!window.confirm(`Remove ${r.name} from this world? Its counters go too.`)) return;
@@ -138,7 +150,14 @@ function RuleCard({ r, dm, onDone }: { r: HouseRule; dm: boolean; onDone: (t: st
         {dm && <Switch checked={r.enabled} label={`${r.name} on`} onChange={(v) => { if (!act.busy && !(v && blocked)) void toggle(v); }} />}
       </div>
       <div className="small">{r.summary}</div>
-      {blocked && <div className="tiny muted">Needs a part of Alexandria this server does not have yet ({r.missing!.join(', ')}).</div>}
+      {(r.targets?.builtFor.length || r.targets?.worksWith.length || Object.keys(r.requires ?? {}).length) ? (
+        <div className="row tiny" style={{ gap: 6, flexWrap: 'wrap' }}>
+          {r.targets.builtFor.map((t) => <span key={t.id} className="chip" title={t.ok ? 'Built for this part' : 'This world does not have it'} style={{ opacity: t.ok ? 1 : 0.6 }}>Built for {t.label}{t.ok ? '' : ' (missing)'}</span>)}
+          {r.targets.worksWith.map((t) => <span key={t.id} className="chip muted" title={t.ok ? 'Adds to it' : 'Adds to it when it is there'}>Works with {t.label}</span>)}
+          {Object.entries(r.requires ?? {}).map(([id, range]) => <span key={id} className="chip muted">Needs {nameOf(id)}{range !== '*' ? ` ${range}` : ''}</span>)}
+        </div>
+      ) : null}
+      {blocked && <ul className="tiny muted" style={{ margin: 0, paddingLeft: 16 }} aria-label={`Why ${r.name} cannot be turned on`}>{needs.map((n) => <li key={n}>{n}</li>)}</ul>}
       {r.commands.length > 0 && <div className="tiny muted">Chat: {r.commands.map((c) => <code key={c} style={{ marginRight: 6 }}>{c}</code>)}</div>}
       <ErrorBox error={act.error} />
       {dm && (
@@ -164,6 +183,7 @@ function Details({ r, onDone }: { r: HouseRule; onDone: (t: string) => void }) {
       {Object.entries(r.optionSpecs).map(([k, s]) => <OptionField key={k} name={k} spec={s} value={vals[k]} onChange={(v) => setVals({ ...vals, [k]: v })} />)}
       {Object.keys(r.optionSpecs).length > 0 && <div><button type="button" className="btn small primary" disabled={act.busy} onClick={() => void save()}>Save options</button></div>}
       <ErrorBox error={act.error} />
+      {(r.permissions?.length ?? 0) > 0 && <div className="tiny muted">Uses: {r.permissions!.join(', ')}{r.alexandria ? ` · for Alexandria ${r.alexandria}` : ''}{r.conflicts?.length ? ` · conflicts with ${r.conflicts.join(', ')}` : ''}</div>}
       {presets.length > 0 && (
         <details>
           <summary className="small">World settings this rule sets</summary>

@@ -1,10 +1,15 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "spell-crafting",
   "name": "Spell crafting (Codex)",
   "version": "1.0.0",
   "author": "Wizard",
   "summary": "Characters learn new spells by combining spells they already know, from recipes in the Codex.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex"],
+    "worksWith": ["sheet"]
+  },
   "options": {
     "approval": {
       "type": "enum",
