@@ -12,6 +12,14 @@ for the format.
 | `mana-pool.alxmod.json` | Simple mana pool | Alexandria's own mana numbers (spells feature) |
 | `mana-system.alxmod.json` | MANA spell system | Wizard's MANA rules; needs the MANA engine |
 | `spell-crafting.alxmod.json` | Spell crafting (Codex) | Learning spells by combining known ones (spells feature) |
+| `potion-bonus-action.alxmod.json` | Potions as a bonus action | Rule text and assistant guidance |
+| `flanking-bonus.alxmod.json` | Flanking: +2, not advantage | Rule text, an option for the bonus |
+| `skill-check-crits.alxmod.json` | Criticals on ability checks | Rule text and assistant guidance |
+| `hidden-death-saves.alxmod.json` | Hidden death saves | Rule text; the assistant keeps saves secret |
+| `max-hp-level.alxmod.json` | Hit points: roll, keep the better | Rule text and assistant guidance |
+| `gritty-rests.alxmod.json` | Gritty realism rests | Rule text; the assistant advances the clock to match |
+| `party-inspiration.alxmod.json` | Party inspiration pool | A shared pool on every sheet (data system) |
+| `lingering-injuries.alxmod.json` | Lingering injuries | Injuries per player that heal over long rests (data system) |
 
 `examples/` holds rules that are not built in. The assistant reads them as
 patterns when it makes a rule for you (`house_rule_file`), and you can paste

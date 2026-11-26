@@ -170,7 +170,7 @@ export function recordAct(db: DB, worldId: string, m: Installed, actionId: strin
     run(db, 'INSERT INTO mod_records (world_id, mod_id, kind, id, account_id, data, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', worldId, m.mod.id, k.id, rid, owner, JSON.stringify(full), at, actor.accountId, at);
     const rec = getRecord(db, worldId, m, rid);
     log(db, worldId, m, rec, a.id, actor.accountId, null, full, input.note ?? '');
-    speak(db, worldId, m, a.effect, rec, names, said);
+    speak(db, worldId, m, a.effect, rec, names, said, { actor: actor.accountId, note: input.note ?? '' });
     return { action: a.id, record: rec, before: null, after: full, said };
   }
 
@@ -183,7 +183,7 @@ export function recordAct(db: DB, worldId: string, m: Installed, actionId: strin
   if (a.do === 'remove') {
     run(db, 'UPDATE mod_records SET removed = 1, updated_at = ? WHERE world_id = ? AND mod_id = ? AND id = ?', now(), worldId, m.mod.id, rec.id);
     log(db, worldId, m, rec, a.id, actor.accountId, before, null, input.note ?? '');
-    speak(db, worldId, m, a.effect, rec, names, said);
+    speak(db, worldId, m, a.effect, rec, names, said, { actor: actor.accountId, note: input.note ?? '' });
     return { action: a.id, record: { ...rec, removed: true }, before, after: null, said };
   }
   const after: Record<string, unknown> = { ...before, ...asked, ...fixed };
@@ -192,6 +192,11 @@ export function recordAct(db: DB, worldId: string, m: Installed, actionId: strin
     if (!Number.isInteger(amount) || Math.abs(amount as number) > 100_000) throw new HttpError(400, 'Say how much, a whole number (negative takes away)');
     const f = k.fields[a.field!];
     let next = Number(before[a.field!] ?? 0) + (amount as number);
+    // A fixed amount is a spend or a gain (use a point from the pool): past the field's limit it is refused, not
+    // quietly cut. An amount the caller says (the DM adds or takes days) is held at the limit.
+    if (a.amount !== 'ask' && ((f.min !== undefined && next < f.min) || (f.max !== undefined && next > f.max))) {
+      throw new HttpError(409, next < (f.min ?? 0) ? `Not enough ${f.label || a.field} left (${before[a.field!] ?? 0})` : `${f.label || a.field} is already at its most (${f.max})`);
+    }
     if (f.min !== undefined) next = Math.max(f.min, next);
     if (f.max !== undefined) next = Math.min(f.max, next);
     after[a.field!] = next;
@@ -200,7 +205,7 @@ export function recordAct(db: DB, worldId: string, m: Installed, actionId: strin
   save(db, worldId, m, rec, after);
   log(db, worldId, m, rec, a.id, actor.accountId, before, after, input.note ?? '');
   const updated = getRecord(db, worldId, m, rec.id);
-  speak(db, worldId, m, a.effect, updated, names, said);
+  speak(db, worldId, m, a.effect, updated, names, said, { actor: actor.accountId, note: input.note ?? '' });
   // An "add" may finish a timer goal at once (the DM adds the last days).
   if (a.do === 'add') finishIfDone(db, worldId, m, updated, m.mod.system.timers.filter((t) => t.record === k.id && t.field === a.field), names, said);
   return { action: a.id, record: getRecord(db, worldId, m, rec.id), before, after, said };
@@ -215,12 +220,15 @@ function save(db: DB, worldId: string, m: Installed, rec: Rec, data: Record<stri
  * field that names the record, {field} its fields, {ref.field} a field of the record a ref points at, and
  * {kind.field} (the record's own kind) its own field, so a field called name is {project.name}.
  */
-export function fill(db: DB, worldId: string, m: Installed, template: string, rec: Rec, names: (accountId: string | null) => string): string {
+export function fill(db: DB, worldId: string, m: Installed, template: string, rec: Rec, names: (accountId: string | null) => string, ctx: { actor?: string | null; note?: string } = {}): string {
+  // {name} is the record's player; on a shared record (a party pool) it is whoever ran the action.
+  const who = rec.player ?? ctx.actor ?? null;
   const own = (f: string) => rec[f] === undefined || rec[f] === null ? '' : String(rec[f]);
   return template.replace(/\{([a-zA-Z][a-zA-Z0-9-]*)(?:\.([a-zA-Z][a-zA-Z0-9-]*))?\}/g, (whole, a: string, b?: string) => {
     if (b && a === rec.kind && typeof rec[a] !== 'string') return own(b);
     if (!b) {
-      if (a === 'name' || a === 'player') return names(rec.player);
+      if (a === 'name' || a === 'player') return names(who);
+      if (a === 'note' && !(m.mod.system.records.find((k) => k.id === rec.kind)?.fields.note)) return ctx.note ?? '';
       if (a === 'title') { const t = m.mod.system.records.find((k) => k.id === rec.kind)?.title; return t ? own(t) : ''; }
       return own(a);
     }
@@ -230,14 +238,18 @@ export function fill(db: DB, worldId: string, m: Installed, template: string, re
   }).slice(0, 500);
 }
 
-function speak(db: DB, worldId: string, m: Installed, effect: RecordAction['effect'], rec: Rec, names: (a: string | null) => string, said: Said) {
-  if (effect?.chat) said.chat.push(fill(db, worldId, m, effect.chat, rec, names));
-  if (effect?.dmnote) said.dmnote.push(fill(db, worldId, m, effect.dmnote, rec, names));
+function speak(db: DB, worldId: string, m: Installed, effect: RecordAction['effect'], rec: Rec, names: (a: string | null) => string, said: Said, ctx: { actor?: string | null; note?: string } = {}) {
+  const tidy = (t: string) => t.replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+  if (effect?.chat) said.chat.push(tidy(fill(db, worldId, m, effect.chat, rec, names, ctx)));
+  if (effect?.dmnote) said.dmnote.push(tidy(fill(db, worldId, m, effect.dmnote, rec, names, ctx)));
 }
 
 const goalOf = (t: Timer, rec: Rec, opts: Record<string, unknown>): number | null => {
-  const g = typeof t.goal === 'string' && !t.goal.startsWith('$') ? rec[t.goal] : val(t.goal, opts);
-  return Number.isFinite(Number(g)) && g !== null && g !== undefined ? Number(g) : null;
+  const fromField = typeof t.goal === 'string' && !t.goal.startsWith('$');
+  const g = fromField ? rec[t.goal] : val(t.goal, opts);
+  if (!Number.isFinite(Number(g)) || g === null || g === undefined) return null;
+  // A goal read from the record that is 0 means "no goal" (an injury only magic heals): the timer never finishes it.
+  return fromField && Number(g) <= 0 ? null : Number(g);
 };
 
 function finishIfDone(db: DB, worldId: string, m: Installed, rec: Rec, timers: Timer[], names: (a: string | null) => string, said: Said) {
