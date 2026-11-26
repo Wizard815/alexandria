@@ -2,11 +2,12 @@
 // (highlighted), what comes next and what it still needs, every spell I may
 // read, and my spell sheet (class, level, ability scores).
 import { useState, type ReactNode } from 'react';
+import TreeTab from './TreeTab.tsx';
 import { ErrorBox, Field, Loading, Modal, PageHead, Tabs, useAction, useToast, Empty } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { ABILITIES, ManaBar, SpellCard, SpellSearch, levelText, missingText, useSpell, type Character, type RecipeView, type Spell } from './shared.tsx';
 
-type Tab = 'mine' | 'learn' | 'all';
+type Tab = 'mine' | 'learn' | 'tree' | 'all';
 
 export function RecipeCard({ r, children }: { r: RecipeView; children?: ReactNode }) {
   const known = (id: string) => !(r.missing ?? []).some((m) => m.kind === 'spell' && m.id === id);
@@ -70,7 +71,7 @@ export default function PlayerCodex() {
     await codex.reload();
   });
 
-  const tabs: [Tab, string][] = [['mine', `My spells (${learned.length})`], ...(crafting.on ? [['learn', `Learn${ready.length ? ` (${ready.length} ready)` : ''}`] as [Tab, string]] : []), ['all', 'All spells']];
+  const tabs: [Tab, string][] = [['mine', `My spells (${learned.length})`], ...(crafting.on ? [['learn', `Learn${ready.length ? ` (${ready.length} ready)` : ''}`] as [Tab, string]] : []), ['tree', 'Spell tree'], ['all', 'All spells']];
   return (
     <div className="page wide">
       <PageHead title="Codex" lead={`Spells in ${info.name}: the ones you know, ${crafting.on ? 'what you can learn by combining them, ' : ''}and the ones the DM has opened to the table.`} />
@@ -130,6 +131,7 @@ export default function PlayerCodex() {
               )}
             </section>
           )}
+          {tab === 'tree' && <TreeTab />}
           {tab === 'all' && (
             <section className="card">
               <SpellSearch onPick={(s) => setOpen(s.id)} picked={open} badge={(s) => (s.known ? <span className="chip green">Known</span> : null)} />
