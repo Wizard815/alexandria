@@ -725,7 +725,10 @@ extra access to it.
 - **iPhone (installed web app):** a back button in the top bar (no back gesture there) and the
   player's **You** card on Home: HP, temp HP, conditions, mana and "Your turn".
 - Still open: web push notifications (iOS 16.4+ allows them for installed web apps), an iOS
-  build, updates offered in the app, phone recording with the screen locked.
+  build, phone recording with the screen locked.
+- Done: downloads and updates from the DM's own server. Signed in, This device lists the
+  builds the server keeps (`ALX_APPS_DIR`); in the Android and desktop apps a banner and an
+  Updates card offer a newer build, by hand or automatically, checked against its SHA-256.
 
 **Done:**
 - The desktop app records two mics with different hold keys and plays music

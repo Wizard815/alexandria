@@ -6,7 +6,6 @@
 //
 // GET  /api/worlds/:world/glance        (any member; also a widget key, see below)
 // POST /api/worlds/:world/glance/link   (a player or the DM, signed in) makes a widget key
-// GET  /api/apps                        (public) where to download the apps, for /get-app
 //
 // A widget key (alx_wdg_...) is a read key that only ever opens GET .../glance
 // for its one world (core/auth.ts refuses it everywhere else), so a phone's home
@@ -20,7 +19,6 @@ import { combatViewFor } from '../../core/combatView.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
-import { RELEASE, VERSION } from '../../version.ts';
 import { getClock } from '../clock/api.ts';
 import { character } from '../spells/store.ts';
 import { DEFAULT_POOL, poolMax, poolNow } from '../spells/mana.ts';
@@ -28,8 +26,7 @@ import { DEFAULT_POOL, poolMax, poolNow } from '../spells/mana.ts';
 export const WIDGET_LABEL = 'Home-screen widget';
 /** Widget keys kept per account and world; making another revokes the oldest. */
 export const WIDGET_KEYS_KEPT = 4;
-/** The downloads page /get-app links to; ALX_APP_DOWNLOADS points it at your own mirror. */
-export const DEFAULT_DOWNLOADS = 'https://github.com/Wizard815/alexandria/releases/latest';
+
 
 const safe = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
 const count = (d: Deps, sql: string, ...args: unknown[]): number => safe(() => one<{ n: number }>(d.db, sql, ...args)?.n ?? 0, 0);
@@ -138,12 +135,6 @@ export function glance(d: Deps, res: any) {
 
 const feature: Feature = {
   id: 'glance',
-  appRoutes: (app, d) => {
-    app.get('/api/apps', (_req, res) => {
-      const url = String(d.env.ALX_APP_DOWNLOADS ?? '').trim();
-      res.json({ downloads: /^https?:\/\//.test(url) ? url : DEFAULT_DOWNLOADS, version: VERSION, release: RELEASE });
-    });
-  },
   worldMount: 'glance',
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });

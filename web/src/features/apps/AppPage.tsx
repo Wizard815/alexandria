@@ -6,6 +6,7 @@ import { useWorld } from '../../lib/world.tsx';
 import { InstallHint, isIOS, isStandalone } from '../../lib/install.tsx';
 import { changeServer, inAndroidApp, inApp, linkWidget, unlinkWidget } from '../../lib/nativeApp.ts';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
+import { Downloads, UpdateCard } from './Downloads.tsx';
 
 export default function AppPage() {
   const { w, info, isDM } = useWorld();
@@ -82,6 +83,9 @@ export default function AppPage() {
           </div>
         </section>
       )}
+
+      <UpdateCard />
+      <Downloads />
 
       <section className="card" aria-labelledby="get-h">
         <h2 id="get-h">Get the apps</h2>

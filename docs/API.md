@@ -52,7 +52,13 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | POST | `/api/me/password` | `{current, password}` |
 | GET/POST | `/api/keys` | `{scope: scribe\|admin, access: read\|write, label, worldId}` → key once, plus `mcp` settings |
 | DELETE | `/api/keys/:id` | Revoke |
-| GET | `/api/apps` | Public: `{downloads, version, release}` for the Get the app page (`ALX_APP_DOWNLOADS`) |
+| GET | `/api/apps` | Public: `{downloads, version, release, hosted}` for the Get the app page (`ALX_APP_DOWNLOADS`; `hosted` is how many app builds this server keeps) |
+| GET | `/api/apps/builds` | Signed in: `{builds: [{file, platform, arch, version, release, size, sha256, at}], latest: {android, windows, macos, linux}}`, the app builds in `ALX_APPS_DIR` |
+| POST | `/api/apps/builds/:file/ticket` | A signed-in session (not a key): `{url, ticket, file, sha256, size, version, expiresAt}`, a 15-minute download link for that one file |
+| GET/HEAD | `/api/apps/file/:file?t=` | The build itself, with a ticket for it and no sign-in header (the installers and the Android app download it this way) |
+| GET | `/api/admin/apps` | Admin: the builds |
+| POST | `/api/admin/apps/fetch` | Admin: fetch the latest release's builds from GitHub (`ALX_APP_RELEASES_REPO`) in the background (202) |
+| DELETE | `/api/admin/apps/:file` | Admin: remove a build |
 
 ## A world (`/api/worlds/:world`, id or slug)
 

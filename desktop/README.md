@@ -97,6 +97,18 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
   forgets it. The widgets load every 30 minutes (Android's shortest period), when you leave the
   app, and from their ↻ button; offline they show the last answer and when it was from. A tap
   opens the app at the right page (Live in a fight, the quick event, the calendar).
+- **Updates from your own server** (`src/update.rs`, `gen/android/.../AppUpdater.kt`): the server
+  keeps the app builds in `ALX_APPS_DIR` (see docs/HOSTING.md). The page knows the app's
+  version from `window.__ALEXANDRIA_APP__` (set by an initialization script). When the server has
+  a newer build for this platform, a banner offers it, and More, This device, Updates has an
+  "Update to ..." button and an automatic-update switch. The page asks the server for a
+  15-minute ticket and opens `/app-link/update#f=<file>&t=<ticket>&s=<sha256>`. The app downloads
+  from its saved server only and checks the SHA-256, then:
+  Android opens the system installer (it asks once to allow installs from Alexandria, and the APK
+  must be signed with the same key); Windows runs the setup in passive mode and closes; Linux
+  unpacks the .tar.gz, runs its `install.sh` and restarts (an AppImage replaces itself); macOS
+  opens the .dmg to drag into Applications. The release workflow sets the app's version from
+  `VERSION`, so the apps and the server's builds compare correctly.
 
 Not part of the root npm workspaces, and not built by the server's Docker image. The
 Linux build and the Android arm64 build were compiled and checked for AlphaV1; the

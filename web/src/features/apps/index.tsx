@@ -5,6 +5,7 @@
 import type { WebFeature } from '../registry.ts';
 import AppPage from './AppPage.tsx';
 import BackButton from './BackButton.tsx';
+import UpdateBanner from './UpdateBanner.tsx';
 import YouCard from './YouCard.tsx';
 import './apps.css';
 
@@ -16,5 +17,6 @@ const feature: WebFeature = {
   playerNav: [{ to: 'app', label: 'This device', icon: 'fa-mobile-screen-button' }],
   playerHome: [YouCard],
   topbar: BackButton,
+  overlay: UpdateBanner,
 };
 export default feature;

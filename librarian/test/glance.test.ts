@@ -182,14 +182,3 @@ test('Glance_widgetLink: only from a signed-in session, and old widget keys reti
   assert.equal(listed.length, 4);
   assert.ok(listed.every((k: any) => k.label === 'Home-screen widget' && k.access === 'read'), 'listed, so it can be revoked like any key');
 });
-
-test('Glance_apps: the public downloads link, overridable', async () => {
-  const a = await ok('GET', '/api/apps');
-  assert.match(a.downloads, /^https:\/\/github\.com\/.+\/releases\/latest$/);
-  assert.ok(a.version && a.release);
-  deps.env.ALX_APP_DOWNLOADS = 'https://files.example.com/alexandria/';
-  assert.equal((await ok('GET', '/api/apps')).downloads, 'https://files.example.com/alexandria/');
-  deps.env.ALX_APP_DOWNLOADS = 'javascript:alert(1)';
-  assert.match((await ok('GET', '/api/apps')).downloads, /^https:\/\/github\.com/);
-  delete deps.env.ALX_APP_DOWNLOADS;
-});

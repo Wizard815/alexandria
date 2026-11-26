@@ -6,8 +6,12 @@
 //   widget; the link carries a widget key in the #fragment only, and that key reads the
 //   glance and nothing else.
 // - /get-app opens with no sign-in; /app-link/... in a plain browser says to use the app.
+// - Builds the server hosts: This device lists them for download (signed in, a short ticket);
+//   inside the app (marker window.__ALEXANDRIA_APP__) a newer build shows a banner and an
+//   "Update to" button whose app link carries the file, the ticket and the checksum.
 // Run from web/: npm run build && node e2e/apps.mjs     (APPS_PORT, APPS_SHOTS=<dir>)
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, quiet } from './lib.mjs';
 
@@ -19,7 +23,8 @@ const problems = [];
 const check = (ok, msg) => { if (!ok) problems.push(msg); console.log(`  ${ok ? 'ok ' : 'BAD'} ${msg}`); return ok; };
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `${name}.png`) }); };
 
-const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('apps'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
+const DATA = path.join(tmpDir('apps'), 'data');
+const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', DATA, '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const api = async (method, p, tok, body) => {
   const r = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined });
   return { status: r.status, body: await r.json().catch(() => null) };
@@ -34,6 +39,13 @@ const jessId = (await api('GET', '/api/me', tokJess)).body.account.id;
 await api('POST', `/api/worlds/${W.id}/live/combatants`, tokDM, { name: 'Jessamine', accountId: jessId, initiative: 20, hp: 17, maxHp: 31, tempHp: 4 });
 await api('POST', `/api/worlds/${W.id}/live/combatants`, tokDM, { name: 'Goblin boss', initiative: 10, hp: 21, maxHp: 21 });
 await api('PUT', `/api/worlds/${W.id}/live/combat`, tokDM, { active: true, round: 3, turn: 0 });
+
+// Two app builds on the server (the demo wipes its data folder on start, so after it).
+const APK = Buffer.from('fake apk ' + 'x'.repeat(5000));
+const APK_SHA = crypto.createHash('sha256').update(APK).digest('hex');
+fs.mkdirSync(path.join(DATA, 'apps'), { recursive: true });
+fs.writeFileSync(path.join(DATA, 'apps', 'Alexandria-9.1.0-android.apk'), APK);
+fs.writeFileSync(path.join(DATA, 'apps', 'Alexandria-9.1.0-linux-x64.tar.gz'), Buffer.from('fake tarball'));
 
 const IPHONE = { viewport: { width: 390, height: 844 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1', deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const ANDROID = { viewport: { width: 412, height: 915 }, userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-F946B Build/UP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0 Mobile Safari/537.36', deviceScaleFactor: 2, isMobile: true, hasTouch: true };
@@ -77,6 +89,8 @@ try {
     check(await page.getByText('Add to Home Screen').first().isVisible(), 'This device shows the Add to Home Screen steps');
     check(!(await page.getByTestId('link-widget').count()), 'no widget link outside the Android app');
     check(!(await page.getByTestId('ios-back').count()), 'no extra back button in Safari, which has its own');
+    check(await page.getByTestId('downloads').waitFor({ timeout: 8000 }).then(() => true, () => false), 'signed in, the builds on this server are listed for download');
+    check(!(await page.getByTestId('update-card').count()), 'no Updates card outside the apps');
     check(await noSideways(page), 'This device has no sideways scroll');
     await shot(page, 'iphone-app');
     check(!errors.length, `no console errors (${errors.join(' | ')})`);
@@ -127,6 +141,35 @@ try {
     const g = await api('GET', `/api/worlds/${W.slug}/glance`, key);
     check(g.status === 200 && g.body.combat.me.hp === 17, 'the widget key reads the glance');
     check((await api('GET', `/api/worlds/${W.slug}/library`, key)).status === 401, 'and nothing else');
+    check(!errors.length, `no console errors (${errors.join(' | ')})`);
+    await ctx.close();
+  }
+
+  console.log('Downloads and updates, in the Android app');
+  {
+    const { ctx, page, errors } = await open(ANDROID, () => { window.__TAURI_INTERNALS__ = {}; window.__ALEXANDRIA_APP__ = Object.freeze({ version: '9.0.0', platform: 'android', arch: 'aarch64' }); });
+    check(await page.getByTestId('update-banner').waitFor({ timeout: 8000 }).then(() => true, () => false), 'a banner says this server has a newer version');
+    await page.goto(`${base}/w/${W.slug}/app`);
+    const card = page.getByTestId('update-card');
+    await card.waitFor({ timeout: 8000 });
+    const ct = (await card.textContent()) ?? '';
+    check(/9\.0\.0/.test(ct) && /9\.1\.0/.test(ct), `the Updates card shows both versions (${ct.slice(0, 90)})`);
+    const dl = page.getByTestId('downloads');
+    check(await dl.isVisible() && /Alexandria-9\.1\.0-linux-x64\.tar\.gz/.test((await dl.textContent()) ?? ''), 'This device lists every build for download');
+    check(await page.getByTestId('auto-update').isVisible(), 'and an automatic-update switch');
+    check(await noSideways(page), 'no sideways scroll');
+    await shot(page, 'android-update');
+    const go = page.waitForURL(/\/app-link\/update/, { timeout: 8000 });
+    await page.getByTestId('update-now').click();
+    await go;
+    const frag = new URLSearchParams(new URL(page.url()).hash.slice(1));
+    check(frag.get('f') === 'Alexandria-9.1.0-android.apk', 'the update link names the APK');
+    check(frag.get('s') === APK_SHA, "and carries the server's checksum");
+    const t = frag.get('t') ?? '';
+    const r = await fetch(`${base}/api/apps/file/${frag.get('f')}?t=${encodeURIComponent(t)}`);
+    const got = Buffer.from(await r.arrayBuffer());
+    check(r.status === 200 && got.equals(APK), 'its ticket downloads the APK with no sign-in header');
+    check((await fetch(`${base}/api/apps/file/Alexandria-9.1.0-linux-x64.tar.gz?t=${encodeURIComponent(t)}`)).status >= 400, 'and only that file');
     check(!errors.length, `no console errors (${errors.join(' | ')})`);
     await ctx.close();
   }

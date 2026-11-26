@@ -7,6 +7,8 @@
 //! and the window handling are all done here in Rust, and sign-in is the web
 //! app's own, exactly as in a browser.
 
+mod update;
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -123,7 +125,15 @@ fn forget_widget(app: &AppHandle) {
 /// slugs are lowercase letters, digits and dashes, so nothing here needs decoding; anything else
 /// is refused.
 fn fragment_value(url: &Url, name: &str) -> Option<String> {
-    let ok = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    fragment_with(url, name, |c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// A build's file name: letters, digits and `-_.+` (the server only serves names like that).
+fn fragment_file(url: &Url, name: &str) -> Option<String> {
+    fragment_with(url, name, |c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+')).filter(|v| !v.starts_with('.'))
+}
+
+fn fragment_with(url: &Url, name: &str, ok: impl Fn(char) -> bool) -> Option<String> {
     url.fragment()?
         .split('&')
         .filter_map(|kv| kv.split_once('='))
@@ -137,8 +147,22 @@ fn fragment_value(url: &Url, name: &str) -> Option<String> {
 /// - `widget#k=<widget key>&w=<world slug>`: link the home-screen widget (Android).
 /// - `widget-off`: unlink it.
 /// - `change-server`: back to the first-run screen, to type another address.
+/// - `update#f=<file>&t=<ticket>&s=<sha256>`: download that build from the saved server
+///   (`/api/apps/file/<file>?t=<ticket>`), check its SHA-256 and install it (see `update`).
 fn app_link(app: &AppHandle, action: &str, url: &Url) {
     match action.trim_end_matches('/') {
+        "update" => {
+            let (Some(file), Some(ticket), Some(sha)) = (fragment_file(url, "f"), fragment_value(url, "t"), fragment_value(url, "s")) else {
+                return;
+            };
+            let Some(mut src) = server_url(app) else { return };
+            if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+                return;
+            }
+            src.set_path(&format!("/api/apps/file/{file}"));
+            src.set_query(Some(&format!("t={ticket}")));
+            update::start(app, src, file, sha.to_ascii_lowercase());
+        }
         "widget" if cfg!(target_os = "android") => {
             let (Some(key), Some(world), Some(server)) = (fragment_value(url, "k"), fragment_value(url, "w"), app.state::<State>().get().server) else {
                 return;
@@ -200,6 +224,14 @@ fn window_opener(#[allow(unused_variables)] app: &AppHandle, url: Url) {
     open_external(&url);
 }
 
+/// Tells the web app which app it runs in, so it can offer this app's updates: version, platform
+/// and processor. Nothing else is shared with the page.
+fn app_info_script(app: &AppHandle) -> String {
+    let platform = if cfg!(target_os = "android") { "android" } else if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let info = serde_json::json!({ "version": app.package_info().version.to_string(), "platform": platform, "arch": std::env::consts::ARCH });
+    format!("Object.defineProperty(window, '__ALEXANDRIA_APP__', {{ value: Object.freeze({info}), configurable: false }});")
+}
+
 fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let url = match server_url(app) {
         Some(u) => WebviewUrl::External(u),
@@ -207,6 +239,7 @@ fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     };
     let (nav, new, perm) = (app.clone(), app.clone(), app.clone());
     let builder = WebviewWindowBuilder::new(app, "main", url)
+        .initialization_script(&app_info_script(app))
         .title("Alexandria")
         .on_navigation(move |u| allow_navigation(&nav, u))
         .on_permission_request(move |wv, kind| permission_for(&perm, &wv, kind))

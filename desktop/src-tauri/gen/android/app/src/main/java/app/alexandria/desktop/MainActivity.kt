@@ -16,6 +16,8 @@ import androidx.core.view.WindowInsetsCompat
 import app.alexandria.desktop.widget.Glance
 
 class MainActivity : TauriActivity() {
+  private val updater by lazy { AppUpdater(this) }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // The app is dark: transparent bars with light icons, over the same colour as the web app's top and bottom bars
     // (--side in web/src/theme.css), so the status bar reads as part of the app's own top bar.
@@ -36,6 +38,17 @@ class MainActivity : TauriActivity() {
     // web app's history and leaves the app at the first page (TauriActivity handles it).
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     openFromWidget(intent)
+    updater.start()
+  }
+
+  override fun onResume() {
+    super.onResume()
+    updater.resume()
+  }
+
+  override fun onDestroy() {
+    updater.stop()
+    super.onDestroy()
   }
 
   override fun onNewIntent(intent: Intent) {
