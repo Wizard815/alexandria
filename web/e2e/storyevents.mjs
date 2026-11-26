@@ -41,7 +41,13 @@ try {
   const events = await page.getByTestId('story-event').count();
   check(events >= 2, `dungeon shows ${events} events`);
   await page.getByTestId('story-random').click();
-  await page.getByText('Happening now').waitFor();
+  // Nothing goes out before the preview's Send.
+  await page.getByTestId('story-preview').waitFor();
+  check((await api('GET', '/encounters')).body.filter((e) => e.status === 'open').length === 0, 'the random event went out before Send');
+  await page.getByTestId('story-another').click();
+  await page.getByTestId('story-preview').waitFor();
+  await page.getByTestId('story-send').click();
+  await page.getByTestId('story-preview').waitFor({ state: 'detached' });
   await page.locator('[data-testid=enc-watch]').first().waitFor({ timeout: 10_000 });
   note('sent a random dungeon event');
 
@@ -54,17 +60,60 @@ try {
   await first.click();
   note('the player answered');
 
-  // ---- a sure DM note: the pickpocket, let go ----
+  // ---- the pickpocket: a timed step, then a roll the player types in ----
   const jess = (await api('GET', '/encounters')).body.find((e) => e.player === 'Jessamine');
   check(!!jess, 'the DM sees the event');
   await api('POST', '/encounters', { accountIds: [jess.accountId], templateId: 'builtin:ev-pickpocket' });
   await player.page.getByText('A quick-fingered urchin').first().waitFor({ timeout: 15_000 });
+  await player.page.getByTestId('enc-countdown').waitFor();
+  check(/s to answer/.test(await player.page.getByTestId('enc-countdown').innerText()), 'no countdown on the timed step');
+  await player.page.screenshot({ path: path.join(tmpDir('story'), 'timer.png') }).catch(() => {});
+  await player.page.getByTestId('encounter').getByRole('button', { name: 'Give chase' }).click();
+  await player.page.getByTestId('enc-roll').waitFor();
+  check(await player.page.getByText('Roll a d20 for Athletics', { exact: false }).isVisible(), 'the roll prompt does not name the skill');
+  check(!(await player.page.getByRole('button', { name: 'Roll for me' }).count()), 'a story event check offers Roll for me');
+  await player.page.getByLabel('Your total').fill('30');
+  await player.page.getByRole('button', { name: 'Send roll' }).click();
+  await player.page.getByText('You rolled 30 for Athletics', { exact: false }).first().waitFor();
+  check(!(await player.page.getByText('picked from', { exact: false }).count()), 'the player saw the DC');
+  await player.page.getByTestId('encounter').getByRole('button', { name: 'Hand the extra purse to the watch' }).click();
+
+  // ---- a sure DM note: the pickpocket, let go ----
+  await api('POST', '/encounters', { accountIds: [jess.accountId], templateId: 'builtin:ev-pickpocket' });
+  await player.page.getByText('A tug at your belt').first().waitFor({ timeout: 15_000 });
   await player.page.getByTestId('encounter').getByRole('button', { name: 'Let it go' }).click();
   await player.page.getByText('You lose', { exact: false }).first().waitFor();
   check(!(await player.page.getByText('Let a pickpocket get away').count()), 'the DM note reached the player');
   await page.goto(`${W}/dm/encounters?tab=events`);
   await page.getByText('Let a pickpocket get away', { exact: false }).first().waitFor({ timeout: 10_000 });
+  check((await page.getByText('picked from 10–14', { exact: false }).count()) > 0, 'the DM does not see the picked DC');
   note('the DM sees the DM-only note; the player does not');
+
+  // ---- favourites, generate new, tweak ----
+  await page.getByTestId('story-place-market').click();
+  await page.getByRole('group', { name: 'Players' }).getByRole('button', { name: 'Jessamine' }).click();
+  const gem = page.locator('[data-testid=story-event][data-name="Undervalued gem"]');
+  await gem.getByTestId('story-star').click();
+  await page.getByTestId('story-from-fav').click();
+  check(await page.getByTestId('story-event').count() === 1, 'favourites shows more than the starred event');
+  await page.getByTestId('story-random').click();
+  await page.getByTestId('story-preview').waitFor();
+  check(await page.getByRole('heading', { name: 'Undervalued gem' }).isVisible(), 'random from favourites did not pick the starred one');
+  await page.getByTestId('story-tweak-btn').click();
+  await page.getByTestId('story-tweak').waitFor();
+  await page.getByTestId('story-tweak').getByRole('button', { name: 'Back to the preview' }).click();
+  await page.getByTestId('story-preview').getByRole('button', { name: 'Close' }).click();
+  await page.getByTestId('story-from-any').click();
+  await page.getByTestId('story-generate').click();
+  await page.getByTestId('story-gen-prompt').fill('A stray dog follows them through the market.');
+  await page.getByTestId('story-gen-go').click();
+  await page.getByTestId('story-preview').waitFor({ timeout: 20_000 });
+  check(await page.getByText('New draft, not saved').isVisible(), 'a generated event does not say it is unsaved');
+  await page.screenshot({ path: path.join(tmpDir('story'), 'preview.png') }).catch(() => {});
+  await page.getByTestId('story-send').click();
+  await page.getByTestId('story-preview').waitFor({ state: 'detached' });
+  await player.page.getByTestId('encounter').waitFor({ timeout: 15_000 });
+  note('favourites, a generated event sent from its preview');
 
   // ---- templates: starters, a story event and a spell from them, a template chat ----
   await page.goto(`${W}/dm/templates`);

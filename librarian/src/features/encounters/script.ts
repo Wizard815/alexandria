@@ -53,15 +53,25 @@ export interface Game {
   stakeCp: number;
   /** Coin paid on a win (on top of getting the stake back). */
   winCp: number;
-  /** check only. */
+  /** check only: the DC, or the low end of a range when dcMax is set. */
   dc: number | null;
+  /** check only: the high end of a DC range. The DC is picked from dc..dcMax when the player sends their roll. */
+  dcMax: number | null;
   skill: string | null;
   /** Where the story goes after a win or a loss. */
   win: string;
   lose: string;
 }
 
-export interface Node { id: string; text: string; options: Option[]; game: Game | null }
+/**
+ * A step the player must answer quickly. secs: how long they get, counted from when they first see the step.
+ * fallback: the answer (option index) picked for them when time runs out; -1 on a step with a game means the
+ * check (or game) fails.
+ */
+export interface Timer { secs: number; fallback: number }
+export const TIMER_SECS = { min: 5, max: 600 };
+
+export interface Node { id: string; text: string; options: Option[]; game: Game | null; timer?: Timer | null }
 export interface Script { start: string; nodes: Node[] }
 
 export const LIMITS = { nodes: 40, options: 6, effects: 3, text: 1000, label: 120, cp: 100_000, qty: 20, steps: 60 };
@@ -98,6 +108,24 @@ function parseEffect(v: any, at: string): Effect {
   }
 }
 
+/** A check's DC: one number, or a range ("dc": 10, "dcMax": 14; also "dc": [10, 14] or "10-14" from a model). */
+function checkDc(g: any, gat: string): { dc: number | null; dcMax: number | null } {
+  if (g.kind !== 'check') return { dc: null, dcMax: null };
+  let lo: unknown = g.dc, hi: unknown = g.dcMax;
+  if (Array.isArray(lo)) [lo, hi] = [lo[0], lo[1] ?? hi];
+  else if (typeof lo === 'string' && /^\s*\d+\s*[-–]\s*\d+\s*$/.test(lo)) [lo, hi] = lo.split(/[-–]/).map((x) => Number(x.trim()));
+  let dc = whole(lo, `${gat}.dc`, 1, 40, 12);
+  let max = hi === undefined || hi === null || hi === '' ? null : whole(hi, `${gat}.dcMax`, 1, 40, 0);
+  if (max !== null && max < dc) [dc, max] = [max, dc];
+  return { dc, dcMax: max !== null && max > dc ? max : null };
+}
+
+/** The DC to beat this time: the fixed DC, or one picked from the range. */
+export const pickDc = (g: Game, rnd: (n: number) => number = d): number => (g.dcMax && g.dc !== null && g.dcMax > g.dc ? g.dc + rnd(g.dcMax - g.dc + 1) - 1 : g.dc ?? 10);
+
+/** "DC 12" or "DC 10–14", for the DM. */
+export const dcLabel = (g: { dc: number | null; dcMax?: number | null }): string => (g.dc === null ? '' : `DC ${g.dc}${g.dcMax ? `–${g.dcMax}` : ''}`);
+
 /** Check and normalise a script from a request or the database. Throws 400 on anything wrong. */
 export function parseScript(v: any): Script {
   if (!v || typeof v !== 'object' || !Array.isArray(v.nodes)) throw bad('script needs a list of nodes');
@@ -125,12 +153,24 @@ export function parseScript(v: any): Script {
       if (!(GAMES as readonly string[]).includes(g.kind)) throw bad(`${gat}.kind must be one of: ${GAMES.join(', ')}`);
       game = {
         kind: g.kind, stakeCp: whole(g.stakeCp, `${gat}.stakeCp`, 0, LIMITS.cp, 0), winCp: whole(g.winCp, `${gat}.winCp`, 0, LIMITS.cp, 0),
-        dc: g.kind === 'check' ? whole(g.dc, `${gat}.dc`, 1, 40, 12) : null,
+        ...checkDc(g, gat),
         skill: g.kind === 'check' ? text(g.skill, `${gat}.skill`, 40, true) || null : null,
         win: text(g.win, `${gat}.win`, 40), lose: text(g.lose, `${gat}.lose`, 40),
       };
     }
-    return { id, text: text(n.text, `${at}.text`, LIMITS.text), options, game };
+    let timer: Timer | null = null;
+    if (n.timer !== undefined && n.timer !== null && n.timer !== false && n.timer !== 0) {
+      const tv = typeof n.timer === 'number' || typeof n.timer === 'string' ? { secs: n.timer } : n.timer;
+      if (!tv || typeof tv !== 'object') throw bad(`${at}.timer must be an object`);
+      const secs = whole(tv.secs, `${at}.timer.secs`, TIMER_SECS.min, TIMER_SECS.max, 0);
+      if (!secs) throw bad(`${at}.timer.secs is required`);
+      if (!options.length && !game) throw bad(`${at} has a timer but no answers to pick when time runs out`);
+      const dflt = game ? -1 : options.length - 1;
+      // An answer that is no longer there (removed in the editor) falls back to the default.
+      const fallback = whole(tv.fallback, `${at}.timer.fallback`, -1, LIMITS.options, dflt);
+      timer = { secs, fallback: (fallback === -1 && !game) || fallback >= options.length ? dflt : fallback };
+    }
+    return { id, text: text(n.text, `${at}.text`, LIMITS.text), options, game, ...(timer ? { timer } : {}) };
   });
   const ids = new Set<string>();
   for (const n of nodes) { if (ids.has(n.id)) throw bad(`Two nodes are called ${n.id}`); ids.add(n.id); }
@@ -151,7 +191,7 @@ export const quickScript = (line: string, answers: string[]): Script => parseScr
 
 // ---------------- the games ----------------
 
-export interface GameResult { won: boolean; text: string; roll?: number; total?: number }
+export interface GameResult { won: boolean; text: string; roll?: number; total?: number; dc?: number }
 
 const FACES = ['heads', 'tails'];
 const SHELLS = ['left', 'middle', 'right'];
@@ -159,10 +199,12 @@ const d = (n: number) => randomInt(1, n + 1);
 
 /**
  * Play a game on the server, so the odds are the odds whatever the phone
- * says. pick: coin 0/1, shells 0/1/2. check: roll (1-20, from real dice) and
- * modifier; the app rolls when roll is missing. Dice ties go to the NPC.
+ * says. pick: coin 0/1, shells 0/1/2. check: total (the player's roll with
+ * their bonuses, from real dice), or roll (1-20) and modifier; the app rolls
+ * when neither is given. The DC is picked from its range here. Dice ties go to
+ * the NPC.
  */
-export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?: unknown }, rnd: (n: number) => number = d): GameResult {
+export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?: unknown; total?: unknown }, rnd: (n: number) => number = d): GameResult {
   switch (g.kind) {
     case 'coin': {
       const pick = whole(input.pick, 'pick', 0, 1, -1);
@@ -182,10 +224,15 @@ export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?
       return { won: you > them, text: `You roll ${a[0]} + ${a[1]} = ${you}. They roll ${b[0]} + ${b[1]} = ${them}.${you === them ? ' Ties go to the house.' : ''}` };
     }
     case 'check': {
+      const dc = pickDc(g, rnd);
+      if (input.total !== undefined && input.total !== null && input.total !== '') {
+        const total = whole(input.total, 'total', -10, 60, 0);
+        return { won: total >= dc, total, dc, text: `You rolled ${total}${g.skill ? ` for ${g.skill}` : ''}.` };
+      }
       const roll = whole(input.roll, 'roll', 1, 20, 0) || rnd(20);
       const mod = whole(input.modifier, 'modifier', -10, 30, 0);
       const total = roll + mod;
-      return { won: total >= (g.dc ?? 10), roll, total, text: `You roll ${roll}${mod ? ` ${mod > 0 ? '+' : '-'} ${Math.abs(mod)} = ${total}` : ''}${g.skill ? ` (${g.skill})` : ''}.` };
+      return { won: total >= dc, roll, total, dc, text: `You roll ${roll}${mod ? ` ${mod > 0 ? '+' : '-'} ${Math.abs(mod)} = ${total}` : ''}${g.skill ? ` (${g.skill})` : ''}.` };
     }
   }
 }

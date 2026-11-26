@@ -10,7 +10,7 @@ import { createApp } from '../src/app.ts';
 import { all, run } from '../src/core/db.ts';
 import { balance } from '../src/core/coin.ts';
 import { EVENT_STARTERS, parseScript } from '../src/features/encounters/index.ts';
-import { cleanPlaces, PLACES } from '../src/features/encounters/script.ts';
+import { cleanPlaces, PLACES, pickDc, play } from '../src/features/encounters/script.ts';
 import { STARTER_TEMPLATES } from '../src/features/templates/starters.ts';
 import { cleanTemplate, EVENT_PLACES, guideText } from '../src/features/templates/spec.ts';
 import { heuristicDraft } from '../src/features/templates/draft.ts';
@@ -131,7 +131,7 @@ test('TestStoryEvents_PickpocketKeepOrGiveBack', async () => {
   e = await openFor('tom');
   r = await choose(e.id, 'tom', { option: 0 });
   assert.equal(r.body.game.skill, 'Athletics');
-  r = await choose(e.id, 'tom', { play: true, roll: 20, modifier: 0 });
+  r = await choose(e.id, 'tom', { play: true, total: 30 });
   assert.match(r.body.text, /second, fatter purse/);
   r = await choose(e.id, 'tom', { option: 0 });
   assert.equal(r.body.status, 'done');
@@ -160,10 +160,120 @@ test('TestStoryEvents_LoseNeverGoesBelowNothing', async () => {
   await send({ accountIds: [ID.jess], templateId: 'builtin:ev-bridge' });
   const e = await openFor('jess');
   await choose(e.id, 'jess', { option: 0 });
-  const r = await choose(e.id, 'jess', { play: true, roll: 1, modifier: 0 });
+  const r = await choose(e.id, 'jess', { play: true, total: 1 });
   assert.match(r.body.text, /spill/);
   await choose(e.id, 'jess', { option: 0 });
   assert.equal(coin(ID.jess), 0);
+});
+
+test('TestStoryEvents_DcRangeParsesAndPicks', () => {
+  const sc = (game: any) => parseScript({ nodes: [{ id: 'a', text: 'x', game: { kind: 'check', skill: 'Athletics', win: 'a', lose: 'a', ...game } }] }).nodes[0].game!;
+  assert.deepEqual([sc({ dc: 12 }).dc, sc({ dc: 12 }).dcMax], [12, null]);
+  assert.deepEqual([sc({ dc: 10, dcMax: 14 }).dc, sc({ dc: 10, dcMax: 14 }).dcMax], [10, 14]);
+  assert.deepEqual([sc({ dc: 15, dcMax: 11 }).dc, sc({ dc: 15, dcMax: 11 }).dcMax], [11, 15]);
+  assert.deepEqual([sc({ dc: [9, 13] }).dc, sc({ dc: [9, 13] }).dcMax], [9, 13]);
+  assert.deepEqual([sc({ dc: '10-14' }).dc, sc({ dc: '10-14' }).dcMax], [10, 14]);
+  assert.equal(sc({ dc: 12, dcMax: 12 }).dcMax, null);
+  const g = sc({ dc: 10, dcMax: 14 });
+  const seen = new Set<number>();
+  for (let i = 1; i <= 5; i++) seen.add(pickDc(g, () => i));
+  assert.deepEqual([...seen].sort(), [10, 11, 12, 13, 14]);
+  // The player's typed total against the picked DC.
+  assert.equal(play(g, { total: 12 }, () => 3).won, true);
+  assert.equal(play(g, { total: 11 }, () => 3).won, false);
+  assert.equal(play(g, { total: 11 }, () => 3).dc, 12);
+  // Every built-in event check has a range.
+  for (const ev of EVENT_STARTERS) for (const n of ev.script.nodes) if (n.game?.kind === 'check') assert.ok(n.game.dcMax && n.game.dcMax > n.game.dc!, `${ev.id} ${n.id}`);
+});
+
+test('TestStoryEvents_CheckNeedsTheTypedTotal', async () => {
+  await send({ accountIds: [ID.jess], templateId: 'builtin:ev-pickpocket' });
+  const e = await openFor('jess');
+  await choose(e.id, 'jess', { option: 0 });
+  const auto = await choose(e.id, 'jess', { play: true });
+  assert.equal(auto.status, 400);
+  assert.match(auto.body.error, /Athletics/);
+  const r = await choose(e.id, 'jess', { play: true, total: 13 });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.log.some((l: any) => /You rolled 13 for Athletics/.test(l.text)));
+  assert.ok(!r.body.log.some((l: any) => /DC/.test(l.text)), 'the player saw the DC');
+  const dmView = await ok('GET', `${P()}/${e.id}`, T.dm);
+  assert.ok(dmView.log.some((l: any) => l.who === 'secret' && /DC 1[0-4] \(picked from 10–14\)/.test(l.text)));
+  await ok('POST', `${P()}/${e.id}/end`, T.dm, {});
+});
+
+test('TestStoryEvents_TimedStep', async () => {
+  // Parsing: a bare number is seconds; the fallback defaults to the last answer, or to failing a check.
+  const one = (n: any) => parseScript({ nodes: [{ id: 'a', text: 'x', options: [{ label: 'A' }, { label: 'B' }], ...n }] }).nodes[0];
+  assert.deepEqual(one({ timer: 15 }).timer, { secs: 15, fallback: 1 });
+  assert.deepEqual(one({ timer: { secs: 15, fallback: 0 } }).timer, { secs: 15, fallback: 0 });
+  assert.deepEqual(one({ timer: { secs: 15, fallback: 5 } }).timer, { secs: 15, fallback: 1 });
+  assert.equal(one({}).timer, undefined);
+  assert.throws(() => one({ timer: { secs: 2 } }), /timer.secs/);
+
+  setCoin(ID.tom, 100);
+  await send({ accountIds: [ID.tom], templateId: 'builtin:ev-pickpocket' });
+  // The clock starts when Tom first sees it.
+  const sent = (await ok('GET', P(), T.dm)).find((x: any) => x.player === 'Tom' && x.status === 'open');
+  assert.deepEqual(sent.timer, { secs: 20, endsAt: null });
+  const e = await openFor('tom');
+  assert.equal(e.timer.secs, 20);
+  assert.ok(Date.parse(e.timer.endsAt) - Date.now() > 15_000);
+  // Too early to call time.
+  assert.equal((await choose(e.id, 'tom', { timeout: true })).status, 409);
+  // Twenty seconds later the app calls time: "Let it go" happens for them.
+  run(deps.db, 'UPDATE encounters SET step_seen_at = ? WHERE id = ?', new Date(Date.now() - 21_000).toISOString(), e.id);
+  const r = await choose(e.id, 'tom', { timeout: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.status, 'done');
+  assert.ok(r.body.log.some((l: any) => /Let it go \(out of time\)/.test(l.text)));
+  assert.equal(coin(ID.tom), 50);
+
+  // A late answer is the same as running out: the check on the bridge fails.
+  setCoin(ID.tom, 100);
+  await send({ accountIds: [ID.tom], templateId: 'builtin:ev-bridge' });
+  const b = await openFor('tom');
+  const r1 = await choose(b.id, 'tom', { option: 0 });
+  assert.equal(r1.body.timer.secs, 45);
+  run(deps.db, 'UPDATE encounters SET step_seen_at = ? WHERE id = ?', new Date(Date.now() - 60_000).toISOString(), b.id);
+  const r2 = await choose(b.id, 'tom', { play: true, total: 30 });
+  assert.match(r2.body.text, /spill/);
+  assert.ok(r2.body.log.some((l: any) => /counts as a failure/.test(l.text)));
+  // A step without a timer has no time to run out.
+  assert.equal((await choose(b.id, 'tom', { timeout: true })).status, 400);
+});
+
+test('TestStoryEvents_FavouritesAndRandomFrom', async () => {
+  // Star a built-in and a saved one; both come back starred.
+  await ok('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.dm, { fav: true });
+  const mine = await ok('POST', `${P()}/templates/all`, T.dm, { kind: 'event', name: 'Fake fortune teller', places: ['market'], script: { nodes: [{ id: 'a', text: 'A woman offers to read your palm.', options: [{ label: 'Sure' }, { label: 'No thanks' }] }] } });
+  await ok('PUT', `${P()}/templates/fav/${mine.id}`, T.dm, { fav: true });
+  let list = await ok('GET', `${P()}/templates/all?kind=event`, T.dm);
+  assert.equal(list.starters.find((s: any) => s.id === 'builtin:ev-gem').fav, true);
+  assert.equal(list.starters.find((s: any) => s.id === 'builtin:ev-pickpocket').fav, false);
+  assert.equal(list.templates.find((t: any) => t.id === mine.id).fav, true);
+  // Random from favourites in the market only ever picks a starred one.
+  for (let i = 0; i < 6; i++) {
+    const [e] = await send({ accountIds: [ID.jess], place: 'market', from: 'fav' });
+    assert.ok(['builtin:ev-gem', mine.id].includes(e.templateId), e.templateId);
+  }
+  // Built-in only never picks the saved one, even though the world has its own market events.
+  for (let i = 0; i < 4; i++) assert.ok((await send({ accountIds: [ID.jess], place: 'market', from: 'builtin' }))[0].templateId.startsWith('builtin:'));
+  // Unstar; deleting a saved one drops its star too. No favourites left in the market: a clear 404.
+  await ok('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.dm, { fav: false });
+  await ok('DELETE', `${P()}/templates/all/${mine.id}`, T.dm);
+  assert.equal(all<any>(deps.db, 'SELECT * FROM encounter_favs WHERE world_id = ?', W).length, 0);
+  const none = await call('POST', P(), T.dm, { accountIds: [ID.jess], place: 'market', from: 'fav' });
+  assert.equal(none.status, 404);
+  assert.match(none.body.error, /starred/);
+  // Players cannot star.
+  assert.equal((await call('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.jess, { fav: true })).status, 403);
+  assert.equal((await call('PUT', `${P()}/templates/fav/nope`, T.dm, { fav: true })).status, 404);
+  // An unsaved draft sends with its own name.
+  const [d] = await send({ accountIds: [ID.jess], kind: 'event', name: 'Loose cobble', npcName: 'A loose cobble', script: { nodes: [{ id: 'a', text: 'You stub your toe.', options: [{ label: 'Ow' }] }] } });
+  assert.equal(d.templateName, 'Loose cobble');
+  assert.equal(d.kind, 'event');
+  await ok('POST', `${P()}/${d.id}/end`, T.dm, {});
 });
 
 test('TestStoryEvents_SavedEventsByPlace', async () => {

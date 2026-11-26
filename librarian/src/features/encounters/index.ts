@@ -71,6 +71,13 @@ CREATE TABLE IF NOT EXISTS encounter_templates (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS encounter_templates_world ON encounter_templates (world_id, name);
+-- The DM's starred encounters and events: a saved one's id or a built-in one's (builtin:...).
+CREATE TABLE IF NOT EXISTS encounter_favs (
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  template_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (world_id, template_id)
+);
 `;
 
 interface Row {
@@ -78,6 +85,8 @@ interface Row {
   id: string; world_id: string; account_id: string; npc_name: string; npc_blurb: string; template_id: string | null; template_name: string;
   source: 'dm' | 'wander'; script: string; node_id: string; status: 'open' | 'done' | 'cancelled'; log: string; steps: number; paid_cp: number;
   shop_id: string | null; open_shop: string | null; created_by: string; created_at: string; updated_at: string;
+  /** When the player first saw the current step: a timed step's clock starts here. Null until then. */
+  step_seen_at?: string | null;
 }
 interface TemplateRow { id: string; world_id: string; name: string; npc_name: string; npc_blurb: string; script: string; wander: number; kind: EncounterKind; places: string; created_at: string; updated_at: string }
 /** One line of the talk. who: npc (the NPC speaks), you (the player's answer), game (a result), gain (coin or an item), loss (a lost stake), dm (the DM spoke live), note (anything else), secret (a DM-only note: never sent to the player). */
@@ -156,10 +165,22 @@ function routes(d: Deps) {
       options: e.status === 'open' ? (n.game ? n.options : n.options.length ? n.options : [{ label: 'Farewell' }]).map((o) => ({ label: o.label })) : [],
       game: e.status === 'open' && n.game ? { kind: n.game.kind, label: GAME_LABEL[n.game.kind], stakeCp: n.game.stakeCp, winCp: n.game.winCp, skill: n.game.skill } : null,
       shop,
+      // A timed step: endsAt is null until the player has seen it (the clock starts then).
+      timer: e.status === 'open' && n.timer ? { secs: n.timer.secs, endsAt: e.step_seen_at ? new Date(Date.parse(e.step_seen_at) + n.timer.secs * 1000).toISOString() : null } : null,
     };
     if (!dm) return base;
-    return { ...base, accountId: e.account_id, player: nm[e.account_id] ?? 'A player', templateId: e.template_id, templateName: e.template_name, nodeId: n.id, dc: n.game?.dc ?? null, paidCp: e.paid_cp, script: sc };
+    return { ...base, accountId: e.account_id, player: nm[e.account_id] ?? 'A player', templateId: e.template_id, templateName: e.template_name, nodeId: n.id, dc: n.game?.dc ?? null, dcMax: n.game?.dcMax ?? null, paidCp: e.paid_cp, script: sc };
   }
+  /** The player is looking at their encounter: a timed step's clock starts now, if it has not already. */
+  const seen = (e: Row): Row => {
+    if (e.status !== 'open' || e.step_seen_at) return e;
+    const n = nodeOf(parseScript(parseJson(e.script, {})), e.node_id);
+    if (!n.timer) return e;
+    const at = now();
+    run(db, 'UPDATE encounters SET step_seen_at = ? WHERE id = ? AND step_seen_at IS NULL', at, e.id);
+    changed(e); // the DM's watch shows the countdown
+    return { ...e, step_seen_at: at };
+  };
   const load = (res: Response, eid: string): Row => {
     const e = one<Row>(db, 'SELECT * FROM encounters WHERE id = ? AND world_id = ?', eid, W(res));
     // A player asking for someone else's encounter gets the same answer as for one that does not exist.
@@ -207,10 +228,19 @@ function routes(d: Deps) {
     return { id: t.id, name: t.name, npcName: t.npc_name, npcBlurb: t.npc_blurb, script: parseScript(parseJson(t.script, {})), wander: !!t.wander, builtin: false, kind: kindOf(t.kind), places: cleanPlaces(parseJson(t.places, [])) };
   }
   /** The quick events that fit a place: the world's own, and the built-in ones while the world has none for it. */
-  function eventsFor(w: string, place: Place) {
-    const own = all<TemplateRow>(db, `SELECT * FROM encounter_templates WHERE world_id = ? AND kind = 'event'`, w).filter((t) => cleanPlaces(parseJson(t.places, [])).includes(place));
-    if (own.length) return own.map((t) => templateFor(w, t.id));
-    return EVENT_STARTERS.filter((s) => s.places?.includes(place)).map((s) => templateFor(w, s.id));
+  const favsOf = (w: string) => new Set(all<{ template_id: string }>(db, 'SELECT template_id FROM encounter_favs WHERE world_id = ?', w).map((f) => f.template_id));
+  /**
+   * The events a random pick for a place chooses from. from: 'fav' (starred), 'mine' (saved in the world),
+   * 'builtin', 'any' (all of them); left out: the world's own when it has some for the place, else the built-ins.
+   */
+  function eventsFor(w: string, place: Place | null, from?: string) {
+    const fits = (places: string[] | undefined) => !place || (places ?? []).includes(place);
+    const own = all<TemplateRow>(db, `SELECT * FROM encounter_templates WHERE world_id = ? AND kind = 'event'`, w).filter((t) => fits(cleanPlaces(parseJson(t.places, [])))).map((t) => t.id);
+    const built = EVENT_STARTERS.filter((s) => fits(s.places)).map((s) => s.id);
+    const ids = from === 'mine' ? own : from === 'builtin' ? built : from === 'any' ? [...own, ...built]
+      : from === 'fav' ? (() => { const f = favsOf(w); return [...own, ...built].filter((id) => f.has(id)); })()
+      : own.length ? own : built;
+    return ids.map((id) => templateFor(w, id));
   }
 
   // ---- what the app needs to know ----
@@ -236,12 +266,12 @@ function routes(d: Deps) {
     const rows = dm
       ? all<Row>(db, `SELECT * FROM encounters WHERE world_id = ? ${status === 'open' ? `AND status = 'open'` : ''} ORDER BY created_at DESC LIMIT 60`, w)
       : all<Row>(db, 'SELECT * FROM encounters WHERE world_id = ? AND account_id = ? ORDER BY created_at DESC LIMIT 20', w, me(res));
-    res.json(rows.map((e) => view(e, dm, nm)));
+    res.json(rows.map((e) => view(dm ? e : seen(e), dm, nm)));
   });
 
   r.get('/:eid', (req, res) => {
     const e = load(res, String(req.params.eid));
-    res.json(view(e, isDM(res), names(db, e.world_id)));
+    res.json(view(isDM(res) ? e : seen(e), isDM(res), names(db, e.world_id)));
   });
 
   // DM sends. { accountIds: [...] | 'party', and one of: templateId; script (+ npcName, npcBlurb); line + answers (+ npcName) }. addToPeople: put the NPC on the party's People list. shopId: the shop "open a shop" options without their own shop open.
@@ -257,9 +287,11 @@ function routes(d: Deps) {
     // place: a random quick event that fits it (town, road, cave ...), unless a template, script or line is given.
     const place = b.place === undefined || b.place === null || b.place === '' ? null : cleanPlaces([b.place])[0] ?? null;
     if (b.place && !place) throw new HttpError(400, `place must be one of: ${PLACES.join(', ')}`);
-    if (!b.templateId && !b.script && !b.line && place) {
-      const pool = eventsFor(w, place);
-      if (!pool.length) throw new HttpError(404, `No quick events fit ${PLACE_LABEL[place].toLowerCase()} yet. Make one, or tag one with this place`);
+    // from: fav | mine | builtin | any, which events a random pick chooses among (see eventsFor).
+    const from = ['fav', 'mine', 'builtin', 'any'].includes(b.from) ? String(b.from) : undefined;
+    if (!b.templateId && !b.script && !b.line && (place || from)) {
+      const pool = eventsFor(w, place, from);
+      if (!pool.length) throw new HttpError(404, from === 'fav' ? `No starred events${place ? ` fit ${PLACE_LABEL[place].toLowerCase()}` : ''} yet. Star some first` : `No quick events fit ${place ? PLACE_LABEL[place].toLowerCase() : 'there'} yet. Make one, or tag one with this place`);
       b.templateId = pool[Math.floor(Math.random() * pool.length)].id;
     }
     if (b.templateId) {
@@ -277,7 +309,7 @@ function routes(d: Deps) {
         const answers = Array.isArray(b.answers) ? b.answers.filter((a: unknown) => typeof a === 'string' && a.trim()).map((a: string) => a.trim()) : [];
         script = quickScript(line, answers);
       }
-      src = { npcName, npcBlurb, script, templateId: null, templateName: '', shopId, source: 'dm', kind };
+      src = { npcName, npcBlurb, script, templateId: null, templateName: str(b.name, 'name', { max: 120, optional: true }).trim(), shopId, source: 'dm', kind };
     }
     const made = start(w, me(res), to, src);
     // "Add to People": the NPC joins the party's People list once, the first time anyone meets them (never for an event).
@@ -376,13 +408,40 @@ function routes(d: Deps) {
       }
     };
 
+    // A timed step: past the clock (a few seconds' grace for the network), the fallback answer is taken for them.
+    // { timeout: true } is the player's app saying the countdown hit zero.
+    let timedOut = false;
+    if (n.timer) {
+      const started = Date.parse(e.step_seen_at ?? now());
+      const left = started + n.timer.secs * 1000 - Date.now();
+      if (b.timeout === true) { if (left > 2000) throw new HttpError(409, 'There is still time to answer'); timedOut = true; }
+      else if (left < -3000) timedOut = true;
+    } else if (b.timeout === true) throw new HttpError(400, 'This step has no timer');
+
     let next: string | null;
-    if (b.play === true) {
+    if (timedOut) {
+      const t = n.timer!;
+      say('note', 'Time is up!');
+      if (t.fallback === -1 && n.game) {
+        say('game', `Too slow${n.game.skill ? ` for ${n.game.skill}` : ''}. That counts as a failure.`);
+        next = n.game.lose;
+      } else {
+        const o = n.options[Math.min(t.fallback, n.options.length - 1)];
+        say('you', `${o.label} (out of time)`);
+        // Out of time, they cannot afford to pay: the paying part is skipped, the rest happens.
+        const cost = o.effects.reduce((a, fx) => a + (fx.kind === 'pay' ? fx.cp : 0), 0);
+        const afford = cost <= 0 || spendable(db, w, e.account_id) >= cost;
+        tx(db, () => { for (const fx of o.effects) if (afford || fx.kind !== 'pay') apply(fx); });
+        next = o.next;
+      }
+    } else if (b.play === true) {
       if (!n.game) throw new HttpError(400, 'There is no game to play here');
       const g = n.game;
       if (g.stakeCp > 0 && spendable(db, w, e.account_id) < g.stakeCp) throw new HttpError(409, `You need ${money(g.stakeCp)} to play`);
-      const result = play(g, { pick: b.pick, roll: b.roll, modifier: b.modifier });
-      say('game', `${result.text} ${result.won ? 'You win!' : 'You lose.'}`);
+      if (g.kind === 'check' && kindOf(e.kind) === 'event' && (b.total === undefined || b.total === null || b.total === '')) throw new HttpError(400, `Roll${g.skill ? ` ${g.skill}` : ''} and send your total`);
+      const result = play(g, { pick: b.pick, roll: b.roll, modifier: b.modifier, total: b.total });
+      say('game', `${result.text} ${g.kind === 'check' ? (result.won ? 'Success!' : 'Not enough.') : result.won ? 'You win!' : 'You lose.'}`);
+      if (g.kind === 'check' && result.dc !== undefined) say('secret', `DC ${result.dc}${g.dcMax ? ` (picked from ${g.dc}–${g.dcMax})` : ''}: ${result.won ? 'passed' : 'failed'}.`);
       tx(db, () => {
         if (result.won) {
           if (g.winCp > 0) { const cp = credit(g.winCp, `Won at ${GAME_LABEL[g.kind].toLowerCase()} with ${e.npc_name}`); if (cp) say('gain', `You win ${money(cp)}.`); else say('note', `${e.npc_name} is out of coin to pay you.`); }
@@ -414,8 +473,9 @@ function routes(d: Deps) {
     if (!next) status = 'done';
     else if (steps >= LIMITS.steps) { status = 'done'; say('note', `${e.npc_name} has to go.`); }
     else { nodeId = next; say('npc', nodeOf(sc, next).text); }
-    run(db, 'UPDATE encounters SET node_id = ?, status = ?, log = ?, steps = ?, paid_cp = ?, open_shop = ?, updated_at = ? WHERE id = ?',
-      nodeId, status, JSON.stringify(log.slice(-MAX_LOG)), steps, paid, openShop, now(), e.id);
+    // The player is looking at the next step as this answer comes back, so a timed step's clock starts now.
+    run(db, 'UPDATE encounters SET node_id = ?, status = ?, log = ?, steps = ?, paid_cp = ?, open_shop = ?, updated_at = ?, step_seen_at = ? WHERE id = ?',
+      nodeId, status, JSON.stringify(log.slice(-MAX_LOG)), steps, paid, openShop, now(), status === 'open' ? now() : null, e.id);
     if (status === 'done') remember(e, log);
     for (const o of new Set(coinMoves)) coinChanged(w, o);
     for (const it of items) itemChanged(w, e.account_id, it);
@@ -448,7 +508,7 @@ function routes(d: Deps) {
     const nid = `dm-${sc.nodes.length + 1}-${newId().slice(0, 4).replace(/[^\w-]/g, 'x')}`;
     sc.nodes.push({ id: nid, text, options: answers.map((label) => ({ label, next: null, effects: [] })), game: null });
     const log = [...parseJson<Line[]>(e.log, []), { who: 'dm', text, at: now() } as Line].slice(-MAX_LOG);
-    run(db, 'UPDATE encounters SET script = ?, node_id = ?, log = ?, updated_at = ? WHERE id = ?', JSON.stringify(parseScript(sc)), nid, JSON.stringify(log), now(), e.id);
+    run(db, 'UPDATE encounters SET script = ?, node_id = ?, log = ?, updated_at = ?, step_seen_at = NULL WHERE id = ?', JSON.stringify(parseScript(sc)), nid, JSON.stringify(log), now(), e.id);
     changed(e);
     reply(res, e);
   });
@@ -501,10 +561,11 @@ function routes(d: Deps) {
     const want = matches(req.query);
     const own = all<TemplateRow>(db, 'SELECT * FROM encounter_templates WHERE world_id = ? ORDER BY name COLLATE NOCASE', W(res)).map(tview);
     const anyWander = own.some((t) => t.wander);
+    const favs = favsOf(W(res));
     res.json({
-      templates: own.filter(want),
+      templates: own.filter(want).map((t) => ({ ...t, fav: favs.has(t.id) })),
       starters: [...STARTERS.map((s) => ({ ...s, kind: 'npc' as EncounterKind, places: [] as Place[], wander: !anyWander })), ...EVENT_STARTERS.map((s) => ({ ...s, kind: 'event' as EncounterKind, places: s.places ?? [], wander: false }))]
-        .map((s) => ({ ...s, builtin: true })).filter(want),
+        .map((s) => ({ ...s, builtin: true, fav: favs.has(s.id) })).filter(want),
       places: PLACES.map((p) => ({ id: p, label: PLACE_LABEL[p] })),
     });
   });
@@ -516,6 +577,14 @@ function routes(d: Deps) {
     audit(db, row.world_id, me(res), row.kind === 'event' ? 'encounter.event.create' : 'encounter.template.create', row.name);
     res.status(201).json(tview(row));
   });
+  // Star or unstar one: { fav: true | false }. Works for saved and built-in ones.
+  r.put('/templates/fav/:tid', requireDM, (req, res) => {
+    const w = W(res);
+    const t = templateFor(w, String(req.params.tid));
+    if (req.body?.fav === false) run(db, 'DELETE FROM encounter_favs WHERE world_id = ? AND template_id = ?', w, t.id);
+    else run(db, 'INSERT OR IGNORE INTO encounter_favs (world_id, template_id, at) VALUES (?, ?, ?)', w, t.id, now());
+    res.json({ id: t.id, fav: req.body?.fav !== false });
+  });
   r.put('/templates/all/:tid', requireDM, (req, res) => {
     const old = one<TemplateRow>(db, 'SELECT * FROM encounter_templates WHERE id = ? AND world_id = ?', String(req.params.tid), W(res));
     if (!old) throw new HttpError(404, 'Encounter template not found');
@@ -526,6 +595,7 @@ function routes(d: Deps) {
   r.delete('/templates/all/:tid', requireDM, (req, res) => {
     const n = run(db, 'DELETE FROM encounter_templates WHERE id = ? AND world_id = ?', String(req.params.tid), W(res));
     if (!n) throw new HttpError(404, 'Encounter template not found');
+    run(db, 'DELETE FROM encounter_favs WHERE world_id = ? AND template_id = ?', W(res), String(req.params.tid));
     res.json({ ok: true });
   });
 
@@ -545,13 +615,13 @@ const tools: McpTool[] = [
   {
     name: 'send_encounter', write: true,
     description: "DM: have an NPC walk up to one or more players in their app, or a quick event happen to them. Either templateId (from list_encounter_templates), or place alone for a random quick event that fits it (town, road, woods, cave, dungeon ...), or npcName + line + answers for a quick one (kind 'event' for something that happens rather than someone talking). accountIds: player account ids, or 'party'. shopId: the shop a 'show me your wares' option opens.",
-    props: { accountIds: { description: "Player account ids, or 'party'" }, templateId: S('Template or starter id'), place: { type: 'string', enum: [...PLACES], description: 'A random quick event for this place' }, kind: { type: 'string', enum: [...KINDS] }, npcName: S('NPC name'), npcBlurb: S('What they look like'), line: S('What the NPC says (quick encounter)'), answers: { type: 'array', items: { type: 'string' }, description: 'Answers the player can pick (quick encounter)' }, shopId: S('Shop id'), addToPeople: { type: 'boolean', description: "Also put the NPC on the party's People list" } },
+    props: { accountIds: { description: "Player account ids, or 'party'" }, templateId: S('Template or starter id'), place: { type: 'string', enum: [...PLACES], description: 'A random quick event for this place' }, from: { type: 'string', enum: ['fav', 'mine', 'builtin', 'any'], description: "With place (or alone): pick the random event from the DM's starred ones (fav), their saved ones (mine), the built-ins, or any" }, kind: { type: 'string', enum: [...KINDS] }, npcName: S('NPC name'), npcBlurb: S('What they look like'), line: S('What the NPC says (quick encounter)'), answers: { type: 'array', items: { type: 'string' }, description: 'Answers the player can pick (quick encounter)' }, shopId: S('Shop id'), addToPeople: { type: 'boolean', description: "Also put the NPC on the party's People list" } },
     required: ['accountIds'],
-    call: (a) => ({ method: 'POST', path: '/encounters', body: { accountIds: a.accountIds, templateId: a.templateId, place: a.place, kind: a.kind, npcName: a.npcName, npcBlurb: a.npcBlurb, line: a.line, answers: a.answers, shopId: a.shopId, addToPeople: a.addToPeople } }),
+    call: (a) => ({ method: 'POST', path: '/encounters', body: { accountIds: a.accountIds, templateId: a.templateId, place: a.place, from: a.from, kind: a.kind, npcName: a.npcName, npcBlurb: a.npcBlurb, line: a.line, answers: a.answers, shopId: a.shopId, addToPeople: a.addToPeople } }),
   },
   {
     name: 'save_encounter_template', write: true,
-    description: `DM: save a new NPC encounter or quick event for later (it does not send it). kind 'event' for a quick event: something that happens to a player (a thief, a find, a hazard), with places it fits (${PLACES.join(', ')}). script: {start, nodes: [{id, text, options: [{label, next: node id or null to end, effects: [{kind: gold|pay|lose, cp} | {kind: item, name, qty, note} | {kind: dmnote, text} | {kind: shop, shopId}]}], game: null or {kind: check, skill, dc, stakeCp, winCp, win, lose}}]}. Keep coin small (1 to 100 copper).`,
+    description: `DM: save a new NPC encounter or quick event for later (it does not send it). kind 'event' for a quick event: something that happens to a player (a thief, a find, a hazard), with places it fits (${PLACES.join(', ')}). script: {start, nodes: [{id, text, options: [{label, next: node id or null to end, effects: [{kind: gold|pay|lose, cp} | {kind: item, name, qty, note} | {kind: dmnote, text} | {kind: shop, shopId}]}], game: null or {kind: check, skill, dc, dcMax (optional: the DC is picked from dc..dcMax when the player rolls), stakeCp, winCp, win, lose}, timer (optional, only for urgent moments): {secs: 10-60, fallback: the option index picked when time runs out, or -1 to fail the check}}]}. Keep coin small (1 to 100 copper).`,
     props: { kind: { type: 'string', enum: [...KINDS] }, name: S('Short title'), npcName: S('Who or what it is about'), npcBlurb: S('One line: how it looks'), places: { type: 'array', items: { type: 'string', enum: [...PLACES] } }, script: { type: 'object', description: 'The steps (see the description)' }, wander: { type: 'boolean', description: 'Wandering players can meet it' } },
     required: ['name', 'script'],
     call: (a) => ({ method: 'POST', path: '/encounters/templates/all', body: { kind: a.kind, name: a.name, npcName: a.npcName, npcBlurb: a.npcBlurb, places: a.places, script: a.script, wander: a.wander } }),
@@ -565,7 +635,9 @@ const feature: Feature = {
   schema,
   migrate: (db) => {
     const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as any[]).map((c) => c.name);
-    if (!cols('encounters').includes('kind')) db.exec(`ALTER TABLE encounters ADD COLUMN kind TEXT NOT NULL DEFAULT 'npc'`);
+    const ec = cols('encounters');
+    if (!ec.includes('kind')) db.exec(`ALTER TABLE encounters ADD COLUMN kind TEXT NOT NULL DEFAULT 'npc'`);
+    if (!ec.includes('step_seen_at')) db.exec(`ALTER TABLE encounters ADD COLUMN step_seen_at TEXT`);
     const tc = cols('encounter_templates');
     if (!tc.includes('kind')) db.exec(`ALTER TABLE encounter_templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'npc'`);
     if (!tc.includes('places')) db.exec(`ALTER TABLE encounter_templates ADD COLUMN places TEXT NOT NULL DEFAULT '[]'`);

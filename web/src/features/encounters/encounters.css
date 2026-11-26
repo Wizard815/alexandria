@@ -26,3 +26,12 @@
 .enc-fx { padding-left: 16px; align-items: flex-end; }
 .enc-watch .enc-log { max-height: 260px; }
 .enc-draft summary { cursor: pointer; }
+.enc-countdown { position: relative; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); overflow: hidden; display: flex; align-items: center; }
+.enc-countdown-bar { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 35%, transparent); transition: width 0.25s linear; }
+.enc-countdown.urgent .enc-countdown-bar { background: color-mix(in srgb, var(--danger, #d0584a) 45%, transparent); }
+.enc-countdown-text { position: relative; padding: 0 10px; font-size: 14px; font-weight: 600; }
+.enc-timer-edit { align-items: flex-end; }
+.enc-star { padding: 4px 6px; color: var(--faint, inherit); }
+.enc-star.on { color: var(--accent); }
+.enc-preview { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.enc-preview li { overflow-wrap: anywhere; }

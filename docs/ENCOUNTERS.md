@@ -47,11 +47,19 @@ holds for them too.
 
 **Encounters → Story events.** Pick **where they are** (town, city,
 village, market, tavern, open road, woods, cave, dungeon, ruins, coast,
-mountains, swamp), pick who it happens to (or **Everyone**), then either
-**Random … event** or **Send** one from the list for that place. A random
-event picks among your own events tagged with that place; while you have
-none for it, among the built-in ones (★). Each player gets their own copy
-and makes their own choice. The Quick events page links here too (Quick
+mountains, swamp), pick who it happens to (or **Everyone**), and pick
+where events come **from**: Any, ★ Favourites, My events, or Built-in.
+Then **Random … event**, **Generate new** (the assistant drafts a fresh
+one for the place, from an optional line of yours and optionally a quick
+event template), or **Preview** one from the list.
+
+Nothing goes out straight away. Every event opens in a **preview** first,
+with every step, answer, check (and its DC range), timer and consequence.
+From there: **Send to …**, **Tweak** (edit it; a built-in or a fresh draft
+becomes your own saved copy), **Try another** (another random one, or
+another draft), and **Star** it. Starred events sit at the top of the list
+and are what Favourites picks from, so the ones you like are easy to send
+again. Each player gets their own copy and makes their own choice. The Quick events page links here too (Quick
 events are the timed recall / save / vote prompts; story events are things
 that happen).
 
@@ -82,6 +90,22 @@ Answers in any encounter or event can now also:
   piercing". The player never gets it.
 - **Item note**: an item can carry a line on its card ("Worth about 10 gp
   to a jeweller") instead of "From <NPC>".
+
+**Rolls.** A skill check in a story event asks the player to roll for real:
+"Roll a d20 for Athletics, add your bonus, and enter the total." They type
+the number; the app never rolls for them in an event. A check has a DC or
+a **DC range** (DC from 10 to 14): the DC is picked from the range when
+they send the roll, so it is never quite predictable. The player only sees
+their total and whether it was enough; you see "DC 12 (picked from
+10–14): passed" as a DM note.
+
+**Timers.** Any step can be **timed** (5 seconds to 10 minutes): the
+player sees a countdown bar and must answer before it runs out. You choose
+what happens if it does: one of the answers ("Let it go"), or on a check
+step, the check fails. The clock starts when the player first sees the
+step, not when you send it, so a player who is away does not miss it. A
+late answer counts as running out. The built-in pickpocket gives 20
+seconds to give chase; the rope bridge gives 45 seconds to roll.
 
 Coin a player pays or loses hands that much back to the encounter's coin
 cap, like a lost stake, so catching a thief can give back what was stolen.
@@ -131,7 +155,7 @@ odds:
 | Coin toss | calls heads or tails | 1 in 2 |
 | Shell game | points at one of three shells | 1 in 3 |
 | Dice duel | rolls 2d6 against the NPC's 2d6 | higher roll; ties go to the NPC |
-| Skill check | sends a d20 from real dice (or lets the app roll) plus a modifier | total ≥ the DC |
+| Skill check | types their total from real dice (NPC encounters can also let the app roll) | total ≥ the DC (picked from its range) |
 
 A game has a **stake** (taken from the player's own coin on a loss; they
 cannot play without it), a **win** payout, and the steps a win and a loss
@@ -184,18 +208,23 @@ Guests get 403 everywhere.
 | `GET /config` | wandering, its wait, the cap, coin style, the places; players also get `nextWanderAt` |
 | `GET /` | DM: the last 60 (`?status=open` for open ones); player: their own last 20 |
 | `GET /:id` | one encounter (a player only their own) |
-| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| place \| script \| line + answers, kind?, npcName?, npcBlurb?, shopId?, addToPeople?}`; `place` alone sends a random story event for it |
+| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| place \| script \| line + answers, kind?, npcName?, npcBlurb?, shopId?, addToPeople?}`; `place` alone sends a random story event for it; `from: fav \| mine \| builtin \| any` picks which ones; with `script`, `name` labels it |
 | `POST /wander` | player: start a random encounter |
-| `POST /:id/choose` | player: `{option}`, or `{play: true, pick?, roll?, modifier?}` for the step's game |
+| `POST /:id/choose` | player: `{option}`, `{play: true, pick?, total?, roll?, modifier?}` for the step's game (a story event's check needs `total`), or `{timeout: true}` when a timed step's countdown hits zero (409 while there is still time) |
 | `POST /:id/leave` | player: walk away |
 | `POST /:id/say` | DM: `{text, answers?}` |
 | `POST /:id/end` | DM |
 | `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | DM: saved encounters and story events (`{kind: npc \| event, places}`); `GET ?kind=&place=` filters, and also returns the starters and the places |
+| `PUT /templates/fav/:tid` | DM: `{fav: true \| false}` stars a saved or built-in one; the lists return `fav` |
 | `POST /templates/draft` | DM: `{prompt, kind?, places?, guide?}`: a draft from the chat model, not saved; `guide` is a quick event template id |
 
 Live event `encounter` `{id}` goes to the DM and that player; clients
-refetch.
+refetch. An open encounter on a timed step carries `timer: {secs, endsAt}`
+(`endsAt` is null until the player has seen it). In a script, a check takes
+`dc` and optional `dcMax`, and a step takes optional `timer: {secs,
+fallback}` (`fallback` is an answer's index, or -1 to fail the step's
+check).
 
 MCP tools: `list_encounters`, `list_encounter_templates` (DM, with `kind`
-and `place`), `send_encounter` (with `place` for a random story event),
+and `place`), `send_encounter` (with `place` and `from` for a random story event),
 `save_encounter_template`, `encounter_say`, `end_encounter` (DM write key).
