@@ -89,6 +89,7 @@ const feature: WebFeature = {
   dmHome: [TodayCard], playerHome: [TodayCard],                 // cards on the home pages
   topbar: WorldDate,                                            // next to the world name
   overlay: TranscriptIsland,                                    // on every DM and player page
+  dmBand: PartyStatusBar,                                       // across the top of every DM page
 };
 export default feature;
 ```

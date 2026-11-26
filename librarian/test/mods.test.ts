@@ -11,9 +11,11 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { checkMod, commandActions, presetValues, resolveOptions } from '../src/features/mods/format.ts';
 import { INSPIRATION_REROLLS } from '../src/features/mods/catalog.ts';
+import { migrateSheetRerolls } from '../src/features/mods/index.ts';
 
 let base = '';
 let server: any;
+let db: any;
 let tmp = '';
 const T: Record<string, string> = {};
 const ID: Record<string, string> = {};
@@ -44,6 +46,7 @@ const say = (who: string, body: string, replyTo?: string) => ok('POST', `${CH()}
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-mods-'));
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0' } });
+  db = made.deps.db;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -278,4 +281,41 @@ test('Mods: triggers run on a long rest and at session start; chat words and eff
   assert.equal((await counts('jess', 'hero-points')).hero, 3);
   await ok('DELETE', `${M()}/hero-points`, T.dm);
   assert.equal((await ok('GET', M(), T.dm)).mods.some((m: any) => m.id === 'hero-points'), false);
+});
+
+test('Mods: the player sheet\'s re-rolls are the inspiration rule\'s counters', async () => {
+  // The rule switched the sheet's Re-rolls module on with its cap.
+  const s = await settings();
+  assert.equal(s.sheetRerolls, true);
+  assert.equal(s.sheetRerollCap, 1);
+  // A party re-roll given on the sheet is the rule's everyone reroll, and the other way round.
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/rerolls`, T.dm, { kind: 'party', delta: 1, note: 'Sang the sea shanty' });
+  assert.equal((await counts('tom')).everyone, 1);
+  await ok('POST', `${M()}/inspiration-rerolls/act`, T.dm, { action: 'grant', player: ID.tom, resource: 'personal' });
+  const sheet = await ok('GET', `/api/worlds/${W}/sheet/me`, T.tom);
+  assert.equal(sheet.rerolls.party, 1);
+  assert.equal(sheet.rerolls.personal, 1);
+  const log = await ok('GET', `${M()}/log`, T.tom);
+  assert.ok(log.log.some((l: any) => l.resource === 'everyone' && l.note === 'Sang the sea shanty'));
+  // Turning the rule off puts the sheet back as it was.
+  await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: false });
+  assert.equal((await settings()).sheetRerolls, false);
+  await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: true });
+});
+
+test('Mods: a world that used the sheet\'s re-roll switch gets the house rule on, with its cap and counts', async () => {
+  const settings0 = JSON.parse(db.prepare('SELECT settings FROM worlds WHERE id = ?').get(W).settings);
+  db.prepare("DELETE FROM mods WHERE world_id = ? AND id = 'inspiration-rerolls'").run(W);
+  db.prepare("DELETE FROM mod_counts WHERE world_id = ? AND mod_id = 'inspiration-rerolls'").run(W);
+  db.prepare('UPDATE worlds SET settings = ? WHERE id = ?').run(JSON.stringify({ ...settings0, sheetRerolls: true, sheetRerollCap: 4 }), W);
+  db.prepare("INSERT OR REPLACE INTO sheet_rerolls (world_id, account_id, kind, count, updated_at) VALUES (?, ?, 'party', 3, 'x')").run(W, ID.jess);
+  migrateSheetRerolls(db);
+  migrateSheetRerolls(db); // again: nothing changes
+  const r = (await ok('GET', M(), T.dm)).mods.find((m: any) => m.id === 'inspiration-rerolls');
+  assert.equal(r.enabled, true);
+  assert.equal(r.options.cap, 4);
+  assert.equal((await counts('jess')).everyone, 3);
+  // Turning it off now goes back to the sheet's defaults.
+  await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: false });
+  assert.equal((await settings()).sheetRerolls, false);
 });

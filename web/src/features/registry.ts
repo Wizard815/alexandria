@@ -27,6 +27,8 @@ export interface WebFeature {
   overlay?: ComponentType;
   /** Shown in the top bar next to the world name (e.g. the world date). */
   topbar?: ComponentType;
+  /** A band across the top of every DM page, under the menu tabs (e.g. the party's health and mana). */
+  dmBand?: ComponentType;
   /** Extra buttons under a session chat message (e.g. Reroll on a roll, from house rules). */
   chatActions?: ComponentType<{ message: ChatActionMessage; channel: 'table' | 'party' }>[];
 }
@@ -48,4 +50,5 @@ export const dmHome = flat((f) => f.dmHome);
 export const playerHome = flat((f) => f.playerHome);
 export const overlays = flat((f) => f.overlay);
 export const topbars = flat((f) => f.topbar);
+export const dmBands = flat((f) => f.dmBand);
 export const chatActions = flat((f) => f.chatActions);
