@@ -118,7 +118,8 @@ var AlexandriaBridge = AlexandriaBridge || (function () {
   function tracked(ch) { return !!ch && String(ch.get('controlledby') || '').replace(/all/g, '').replace(/,/g, '').length > 0; }
   function tokensOf(charId) { return findObjs({ _type: 'graphic', _subtype: 'token', represents: charId }); }
   function markerTable() {
-    try { return JSON.parse(Campaign().get('_token_markers') || '[]'); } catch (e) { return []; }
+    // Campaign.token_markers: a JSON string of [{ id, name, tag, url }] (custom marker sets included).
+    try { return JSON.parse(Campaign().get('token_markers') || '[]'); } catch (e) { return []; }
   }
   /** Marker tags on a token as names ("Poisoned::123" → "Poisoned"; built-ins stay as they are). */
   function markerNames(tok) {
@@ -231,7 +232,7 @@ var AlexandriaBridge = AlexandriaBridge || (function () {
     switch (m.t) {
       case 'hello':
         if (m.config) s.config = m.config;
-        whisper({ t: 'hi', version: VERSION, instance: s.instance, campaign: Campaign().get('name') || '' });
+        whisper({ t: 'hi', version: VERSION, instance: s.instance, campaign: '' });
         snapshot();
         flush();
         break;
@@ -300,7 +301,8 @@ var AlexandriaBridge = AlexandriaBridge || (function () {
     }
     // Rolls players and the GM make in the open (not whispers, not GM rolls, not this script's own lines).
     var c = st().config;
-    if (!c.rollsIn || msg.playerid === 'API' || msg.type === 'whisper' || msg.type === 'gmrollresult') return;
+    // Lines a script sends carry playerid "API"; ours also go out as "Alexandria".
+    if (!c.rollsIn || msg.playerid === 'API' || msg.who === 'Alexandria' || msg.type === 'whisper' || msg.type === 'gmrollresult') return;
     var rolls = rollsOf(msg);
     if (!rolls.length) return;
     var who = msg.who || '', player = getObj('player', msg.playerid);

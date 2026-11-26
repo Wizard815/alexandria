@@ -44,7 +44,8 @@
       Campaign: function () { return campaign; },
       sendChat: function (as, text) { deliver({ who: as, playerid: 'API', content: text }); },
     };
-    var campaign = new Obj('campaign', { name: opts.campaign || 'Test campaign', token_markers: JSON.stringify(opts.tokenMarkers || []) });
+    // Like Roll20's, the Campaign object has no name.
+    var campaign = new Obj('campaign', { token_markers: JSON.stringify(opts.tokenMarkers || []) });
 
     /** A message as Roll20 builds it from what someone typed (or a script sent). */
     function deliver(m) {

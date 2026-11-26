@@ -120,3 +120,28 @@ The stand-ins follow Roll20's documented Mod API and the page data and chat
 markup community scripts rely on (`#textchat .content`,
 `#textchat-input textarea`, `window.Campaign`); none of it is a public API,
 so a Roll20 redesign could move it. The Mod way depends only on the chat box.
+
+## What the code relies on
+
+Checked against the Roll20 wiki's Mod API pages (API Sandbox, Chat, Events,
+Objects, Utility Functions, Function documentation):
+
+- Mod scripts cannot make HTTP requests, hence the bridge.
+- `sendChat(as, text, null, { noarchive: true })` keeps the bridge lines out
+  of the chat archive; `/w gm` whispers reach the GM.
+- `!` messages arrive as type `api`; `playerIsGM(playerid)` gates them.
+- Changes a Mod script makes fire no `change:` events (no echo); a linked
+  token bar edited in game fires `change:attribute` (then `change:graphic`).
+- Handout `notes`/`gmnotes` cannot be set in `createObj`, only after;
+  `inplayerjournals` is `all` or a list of player ids.
+- `Campaign().get('token_markers')` is a JSON string of custom markers; the
+  Campaign has no name, so the bridge takes the game's name from the tab title.
+- `statusmarkers` is a comma list with optional `@n` badges.
+
+Known from community scripts rather than Roll20 docs (the likeliest things to
+change): the chat box `#textchat-input textarea` and button
+`#textchat-input .btn` (set the value, click), the chat log under `#textchat`
+/ `.textchatcontainer`, inline roll tooltips (`title="Rolling … = …"` with
+`basicdiceroll` spans), script messages having `playerid` `API`, and, for the
+no-Mod way only, `window.Campaign` (reached through the userscript's
+`unsafeWindow`).
