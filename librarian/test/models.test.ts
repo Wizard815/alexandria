@@ -64,9 +64,9 @@ test('Models_NonAdminsGet403', async () => {
 
 test('Models_ListsSixJobsEmpty', async () => {
   const l = await ok('GET', '/api/admin/models', adminT);
-  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank', 'dm', 'player', 'bible']);
-  // The last three are parts of chat: with nothing set they follow it.
-  for (const j of l.jobs) { assert.equal(j.source, ['dm', 'player', 'bible'].includes(j.job) ? 'chat' : 'none'); assert.equal(j.enabled, true); }
+  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank', 'dm', 'player', 'bible', 'helper']);
+  // The last four are parts of chat: with nothing set they follow it.
+  for (const j of l.jobs) { assert.equal(j.source, ['dm', 'player', 'bible', 'helper'].includes(j.job) ? 'chat' : 'none'); assert.equal(j.enabled, true); }
   assert.equal(hasJob(deps, 'chat'), false);
   await assert.rejects(chat(deps, 'chat', { messages: [{ role: 'user', content: 'hi' }] }), ModelUnavailable);
   const t = await ok('POST', '/api/admin/models/chat/test', adminT);
