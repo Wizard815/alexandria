@@ -28,8 +28,23 @@ bold name under *People met*. A tap adds a person as an ally or an enemy.
 
 ## From the DM
 
-The DM can leave one player secret **notes** and **goals** (Player sheets, that player's tab). They show at the top of that
-player's sheet and nowhere else; the player can tick a goal done, only the DM can change or delete them.
+The DM can leave one player secret **notes** and **goals** (Player sheets, that player's tab). They show in that player's **From
+the DM** module (movable, not removable) and nowhere else; new ones carry a New tag and a toast. The player can tick a
+goal done; only the DM can change or delete them.
+
+## Conditions
+
+The condition picker lists the conditions the world's game modules define (SRD 5.2, 5.1 or an import), plus a few table
+states (Concentrating, Blessed…). Hovering a condition shows its rules summary; a tap opens the full text. With no
+module that defines conditions, the usual 5e list is used.
+
+## House rule: inspiration as re-rolls
+
+Off by default (World settings → Player sheets, `sheetRerolls`, with `sheetRerollCap`, default 3 of each kind). The DM
+rewards good role play with re-roll tokens of three kinds: **personal** (re-roll your own roll), **everyone** (re-roll
+anyone's roll at the table) and **DM** (make the DM re-roll). Each sheet gets a Re-rolls module; the player taps Use, the
+DM gives or takes back from the sheet or the status bar's quick panel, with a reason. Every change is in the sheet log
+(kind `reroll`), and the DM gets a toast when a player spends one.
 
 ## Asking the broker
 
@@ -52,8 +67,8 @@ log with who made it and where (sheet, combat tracker, DM). Mana changes stay
 in the spells log (`GET /spells/log`); the sheet log view merges both.
 
 The DM sees a status bar across the top of every DM page: each player's name,
-HP bar, temporary HP, conditions, death saves when down, and mana. A tap opens
-**Player sheets**, which shows each sheet (without private modules) and the
+HP bar, temporary HP, conditions, death saves when down, and mana. A tap opens a quick
+panel to deal damage, heal, add conditions, change mana and give re-rolls, with a link to **Player sheets**, which shows each sheet (without private modules) and the
 whole party's change log.
 
 ## API
@@ -67,7 +82,8 @@ account id or character name):
 - `POST /:aid/mana { delta | set | full, note? }` (mana must be on).
 - `GET /:aid/recent`: recently seen people and places, as that player sees them.
 - `GET /log[?account=]`: HP and mana changes, newest first.
-- `GET /party` (DM): every player's health and mana.
+- `GET /party` (DM): every player's health, mana and re-rolls.
+- `POST /:aid/rerolls { kind: personal|party|dm, delta, note? }` (re-rolls on; the DM gives or takes back, a player spends their own).
 - `POST /:aid/dm-notes { kind: note|goal, text }` (DM), `PATCH /:aid/dm-notes/:id` (DM: text/kind/done; the player: done on a goal), `DELETE /:aid/dm-notes/:id` (DM).
 
-Assistant tools: `party_status` (read) and `change_player_hp` (a write the DM approves).
+Assistant tools: `party_status` (read), and `change_player_hp` and `give_reroll` (writes the DM approves).

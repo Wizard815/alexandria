@@ -23,6 +23,7 @@ import { character, logEntry, saveCharacter } from '../spells/store.ts';
 import type { Feature } from '../types.ts';
 import { cleanModules, DEFAULT_MODULES, shownTo, type Module } from './modules.ts';
 import { recentFor } from './recent.ts';
+import { changeReroll, REROLL_SCHEMA, rerollsOf } from './rerolls.ts';
 import { changeVitals, vitalsLog, vitalsOf, type VitalsChange } from './vitals.ts';
 
 const audit = (db: Deps['db'], worldId: string, accountId: string, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -76,7 +77,7 @@ function routes(d: Deps) {
     res.json({
       players: rows.map(({ account_id: aid }) => {
         const cb = one<any>(db, 'SELECT death_saves FROM combatants WHERE world_id = ? AND account_id = ? LIMIT 1', w, aid);
-        return { accountId: aid, ...nameOf(w, aid), ...vitalsOf(db, w, aid), mana: manaOf(res, aid), inCombat: !!cb, deathSaves: cb ? parseJson(cb.death_saves, null) : null };
+        return { accountId: aid, ...nameOf(w, aid), ...vitalsOf(db, w, aid), mana: manaOf(res, aid), rerolls: rerollsOf(db, settings(res), w, aid), inCombat: !!cb, deathSaves: cb ? parseJson(cb.death_saves, null) : null };
       }),
     });
   });
@@ -99,7 +100,7 @@ function routes(d: Deps) {
     const aid = who(res, req.params.aid);
     const w = W(res);
     const own = aid === me(res);
-    res.json({ accountId: aid, ...nameOf(w, aid), mine: own, ...vitalsOf(db, w, aid), mana: manaOf(res, aid), modules: shownTo(modulesOf(w, aid), own), fromDm: dmNotes(w, aid) });
+    res.json({ accountId: aid, ...nameOf(w, aid), mine: own, ...vitalsOf(db, w, aid), mana: manaOf(res, aid), rerolls: rerollsOf(db, settings(res), w, aid), modules: shownTo(modulesOf(w, aid), own), fromDm: dmNotes(w, aid) });
   });
 
   // ---- notes and goals the DM sets for one player: only that player and the DM see them ----
@@ -226,6 +227,16 @@ function routes(d: Deps) {
     res.json({ on: true, now: out.now, max: out.max });
   });
 
+  // House rule: re-roll tokens. The DM gives or takes back; a player spends their own.
+  r.post('/:aid/rerolls', requirePlayerOrDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    const w = W(res);
+    const note = String(req.body?.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const out = tx(db, () => changeReroll(db, settings(res), w, aid, req.body?.kind, req.body?.delta, me(res), isDM(res), note));
+    changed(w, aid);
+    res.json({ ...out, rerolls: rerollsOf(db, settings(res), w, aid) });
+  });
+
   return r;
 }
 
@@ -268,7 +279,12 @@ const feature: Feature = {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sheet_dm_notes_player ON sheet_dm_notes (world_id, account_id);
+    ${REROLL_SCHEMA}
   `,
+  settings: {
+    sheetRerolls: { type: 'boolean', default: false },
+    sheetRerollCap: { type: 'int', default: 3, min: 1, max: 20 },
+  },
   worldMount: 'sheet',
   worldRoutes: routes,
   mcpTools: [
@@ -289,6 +305,18 @@ const feature: Feature = {
       },
       required: ['accountId'],
       call: ({ accountId, ...rest }) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(accountId))}/vitals`, body: rest }),
+    },
+    {
+      name: 'give_reroll', write: true,
+      description: "House rule (when the world uses re-rolls): give a player a re-roll token as a reward for good role play, or take one back with a negative delta. Kinds: personal (re-roll their own roll), party (re-roll anyone's roll), dm (make the DM re-roll). Logged.",
+      props: {
+        accountId: { type: 'string', description: 'The player: account id (from party_status) or character name' },
+        kind: { type: 'string', enum: ['personal', 'party', 'dm'] },
+        delta: { type: 'integer', description: 'How many to give (negative takes back)', default: 1 },
+        note: { type: 'string', description: 'Why, for the log (the role play it rewards)' },
+      },
+      required: ['accountId', 'kind'],
+      call: ({ accountId, delta, ...rest }) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(accountId))}/rerolls`, body: { delta: delta ?? 1, ...rest } }),
     },
   ],
 };

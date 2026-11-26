@@ -146,6 +146,16 @@ try {
   await chip.getByText('20/24').waitFor({ timeout: 8000 });
   await vit.getByTestId('hp').getByText('20').waitFor({ timeout: 8000 });
   note('DM: damage from the status bar reaches the player (20/24)');
+  // House rule: re-rolls. The DM turns it on, gives one for role play; the player spends it; the DM is told.
+  await api(dmLogin.token, 'PATCH', '/settings', { sheetRerolls: true });
+  await quick.getByTestId('rerolls').waitFor({ timeout: 8000 });
+  await quick.getByLabel('Reason').fill('Great speech');
+  await quick.getByRole('button', { name: 'Give a DM re-roll' }).click();
+  const prr = pl.getByTestId('mod-rerolls');
+  await prr.waitFor({ timeout: 8000 });
+  await prr.getByRole('button', { name: 'Use a DM re-roll' }).click();
+  await dm.getByText('Jessamine used a dm re-roll').waitFor({ timeout: 8000 });
+  note('re-rolls: DM gives one, the player spends it, the DM is told');
   await quick.getByRole('link', { name: 'Open the whole sheet' }).click();
   await dm.getByTestId('sheet').waitFor({ timeout: 8000 });
   check(!(await dm.content()).includes('ZQX-PRIVATE-PLAN'), 'the private note never reaches the DM');
