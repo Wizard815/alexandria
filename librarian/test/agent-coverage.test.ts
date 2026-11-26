@@ -208,6 +208,7 @@ const ARGS: Record<string, Maker> = {
   share_library_item: () => ({ kind: 'page', id: ID.saltmarsh, to: 'party', notify: true }),
   read_page: () => ({ page: ID.saltmarsh }),
   roll20_send_handout: () => ({ page: ID.saltmarsh }),
+  owlbear_link: () => once('owlbear', async () => { await dm('POST', '/owlbear/key', {}); return 'ok'; }).then(() => ({ lead: 'alexandria' })),
   search_library: () => ({ query: 'Saltmarsh' }),
   search_world: () => ({ query: 'Saltmarsh' }),
   related_pages: () => ({ page: ID.saltmarsh }),

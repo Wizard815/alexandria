@@ -230,7 +230,7 @@ const LOADING = /(not loaded|unloaded|no models? (is |are )?loaded|(model|server
  * caller's own abort never fall back.
  */
 export function canFallBack(err: unknown): boolean {
-  if (err instanceof ClassifiedRefused) return false;
+  if (err instanceof ClassifiedRefused || err instanceof ModelPreempted) return false;
   if (!(err instanceof ModelUnavailable)) return false;
   const s = err.status;
   if (s === undefined) return true;
@@ -239,68 +239,192 @@ export function canFallBack(err: unknown): boolean {
   return s >= 400 && LOADING.test(err.message);
 }
 
-/**
- * Run `fn` against the job's chain. `screen` runs before every attempt, the
- * fallback's included, and throws ClassifiedRefused for classified text.
- */
 // ---- the queue in front of each model server ------------------------------------
 //
 // The DM, every player and the background passes (summary, rules checks, Minerva) can all ask at once. A local server
 // with one GPU answers a couple of requests at a time per model; the rest wait here instead of piling onto it, and the most
 // urgent go first: the live transcript, then the DM and Active mode, then players, then background work. A cloud
 // server takes more at once. The job option maxConcurrent sets the limit for that server.
+//
+// "DM first" (Admin → Models → GPU & queue) makes the DM's turn come at once even when players fill every slot:
+//   preempt      a DM call that has to wait stops the newest player or background call on that model. A call that has not
+//                written anything yet goes back to the front of its line and runs again after the DM; a player answer that
+//                was already being written ends with a note saying it was paused for the DM.
+//   reserve      slots per local model that only the DM may use (players and background share the rest; one is always left).
+//   holdPlayers  while a DM call runs or waits on any local model, players and background work wait before starting on any
+//                local model (the DM's model and the players' small helper usually share one GPU).
 const gateStore = new AsyncLocalStorage<{ p: number; onWait?: (ahead: number) => void }>();
 /**
  * Run `fn` with this priority for the model calls it makes: 3 live transcript, 2 DM, 1 player (default), 0 background.
  * `onWait` hears when one of its calls has to queue, and how many are ahead (the assistant shows "waiting for the model").
  */
 export const withPriority = <T>(p: number, fn: () => Promise<T>, onWait?: (ahead: number) => void): Promise<T> => gateStore.run({ p, onWait }, fn);
+/** The priority the calls made from here run at. */
+export const currentPriority = (): number | undefined => gateStore.getStore()?.p;
+
+/** The DM's priority: this and above may preempt, use reserved slots, and hold players. */
+export const DM_PRIORITY = 2;
+export interface DmFirst { preempt: boolean; reserve: number; holdPlayers: boolean }
+export const DM_FIRST_DEFAULTS: DmFirst = { preempt: true, reserve: 0, holdPlayers: false };
+/** A stored or sent DM-first setting, with every field checked (anything odd keeps the default). */
+export function normalizeDmFirst(v: unknown, base: DmFirst = DM_FIRST_DEFAULTS): DmFirst {
+  const o = v && typeof v === 'object' ? v as Record<string, unknown> : {};
+  const r = Number(o.reserve);
+  return {
+    preempt: typeof o.preempt === 'boolean' ? o.preempt : base.preempt,
+    reserve: o.reserve !== undefined && Number.isFinite(r) && r >= 0 ? Math.min(8, Math.round(r)) : base.reserve,
+    holdPlayers: typeof o.holdPlayers === 'boolean' ? o.holdPlayers : base.holdPlayers,
+  };
+}
+let dmFirstOf: (d: Deps) => DmFirst = () => DM_FIRST_DEFAULTS;
+/** The models feature reads the saved setting; null goes back to the defaults. */
+export function setDmFirstResolver(f: ((d: Deps) => DmFirst) | null) { dmFirstOf = f ?? (() => DM_FIRST_DEFAULTS); }
+
+/** The call was stopped part way so the DM could go first (what was written so far is kept by the caller). */
+export class ModelPreempted extends ModelUnavailable {
+  constructor(job: Job) { super(job, 'Paused so the DM could go first'); this.name = 'ModelPreempted'; }
+}
+
+/** A preempted call goes back in line at most this many times; after that it is left to finish. */
+const MAX_PREEMPTS = 3;
+const PREEMPT = Symbol('preempted for the DM');
+interface Slot { p: number; seq: number; at: number; ctl: AbortController; preemptible: boolean; stopping: boolean; dm: boolean }
+interface Waiter { p: number; seq: number; started: boolean; go: (s: Slot) => void }
+/** DM calls running or waiting on local models (holdPlayers waits for this to be 0). */
+let dmBusyLocal = 0;
+const both = (a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined => (a && b ? AbortSignal.any([a, b]) : a ?? b);
+
 class Gate {
-  active = 0;
-  queue: { p: number; seq: number; go: () => void }[] = [];
+  running = new Set<Slot>();
+  queue: Waiter[] = [];
   seq = 0;
   max: number;
-  constructor(max: number) { this.max = max; }
-  async run<T>(p: number, fn: () => Promise<T>, signal?: AbortSignal, onWait?: (ahead: number) => void): Promise<T> {
-    if (this.active >= this.max) {
-      await new Promise<void>((resolve, reject) => {
-        const w = { p, seq: this.seq++, go: resolve };
-        this.queue.push(w);
-        this.queue.sort((a, b) => b.p - a.p || a.seq - b.seq);
-        try { onWait?.(this.queue.indexOf(w) + this.active); } catch { /* a listener's problem is not the call's */ }
-        signal?.addEventListener('abort', () => { const i = this.queue.indexOf(w); if (i >= 0) { this.queue.splice(i, 1); reject(signal.reason ?? new Error('aborted')); } }, { once: true });
-      });
-      // The slot was handed over by the request that finished: active stays as it was.
-    } else this.active++;
-    try { return await fn(); } finally {
-      const next = this.queue.shift();
-      if (next) next.go(); else this.active--;
+  local: boolean;
+  policy: DmFirst = DM_FIRST_DEFAULTS;
+  /** Calls stopped for the DM since the server started (for the admin). */
+  preempted = 0;
+  constructor(max: number, local: boolean) { this.max = max; this.local = local; }
+  get active() { return this.running.size; }
+  /** Slots kept for the DM on this model (local only; one is always left for everyone else). */
+  get reserve() { return this.local ? Math.max(0, Math.min(this.policy.reserve, this.max - 1)) : 0; }
+  private fits(p: number): boolean {
+    if (this.running.size >= this.max) return false;
+    if (p >= DM_PRIORITY) return true;
+    if (this.running.size >= this.max - this.reserve) return false;
+    return !(this.local && this.policy.holdPlayers && dmBusyLocal > 0);
+  }
+  /** Start waiting calls, most urgent first, while they fit. (Fitting only gets harder down the line, so the head decides.) */
+  pump() {
+    while (this.queue.length && this.fits(this.queue[0].p)) {
+      const w = this.queue.shift()!;
+      w.started = true;
+      w.go(this.open(w.p, w.seq));
+    }
+  }
+  private open(p: number, seq: number): Slot {
+    const s: Slot = { p, seq, at: performance.now(), ctl: new AbortController(), preemptible: false, stopping: false, dm: p >= DM_PRIORITY && this.local };
+    this.running.add(s);
+    return s;
+  }
+  private leave(s: Slot) {
+    this.running.delete(s);
+    if (s.dm && --dmBusyLocal === 0) pumpAll();
+    this.pump();
+  }
+  /** A DM call is waiting: stop one player or background call for each DM call that has no slot coming yet. */
+  private preemptFor() {
+    if (!this.policy.preempt) return;
+    const dmWaiting = this.queue.filter((w) => w.p >= DM_PRIORITY).length;
+    const stopping = [...this.running].filter((s) => s.stopping).length;
+    if (dmWaiting <= stopping) return;
+    // The least urgent first, then the one that started last (it has done the least work).
+    const victim = [...this.running].filter((s) => s.preemptible && !s.stopping).sort((a, b) => a.p - b.p || b.at - a.at)[0];
+    if (!victim) return;
+    victim.stopping = true;
+    this.preempted++;
+    victim.ctl.abort(PREEMPT);
+  }
+  /** A slot now when one is free and nobody more urgent waits (no await: the call starts in this same tick), else a promise of one. */
+  private enter(p: number, seq: number, signal?: AbortSignal, onWait?: (ahead: number) => void): Slot | Promise<Slot> {
+    if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    if (p >= DM_PRIORITY && this.local) dmBusyLocal++;
+    if (!this.queue.some((w) => w.p >= p) && this.fits(p)) return this.open(p, seq);
+    const unbusy = () => { if (p >= DM_PRIORITY && this.local && --dmBusyLocal === 0) pumpAll(); };
+    return new Promise<Slot>((resolve, reject) => {
+      const w: Waiter = { p, seq, started: false, go: resolve };
+      this.queue.push(w);
+      this.queue.sort((a, b) => b.p - a.p || a.seq - b.seq);
+      this.pump();
+      if (w.started) return;
+      try { onWait?.(Math.max(1, this.queue.indexOf(w) + this.running.size)); } catch { /* a listener's problem is not the call's */ }
+      if (p >= DM_PRIORITY) this.preemptFor();
+      signal?.addEventListener('abort', () => {
+        const i = this.queue.indexOf(w);
+        if (i < 0) return;
+        this.queue.splice(i, 1);
+        unbusy();
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    });
+  }
+  /**
+   * Run `fn` when a slot is free. `fn` gets a signal that fires when the DM takes its slot. `canRestart` says whether
+   * the call may run again from the start after that (a streamed answer that already showed text may not).
+   */
+  async run<T>(job: Job, p: number, fn: (signal: AbortSignal) => Promise<T>, o: { signal?: AbortSignal; onWait?: (ahead: number) => void; canRestart?: () => boolean } = {}): Promise<T> {
+    const seq = this.seq++;
+    for (let stops = 0; ; stops++) {
+      const e = this.enter(p, seq, o.signal, o.onWait);
+      const s = e instanceof Promise ? await e : e;
+      s.preemptible = p < DM_PRIORITY && stops < MAX_PREEMPTS;
+      try {
+        return await fn(s.ctl.signal);
+      } catch (err) {
+        if (!s.stopping || o.signal?.aborted) throw err;
+        if (o.canRestart && !o.canRestart()) throw new ModelPreempted(job);
+        // Not started yet: back in line, at the front of its own priority (same seq), behind the DM.
+      } finally { this.leave(s); }
     }
   }
 }
 const gates = new Map<string, Gate>();
+const pumpAll = () => { for (const g of gates.values()) g.pump(); };
 export function gateFor(c: JobConfig): Gate {
   const n = Number(c.options?.maxConcurrent);
-  const max = Number.isFinite(n) && n >= 1 ? Math.min(64, Math.round(n)) : locationOf(c) === 'local' ? 2 : 8;
+  const local = locationOf(c) === 'local';
+  const max = Number.isFinite(n) && n >= 1 ? Math.min(64, Math.round(n)) : local ? 2 : 8;
   // Per model on a server: Argos and LM Studio load each model on its own, so two models answer side by side.
   const key = `${c.baseUrl.replace(/\/+$/, '')}|${c.model}`;
   let g = gates.get(key);
-  if (!g) gates.set(key, (g = new Gate(max)));
+  if (!g) gates.set(key, (g = new Gate(max, local)));
   g.max = max;
+  g.local = local;
   return g;
 }
 /** Requests running and waiting per model (for the admin and tests). */
-export const gateStats = () => [...gates.entries()].map(([k, g]) => ({ server: k.split('|')[0], model: k.split('|').slice(1).join('|'), max: g.max, running: g.active, waiting: g.queue.length }));
+export const gateStats = () => [...gates.entries()].map(([k, g]) => ({
+  server: k.split('|')[0], model: k.split('|').slice(1).join('|'), max: g.max, running: g.active, waiting: g.queue.length,
+  local: g.local, reserve: g.reserve, dmRunning: [...g.running].filter((s) => s.p >= DM_PRIORITY).length,
+  dmWaiting: g.queue.filter((w) => w.p >= DM_PRIORITY).length, preempted: g.preempted,
+}));
 const JOB_PRIORITY: Partial<Record<Job, number>> = { audio: 3, voice: 2 };
 
-async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobConfig) => Promise<T>, mayRetry: () => boolean = () => true): Promise<T> {
+/**
+ * Run `fn` against the job's chain, through the queue of each provider's model. `fn` gets the caller's signal joined
+ * with the queue's own (which fires when the DM takes the slot). `mayRetry` says whether the call may still start over
+ * (on the fallback, or after the DM went first).
+ */
+async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobConfig, signal: AbortSignal | undefined) => Promise<T>, o: { mayRetry?: () => boolean; signal?: AbortSignal } = {}): Promise<T> {
+  const mayRetry = o.mayRetry ?? (() => true);
   const chain = chainFor(d, job);
   if (!chain.length) throw new ModelUnavailable(job, `No model is set for "${job}" (Admin → Models)`);
   for (let i = 0; ; i++) {
     screen();
     const c = chain[i];
     const st = gateStore.getStore();
-    try { return await gateFor(c).run(st?.p ?? JOB_PRIORITY[job] ?? 1, () => fn(c), undefined, st?.onWait); } catch (err) {
+    const g = gateFor(c);
+    g.policy = dmFirstOf(d);
+    try { return await g.run(job, st?.p ?? JOB_PRIORITY[job] ?? 1, (gs) => fn(c, both(o.signal, gs)), { signal: o.signal, onWait: st?.onWait, canRestart: mayRetry }); } catch (err) {
       if (i + 1 >= chain.length || !canFallBack(err) || !mayRetry()) throw err;
     }
   }
@@ -622,7 +746,7 @@ function normalizeToolCalls(raw: unknown): ToolCall[] {
 }
 
 export async function chat(d: Deps, job: TextJob, req: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
-  return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatOne(d, job, c, req, signal));
+  return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c, sig) => chatOne(d, job, c, req, sig), { signal });
 }
 
 async function chatOne(d: Deps, job: TextJob, c: JobConfig, req0: ChatRequest, signal?: AbortSignal): Promise<ChatResult> {
@@ -738,7 +862,7 @@ export class ChunkAssembler {
 export async function chatStream(d: Deps, job: TextJob, req: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
   // Once text has reached the caller the answer cannot be started again somewhere else.
   let started = false;
-  return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c) => chatStreamOne(d, job, c, req, (t) => { started = true; onDelta(t); }, signal), () => !started);
+  return viaChain(d, job, () => screenOutgoing(d, job, messageTexts(req)), (c, sig) => chatStreamOne(d, job, c, req, (t) => { started = true; onDelta(t); }, sig), { mayRetry: () => !started, signal });
 }
 
 async function chatStreamOne(d: Deps, job: TextJob, c: JobConfig, req0: ChatRequest, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ChatResult> {
@@ -824,7 +948,7 @@ export interface Transcript { text: string; language?: string; segments: Transcr
  * `temperatureFallback: true`. `model` overrides the job's model (the post-session refine pass).
  */
 export async function transcribe(d: Deps, audio: Uint8Array, mime: string, opts: TranscribeOpts = {}, signal?: AbortSignal): Promise<Transcript> {
-  return viaChain(d, 'audio', () => screenOutgoing(d, 'audio', [opts.prompt]), (c) => transcribeOne(d, c, audio, mime, opts, signal));
+  return viaChain(d, 'audio', () => screenOutgoing(d, 'audio', [opts.prompt]), (c, sig) => transcribeOne(d, c, audio, mime, opts, sig), { signal });
 }
 
 export interface TranscribeOpts { prompt?: string; language?: string; filename?: string; temperature?: number | number[]; model?: string }
@@ -860,7 +984,7 @@ async function transcribeOne(d: Deps, c: JobConfig, audio: Uint8Array, mime: str
 // ---- voice: text to speech -------------------------------------------------
 
 export async function speak(d: Deps, text: string, opts: { voice?: string; speed?: number; format?: 'mp3' | 'wav' | 'opus' } = {}, signal?: AbortSignal): Promise<{ audio: Uint8Array; mime: string }> {
-  return viaChain(d, 'voice', () => screenOutgoing(d, 'voice', [text]), (c) => speakOne(d, c, text, opts, signal));
+  return viaChain(d, 'voice', () => screenOutgoing(d, 'voice', [text]), (c, sig) => speakOne(d, c, text, opts, sig), { signal });
 }
 
 async function speakOne(d: Deps, c: JobConfig, text: string, opts: { voice?: string; speed?: number; format?: 'mp3' | 'wav' | 'opus' }, signal?: AbortSignal): Promise<{ audio: Uint8Array; mime: string }> {
@@ -881,13 +1005,13 @@ export function embedPrefix(c: JobConfig | null | undefined, role?: EmbedRole): 
 }
 
 export async function embed(d: Deps, texts: string[], signal?: AbortSignal, role?: EmbedRole): Promise<number[][]> {
-  return viaChain(d, 'extra', () => screenOutgoing(d, 'extra', texts), async (c) => {
+  return viaChain(d, 'extra', () => screenOutgoing(d, 'extra', texts), async (c, sig) => {
     // The prefix is per model (a fallback model may want none), so it is added here, after the guard read the plain texts.
     const pre = embedPrefix(c, role);
-    const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: pre ? texts.map((t) => pre + t) : texts }, signal);
+    const r = await post(d, 'extra', c, '/embeddings', { model: c.model, input: pre ? texts.map((t) => pre + t) : texts }, sig);
     const j: any = await r.json().catch(() => ({}));
     return (j.data ?? []).map((x: any) => x.embedding as number[]);
-  });
+  }, { signal });
 }
 
 // ---- rerank: put the best documents first ----------------------------------
@@ -902,8 +1026,8 @@ export interface RerankHit { index: number; score: number }
  */
 export async function rerank(d: Deps, query: string, documents: string[], opts: { topN?: number } = {}, signal?: AbortSignal): Promise<RerankHit[]> {
   const topN = Math.max(1, Math.min(opts.topN ?? documents.length, documents.length));
-  return viaChain(d, 'rerank', () => screenOutgoing(d, 'rerank', [query, ...documents]), async (c) => {
-    const r = await post(d, 'rerank', c, '/rerank', { model: c.model, query, documents, top_n: topN }, signal);
+  return viaChain(d, 'rerank', () => screenOutgoing(d, 'rerank', [query, ...documents]), async (c, sig) => {
+    const r = await post(d, 'rerank', c, '/rerank', { model: c.model, query, documents, top_n: topN }, sig);
     const j: any = await r.json().catch(() => ({}));
     const list: any[] = Array.isArray(j.results) ? j.results : Array.isArray(j.data) ? j.data : [];
     const out: RerankHit[] = [];
@@ -914,7 +1038,7 @@ export async function rerank(d: Deps, query: string, documents: string[], opts: 
     }
     if (!out.length) throw new ModelUnavailable('rerank', 'The rerank model sent no results');
     return out.sort((a, b) => b.score - a.score).slice(0, topN);
-  });
+  }, { signal });
 }
 
 /**

@@ -136,6 +136,22 @@ tested with a fake model but were not measured on the real model: off by default
   priority: the live transcript, then the DM and Active mode, then players, then background
   work (the running summary, rules checks, Minerva's suggestions). A DM question that needs
   several model calls in a row queues each one, so players' single calls fit in between.
+  Everything a world's DM asks through the API (generators, statblocks, the assistant's own
+  tool calls) runs at the DM's priority; tracked jobs (imports, crawls, bulk builds) are
+  background work, whoever started them.
+- **DM first** (Admin → Models → GPU & queue, `PUT /api/admin/models/dm-first`): how hard the
+  DM's calls push in front when players fill a model.
+  - *Stop a player's request* (`preempt`, on by default): a DM call that has to wait stops the
+    newest player or background call on that model. A call that has shown nothing yet goes
+    back to the front of its line and runs again after the DM (at most 3 times); a player
+    answer already being written ends with "Paused so the DM could go first". llama.cpp stops
+    generating when the connection closes, so the slot frees at once.
+  - *Slots kept for the DM* (`reserve`, 0 by default): per local model, slots only the DM may
+    use; one is always left for everyone else. Match `maxConcurrent` to the server's slots
+    (llama.cpp `-np`) first: with `-np 4` and `maxConcurrent: 4`, a reserve of 1 leaves 3.
+  - *Players wait while the DM's request runs* (`holdPlayers`, off by default): while any DM
+    call runs or waits on a local model, players and background work do not start on any
+    local model. Use it when the DM's model and the players' small helper share one GPU.
 - **Context per message:** each message is built fresh from the world as it is now (combat, the
   clock, the library as this person may see it, the live transcript, the session so far), so
   everyone's assistant agrees with everyone else's without sharing a conversation. Nothing a

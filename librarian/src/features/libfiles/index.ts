@@ -56,6 +56,8 @@ const DEFAULT_VIDEO_MAX_MB = 2048;
 export const videoMaxBytes = (d: Deps) => Math.max(1, Number(d.env.ALX_LIBFILE_VIDEO_MAX_MB) || DEFAULT_VIDEO_MAX_MB) * 1024 * 1024;
 const incomingDir = (d: Deps) => path.join(d.dataDir ?? '', 'libfiles', '.incoming');
 const folder = (d: Deps, world: string) => path.join(d.dataDir ?? '', 'libfiles', world);
+/** Where a library file's bytes are on disk (other features serve them too, e.g. the Owlbear Rodeo map picture). */
+export const libfileOnDisk = (d: Deps, world: string, fileId: string) => path.join(folder(d, world), fileId);
 
 interface Row { id: string; world_id: string; page_id: string; name: string; kind: string; level: string; mime: string; family: string; size: number; by_id: string | null; at: string; remote: string | null }
 
