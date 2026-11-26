@@ -864,8 +864,10 @@ defaults to 60 calls a minute and 2 a second.
 with `latitude` = `geoY` and `longitude` = `geoX` (World Anvil's pixel
 coordinates on that picture) and a link to the marker's target article.
 
-**Not yet.** Writing back (a WorldLore workspace in World Anvil), per-player
-World Anvil keys, block templates and statblocks, manuscripts, notebooks and
+**Writing back** goes through WorldLore (see "WorldLore: the one writable
+part", World Anvil).
+
+**Not yet.** Per-player World Anvil keys, block templates and statblocks, manuscripts, notebooks and
 the family tree, diplomacy and chronicle views.
 
 ## Records
@@ -961,13 +963,39 @@ A connector opts in with an optional `write` (`ConnectorWrite`: `createPage`,
 `updatePage`, `movePage`, `deletePage`, plus `readPage`, `roots` and `search`). It must
 refuse (`WriteRefused`, 403) anything outside the workspace `root`, checked
 against the source itself. Shipped: LegendKeeper API key (REST v3), LegendKeeper
-MCP, Markdown folder, Kanka API token, mcp-kanka. The LegendKeeper MCP may call only `create_resource`,
+MCP, Markdown folder, Kanka API token, mcp-kanka, World Anvil API. The LegendKeeper MCP may call only `create_resource`,
 `write_page`, `update_resource`, `move_resource` and `delete_resource`
 (`confirm=true`), and only through `workspaceMcpFactory`; `readOnlyMcp` still
 refuses every write tool for sync and everything else. Pages carry a level
 (`dm`, `broker`, `party`, `classified`); an agent can write `party` only if the
 DM made `party` the workspace default, and `classified` pages are never sent to
 an AI.
+
+### World Anvil
+
+The WorldLore home is one World Anvil **category**, saved as `wa:<category id>`
+(the picker lists the world's categories). The agent's pages are **articles**:
+straight in the home category, or under an article inside it (`articleParent`,
+in that article's category). Everything else in the world stays read-only:
+categories (the home included), maps, secrets and timelines are never changed.
+
+- **Calls (`worldanvil-write.ts`):** `PUT /article` (title, `templateType:
+  article`, world, category, `articleParent`, content, state), `PATCH /article?id=`
+  to update or move, `DELETE /article?id=`. World Anvil keeps no trash. Content is
+  BBCode made from the Markdown; `[[@wa:<id>|text]]` becomes `@[text](article:<id>)`,
+  and any `[tag]` typed in the text is turned into plain brackets, so the agent
+  can never write a `[secret]` or `[subcontainer]`.
+- **Guard, before every write:** the target and every parent above it (article
+  parent, then category, then category parents) are read from World Anvil again,
+  and the root must be among them. Refused: the root itself, a category, anything
+  outside the root, a move out of it or into the page's own child.
+- **Levels:** `party` makes the article `public` (only when the workspace default
+  is `party`); `dm`, `broker` and `classified` make it `private`, and `broker` or
+  `classified` adds a tag of that name. A `> [!secret]` callout or a heading like
+  "Broker notes" keeps the article private even if the level says party.
+- **Not tested against World Anvil itself yet:** built from the API v2 schemas
+  only. Moving an article back to the top sends `articleParent: null`, which the
+  docs do not spell out.
 
 ### Kanka
 

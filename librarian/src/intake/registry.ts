@@ -10,6 +10,7 @@ import { pushSource } from './connectors/push.ts';
 import { lkMcpWrite, lkRestWrite } from './connectors/legendkeeper-write.ts';
 import { markdownWrite } from './connectors/markdown-write.ts';
 import { kankaMcpWrite, kankaRestWrite } from './connectors/kanka-write.ts';
+import { waWrite } from './connectors/worldanvil-write.ts';
 import { DEFAULT_LIMITS, rateFields } from './ratelimit.ts';
 import { mcpClient, type McpClient } from '../core/mcp.ts';
 
@@ -19,6 +20,7 @@ legendkeeperApi.write = lkRestWrite;
 markdownFolder.write = markdownWrite;
 kankaApi.write = kankaRestWrite;
 kankaMcp.write = kankaMcpWrite;
+worldAnvilApi.write = waWrite;
 
 export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, worldAnvilApi, markdownFolder, gitRepo, mcpFiles, genericApi, pushSource];
 
