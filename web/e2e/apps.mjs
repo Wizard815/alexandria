@@ -122,7 +122,8 @@ try {
     check(key.startsWith('alx_wdg_'), 'the link carries a widget key');
     check(frag.get('w') === W.slug, 'and the world');
     check(apiCalls.every((u) => !u.includes('alx_wdg_')), 'the key is only in the #fragment, never sent to the server');
-    check(await page.getByRole('heading', { name: 'Open this in the app' }).isVisible(), 'in a browser, /app-link/... says to use the app');
+    // waitForURL resolves when the navigation commits, before the page has rendered: wait for the heading.
+    check(await page.getByRole('heading', { name: 'Open this in the app' }).waitFor({ timeout: 8000 }).then(() => true, () => false), 'in a browser, /app-link/... says to use the app');
     const g = await api('GET', `/api/worlds/${W.slug}/glance`, key);
     check(g.status === 200 && g.body.combat.me.hp === 17, 'the widget key reads the glance');
     check((await api('GET', `/api/worlds/${W.slug}/library`, key)).status === 401, 'and nothing else');
