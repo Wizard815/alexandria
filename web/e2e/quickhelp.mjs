@@ -1,7 +1,7 @@
 // End-to-end test of the players' quick helper on the demo world: the Quick help card sits above the table helper on
 // a player's Ask page, "Sum up my sheet" answers from the small model, and a who/why question hands off to the broker
 // with the question in its box. The helper job is the demo's fake model unless QUICK_HELPER_URL (and _MODEL, _KEY)
-// point at a real one. Screenshots go to the e2e temp folder (path printed).
+// point at a real one (the model defaults to Bonsai 2 9B, which OpenRouter serves). Screenshots go to the e2e temp folder (path printed).
 // Run from web/: npm run build && node e2e/quickhelp.mjs
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, signIn, quiet } from './lib.mjs';
@@ -15,7 +15,7 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 const out = tmpDir('quickhelp');
 if (process.env.QUICK_HELPER_URL) {
   process.env.ALX_MODEL_HELPER_URL = process.env.QUICK_HELPER_URL;
-  process.env.ALX_MODEL_HELPER_MODEL = process.env.QUICK_HELPER_MODEL || 'helper';
+  process.env.ALX_MODEL_HELPER_MODEL = process.env.QUICK_HELPER_MODEL || 'prism-ml/ternary-bonsai-2-9b';
   if (process.env.QUICK_HELPER_KEY) process.env.ALX_MODEL_HELPER_KEY = process.env.QUICK_HELPER_KEY;
   process.env.ALX_MODEL_HELPER_OPTIONS = '{"contextTokens":4096,"reasoningModel":false}';
 }
