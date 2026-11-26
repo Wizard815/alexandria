@@ -40,18 +40,18 @@ export function PlayerLayout() {
       <header className="topbar">
         <Link to={base} className="brand">{info.name}</Link>
         {F.topbars.map((C, i) => <C key={i} />)}
-        <span className={`live-dot${connected ? '' : ' off'} phone-only`} title={connected ? 'Live updates on' : 'Reconnecting'} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} />
+        <span className="phone-only"><span className={`live-dot${connected ? '' : ' off'}`} title={connected ? 'Live updates on' : 'Reconnecting'} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} /></span>
         <nav className="pl-areas desktop-only" aria-label="Areas">
           {areas.map((a) => <Link key={a.g} to={`${base}/${a.list[0].to}`} className={`pl-area${a.g === area ? ' on' : ''}`} aria-current={a.g === area || undefined} title={a.list.map((l) => l.label).join(' · ')}>{a.g}</Link>)}
         </nav>
         <span className="row topbar-end desktop-only">
-          <span className="tiny faint" title={connected ? 'Live updates on' : 'Reconnecting'}><span className={`live-dot${connected ? '' : ' off'}`} /></span>
-          <NavLink to={`${base}/connect`} className="nav-link small">Connect an AI</NavLink>
+          <span className="tiny faint" title={connected ? 'Live updates on' : 'Reconnecting'}><span className={`live-dot${connected ? '' : ' off'}`} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} /></span>
           <NavLink to="/" className="chip gold" style={{ textDecoration: 'none' }}>{me?.account.display_name}</NavLink>
           <button type="button" className="btn small ghost" onClick={() => void signOut()}>Sign out</button>
         </span>
         <nav className="topnav desktop" aria-label="Scribe">
           {(areas.find((a) => a.g === area)?.list ?? []).map(({ to, label }) => <NavLink key={to} to={`${base}/${to}`} end={to === ''} className="nav-link">{label}{badge(to)}</NavLink>)}
+          {area === 'Settings & account' && <NavLink to={`${base}/connect`} className="nav-link">Connect an AI</NavLink>}
         </nav>
       </header>
       <OfflineBanner />
