@@ -126,6 +126,11 @@ tested with a fake model but were not measured on the real model: off by default
 - **Who can ask:** the DM and every player, each in their own chats (a player has the broker and
   the table helper). A chat is private to its owner: anyone else gets "not found". One message
   at a time per chat; different people's messages run side by side.
+- **The quick helper:** above the table helper, a player has one-tap answers (my turn with their weapons,
+  features and spells, sum up my sheet, what next, story so far, a quick rules question) from a small second model, the `helper` job. It keeps
+  no chat: each tap is one fresh call with a short brief of what that player may see, and
+  anything bigger is handed to the broker (which it can ask in the background) or the table helper. See docs/MODELS.md, "The players'
+  quick helper".
 - **The queue:** every model call goes through a queue per model (core/ai.ts). A local model takes
   2 at a time, a cloud one 8; the job option `maxConcurrent` changes that. Waiting calls go by
   priority: the live transcript, then the DM and Active mode, then players, then background
