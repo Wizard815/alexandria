@@ -49,20 +49,6 @@ CREATE TABLE IF NOT EXISTS agent_actions (
   auto INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS agent_actions_world ON agent_actions (world_id, status, created_at);
--- A tossed chat leaves a note: what it made and its gist, so later chats still know (the chat itself is gone).
-CREATE TABLE IF NOT EXISTS agent_chat_notes (
-  id TEXT PRIMARY KEY,
-  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  harness TEXT NOT NULL,
-  mode TEXT NOT NULL DEFAULT '',
-  title TEXT NOT NULL DEFAULT '',
-  gist TEXT NOT NULL DEFAULT '',
-  made TEXT NOT NULL DEFAULT '[]',
-  chat_at TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS agent_chat_notes_owner ON agent_chat_notes (world_id, account_id, harness, created_at);
 CREATE TABLE IF NOT EXISTS agent_leaks (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -88,9 +74,9 @@ export const chatFolder = (v: unknown): string => {
   return parts.join('/');
 };
 
-export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '', o: { folder?: string; template?: string } = {}) => {
-  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), folder: o.folder ?? '', template: (o.template ?? '').slice(0, 80), created_at: now(), updated_at: now() };
-  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, folder, template, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.folder, c.template, c.created_at, c.updated_at);
+export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '', o: { folder?: string; template?: string; incognito?: boolean } = {}) => {
+  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), folder: o.folder ?? '', template: (o.template ?? '').slice(0, 80), incognito: o.incognito ? 1 : 0, created_at: now(), updated_at: now() };
+  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, folder, template, incognito, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.folder, c.template, c.incognito, c.created_at, c.updated_at);
   return c;
 };
 
@@ -156,7 +142,7 @@ export function chatView(db: DB, chatId: string) {
   run(db, `UPDATE agent_messages SET status = 'error', content = 'The agent was interrupted. Ask again.' WHERE chat_id = ? AND status = 'working' AND created_at < ?`, chatId, stale);
   const msgs = all<any>(db, 'SELECT * FROM agent_messages WHERE chat_id = ? ORDER BY created_at, rowid', chatId).map(messageView);
   const actions = all<any>(db, 'SELECT * FROM agent_actions WHERE chat_id = ? ORDER BY created_at, rowid', chatId).map(actionView);
-  return { id: c.id, harness: c.harness, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at, messages: msgs, actions, busy: msgs.some((m) => m.status === 'working') };
+  return { id: c.id, harness: c.harness, title: c.title, incognito: !!c.incognito, createdAt: c.created_at, updatedAt: c.updated_at, messages: msgs, actions, busy: msgs.some((m) => m.status === 'working') };
 }
 
 export const actionView = (a: any) => ({
@@ -164,36 +150,18 @@ export const actionView = (a: any) => ({
   status: a.status, result: a.result ? String(a.result).slice(0, 2000) : null, auto: !!a.auto, alwaysAsk: alwaysAsk(a.tool), createdAt: a.created_at, decidedAt: a.decided_at,
 });
 
-/** How many tossed-chat notes the assistant is handed with each message, and how many are kept at all. */
-export const NOTES_IN_CONTEXT = 5;
-export const NOTES_KEPT = 50;
 
-export interface ChatNote { id: string; title: string; gist: string; made: string[]; chatAt: string; createdAt: string }
-const noteView = (r: any): ChatNote => ({ id: r.id, title: r.title, gist: r.gist, made: parseJson<string[]>(r.made, []), chatAt: r.chat_at, createdAt: r.created_at });
+/** An incognito chat nobody has written to for this long is deleted (its screen was closed without leaving it). */
+export const INCOGNITO_IDLE_MS = 6 * 60 * 60_000;
 
 /**
- * Toss a chat: keep a short note (its title, the changes it made, and its gist: the running summary, or else what was
- * asked) and delete the chat. Whatever the chat made in the world stays; only the conversation goes.
+ * Delete this account's incognito chats: the ones idle too long, or (`all`) every one but `keep`. A chat whose reply is
+ * still being written is left until it finishes.
  */
-export function tossChat(db: DB, chatId: string): ChatNote {
-  const c = one<any>(db, 'SELECT * FROM agent_chats WHERE id = ?', chatId)!;
-  const made = all<any>(db, "SELECT summary FROM agent_actions WHERE chat_id = ? AND status = 'done' ORDER BY created_at", chatId).map((a) => String(a.summary).slice(0, 200)).slice(0, 20);
-  const asked = all<any>(db, "SELECT content FROM agent_messages WHERE chat_id = ? AND role = 'user' AND content <> '' ORDER BY rowid LIMIT 4", chatId).map((m) => String(m.content).replace(/\s+/g, ' ').trim().slice(0, 160));
-  const gist = (String(c.summary ?? '').trim() || (asked.length ? `Asked: ${asked.join(' / ')}` : '')).slice(0, 1200);
-  const n = { id: id('note_'), title: c.title || 'Untitled chat', gist, made, chat_at: c.updated_at, created_at: now() };
-  run(db, 'INSERT INTO agent_chat_notes (id, world_id, account_id, harness, mode, title, gist, made, chat_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', n.id, c.world_id, c.account_id, c.harness, c.mode ?? '', n.title, n.gist, JSON.stringify(made), n.chat_at, n.created_at);
-  run(db, 'DELETE FROM agent_chats WHERE id = ?', chatId);
-  // Only the newest notes are kept.
-  run(db, 'DELETE FROM agent_chat_notes WHERE world_id = ? AND account_id = ? AND harness = ? AND id NOT IN (SELECT id FROM agent_chat_notes WHERE world_id = ? AND account_id = ? AND harness = ? ORDER BY created_at DESC LIMIT ?)', c.world_id, c.account_id, c.harness, c.world_id, c.account_id, c.harness, NOTES_KEPT);
-  return noteView({ ...n, made: JSON.stringify(made) });
-}
-
-export const chatNotes = (db: DB, worldId: string, accountId: string, harness: string, mode: string, limit = NOTES_KEPT): ChatNote[] =>
-  all<any>(db, 'SELECT * FROM agent_chat_notes WHERE world_id = ? AND account_id = ? AND harness = ? AND mode = ? ORDER BY created_at DESC LIMIT ?', worldId, accountId, harness, mode, limit).map(noteView);
-
-/** The notes as a block of the assistant's context ('' when there are none). */
-export function notesContext(db: DB, worldId: string, accountId: string, harness: string, mode: string): string {
-  const notes = chatNotes(db, worldId, accountId, harness, mode, NOTES_IN_CONTEXT);
-  if (!notes.length) return '';
-  return `Earlier chats this user tossed (the conversation is gone; these notes are what is left, newest first):\n${notes.map((n) => `- "${n.title}" (${n.chatAt.slice(0, 10)})${n.made.length ? `. Made: ${n.made.join('; ')}` : ''}${n.gist ? `. Gist: ${n.gist.slice(0, 400)}` : ''}`).join('\n')}`;
+export function dropIncognito(db: DB, worldId: string, accountId: string, harness: string, o: { all?: boolean; keep?: string } = {}): number {
+  const idle = new Date(Date.now() - INCOGNITO_IDLE_MS).toISOString();
+  const rows = all<{ id: string }>(db, `SELECT c.id FROM agent_chats c WHERE c.world_id = ? AND c.account_id = ? AND c.harness = ? AND c.incognito = 1 AND c.id <> ? AND (? = 1 OR c.updated_at < ?)
+    AND NOT EXISTS (SELECT 1 FROM agent_messages m WHERE m.chat_id = c.id AND m.status = 'working')`, worldId, accountId, harness, o.keep ?? '', o.all ? 1 : 0, idle);
+  for (const r of rows) run(db, 'DELETE FROM agent_chats WHERE id = ?', r.id);
+  return rows.length;
 }

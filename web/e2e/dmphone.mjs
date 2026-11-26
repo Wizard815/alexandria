@@ -133,6 +133,12 @@ async function askTour(page, label, wide) {
     await page.getByRole('button', { name: 'Move', exact: true }).click();
     await page.waitForFunction(() => { const f = [...document.querySelectorAll('[data-testid=ag-tree-folder]')].find((x) => /Lantern arc/.test(x.textContent)); return f && /1/.test(f.textContent); }, null, { timeout: 8000 }).catch(() => problems.push(`${label}: the chat did not move into the folder`));
     note(`${label}: chats in folders: new folder, move a chat`);
+    // An incognito chat: works, is never listed, and ending it goes back to a saved chat.
+    await page.getByTestId('ag-incognito').click();
+    await page.getByTestId('ag-incognito-bar').waitFor({ timeout: 8000 }).catch(() => problems.push(`${label}: no incognito bar`));
+    await page.getByTestId('ag-incognito-bar').getByRole('button', { name: 'End', exact: true }).click();
+    await page.getByTestId('ag-incognito-bar').waitFor({ state: 'detached', timeout: 8000 }).catch(() => problems.push(`${label}: the incognito chat did not end`));
+    note(`${label}: incognito chat started and ended`);
   }
 
   // Past chats in the recent dropdown (the view a session shows): start one, name it, go back, come again, delete it.

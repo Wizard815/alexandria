@@ -14,7 +14,7 @@ import { buzz } from '../dmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
 import { AutoSwitch, ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
 import { PREFILL_EVENT, takePrefill } from './prefill.ts';
-import { ChatNav, rememberView, rememberedView, type ChatNote, type ChatView, type TreeTools } from './ChatTree.tsx';
+import { ChatNav, rememberView, rememberedView, type ChatView, type TreeTools } from './ChatTree.tsx';
 import './agent.css';
 
 export { linkCitations } from './ChatParts.tsx';
@@ -104,6 +104,14 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   const box = useRef<HTMLTextAreaElement>(null);
   const chatRef = useRef<ChatState | null>(null);
   chatRef.current = chat;
+  // Incognito: a chat that is not saved. It works like any other, is never listed, and is deleted when it is left
+  // (another chat opened, a new one started, the screen closed). What it did in the world stays.
+  const wRef = useRef(w); wRef.current = w;
+  const leaveIncognito = useCallback((next?: string) => {
+    const cur = chatRef.current;
+    if (cur?.incognito && cur.id !== next) void wRef.current.call('DELETE', `/agent/chats/${cur.id}`).catch(() => {});
+  }, []);
+  useEffect(() => () => leaveIncognito(), [leaveIncognito]);
   const key = KEY(info.id, [harness, mode, template && `tpl-${template}`].filter(Boolean).join('-'));
   // The list asked for (the broker's or the helper's; main chats or one template's) and what a new chat is made with.
   const listPath = (tpl?: string) => { const q = new URLSearchParams(); if (mode) q.set('mode', mode); if (tpl) q.set('template', tpl); const t = q.toString(); return `/agent/chats${t ? `?${t}` : ''}`; };
@@ -157,9 +165,10 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   useEffect(() => { refreshList(); }, [refreshList, chat?.id, chat?.busy]);
 
   const open = useCallback(async (id: string) => {
+    leaveIncognito(id);
     setConfirmDel(false); setRenaming(null); setLive(null); stopSpeaking();
     try { const c = await w.call<ChatState>('GET', `/agent/chats/${id}`); remember(key, id); setChat(c); } catch (e: any) { setError(e.message); }
-  }, [w, key, setError]);
+  }, [w, key, setError, leaveIncognito]);
   // The notice for a spoken request asks for its chat to be shown.
   useEffect(() => {
     const h = (e: Event) => { const id = (e as CustomEvent).detail?.chatId; if (id && harness === 'dm') void open(id); };
@@ -292,18 +301,23 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   });
   const retry = () => { if (lastSent.current) void send(lastSent.current); };
   const stop = () => { if (chat) void w.call('POST', `/agent/chats/${chat.id}/stop`, {}).catch((e: any) => setError(e.message)); };
-  const fresh = (folder?: string) => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', newBody(folder)); remember(key, c.id); setChat(c); setLive(null); stopSpeaking(); refreshList(); });
+  const fresh = (folder?: string) => run(async () => { leaveIncognito(); const c = await w.call<ChatState>('POST', '/agent/chats', newBody(folder)); remember(key, c.id); setChat(c); setLive(null); stopSpeaking(); refreshList(); });
   const move = (id: string, folder: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { folder }); refreshList(); });
   const renameFolder = (from: string, to: string) => run(async () => { await w.call('POST', '/agent/chats/folders/rename', { from, to, ...(mode ? { mode } : {}) }); refreshList(); });
   const rename = (id: string, title: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { title }); setRenaming(null); refreshList(); });
-  // Throwaway chats: tossing deletes the chat and keeps a note of what it made, which later chats are handed.
-  const [notes, setNotes] = useState<ChatNote[]>([]);
-  const loadNotes = useCallback(() => { if (!template) w.call<{ notes: ChatNote[] }>('GET', `/agent/notes${mode ? `?mode=${mode}` : ''}`).then((r) => setNotes(r.notes ?? [])).catch(() => {}); }, [w, mode, template]);
-  useEffect(() => { loadNotes(); }, [loadNotes]);
-  const forget = (id: string) => run(async () => { await w.call('DELETE', `/agent/notes/${id}`); loadNotes(); });
-  const remove = (toss = false) => run(async () => {
+  const incognito = () => run(async () => {
+    leaveIncognito();
+    const c = await w.call<ChatState>('POST', '/agent/chats', { ...newBody(), incognito: true });
+    setChat(c); setLive(null); stopSpeaking(); setConfirmDel(false); setRenaming(null);
+  });
+  const endIncognito = () => run(async () => {
+    leaveIncognito(); setLive(null); stopSpeaking();
+    const back = remembered(key) || list[0]?.id;
+    if (back) await open(back); else setChat(null);
+  });
+  const remove = () => run(async () => {
     if (!chat) return;
-    if (toss) { await w.call('POST', `/agent/chats/${chat.id}/toss`, {}); loadNotes(); } else await w.call('DELETE', `/agent/chats/${chat.id}`);
+    await w.call('DELETE', `/agent/chats/${chat.id}`);
     setConfirmDel(false);
     const rest = [...list, ...tplList].filter((c) => c.id !== chat.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     if (rest[0]) await open(rest[0].id); else { remember(key, ''); setChat(null); setLive(null); }
@@ -371,9 +385,16 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   const working = !!chat?.busy;
   const focusInput = () => (box.current ?? document.querySelector<HTMLTextAreaElement>('[data-ag-input]'))?.focus();
   const addText = (t: string) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); focusInput(); };
-  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), toss: () => void remove(true), fresh: () => void fresh(), titleOf: (id: string) => [...list, ...tplList].find((c) => c.id === id)?.title ?? '' };
-  const tree: TreeTools = { view, setView, inSession, templates: tplList, templateNames: tplNames, freshIn: (f) => void fresh(f), move: (id, f) => void move(id, f), renameFolder: (a, b) => void renameFolder(a, b), notes, forget: (id) => void forget(id) };
+  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh(), titleOf: (id: string) => [...list, ...tplList].find((c) => c.id === id)?.title ?? '' };
+  const tree: TreeTools = { view, setView, inSession, templates: tplList, templateNames: tplNames, freshIn: (f) => void fresh(f), move: (id, f) => void move(id, f), renameFolder: (a, b) => void renameFolder(a, b), incognito: () => void incognito() };
   // One template's chats are few and short-lived: the plain dropdown is enough there.
+  const incogBar = (ph?: boolean) => chat?.incognito && (
+    <div className="row ag-incognito" role="status" data-testid="ag-incognito-bar">
+      <i className="fa-solid fa-user-secret" aria-hidden="true" />
+      <span className={ph ? 'sub' : 'tiny'} style={{ flex: 1, minWidth: 0 }}>Incognito: this chat is not saved and is deleted when you leave it. What it does in the world stays.</span>
+      <button type="button" className={ph ? 'b' : 'btn small'} disabled={busy} onClick={() => void endIncognito()}>End</button>
+    </div>
+  );
   const nav = (ph?: boolean) => (template ? <ChatSwitcher phone={ph} s={switcher} /> : <ChatNav s={switcher} t={tree} phone={ph} recent={<ChatSwitcher phone={ph} s={switcher} />} />);
   const dmCards = harness === 'dm' && isDM;
   const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} cardTools={dmCards ? { edit: editAction, trust: trustAction } : undefined} />;
@@ -397,6 +418,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
           {model === false && <div className="sub">No chat model is set (Admin, Models). Dice, the date and simple combat commands still work.</div>}
           {modeSwitch}
           {nav(true)}
+          {incogBar(true)}
         </div>
         <div className="ask-log" aria-live="polite" data-testid="ask-log" ref={log} onScroll={onScroll}>
           {!chat?.messages.length && <div className="empty">{hello}</div>}
@@ -435,6 +457,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
       {noModel}
       {modeSwitch}
       {nav()}
+      {incogBar()}
       <div className="stack" style={{ overflowY: 'auto', flex: 1, minHeight: 120, position: 'relative' }} aria-live="polite" ref={log} onScroll={onScroll} data-testid="ag-log">
         {!chat?.messages.length && <p className="tiny muted">{hello}</p>}
         {messages}
@@ -453,6 +476,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
       <div className="row ag-quick" aria-label="Quick actions">
         {quick.map((q) => <button key={q.label} type="button" className="chip ag-quick-btn" disabled={busy || working} onClick={() => { if (q.send) void send(q.send); else { setText(q.fill ?? ''); focusInput(); } }}>{q.label}</button>)}
         <button type="button" className="chip ag-quick-btn" onClick={() => void fresh()}>New chat</button>
+        {!template && <button type="button" className="chip ag-quick-btn" title="Not saved, deleted when you leave it" onClick={() => void incognito()}><i className="fa-solid fa-user-secret" aria-hidden="true" /> Incognito</button>}
         {isDM && harness === 'dm' && <AloudToggle note={aloudNote} />}
       </div>
       <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); void send(); }}>

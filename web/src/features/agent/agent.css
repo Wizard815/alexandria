@@ -58,3 +58,4 @@
 .ag-tree-tools { gap: 4px; }
 .ag-nav { gap: 6px; align-items: center; justify-content: flex-end; }
 .ag-tree-tpl { padding: 2px 6px; }
+.ag-incognito { gap: 8px; align-items: center; flex-wrap: nowrap; padding: 6px 8px; border: 1px dashed var(--line-strong, var(--line)); border-radius: 6px; }
