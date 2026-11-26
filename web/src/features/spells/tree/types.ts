@@ -111,7 +111,7 @@ export interface SpellDetail {
   source?: string;
 }
 
-export interface StartOptions { source: StudySource; lab: boolean; scroll: boolean; arcana?: number }
+export interface StartOptions { source: StudySource; lab: boolean; scroll: boolean; arcana?: number; /** DM: start even though requirements are missing. */ anyway?: boolean }
 
 /** Where the tree's data comes from. Every call may throw an Error with a message to show. */
 export interface TreeBackend {
@@ -124,4 +124,8 @@ export interface TreeBackend {
   check(sid: string, d20?: number): Promise<CheckOut>;
   scrollCast(sid: string): Promise<Study>;
   stop(sid: string): Promise<Study>;
+  /** DM tools: give the spell now (it shows as a gift). Left out when the viewer is not the DM. */
+  give?(spellId: string): Promise<unknown>;
+  /** DM tools: whether `start` takes `anyway` to skip missing requirements. */
+  canOverride?: boolean;
 }

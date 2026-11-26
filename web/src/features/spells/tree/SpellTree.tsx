@@ -159,7 +159,17 @@ function Panel({ backend, spell, engine, study, onClose, onChanged, onEdit }: { 
   const [days, setDays] = useState('1');
   const [d20, setD20] = useState('');
   const [last, setLast] = useState<CheckOut | null>(null);
-  const canPlan = engine && spell.status !== 'known' && spell.status !== 'gift' && spell.status !== 'dark' && spell.status !== 'hidden';
+  const [anyway, setAnyway] = useState(false);
+  const canPlan = engine && spell.status !== 'known' && spell.status !== 'gift' && ((spell.status !== 'dark' && spell.status !== 'hidden') || !!backend.canOverride);
+  // Days per source with the scroll's points taken off. Rates: 1 alone, 2 with a text, 3 with a mentor, plus the lab's bonus.
+  const BASE: Record<StudySource, number> = { alone: 1, text: 2, mentor: 3 };
+  const daysFor = (s: StudySource): number | null => {
+    if (!plan) return null;
+    const d = plan.days[s];
+    if (!scroll || study || d === null || d === undefined) return d ?? null;
+    const rate = Math.max(1, BASE[s] + (plan.perDay - BASE[source]));
+    return Math.ceil(Math.max(0, plan.needed - plan.scrollPoints) / rate);
+  };
 
   useEffect(() => { backend.spell(spell.id).then(setDetail).catch(() => setDetail(null)); }, [backend, spell.id]);
   useEffect(() => {
@@ -195,11 +205,19 @@ function Panel({ backend, spell, engine, study, onClose, onChanged, onEdit }: { 
       )}
       {d?.text && <details><summary className="st-sub">Spell text</summary><div className="st-text">{d.text}</div></details>}
 
-      {spell.status === 'dark' && <p className="st-note">No recipe teaches this spell yet. Ask the DM, or find a text, a mentor or a scroll of it.</p>}
+      {spell.status === 'dark' && <p className="st-note">Out of reach for now: nothing this character knows leads here yet{backend.give ? '. The DM can give it, or let them study it anyway' : '. Ask the DM, or find a text, a mentor or a scroll of it'}.</p>}
       {spell.status === 'hidden' && <p className="st-note">A hidden recipe teaches this spell. Players see it as unknown.</p>}
       {(spell.status === 'known' || spell.status === 'gift') && <p className="st-note">{spell.status === 'gift' ? 'Given by the DM.' : 'Learned.'} It's in the spell list.</p>}
       {spell.from.length > 0 && spell.status !== 'known' && <div><h4>Taught by</h4><div className="st-sub">{spell.from.join(' + ')}</div></div>}
-      {onEdit && <div><button type="button" className="st-btn small" onClick={() => onEdit(spell)}>Edit requirements</button></div>}
+      {(onEdit || (backend.give && spell.status !== 'known' && spell.status !== 'gift')) && (
+        <div className="st-row">
+          {onEdit && <button type="button" className="st-btn small" onClick={() => onEdit(spell)}>Edit requirements</button>}
+          {backend.give && spell.status !== 'known' && spell.status !== 'gift' && (
+            <button type="button" className="st-btn small" disabled={busy} title="The DM hands this spell over now, whatever it needs. It shows as a gift."
+              onClick={() => act(() => backend.give!(spell.id), `${spell.name} is known now (a gift from the DM).`)}>DM: give this spell</button>
+          )}
+        </div>
+      )}
 
       {canPlan && plan && (
         <>
@@ -212,7 +230,7 @@ function Panel({ backend, spell, engine, study, onClose, onChanged, onEdit }: { 
               <thead><tr><th>How</th><th>Days left</th><th>Gold</th></tr></thead>
               <tbody>
                 {SOURCES.map((s) => {
-                  const left = study && study.source === s ? study.daysLeft : plan.days[s];
+                  const left = study && study.source === s ? study.daysLeft : daysFor(s);
                   const gold = plan.gold?.[s] ?? (s === source ? plan.materials + plan.mentorFee : plan.materials);
                   return (
                     <tr key={s} aria-selected={s === source} onClick={() => setSource(s)} style={{ cursor: 'pointer' }}>
@@ -228,16 +246,20 @@ function Panel({ backend, spell, engine, study, onClose, onChanged, onEdit }: { 
               Each 8-hour downtime day earns 1 to 3 study points: 1 alone, 2 with a text, 3 with a mentor{lab ? ', +1 in a lab' : ''}. This spell needs {plan.needed} points. Final check: d20 + {plan.checkBonus} against DC {plan.finalDC}.
             </p>
             <label className="st-row" style={{ marginTop: 6, fontSize: 13 }}><input type="checkbox" checked={lab} onChange={(e) => setLab(e.target.checked)} /> Studying in a lab</label>
+            {!study && <label className="st-row" style={{ fontSize: 13 }}><input type="checkbox" checked={scroll} onChange={(e) => setScroll(e.target.checked)} /> I have a scroll of this spell (starts with {plan.scrollPoints} of {plan.needed} points; the scroll is kept)</label>}
+            {scroll && !study && <p className="st-sub" style={{ margin: '4px 0 0' }}>A scroll helps you study but doesn't teach the spell: the requirements still apply. Casting the scroll before you learn the spell loses its help.</p>}
           </div>
 
           {(!study || study.status === 'stopped') && (
             <div className="st" style={{ gap: 8 }}>
-              {!study && <label className="st-row" style={{ fontSize: 13 }}><input type="checkbox" checked={scroll} onChange={(e) => setScroll(e.target.checked)} /> I have a scroll of this spell (+{plan.scrollPoints} points; the scroll is kept)</label>}
-              {plan.arcanaDC !== null && !study && (
+              {backend.canOverride && !study && !plan.canStart && (
+                <label className="st-row" style={{ fontSize: 13 }}><input type="checkbox" checked={anyway} onChange={(e) => setAnyway(e.target.checked)} /> DM: let them study it anyway (skips what's still needed and the Arcana check)</label>
+              )}
+              {plan.arcanaDC !== null && !study && !anyway && (
                 <label className="st-field">Arcana check to start (DC {plan.arcanaDC})<input type="number" inputMode="numeric" value={arcana} onChange={(e) => setArcana(e.target.value)} placeholder="Total" /></label>
               )}
-              <button type="button" className="st-btn primary" disabled={busy || (!study && (!plan.canStart || (plan.arcanaDC !== null && arcana === '')))}
-                onClick={() => act(() => backend.start(spell.id, { source, lab, scroll, ...(arcana !== '' ? { arcana: Number(arcana) } : {}) }), 'Studying started.')}>
+              <button type="button" className="st-btn primary" disabled={busy || (!study && !anyway && (!plan.canStart || (plan.arcanaDC !== null && arcana === '')))}
+                onClick={() => act(() => backend.start(spell.id, { source, lab, scroll, ...(anyway ? { anyway: true } : {}), ...(arcana !== '' && !anyway ? { arcana: Number(arcana) } : {}) }), 'Studying started.')}>
                 {spell.status === 'stopped' ? 'Pick up studying' : 'Start learning'}
               </button>
             </div>

@@ -28,6 +28,7 @@ export default function TreeTab() {
       check: (sid, d20) => w.call('POST', `/spells/study/${sid}/check`, d20 === undefined ? {} : { d20 }),
       scrollCast: (sid) => w.call('POST', `/spells/study/${sid}/scroll-cast`),
       stop: (sid) => w.call('POST', `/spells/study/${sid}/stop`),
+      ...(isDM ? { give: (spellId: string) => w.call('POST', `/spells/characters/${encodeURIComponent(who)}/known`, { spellId }) } : {}),
     } as TreeBackend;
   }, [w, isDM, who]);
   if (isDM && !players.length) return <p className="muted">No players in this world yet.</p>;
