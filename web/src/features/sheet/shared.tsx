@@ -4,14 +4,14 @@ import { timeShort, dateLong } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, Loading } from '../../ui/index.tsx';
 
-export type ModuleType = 'vitals' | 'mana' | 'inventory' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
+export type ModuleType = 'vitals' | 'mana' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 export interface Mana { on: boolean; now?: number | null; max?: number | null }
 export interface Sheet {
   accountId: string; name: string; player: string; mine: boolean;
   hp: number | null; maxHp: number | null; tempHp: number; conditions: string[];
   mana: Mana; modules: Module[];
-  fromDm?: { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string }[];
+  fromDm?: { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string; updatedAt: string }[];
 }
 export interface PartyRow { accountId: string; name: string; player: string; hp: number | null; maxHp: number | null; tempHp: number; conditions: string[]; mana: Mana; inCombat: boolean; deathSaves: { successes: number; failures: number; stable: boolean; dead: boolean } | null }
 export interface LogLine { id: string; accountId: string; kind: string; before: number | null; after: number | null; amount: number | null; note: string; source: string; by: string | null; at: string }
@@ -21,6 +21,7 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'vitals', label: 'Health', desc: 'HP, temporary HP and conditions', icon: 'fa-heart-pulse' },
   { type: 'mana', label: 'Mana', desc: 'Your mana pool, when the world uses it', icon: 'fa-droplet' },
   { type: 'inventory', label: 'Inventory', desc: 'What you carry, from your pack', icon: 'fa-sack-dollar' },
+  { type: 'dm', label: 'From the DM', desc: 'Secret notes and goals the DM leaves for you', icon: 'fa-scroll' },
   { type: 'contacts', label: 'People', desc: 'Allies, enemies and everyone in between, linked to their pages', icon: 'fa-user-group' },
   { type: 'notes', label: 'Quick notes', desc: 'Jot things down during play', icon: 'fa-pen' },
   { type: 'recent', label: 'Recently', desc: 'People, places and factions from the latest session summaries; ask the broker about them', icon: 'fa-clock-rotate-left' },
@@ -28,7 +29,7 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
 ];
-export const SINGLE: ModuleType[] = ['vitals', 'mana', 'inventory', 'recent'];
+export const SINGLE: ModuleType[] = ['vitals', 'mana', 'inventory', 'dm', 'recent'];
 export const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 export const CONDITIONS = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Concentrating', 'Blessed', 'Hasted'];
 
@@ -90,9 +91,10 @@ export function ChangeLog({ account, limit = 40 }: { account: string | null; lim
 }
 
 export const CSS = `
-.sht-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; align-items: start; }
-.sht-grid > .wide { grid-column: span 2; }
-@media (max-width: 600px) { .sht-grid { grid-template-columns: 1fr; } .sht-grid > .wide { grid-column: auto; } }
+/* Masonry: modules pack into columns, so a short card leaves no hole under it. A wide module spans every column. */
+.sht-grid { columns: 250px; column-gap: 10px; }
+.sht-grid > .sht-mod { break-inside: avoid; margin: 0 0 10px; width: 100%; box-sizing: border-box; }
+.sht-grid > .wide { column-span: all; }
 .sht-mod { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .sht-mod .card-head { margin: 0; gap: 6px; }
 .sht-mod .card-head h3 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 6px; }
@@ -107,6 +109,12 @@ export const CSS = `
 .sht-num { width: 68px; min-height: 34px; text-align: center; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--text); font: inherit; }
 .sht-tiny-num { width: 56px; min-height: 30px; text-align: center; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--text); font: inherit; }
 .sht-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sht-cond { position: relative; }
+.sht-cond .sht-cond-name { padding: 0; text-decoration: underline dotted; text-underline-offset: 3px; }
+.sht-tip { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: 260px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 12px; line-height: 1.4; box-shadow: 0 6px 20px rgb(0 0 0 / 35%); white-space: normal; }
+.sht-tip strong { display: block; margin-bottom: 2px; }
+.sht-cond:hover .sht-tip, .sht-cond:focus-within .sht-tip { display: block; }
+.sht-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .sht-chips .chip button { background: none; border: 0; color: inherit; padding: 0 0 0 2px; cursor: pointer; font: inherit; }
 .sht-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .sht-list li { display: flex; align-items: center; gap: 6px; min-height: 30px; }
@@ -127,9 +135,11 @@ export const CSS = `
 .rel-ok .sht-av { color: var(--ok-text); border-color: var(--ok); } .rel-bad .sht-av { color: var(--danger-text); border-color: var(--danger); }
 .sht-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sht-pnote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long list scrolls inside its card instead of stretching the column. */
+.sht-scroll { max-height: 330px; overflow-y: auto; padding-right: 4px; }
 .sht-dm { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 .sht-status { display: flex; gap: 8px; overflow-x: auto; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); scrollbar-width: thin; }
-.sht-pc { flex: 0 0 auto; min-width: 150px; max-width: 220px; display: flex; flex-direction: column; gap: 3px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; color: inherit; text-decoration: none; background: var(--panel-2); }
+.sht-pc { font: inherit; text-align: left; cursor: pointer; flex: 0 0 auto; min-width: 150px; max-width: 220px; display: flex; flex-direction: column; gap: 3px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; color: inherit; text-decoration: none; background: var(--panel-2); }
 .sht-pc:hover, .sht-pc:focus-visible { border-color: var(--accent); }
 .sht-pc.down { border-color: var(--danger); }
 .sht-pc .row { gap: 6px; }

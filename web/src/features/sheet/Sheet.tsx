@@ -5,14 +5,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
-import { Empty, ErrorBox, Loading, Modal, useAction, useToast } from '../../ui/index.tsx';
+import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '../../ui/index.tsx';
 import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
-import { CAN_BE_PRIVATE, CONDITIONS, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
+import { ConditionChip, useConditions } from './conditions.tsx';
+import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EVENTS = ['sheet', 'spells-char', 'combat', 'settings'];
 
-export default function Sheet({ account }: { account: string }) {
+/** Sheets saved before "From the DM" became a module get it after Health and Mana. */
+const withDm = (list: Module[]): Module[] => (list.some((m) => m.type === 'dm') ? list
+  : [...list.slice(0, 2), { id: 'dm', type: 'dm', title: 'From the DM', wide: false, private: false, collapsed: false }, ...list.slice(2)]);
+
+/** `page`: the player's own page, where the character's name is the page title. */
+export default function Sheet({ account, page = false }: { account: string; page?: boolean }) {
   const { w, info, isDM, me } = useWorld();
   const sheet = useLoad<SheetT>(() => w.call('GET', `/sheet/${account}`), [w, account], EVENTS);
   const [mods, setMods] = useState<Module[] | null>(null);
@@ -29,7 +35,16 @@ export default function Sheet({ account }: { account: string }) {
 
   // Local copy of the modules: edits show at once and save a moment later. The owner's copy is the truth once loaded
   // (a reload racing a save must not bring back an older layout); the DM's follows the server.
-  useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(sheet.data.modules); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(withDm(sheet.data.modules)); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A note or goal the DM adds while the player has the sheet open: say so.
+  const dmIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const list = sheet.data?.fromDm;
+    if (!list) return;
+    const ids = new Set(list.map((n) => n.id));
+    if (own && !isDM && dmIds.current && list.some((n) => !dmIds.current!.has(n.id))) toast('The DM left you something new under From the DM');
+    dmIds.current = ids;
+  }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const persist = (next: Module[], wait = 600) => {
     setMods(next);
     if (!own) return;
@@ -72,25 +87,25 @@ export default function Sheet({ account }: { account: string }) {
     toast(`${p.name} added`);
   };
   const manaOn = (info.settings as any).spellMana === true;
+  const buttons = (
+    <span className="row" style={{ gap: 6 }}>
+      <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)} title={isDM ? 'Every HP and mana change for this player' : 'Every change to your HP and mana (the DM sees these too)'}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
+      {own && <button type="button" className={`btn small${editing ? ' on' : ''}`} data-testid="sheet-edit" onClick={() => { setEditing((v) => !v); setAdding(false); }}>{editing ? 'Done' : 'Arrange'}</button>}
+    </span>
+  );
 
   return (
     <div className="stack" data-testid="sheet">
-      <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
-        <span className="row" style={{ gap: 8 }}>
-          <strong style={{ fontSize: 18 }}>{s.name}</strong>
-          {isDM && !own && <span className="tiny faint">played by {s.player}</span>}
-        </span>
-        <span className="row" style={{ gap: 6 }}>
-          <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
-          {own && <button type="button" className={`btn small${editing ? ' on' : ''}`} data-testid="sheet-edit" onClick={() => { setEditing((v) => !v); setAdding(false); }}>{editing ? 'Done' : 'Arrange'}</button>}
-        </span>
-      </div>
+      {page ? <PageHead title={s.name} lead="Your quick sheet next to the paper one.">{buttons}</PageHead>
+        : <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
+          <span className="row" style={{ gap: 8 }}><strong style={{ fontSize: 18 }}>{s.name}</strong>{isDM && !own && <span className="tiny faint">played by {s.player}</span>}</span>
+          {buttons}
+        </div>}
       <ErrorBox error={act.error} />
-      <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
       {showLog && <section className="card sht-mod"><h3 style={{ margin: 0, fontSize: 15 }}>HP and mana changes</h3><ChangeLog account={own ? me : account} /></section>}
       <div className="sht-grid">
         {mods.map((m, i) => (
-          <section key={m.id} className={`card sht-mod${m.wide ? ' wide' : ''}${editing ? ' editing' : ''}`} data-testid={`mod-${m.type}`}>
+          <section key={m.id} className={`card sht-mod${m.wide ? ' wide' : ''}${editing ? ' editing' : ''}${m.type === 'dm' ? ' sht-dm' : ''}`} data-testid={`mod-${m.type}`}>
             <div className="card-head">
               {editing
                 ? <input className="sht-in" aria-label="Module title" value={m.title} maxLength={60} onChange={(e) => update(m.id, { title: e.target.value })} style={{ flex: 1 }} />
@@ -101,17 +116,18 @@ export default function Sheet({ account }: { account: string }) {
                   <button type="button" className="btn small ghost" aria-label={`Move ${m.title} down`} disabled={i === mods.length - 1} onClick={() => move(i, 1)}>↓</button>
                   <button type="button" className={`btn small ghost${m.wide ? ' on' : ''}`} aria-pressed={m.wide} title="Wide" onClick={() => update(m.id, { wide: !m.wide }, 0)}><i className="fa-solid fa-left-right" aria-hidden="true" /><span className="sr-only">Wide</span></button>
                   {CAN_BE_PRIVATE.includes(m.type) && <button type="button" className={`btn small ghost${m.private ? ' on' : ''}`} aria-pressed={m.private} title="Only me (hidden from the DM too)" onClick={() => update(m.id, { private: !m.private }, 0)}><i className="fa-solid fa-lock" aria-hidden="true" /><span className="sr-only">Private</span></button>}
-                  <button type="button" className="btn small ghost" aria-label={`Remove ${m.title}`} onClick={() => remove(m)}>✕</button>
+                  {m.type !== 'dm' && <button type="button" className="btn small ghost" aria-label={`Remove ${m.title}`} onClick={() => remove(m)}>✕</button>}
                 </> : <button type="button" className="btn small ghost" aria-expanded={!m.collapsed} aria-label={m.collapsed ? `Show ${m.title}` : `Fold ${m.title}`} onClick={() => update(m.id, { collapsed: !m.collapsed }, 0)}>{m.collapsed ? '▸' : '▾'}</button>}
               </span>
             </div>
             {!m.collapsed && (
-              m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
+              m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
+              : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} /> : <p className="tiny muted">Mana is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
               : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? (x) => setAdding1(x) : undefined} onAsk={own && canAsk ? setAsking : undefined} />
               : m.type === 'contacts' ? <PeopleMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries) => update(m.id, { data: { entries } }, 0)} onAsk={own && canAsk ? setAsking : undefined} />
-              : <Editable m={m} readOnly={!own} onData={(data, wait) => update(m.id, { data }, wait)} />
+              : <Editable m={m} readOnly={!own} arranging={editing} onData={(data, wait) => update(m.id, { data }, wait)} />
             )}
           </section>
         ))}
@@ -132,10 +148,11 @@ export default function Sheet({ account }: { account: string }) {
 
 // ---- health ----
 
-function Vitals({ s, onChange, busy }: { s: SheetT; onChange: (b: Record<string, unknown>) => void; busy: boolean }) {
+export function Vitals({ s, onChange, busy }: { s: SheetT; onChange: (b: Record<string, unknown>) => void; busy: boolean }) {
   const [n, setN] = useState('');
   const [setup, setSetup] = useState(false);
   const [cond, setCond] = useState('');
+  const conds = useConditions();
   const amt = Number(n);
   const okAmt = n !== '' && Number.isInteger(amt) && amt > 0;
   const go = (k: 'damage' | 'heal' | 'tempHp') => { if (okAmt) { onChange({ [k]: amt }); setN(''); } };
@@ -163,10 +180,10 @@ function Vitals({ s, onChange, busy }: { s: SheetT; onChange: (b: Record<string,
         <button type="button" className="btn small" disabled={busy || !okAmt} onClick={() => go('tempHp')} title="Temporary HP do not stack: the higher amount stays">Temp</button>
       </div>
       <div className="sht-chips" aria-label="Conditions">
-        {s.conditions.map((c) => <span key={c} className="chip gold">{c}<button type="button" aria-label={`Remove ${c}`} onClick={() => onChange({ conditions: s.conditions.filter((x) => x !== c) })}>✕</button></span>)}
+        {s.conditions.map((c) => <ConditionChip key={c} name={c} info={conds.byName.get(c.toLowerCase())} onRemove={() => onChange({ conditions: s.conditions.filter((x) => x !== c) })} />)}
         <input className="sht-in" list="sht-conditions" placeholder="+ condition" aria-label="Add a condition" value={cond} maxLength={40} style={{ width: 120, minHeight: 26, fontSize: 13 }}
-          onChange={(e) => { const v = e.target.value; if (CONDITIONS.includes(v)) addCond(v); else setCond(v); }} onKeyDown={(e) => { if (e.key === 'Enter') addCond(cond); }} />
-        <datalist id="sht-conditions">{CONDITIONS.filter((c) => !s.conditions.includes(c)).map((c) => <option key={c} value={c} />)}</datalist>
+          onChange={(e) => { const v = e.target.value; if (conds.names.includes(v)) addCond(v); else setCond(v); }} onKeyDown={(e) => { if (e.key === 'Enter') addCond(cond); }} />
+        <datalist id="sht-conditions">{conds.names.filter((c) => !s.conditions.includes(c)).map((c) => <option key={c} value={c}>{conds.byName.get(c.toLowerCase())?.summary.slice(0, 80)}</option>)}</datalist>
       </div>
     </div>
   );
@@ -189,7 +206,7 @@ function SetHp({ s, onSave }: { s: SheetT; onSave: (b: Record<string, unknown>) 
 
 // ---- mana (the spells feature keeps the numbers) ----
 
-function ManaMod({ s, onChange, busy }: { s: SheetT; onChange: (b: Record<string, unknown>) => void; busy: boolean }) {
+export function ManaMod({ s, onChange, busy }: { s: SheetT; onChange: (b: Record<string, unknown>) => void; busy: boolean }) {
   const [n, setN] = useState('');
   const [note, setNote] = useState('');
   if (!s.mana.on) return <p className="tiny muted">Mana is off in this world.</p>;
@@ -254,7 +271,7 @@ function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Par
 
 // ---- the modules a player fills in ----
 
-function Editable({ m, readOnly, onData }: { m: Module; readOnly: boolean; onData: (data: any, wait?: number) => void }) {
+function Editable({ m, readOnly, arranging, onData }: { m: Module; readOnly: boolean; arranging: boolean; onData: (data: any, wait?: number) => void }) {
   const entries: any[] = m.data?.entries ?? [];
   const setEntries = (next: any[], wait = 0) => onData({ entries: next }, wait);
   const [draft, setDraft] = useState('');
@@ -277,11 +294,11 @@ function Editable({ m, readOnly, onData }: { m: Module; readOnly: boolean; onDat
             {!readOnly && <button type="button" className="btn small ghost" aria-label={`${e.label} minus one`} onClick={() => bump(e, -1)}>−</button>}
             <strong style={{ fontVariantNumeric: 'tabular-nums', minWidth: 28, textAlign: 'center' }}>{e.value}{e.max !== null && <span className="muted tiny">/{e.max}</span>}</strong>
             {!readOnly && <button type="button" className="btn small ghost" aria-label={`${e.label} plus one`} onClick={() => bump(e, 1)}>＋</button>}
-            {!readOnly && <button type="button" className="btn small ghost" aria-label={`Set a maximum for ${e.label}`} onClick={() => { const v = window.prompt(`Maximum for ${e.label} (empty for none)`, e.max === null ? '' : String(e.max)); if (v === null) return; const n = v.trim() === '' ? null : Math.max(0, parseInt(v, 10) || 0); setEntries(entries.map((x) => (x.id === e.id ? { ...x, max: n, value: n !== null ? Math.min(x.value, n) : x.value } : x))); }}>max</button>}
-            {!readOnly && <button type="button" className="btn small ghost" aria-label={`Remove ${e.label}`} onClick={() => setEntries(entries.filter((x) => x.id !== e.id))}>✕</button>}
+            {!readOnly && arranging && <button type="button" className="btn small ghost" aria-label={`Set a maximum for ${e.label}`} onClick={() => { const v = window.prompt(`Maximum for ${e.label} (empty for none)`, e.max === null ? '' : String(e.max)); if (v === null) return; const n = v.trim() === '' ? null : Math.max(0, parseInt(v, 10) || 0); setEntries(entries.map((x) => (x.id === e.id ? { ...x, max: n, value: n !== null ? Math.min(x.value, n) : x.value } : x))); }}>max</button>}
+            {!readOnly && arranging && <button type="button" className="btn small ghost" aria-label={`Remove ${e.label}`} onClick={() => setEntries(entries.filter((x) => x.id !== e.id))}>✕</button>}
           </li>
         ))}</ul>
-        {!readOnly && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder="Inspiration, hit dice, arrows…" aria-label="New counter" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
+        {!readOnly && (arranging || !entries.length) && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder="Inspiration, hit dice, arrows…" aria-label="New counter" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
       </div>
     );
   }
