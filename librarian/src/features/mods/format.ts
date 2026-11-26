@@ -7,6 +7,7 @@
 // Pure: no database. See docs/MODS.md.
 
 import { parseRange, parseVer } from './semver.ts';
+import { checkSystem, emptySystem, type System } from './system.ts';
 export const KIT_VERSION = 2;
 /** The mod API version this Alexandria offers (code mods, see the Workshop design). */
 export const MOD_API = 1;
@@ -28,7 +29,7 @@ export const PERMISSIONS = {
   'net': 'Reach the internet',
 } as const;
 export type Permission = keyof typeof PERMISSIONS;
-export const MAX_JSON = 64_000;
+export const MAX_JSON = 128_000;
 const MAX = { options: 16, resources: 12, actions: 24, triggers: 12, commands: 8, rules: 12, presets: 24, args: 8 };
 
 export type OptionSpec =
@@ -90,6 +91,8 @@ export interface ModFile {
   /** Rules that cannot be on at the same time (they are turned off when this one goes on). */
   conflicts: string[];
   permissions: Permission[];
+  /** Kit 2 data system: its own lists, record actions, timers, prompts and views (system.ts). */
+  system: System;
 }
 
 export interface Checked { mod: ModFile | null; errors: string[] }
@@ -146,7 +149,7 @@ export function checkMod(raw: unknown): Checked {
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
     options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
     requires: { settings: [], mods: {} },
-    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [],
+    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(),
   };
 
   // ---- options
@@ -339,12 +342,34 @@ export function checkMod(raw: unknown): Checked {
     mod.permissions = [...new Set(list(o.permissions, 'permissions', 16).filter((x: unknown, i: number) => typeof x === 'string' && x in PERMISSIONS ? true : (err(`permissions[${i}] "${String(x)}" is not a permission (${Object.keys(PERMISSIONS).join(', ')})`), false)))] as Permission[];
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions']);
+  // ---- kit 2 data system
+  if (['records', 'recordActions', 'timers', 'prompts', 'views'].some((k) => o[k] !== undefined)) {
+    mod.system = checkSystem(o, { err, hasOption: (name, type) => !!mod.options[name] && (!type || mod.options[name].type === type) });
+    if (!mod.system.records.length && (o.recordActions || o.timers || o.prompts || o.views)) err('recordActions, timers, prompts and views work on records: add a "records" part');
+    const taken = new Set(mod.actions.map((a) => a.id));
+    for (const ra of mod.system.recordActions) if (taken.has(ra.id)) err(`recordActions: "${ra.id}" is also the id of an action; give it another`);
+  }
+
+  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
   if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
 
   return errors.length ? { mod: null, errors } : { mod, errors: [] };
+}
+
+/** A checked rule back in the shape of a file (what is saved, exported and shown to the assistant). */
+export function toFile(mod: ModFile): Record<string, unknown> {
+  const { system, ...rest } = mod;
+  if (!system.records.length) return rest;
+  return {
+    ...rest,
+    records: Object.fromEntries(system.records.map((k) => [k.id, { label: k.label, plural: k.plural, owned: k.owned, title: k.title, fields: k.fields, ...(k.seed.length ? { seed: k.seed } : {}) }])),
+    ...(system.recordActions.length ? { recordActions: system.recordActions } : {}),
+    ...(system.timers.length ? { timers: system.timers } : {}),
+    ...(system.prompts.length ? { prompts: system.prompts } : {}),
+    ...(system.views.length ? { views: system.views } : {}),
+  };
 }
 
 /** What a rule touches, from the parts it uses, plus what it declares. */
@@ -359,6 +384,10 @@ export function impliedPermissions(mod: ModFile): Permission[] {
   if (mod.triggers.length) p.add('clock.read');
   if (Object.keys(mod.presets).length) p.add('settings.write');
   if (mod.rules.length) p.add('glossary');
+  if (mod.system.records.length) p.add('records');
+  if (mod.system.prompts.length || mod.system.recordActions.some((a) => a.effect?.chat) || mod.system.timers.some((t) => t.done.chat)) p.add('chat.post');
+  if (mod.system.timers.some((t) => !t.on.startsWith('prompt:'))) p.add('clock.read');
+  if (mod.system.views.some((v) => v.place === 'sheet')) p.add('sheet.card');
   return (Object.keys(PERMISSIONS) as Permission[]).filter((k) => p.has(k));
 }
 
@@ -413,7 +442,7 @@ export const MAX_PACKAGE = 25;
 export const MAX_PACKAGE_JSON = 512_000;
 
 export interface PackageInfo { name: string; author: string; summary: string; exported: string; alexandria: string }
-export interface ModPackage extends PackageInfo { type: typeof PACKAGE_TYPE; kit: number; mods: ModFile[] }
+export interface ModPackage extends PackageInfo { type: typeof PACKAGE_TYPE; kit: number; mods: Record<string, unknown>[] }
 
 /** Wrap rules as a package to share. */
 export function makePackage(mods: ModFile[], info: Partial<PackageInfo> & { alexandria: string }): ModPackage {
@@ -424,7 +453,7 @@ export function makePackage(mods: ModFile[], info: Partial<PackageInfo> & { alex
     summary: info.summary ?? (mods.length === 1 ? mods[0].summary : mods.map((m) => m.name).join(', ')),
     exported: info.exported ?? new Date().toISOString(),
     alexandria: info.alexandria,
-    mods,
+    mods: mods.map(toFile),
   };
 }
 

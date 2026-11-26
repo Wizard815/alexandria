@@ -9,7 +9,8 @@ import { enabledIds as gameModuleIds, invalidate as invalidateGlossary } from '.
 import { VERSION } from '../../version.ts';
 import { shippedMod, shippedMods, targetInfo } from './catalog.ts';
 import { satisfies } from './semver.ts';
-import { MOD_API, checkMod, okOption, presetValues, resolveOptions, val, type Action, type ModFile, type Resource } from './format.ts';
+import { seedRecords } from './recstore.ts';
+import { MOD_API, checkMod, toFile, okOption, presetValues, resolveOptions, val, type Action, type ModFile, type Resource } from './format.ts';
 
 export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS mods (
@@ -221,6 +222,7 @@ export function setEnabled(db: DB, worldId: string, modId: string, on: boolean, 
       const saved = Object.fromEntries(Object.keys(presets).filter(known).map((k) => [k, cur[k]]));
       out.settingsChanged = patchSettings(db, worldId, presets) || out.settingsChanged;
       upsert(db, worldId, modId, m.source, { enabled: true, saved }, by);
+      seedRecords(db, worldId, m);
     } else {
       const dependents = enabledMods(db, worldId).filter((o) => o.mod.requires.mods[modId]);
       if (dependents.length && !opts.cascade) throw new HttpError(409, `${dependents.map((d) => d.mod.name).join(', ')} ${dependents.length > 1 ? 'need' : 'needs'} ${m.mod.name}: turn ${dependents.length > 1 ? 'them' : 'it'} off too`);
@@ -269,7 +271,7 @@ export function importMod(db: DB, worldId: string, raw: unknown, by: string | nu
   const n = all<any>(db, "SELECT 1 FROM mods WHERE world_id = ? AND source = 'imported'", worldId).length;
   if (!cur && n >= 50) throw new HttpError(409, 'A world holds at most 50 imported house rules');
   tx(db, () => {
-    upsert(db, worldId, mod.id, 'imported', { json: JSON.stringify(mod), options: resolveOptions(mod, parseJson(cur?.options, {})) }, by);
+    upsert(db, worldId, mod.id, 'imported', { json: JSON.stringify(toFile(mod)), options: resolveOptions(mod, parseJson(cur?.options, {})) }, by);
     // Counters of resources the new version dropped go; the rest are kept (clamped to the new max).
     const ids = new Set(mod.resources.map((r) => r.id));
     for (const r of all<any>(db, 'SELECT DISTINCT resource FROM mod_counts WHERE world_id = ? AND mod_id = ?', worldId, mod.id)) if (!ids.has(r.resource)) run(db, 'DELETE FROM mod_counts WHERE world_id = ? AND mod_id = ? AND resource = ?', worldId, mod.id, r.resource);
@@ -282,9 +284,10 @@ export function removeMod(db: DB, worldId: string, modId: string, by: string | n
   const m = getMod(db, worldId, modId);
   if (m.source !== 'imported') throw new HttpError(400, 'A house rule that comes with Alexandria can be turned off, not removed');
   tx(db, () => {
-    if (m.enabled) setEnabled(db, worldId, modId, false, by);
+    if (m.enabled) setEnabled(db, worldId, modId, false, by, { cascade: true });
     run(db, 'DELETE FROM mods WHERE world_id = ? AND id = ?', worldId, modId);
     run(db, 'DELETE FROM mod_counts WHERE world_id = ? AND mod_id = ?', worldId, modId);
+    for (const t of ['mod_records', 'mod_record_log', 'mod_prompts']) run(db, `DELETE FROM ${t} WHERE world_id = ? AND mod_id = ?`, worldId, modId);
   });
 }
 
