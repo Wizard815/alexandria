@@ -216,6 +216,16 @@ carries content.
 | `list_spell_recipes` | DM | Recipes with tiers and notes |
 | `draft_spell_recipe` | DM (write) | Suggest a recipe: a card to approve, and even then it lands as a draft the DM approves in the editor |
 | `my_spell_codex` | players | Their spells, mana and what they can learn |
+| `my_spell_tree` | players | Their spell tree as a flat list (`GET /tree?compact=1`), filtered by status, school or element, or name |
+| `my_study_plan` | players | Days, gold, checks and scroll points to study a spell, without starting |
+| `my_studies` | players | Their studies: points, days left, waiting for a check or a long rest |
+| `my_start_study`, `my_study_days`, `my_study_check` | players | Start a study, log downtime days, roll the final check (their own character only) |
+| `my_cast_quote` | players | What a cast costs now and whether it is allowed |
+
+The player tools are not marked write: the player harness only offers tools
+without it, and each route keeps a player to their own character. Messages
+like "what spells can I learn", "how long to study Fireball" or "how much mana
+to cast it at 5th" offer them.
 
 ## The spell rules engine
 

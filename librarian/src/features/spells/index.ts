@@ -1118,8 +1118,19 @@ function routes(d: Deps) {
       const x = st.get(sp.id);
       return { id: sp.id, name: sp.name, level: sp.level, school: sp.school || 'Others', lines: ln, hybrid: ln.length >= 2, status, missing, from: status === 'hidden' ? [] : (seen[0]?.prereqs ?? []).map(nameOf(res)), ...(x ? { study: { id: x.id, banked: x.banked, needed: x.needed } } : {}) };
     });
+    const counts = Object.fromEntries(['known', 'gift', 'studying', 'stopped', 'learn', 'locked', 'hidden', 'dark'].map((k) => [k, out.filter((x) => x.status === k).length]));
+    // ?compact=1 (the assistant): a flat, filtered list instead of the whole tree.
+    if (req.query.compact) {
+      const want = String(req.query.status ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+      const school = String(req.query.school ?? '').trim().toLowerCase();
+      const q = String(req.query.q ?? '').trim().toLowerCase();
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 25));
+      const hits = out.filter((x) => (!want.length || want.includes(x.status)) && (!school || x.school.toLowerCase() === school || x.lines.some((l) => l.toLowerCase() === school)) && (!q || x.name.toLowerCase().includes(q)))
+        .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+      return res.json({ engine: !!rules.engine, counts, total: hits.length, spells: hits.slice(0, limit).map(({ hybrid: _h, ...x }) => (x.status === 'dark' && !dm ? { id: x.id, name: x.name, level: x.level, school: x.school, status: x.status } : x)) });
+    }
     const schools = [...new Set(out.filter((x) => !x.hybrid).map((x) => x.school))].sort((a, b) => (a === 'Others' ? 1 : b === 'Others' ? -1 : a.localeCompare(b)));
-    res.json({ engine: !!rules.engine, schools: schools.map((name) => ({ name, spells: out.filter((x) => !x.hybrid && x.school === name) })), hybrids: out.filter((x) => x.hybrid), counts: Object.fromEntries(['known', 'gift', 'studying', 'stopped', 'learn', 'locked', 'hidden', 'dark'].map((k) => [k, out.filter((x) => x.status === k).length])) });
+    res.json({ engine: !!rules.engine, schools: schools.map((name) => ({ name, spells: out.filter((x) => !x.hybrid && x.school === name) })), hybrids: out.filter((x) => x.hybrid), counts });
   });
 
   r.post('/learn', requirePlayerOrDM, (req, res) => {
@@ -1282,6 +1293,68 @@ const feature: Feature = {
       description: "The asking player's own spell codex: spells they know, mana, and the spell recipes they can learn now or what each still needs.",
       props: {},
       call: () => ({ method: 'GET', path: '/spells/codex' }),
+    },
+    // The asking player's own spell tree and studying. Player-only and not marked write: the routes keep them to the caller's character.
+    {
+      name: 'my_spell_tree', playerOnly: true,
+      description: "The asking player's spell tree: every spell with its status for them (known, gift, studying, learn = can start studying now, locked = what is still missing, dark = out of reach). Filter by status, school or element, or name. Use for \"what spells can I learn\" and \"what do I need for X\".",
+      props: {
+        status: { type: 'string', description: 'Comma list of statuses, e.g. learn or learn,locked or studying' },
+        school: { type: 'string', description: 'A school (Evocation) or an element line (Fire)' },
+        query: { type: 'string', description: 'Words in the spell name' },
+        limit: { type: 'number', description: 'At most this many (default 25)' },
+      },
+      call: (a) => ({ method: 'GET', path: `/spells/tree?${qs({ compact: 1, status: a.status, school: a.school, q: a.query, limit: a.limit ?? 25 })}` }),
+    },
+    {
+      name: 'my_study_plan', playerOnly: true,
+      description: 'What studying one spell would take for the asking player, without starting: what is still missing, study points needed, days and gold alone, with a text or with a mentor (a lab adds a point a day), the Arcana check to start, the final check DC, and the points a scroll of it adds.',
+      props: {
+        spell: { type: 'string', description: 'Spell name or id' },
+        source: { type: 'string', enum: ['alone', 'text', 'mentor'], description: 'How they study (default text)' },
+        lab: { type: 'boolean', description: 'Studying in a lab' },
+      },
+      required: ['spell'],
+      call: (a) => ({ method: 'POST', path: '/spells/study/plan', body: { spellId: a.spell, source: a.source, lab: a.lab } }),
+    },
+    {
+      name: 'my_studies', playerOnly: true,
+      description: "The asking player's spell studies: each spell, points banked of needed, days studied, days left, how they study, a scroll's help, and whether it waits for the final check or a long rest.",
+      props: {},
+      call: () => ({ method: 'GET', path: '/spells/study' }),
+    },
+    {
+      name: 'my_start_study', playerOnly: true,
+      description: 'Start (or pick up) studying a spell for the asking player. Only when they ask to start. A spell with an Arcana check needs its total in arcana (they roll it). Say a scroll only if they have one.',
+      props: {
+        spell: { type: 'string', description: 'Spell name or id' },
+        source: { type: 'string', enum: ['alone', 'text', 'mentor'] },
+        lab: { type: 'boolean' }, scroll: { type: 'boolean', description: 'They have a scroll of the spell (it is kept)' },
+        arcana: { type: 'number', description: 'Their Arcana check total, when the plan asks for one' },
+      },
+      required: ['spell', 'source'],
+      call: (a) => ({ method: 'POST', path: '/spells/study', body: { spellId: a.spell, source: a.source, lab: a.lab === true, scroll: a.scroll === true, ...(a.arcana === undefined ? {} : { arcana: a.arcana }) } }),
+    },
+    {
+      name: 'my_study_days', playerOnly: true,
+      description: 'Log downtime days the asking player spent studying (8 hours each). The DM may need to approve them. The study id comes from my_studies.',
+      props: { studyId: { type: 'string' }, days: { type: 'integer', description: '1 to 60' } },
+      required: ['studyId', 'days'],
+      call: (a) => ({ method: 'POST', path: `/spells/study/${enc(a.studyId)}/days`, body: { days: a.days } }),
+    },
+    {
+      name: 'my_study_check', playerOnly: true,
+      description: "Roll the final check for a study whose points are all in (d20 + casting modifier + proficiency against the DC). Give d20 when the player rolled their own die; leave it out to roll here. A failure keeps the points; they try again after a long rest.",
+      props: { studyId: { type: 'string' }, d20: { type: 'integer', description: 'The die they rolled, 1 to 20' } },
+      required: ['studyId'],
+      call: (a) => ({ method: 'POST', path: `/spells/study/${enc(a.studyId)}/check`, body: a.d20 === undefined ? {} : { d20: a.d20 } }),
+    },
+    {
+      name: 'my_cast_quote', playerOnly: true,
+      description: 'What casting a spell would cost the asking player now, without casting: mana at a level, whether they may cast it this turn and why not, and the saves a strain or low mana would bring.',
+      props: { spell: { type: 'string', description: 'Spell name or id' }, level: { type: 'integer', description: 'Cast at this level (default the spell\'s own)' } },
+      required: ['spell'],
+      call: (a) => ({ method: 'POST', path: '/spells/cast/quote', body: { spellId: a.spell, ...(a.level === undefined ? {} : { level: a.level }) } }),
     },
   ],
 };

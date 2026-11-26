@@ -422,6 +422,13 @@ test('SpellRules: studying a spell: the plan, days, DM approval, the final check
   assert.equal(all.find((s: any) => s.id === 'srd:lightning-bolt').status, 'known');
   assert.equal(all.find((s: any) => s.id === 'srd:wish').status, 'dark', 'no recipe: darkened');
   assert.equal(tree.counts.studying, 1);
+  // The assistant's compact view: a flat list, filtered.
+  const flat = await ok('GET', `${SP()}/tree?compact=1&status=known,studying&limit=5`, T.jess);
+  assert.ok(flat.spells.length > 0 && flat.spells.length <= 5 && flat.spells.every((s: any) => ['known', 'studying'].includes(s.status)));
+  assert.equal(flat.counts.studying, 1);
+  assert.ok(!('schools' in flat));
+  const named = await ok('GET', `${SP()}/tree?compact=1&q=hypnotic`, T.jess);
+  assert.deepEqual(named.spells.map((s: any) => [s.name, s.status]), [['Hypnotic Pattern', 'studying']]);
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false, spellCraftApproval: 'dm' });
 });
 
