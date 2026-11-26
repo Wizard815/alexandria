@@ -187,7 +187,8 @@ export function PeopleBlock() {
   const people = useLoad<any[]>(() => w.people() as Promise<any[]>, [w], ['person']);
   if (!people.data) return null;
   if (!people.data.length) return <TableCard id="people" title="People" icon="fa-user-group" link={['people', 'People']} quiet="The party has met nobody yet." />;
-  const list = [...people.data].reverse().slice(0, 6);
+  // Newest first: seq is the order they were added in.
+  const list = [...people.data].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)).slice(0, 6);
   return (
     <TableCard id="people" title="People" icon="fa-user-group" link={['people', 'People']} badge={people.data.length}>
       <ul className="tb-list">
@@ -275,31 +276,64 @@ export function NamesBlock() {
 
 // ---- Coming up: world events and game nights, further ahead ----
 
-const AHEAD = [7, 30, 90];
+const AHEAD = [7, 30, 90, 365];
+
+type When = 'days' | 'weeks' | 'months' | 'date' | 'someday';
+const WHEN: [When, string][] = [['days', 'days'], ['weeks', 'weeks'], ['months', 'months'], ['date', 'on a date'], ['someday', 'no date yet']];
+
+/** The in-world date n months after this one, in the world's calendar (the day is kept, or the month's last day). */
+function addMonths(cal: { months: { name: string; days: number }[] }, d: { year: number; month: number; day: number }, n: number) {
+  const len = cal.months.length;
+  const idx = d.month - 1 + n;
+  const year = d.year + Math.floor(idx / len);
+  const month = (((idx % len) + len) % len) + 1;
+  return { year, month, day: Math.min(d.day, cal.months[month - 1].days) };
+}
 
 export function ComingUpBlock() {
   const { w, info } = useWorld();
   const key = `alx.dm.table.ahead.${info.id}`;
   const [days, setDays] = useState<number>(() => lsGet<number>(key, 30));
   const up = useLoad<any>(() => w.call('GET', `/clock/upcoming?days=${days}`), [w, days], ['clock', 'world-event']);
+  const someday = useLoad<any[]>(() => w.call<any[]>('GET', '/clock/someday').catch(() => []), [w], ['clock-someday']);
   const cal = useLoad(() => w.calendar(), [w], ['calendar', 'rsvp', 'reschedule']);
+  const clk = useLoad<any>(() => w.call('GET', '/clock'), [w], ['clock']);
   const act = useAction();
   const [title, setTitle] = useState('');
-  const [inDays, setInDays] = useState('1');
+  const [mode, setMode] = useState<When>('days');
+  const [n, setN] = useState('1');
+  const [date, setDate] = useState<{ year: string; month: string; day: string } | null>(null);
+  const [dating, setDating] = useState<string | null>(null);
   const nights = (cal.data ?? []).filter((s: any) => s.status === 'scheduled' && s.ends_at >= new Date().toISOString()).slice(0, 3);
   const events: any[] = [...(up.data?.today ?? []), ...(up.data?.upcoming ?? [])];
+  const months: { name: string; days: number }[] = clk.data?.calendar?.months ?? [];
+  const today = clk.data?.date;
+  const d = date ?? (today ? { year: String(today.year), month: String(today.month), day: String(today.day) } : { year: '', month: '1', day: '1' });
   const add = (e: FormEvent) => act.run(async () => {
     e.preventDefault();
-    const now = await w.call<any>('GET', '/clock');
-    const d = Math.max(0, parseInt(inDays || '0', 10));
-    await w.call('POST', '/clock/events', { title: title.trim(), start: now.minutes + d * 1440, visibility: 'dm', kind: 'custom' });
-    setTitle(''); await up.reload();
+    const t = title.trim();
+    if (mode === 'someday') {
+      await w.call('POST', '/clock/someday', { title: t });
+    } else {
+      const now = await w.call<any>('GET', '/clock');
+      const k = Math.max(0, parseInt(n || '0', 10));
+      const start = mode === 'days' ? now.minutes + k * 1440
+        : mode === 'weeks' ? now.minutes + k * 7 * 1440
+        : mode === 'months' ? { ...addMonths(now.calendar, now.date, k), hour: now.date.hour, minute: now.date.minute }
+        : { year: parseInt(d.year, 10), month: parseInt(d.month, 10), day: parseInt(d.day, 10), hour: now.date.hour, minute: now.date.minute };
+      await w.call('POST', '/clock/events', { title: t, start, visibility: 'dm', kind: 'custom' });
+      if (dating) { await w.call('DELETE', `/clock/someday/${dating}`).catch(() => {}); setDating(null); }
+    }
+    setTitle(''); setDate(null); await Promise.all([up.reload(), someday.reload()]);
   });
+  const drop = (id: string) => act.run(async () => { await w.call('DELETE', `/clock/someday/${id}`); await someday.reload(); });
+  const dateIt = (s: any) => { setTitle(s.title); setDating(s.id); if (mode === 'someday') setMode('months'); };
   const range = (
     <span className="tb-seg" role="radiogroup" aria-label="How far ahead">
-      {AHEAD.map((n) => <button key={n} type="button" role="radio" aria-checked={days === n} className={days === n ? 'on' : ''} onClick={() => { setDays(n); lsSet(key, n); }}>{n}d</button>)}
+      {AHEAD.map((x) => <button key={x} type="button" role="radio" aria-checked={days === x} className={days === x ? 'on' : ''} onClick={() => { setDays(x); lsSet(key, x); }}>{x === 365 ? '1y' : `${x}d`}</button>)}
     </span>
   );
+  const ahead = (e: any) => e.daysAway < 0 ? 'going on now' : e.daysAway === 0 ? 'today' : e.daysAway === 1 ? 'tomorrow' : e.daysAway < 60 ? `in ${e.daysAway} days` : `in ${Math.round(e.daysAway / 30)} months`;
   return (
     <TableCard id="coming" title="Coming up" icon="fa-calendar-days" link={['clock', 'Clock']} badge={range}>
       <ErrorBox error={up.error ?? act.error} />
@@ -307,21 +341,45 @@ export function ComingUpBlock() {
         <ul className="tb-list">
           {events.slice(0, 8).map((e, i) => (
             <li key={`${e.id}-${i}`}>
-              <b>{e.title}</b> <span className="tiny muted">{e.daysAway === 0 ? 'today' : e.daysAway === 1 ? 'tomorrow' : `in ${e.daysAway} days`} · {e.occursLabel ?? e.startLabel}{e.visibility === 'dm' ? ' · DM only' : ''}</span>
+              <b>{e.title}</b> <span className="tiny muted">{ahead(e)} · {e.occursLabel ?? e.startLabel}{e.visibility === 'dm' ? ' · DM only' : ''}</span>
             </li>
           ))}
         </ul>
-      ) : up.data && <span className="small muted">Nothing in the world's calendar for the next {days} days.</span>}
+      ) : up.data && <span className="small muted">Nothing in the world's calendar for the next {days === 365 ? 'year' : `${days} days`}.</span>}
+      {(someday.data ?? []).length > 0 && (
+        <>
+          <span className="tiny faint">Someday, no date yet</span>
+          <ul className="tb-list" data-testid="tb-someday">
+            {(someday.data ?? []).map((s: any) => (
+              <li key={s.id} className="tb-someday-row">
+                <span className="tb-ellipsis" title={s.title}>{s.title}</span>
+                <button type="button" className="icon-btn" onClick={() => dateIt(s)} aria-label={`Give ${s.title} a date`} title="Give it a date"><i className="fa-solid fa-calendar-plus" aria-hidden="true" /></button>
+                <button type="button" className="icon-btn" onClick={() => void drop(s.id)} aria-label={`Remove ${s.title}`} title="Remove"><i className="fa-solid fa-xmark" aria-hidden="true" /></button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {nights.length > 0 && (
         <>
           <span className="tiny faint">Game nights</span>
           <ul className="tb-list">{nights.map((s: any) => <li key={s.id} className="small"><b>{s.title}</b> <span className="muted">· {dateLong(s.starts_at)} {timeShort(s.starts_at)} · {when(s.starts_at)}</span></li>)}</ul>
         </>
       )}
-      <form className="row" onSubmit={(e) => void add(e)} aria-label="Add a world event">
-        <input className="grow" required aria-label="New world event" placeholder="Add an event: The tax collector arrives" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <label className="tiny muted">in <input style={{ width: 52 }} aria-label="Days from now" inputMode="numeric" value={inDays} onChange={(e) => setInDays(e.target.value.replace(/[^\d]/g, ''))} /> days</label>
-        <button type="submit" className="btn small" disabled={act.busy}>Add</button>
+      <form className="tb-add-event" onSubmit={(e) => void add(e)} aria-label="Add a world event">
+        <input required aria-label="New world event" placeholder="Add an event: The tax collector arrives" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="row wrap">
+          {(mode === 'days' || mode === 'weeks' || mode === 'months') && <label className="tiny muted">in <input style={{ width: 52 }} aria-label="How many" inputMode="numeric" value={n} onChange={(e) => setN(e.target.value.replace(/[^\d]/g, ''))} /></label>}
+          <select aria-label="When" value={mode} onChange={(e) => setMode(e.target.value as When)}>{WHEN.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          {mode === 'date' && (
+            <>
+              <input style={{ width: 48 }} aria-label="Day" inputMode="numeric" value={d.day} onChange={(e) => setDate({ ...d, day: e.target.value.replace(/[^\d]/g, '') })} />
+              <select aria-label="Month" value={d.month} onChange={(e) => setDate({ ...d, month: e.target.value })}>{months.map((m, i) => <option key={i} value={String(i + 1)}>{m.name}</option>)}</select>
+              <input style={{ width: 64 }} aria-label="Year" inputMode="numeric" value={d.year} onChange={(e) => setDate({ ...d, year: e.target.value.replace(/[^\d-]/g, '') })} />
+            </>
+          )}
+          <button type="submit" className="btn small" disabled={act.busy}>{mode === 'someday' ? 'Keep for later' : dating ? 'Put on the calendar' : 'Add'}</button>
+        </div>
       </form>
     </TableCard>
   );

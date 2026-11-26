@@ -111,6 +111,27 @@ try {
   check(await shows(page.getByTestId('tb-quick-open').getByText('ZZ table quick')), 'quick: the event sent from the Table is not listed');
   note('set time, AM/PM, effect chips and a quick event');
 
+  // 6b. Coming up: an event three months out, and one with no date yet that is then given a date.
+  const coming = page.getByTestId('tb-coming');
+  await coming.getByRole('radio', { name: '1y' }).click();
+  await coming.getByLabel('New world event').fill('ZZ tax collector');
+  await coming.getByLabel('How many').fill('3');
+  await coming.getByLabel('When').selectOption('months');
+  await coming.getByRole('button', { name: 'Add', exact: true }).click();
+  check(await shows(coming.getByText('ZZ tax collector')), 'coming up: an event 3 months out is not listed');
+  check(await shows(coming.getByText(/in 3 months/)), 'coming up: the 3-month event does not say "in 3 months"');
+  await coming.getByLabel('New world event').fill('ZZ dragon wakes');
+  await coming.getByLabel('When').selectOption('someday');
+  await coming.getByRole('button', { name: 'Keep for later' }).click();
+  check(await shows(page.getByTestId('tb-someday').getByText('ZZ dragon wakes')), 'coming up: the undated event is not kept');
+  await coming.getByRole('button', { name: 'Give ZZ dragon wakes a date' }).click();
+  await coming.getByLabel('When').selectOption('days');
+  await coming.getByLabel('How many').fill('10');
+  await coming.getByRole('button', { name: 'Put on the calendar' }).click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid=tb-someday]'), null, { timeout: 6000 }).catch(() => problems.push('coming up: the dated event stayed in the no-date list'));
+  check(await shows(coming.getByText('ZZ dragon wakes')), 'coming up: the dated event is not on the calendar');
+  note('coming up: months ahead, no date yet, then dated');
+
   if (process.env.TABLE_SHOTS) { fs.mkdirSync(process.env.TABLE_SHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.TABLE_SHOTS, 'table.png'), fullPage: true }); }
 
   // 7. A phone: no sideways scroll.

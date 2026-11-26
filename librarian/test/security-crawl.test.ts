@@ -91,7 +91,7 @@ const SPEC: Record<string, string> = {
   'agent:pageId': 'SELECT id FROM pages WHERE world_id = ?',
   'audio:sid': 'SELECT id FROM audio_sessions WHERE world_id = ?',
   'audio:id': 'SELECT id FROM audio_mics WHERE world_id = ? UNION SELECT id FROM audio_lines WHERE world_id = ?',
-  'clock:id': 'SELECT id FROM clock_events WHERE world_id = ? UNION SELECT id FROM clock_log WHERE world_id = ?',
+  'clock:id': 'SELECT id FROM clock_events WHERE world_id = ? UNION SELECT id FROM clock_log WHERE world_id = ? UNION SELECT id FROM clock_someday WHERE world_id = ?',
   'intake:sid': 'SELECT id FROM sources WHERE world_id = ?',
   'intake:kid': 'SELECT id FROM intake_keys WHERE world_id = ?',
   'files:fid': 'SELECT id FROM libfiles_files WHERE world_id = ?',

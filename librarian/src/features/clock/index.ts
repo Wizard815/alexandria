@@ -5,7 +5,9 @@ import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { requireDM } from '../../core/auth.ts';
 import { featureSetting } from '../../core/policy.ts';
-import { HttpError } from '../../core/util.ts';
+import { HttpError, id, now } from '../../core/util.ts';
+import { all, run } from '../../core/db.ts';
+import { dmOnly } from '../../core/events.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import * as clock from './api.ts';
 import { BUILTIN_CALENDARS, MINUTES_PER_DAY, dateToMinutes, normalizeCalendar } from './calendar.ts';
@@ -69,6 +71,13 @@ const feature: Feature = {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS clock_events_world ON clock_events(world_id, start_minutes);
+    CREATE TABLE IF NOT EXISTS clock_someday (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS clock_someday_world ON clock_someday(world_id);
     CREATE TABLE IF NOT EXISTS clock_prefs (
       world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -162,6 +171,23 @@ const feature: Feature = {
     r.patch('/events/:id', requireDM, (req, res) => res.json(clock.updateEvent(db, hub, wid(res), String(req.params.id), req.body ?? {})));
     r.delete('/events/:id', requireDM, (req, res) => { clock.deleteEvent(db, hub, wid(res), String(req.params.id)); res.json({ ok: true }); });
 
+    // "Someday": things the DM wants to happen with no date yet. DM-only; dating one turns it into a world event.
+    r.get('/someday', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT id, title, created_at FROM clock_someday WHERE world_id = ? ORDER BY created_at, rowid', wid(res))));
+    r.post('/someday', requireDM, (req, res) => {
+      const t = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      if (!t) throw new HttpError(400, 'title is required');
+      if (t.length > 200) throw new HttpError(400, 'title is longer than 200 characters');
+      const row = { id: id('sdy_'), title: t, created_at: now() };
+      run(db, 'INSERT INTO clock_someday (id, world_id, title, created_at) VALUES (?, ?, ?, ?)', row.id, wid(res), row.title, row.created_at);
+      hub.emit(wid(res), 'clock-someday', { action: 'created', id: row.id }, dmOnly);
+      res.status(201).json(row);
+    });
+    r.delete('/someday/:id', requireDM, (req, res) => {
+      const done = run(db, 'DELETE FROM clock_someday WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
+      if (!done) throw new HttpError(404, 'Not found');
+      hub.emit(wid(res), 'clock-someday', { action: 'deleted', id: String(req.params.id) }, dmOnly);
+      res.json({ ok: true });
+    });
     r.get('/prefs', (_req, res) => res.json({ upcomingDays: clock.getUpcomingDays(db, wid(res), me(res)) }));
     r.put('/prefs', (req, res) => res.json({ upcomingDays: clock.setUpcomingDays(db, wid(res), me(res), req.body?.upcomingDays) }));
     r.get('/upcoming', (req, res) => {

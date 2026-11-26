@@ -306,6 +306,19 @@ test('TestClock_SourceCalendarsAndTheTypedModule', async () => {
   assert.throws(() => clock.setDate(deps.db, null, W, { year: 1, month: 9, day: 1 }, '', null), /months 1 to 2/);
 });
 
+test('TestClock_SomedayIsDmOnly', async () => {
+  const made = await ok('POST', `${C()}/someday`, T.dm, { title: 'The tax collector comes back' });
+  assert.match(made.id, /^sdy_/);
+  assert.equal((await call('POST', `${C()}/someday`, T.dm, { title: '  ' })).status, 400);
+  const list = await ok('GET', `${C()}/someday`, T.dm);
+  assert.ok(list.some((s: any) => s.title === 'The tax collector comes back'));
+  assert.equal((await call('GET', `${C()}/someday`, T.jess)).status, 403);
+  assert.equal((await call('POST', `${C()}/someday`, T.jess, { title: 'x' })).status, 403);
+  await ok('DELETE', `${C()}/someday/${made.id}`, T.dm);
+  assert.equal((await call('DELETE', `${C()}/someday/${made.id}`, T.dm)).status, 404);
+  assert.ok(!(await ok('GET', `${C()}/someday`, T.dm)).some((s: any) => s.id === made.id));
+});
+
 test('TestClock_ClockIsPerWorldAndRemovedWithIt', async () => {
   const w2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Other', dmAccountId: ID.dm })).id;
   const c2 = await ok('GET', `/api/worlds/${w2}/clock`, T.dm);
