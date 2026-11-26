@@ -45,6 +45,8 @@ export const INSPIRATION_REROLLS = {
     { id: 'use-dm', label: 'Make the DM reroll', by: 'owner', resource: 'dm', add: -1, effect: { reroll: { whose: 'dm', keepBetter: '$keepBetter' } } },
   ],
   commands: [{ word: 'reroll', args: ['personal', 'everyone', 'dm'], action: 'use-$1' }],
+  // The player sheet's Re-rolls module and the DM status bar chips show these counters.
+  presets: { sheetRerolls: true, sheetRerollCap: '$cap' },
   sheet: { title: 'Rerolls', resources: ['personal', 'everyone', 'dm'] },
   dmBand: { chips: ['personal', 'everyone', 'dm'], actions: ['grant'] },
   table: { title: 'Reward roleplay', actions: ['grant'] },
