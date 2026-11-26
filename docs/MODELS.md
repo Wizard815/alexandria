@@ -17,6 +17,7 @@ a feature.
 | **voice** | Text to speech (Speak menu, narration) | `POST {base}/audio/speech` |
 | **extra** | Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
 | **rerank** | Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
+| **helper** | Optional. The players' quick helper: a small second model (4B or less, under about 6 GB) for rules lookups, turn options and sheet summaries. Unset: the Players model, then Chat. See [The players' quick helper](#the-players-quick-helper-a-small-second-model). | `POST {base}/chat/completions` |
 
 ### Providers
 
@@ -49,7 +50,8 @@ Each job is `{ providerId, model, options, fallback? }`:
 
 A job with nothing saved falls back to the environment:
 `ALX_MODEL_<JOB>_URL`, `ALX_MODEL_<JOB>_MODEL`, `ALX_MODEL_<JOB>_KEY`
-(`<JOB>` is `CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`, `RERANK`), then
+(`<JOB>` is `CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`, `RERANK`, or a part
+of chat with a model of its own: `DM`, `PLAYER`, `BIBLE`, `HELPER`), then
 `MODEL_BASE_URL` / `LOCAL_LLM_URL` and `MODEL_API_KEY`. With neither, the job
 has no model, and features that need it fall back or stay off. Rerank is only
 switched on by `ALX_MODEL_RERANK_URL` (not by `MODEL_BASE_URL`), because not
@@ -305,6 +307,107 @@ Providers are independent, so a job can use any of them. Typical mixes:
 Whatever the mix, classified text is never sent to any model, cloud or
 local, main or fallback: `core/ai.ts` refuses the request before it leaves.
 
+## The players' quick helper (a small second model)
+
+The **Quick help** card sits above the table helper on a player's Ask page:
+**My turn**, **Sum up my sheet**, **What next?** and a box for a quick rules
+question. It runs the **helper** job, meant for a small model on its own
+llama.cpp server next to the main chat model.
+
+How it works (`librarian/src/features/playerhelp/quick.ts`):
+
+- **No conversation.** Every tap starts fresh: one system prompt and one short
+  brief, rebuilt from what this player may see. That is their character, HP
+  and conditions (the player sheet, or their own line in the combat tracker),
+  their items, the combat as they see it, tonight's party summary and the
+  last six lines the table heard, their goals and journal, two rules passages
+  from the world's module and three library chunks shared with the party.
+  DM-only text never goes in, and every section passes the classified guard
+  first. The brief is about 1,000 to 2,000 characters, so a 4K context per
+  slot is plenty and the slots are reused call after call.
+- **Narrow jobs.** `rules`, `turn`, `sheet`, `suggest` and short `ask`
+  questions. It changes nothing and has no tools.
+- **Hand-offs.** Who, why, history and rumour questions go to the **broker**
+  without asking the small model, because small models invent names there.
+  Writing, changes ("add a potion to my pack") and questions over 400
+  characters go to the **table helper**, the player assistant on the main
+  model with tools. The model can also hand off by replying
+  `HANDOFF broker:` or `HANDOFF helper:`. If it is down or slow, the question
+  goes to the table helper. A hand-off puts the question in that chat's box
+  for the player to send.
+- **Made-up names are dropped.** A line that names two or more capitalised
+  words the brief never mentions (a "Silas Blackwood" behind the council) is
+  removed. If nothing is left, the question goes to the broker.
+- One question at a time per player. A second tap while one is running gets
+  a 429.
+
+Turn it off for a world with the setting `quickHelper: false`. The DM can see
+exactly what a player's helper is given at
+`GET /api/worlds/:w/helper/quick/brief?task=sheet&account=<player id>`.
+
+### Setting it up
+
+Admin → Models → **Quick helper (small model)**: a provider pointing at the
+small server, and its model name. Or use the environment:
+`ALX_MODEL_HELPER_URL`, `ALX_MODEL_HELPER_MODEL`, `ALX_MODEL_HELPER_KEY`,
+`ALX_MODEL_HELPER_OPTIONS`. Extra options that fit a small non-thinking model:
+
+```json
+{ "contextTokens": 4096, "reasoningModel": false, "maxConcurrent": 4 }
+```
+
+`contextTokens` sizes the brief (4096 gives about 10,000 characters of room,
+far more than it uses). `reasoningModel: false` sends the 400-token answer
+limit as it is, instead of the 2,000-token floor that thinking models need.
+`maxConcurrent` should match the server's `-np`.
+
+A llama-server for it, on the gfx906 ROCm fork (`Wizard815/mx-llama.cpp-Rocm10`):
+
+```bash
+llama-server -m Ternary-Bonsai-2-9B-Q2_0.gguf --port 8081 \
+  -ngl 99 -fa on -c 16384 -np 4 --jinja --reasoning off \
+  --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5
+```
+
+`-c 16384 -np 4` gives four players a 4K slot each. `--reasoning off` stops
+Qwen-family models from thinking (the quick helper wants short answers). The
+sampling values are Bonsai's own non-thinking settings. For another model,
+use what its card recommends.
+
+### Which model
+
+Anything about 4B or less, or a ternary model, with a file of 6 GB at most:
+
+| Model | File | Notes |
+|---|---|---|
+| `prism-ml/Ternary-Bonsai-2-9B-gguf`, the **Q2_0** file | 2.56 GB | 9B Qwen3.5 with ternary weights. The best answers in our runs. On the fork use the `Q2_0` file: `PQ2_0` and `PTQ1_0` need PrismML's own llama.cpp, and the fork rejects them as unknown types. |
+| Ministral 3B | about 2–3 GB at Q4–Q6 | Fast and well-formatted. Pads turn options with things the character may not have. |
+| Llama 3.2 3B Instruct | about 2–3 GB at Q4–Q6 | Good rules answers. |
+| Qwen3 4B / 1.7B | about 1–3 GB | Run with `--reasoning off`. |
+| Gemma 3 4B | about 3 GB at Q4 | Weakest in our runs: stray words at the start of answers, one empty reply. |
+
+**Ternary GGUFs on the gfx906 fork.** The fork has the `Q2_0` type with HIP
+kernels (dequantize, mat-vec and the MMQ tiles for GCN), and the
+`prism.hadamard` runtime that the Bonsai weights need (the rotation folded
+into them is undone on the activations by a plain matmul). Without that
+runtime the output is silent garbage. We loaded
+`Ternary-Bonsai-2-9B-Q2_0.gguf` on a CPU build of the fork and got coherent
+answers. It was not run on a gfx906 card. The MTP and DFlash drafter files
+are for PrismML's fork. Bonsai is a hybrid model (3 linear-attention layers
+to 1 full-attention), so llama.cpp cannot roll part of a prompt back; the log
+says `refusing rollback`. That is harmless here, because every quick-helper
+call is a fresh prompt anyway.
+
+Real-model run (Nov 2026; 8 player questions against a small world with a
+fight on; OpenRouter, about $0.0003 per model): Bonsai 2 9B, Ministral 3B
+and Llama 3.2 3B gave correct Dodge and Hide rules from the module passages,
+sensible turn options and a correct sheet summary. Before the who/why rule,
+Gemma 3 4B answered "who secretly controls the council" with a merchant it
+made up; now that question goes to the broker before any model sees it.
+Qwen3 was not in this run. Every model sometimes
+invented details in "What next?" (a chest, a goal to escape a warehouse).
+Treat it as ideas for the player, not facts.
+
 ## Recommended local models (64 GB of VRAM)
 
 Pick current versions when you build; these are size classes, not pins.
@@ -316,6 +419,7 @@ Pick current versions when you build; these are size classes, not pins.
 | audio | Whisper large-v3 class | faster-whisper or whisper.cpp with large-v3-turbo | 3–6 GB |
 | voice | Small | Kokoro-82M | under 1 GB |
 | extra | Small | bge-m3 or similar | 1–2 GB |
+| helper (optional) | ≤4B, or ternary 9B | Ternary Bonsai 2 9B (Q2_0), Ministral 3B, Llama 3.2 3B | 2–6 GB |
 
 That is about 30–40 GB loaded together. The rest is for the chat model's
 context (long transcripts need it) and a larger model later.
