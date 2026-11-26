@@ -63,7 +63,10 @@ async function getJson(d: Deps, url: string, state: { bytes: number }, allowLoca
 }
 
 // ---- Open5e ----------------------------------------------------------------
-export interface Open5eDoc { key: string; name: string; publisher: string; gamesystem: string; license: string; permalink: string; desc: string }
+export interface Open5eDoc { key: string; name: string; publisher: string; gamesystem: string; edition: string; license: string; permalink: string; desc: string }
+
+/** "2024" / "2014" for Open5e's 5e game systems; Level Up A5e and others have none. */
+export const editionOf = (doc: any): string => { const k = String(doc?.gamesystem?.key ?? ''); return k === '5e-2024' ? '2024' : k === '5e-2014' ? '2014' : ''; };
 
 async function open5eDocsRaw(d: Deps, base: string): Promise<any[]> {
   const state = { bytes: 0 };
@@ -99,10 +102,11 @@ export async function open5eDocuments(d: Deps, b: any = {}): Promise<{ base: str
       name: String(x.display_name && x.display_name !== x.name && !/rules$/i.test(x.display_name) ? x.display_name : x.name ?? x.key),
       publisher: String(x.publisher?.name ?? ''),
       gamesystem: String(x.gamesystem?.name ?? ''),
+      edition: editionOf(x),
       license: open5eLicense([x]),
       permalink: String(x.permalink ?? ''),
       desc: String(x.desc ?? '').replace(/[*_#>\r]/g, '').split(/\n\s*\n/).map((p) => p.trim()).find((p) => p.length > 30)?.slice(0, 240) ?? '',
-    })),
+    })).sort((a, b) => (a.edition === '2024' ? 0 : 1) - (b.edition === '2024' ? 0 : 1)),
   };
 }
 
@@ -169,6 +173,7 @@ export async function readOpen5e(b: any, d: Deps): Promise<Raw> {
         version: new Date().toISOString().slice(0, 10),
         license: open5eLicense(docs),
         attribution: open5eAttribution(docs),
+        edition: new Set(docs.map(editionOf)).size === 1 ? editionOf(docs[0]) : '',
         terms,
       },
       warnings: [`From Open5e: ${Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ')}`, ...warnings],
@@ -205,6 +210,7 @@ export async function readDnd5eApi(b: any, d: Deps): Promise<Raw> {
         name: `5e SRD API (${ed})`,
         version: new Date().toISOString().slice(0, 10),
         license: 'CC-BY-4.0',
+        edition: year,
         attribution: `${SRD_ATTRIBUTION[year]} Data from the 5e SRD API (https://www.dnd5eapi.co, 5e-bits).`,
         terms,
       },

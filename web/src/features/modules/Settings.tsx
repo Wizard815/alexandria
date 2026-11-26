@@ -44,9 +44,10 @@ export default function ModuleSettings() {
             {enabled.length === 0 && <p className="muted">No module is on. Rules lookups and keyword highlights are off.</p>}
             {enabled.map((m, i) => (
               <div key={m.id} className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
-                <span><strong>{i + 1}. {m.name}</strong> <span className="tiny muted">{m.terms} terms{m.version ? ` · v${m.version}` : ''}{m.builtin ? '' : ' · imported'}</span></span>
+                <span><strong>{i + 1}. {m.name}</strong> <span className="tiny muted">{m.terms} terms{m.version ? ` · v${m.version}` : ''}{m.builtin ? '' : m.server ? ' · server library' : ' · imported'}</span></span>
                 {isDM && (
                   <span className="row" style={{ gap: 6 }}>
+                    {!m.builtin && <button type="button" className="btn small" disabled={act.busy} title="Its spells into the Codex and its items into the shop's item database" onClick={() => void act.run(async () => { const r = await w.call('POST', '/modules/feed', { id: m.id }); toast(`Codex: ${r.fed?.spells?.added ?? 0} spells added · Shop: ${r.fed?.items?.added ?? 0} items added`); })}>Add spells &amp; items</button>}
                     <button type="button" className="btn small" disabled={act.busy || i === 0} onClick={() => move(i, -1)} aria-label={`Move ${m.name} up`}>↑</button>
                     <button type="button" className="btn small" disabled={act.busy || i === enabled.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${m.name} down`}>↓</button>
                     <button type="button" className="btn small" disabled={act.busy} onClick={() => void save(enabled.filter((x) => x.id !== m.id).map((x) => x.id))}>Turn off</button>
@@ -61,11 +62,11 @@ export default function ModuleSettings() {
               <h3>Available</h3>
               {off.map((m) => (
                 <div key={m.id} className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <span><strong>{m.name}</strong> <span className="tiny muted">{m.terms} terms{m.builtin ? '' : ' · imported'}</span></span>
+                  <span><strong>{m.name}</strong> {m.edition && <span className="chip">5e {m.edition}</span>} <span className="tiny muted">{m.terms} terms{m.builtin ? '' : m.server ? ' · server library, no download' : ' · imported'}</span></span>
                   {isDM && (
                     <span className="row" style={{ gap: 6 }}>
                       <button type="button" className="btn small" disabled={act.busy} onClick={() => void save([...enabled.map((x) => x.id), m.id])}>Turn on</button>
-                      {!m.builtin && <button type="button" className="btn small" disabled={act.busy} onClick={() => { if (confirm(`Delete ${m.name} from this world?`)) void act.run(async () => { await w.call('DELETE', `/modules/imported/${encodeURIComponent(m.id)}`); await mods.reload(); }); }}>Delete</button>}
+                      {!m.builtin && !m.server && <button type="button" className="btn small" disabled={act.busy} onClick={() => { if (confirm(`Delete ${m.name} from this world?`)) void act.run(async () => { await w.call('DELETE', `/modules/imported/${encodeURIComponent(m.id)}`); await mods.reload(); }); }}>Delete</button>}
                     </span>
                   )}
                 </div>
@@ -143,7 +144,7 @@ function ImportBox({ onDone }: { onDone: () => void }) {
   const doSave = () => act.run(async () => { const r = await w.call('POST', '/modules/import', { ...payload(), replace, ...(feed.spells || feed.items ? { feed } : {}) }); setFed(r?.fed ?? null); setDone(true); setPre(null); onDone(); });
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const docs: any[] = sources.data?.open5e?.documents ?? [];
-  const systems = [...new Set(docs.map((d) => d.gamesystem || 'Other'))];
+  const systems = [...new Set(docs.map((d) => d.gamesystem || 'Other'))]; // 2024 first: the server sorts them
   const kindChoices = src === 'open5e' ? KIND_LABELS.filter(([k]) => (sources.data?.open5e?.kinds ?? []).includes(k)) : KIND_LABELS;
 
   return (
@@ -153,14 +154,14 @@ function ImportBox({ onDone }: { onDone: () => void }) {
       <ErrorBox error={act.error ?? sources.error} />
       {src === 'open5e' && (
         <div className="stack tight">
-          <p className="tiny muted">Free books from <a href="https://open5e.com" target="_blank" rel="noreferrer">Open5e</a>: monsters, spells, magic items and more, each under its own open licence (shown in Credits once saved). Pick one or more.</p>
+          <p className="tiny muted">Free books from <a href="https://open5e.com" target="_blank" rel="noreferrer">Open5e</a>: monsters, spells, magic items and more, each under its own open licence (shown in Credits once saved). Pick one or more. Books your server admin already pulled are under Available above, ready to turn on.</p>
           {sources.loading && !sources.data ? <Loading /> : sources.data?.open5e?.error ? <p className="error-box">Open5e could not be reached: {sources.data.open5e.error}</p> : systems.map((sys) => (
             <fieldset key={sys} className="stack tight" style={{ border: 0, padding: 0, margin: 0 }}>
               <legend className="tiny muted">{sys}</legend>
               {docs.filter((d) => (d.gamesystem || 'Other') === sys).map((d) => (
                 <label key={d.key} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'start' }}>
                   <input type="checkbox" checked={books.includes(d.key)} onChange={() => { setBooks(toggle(books, d.key)); setPre(null); setDone(false); }} />
-                  <span><strong>{d.name}</strong> <span className="tiny muted">{[d.publisher, d.license].filter(Boolean).join(' · ')}</span>{d.desc && <><br /><span className="tiny muted">{d.desc}</span></>}</span>
+                  <span><strong>{d.name}</strong> {d.edition && <span className="chip">5e {d.edition}</span>} <span className="tiny muted">{[d.publisher, d.license].filter(Boolean).join(' · ')}</span>{d.desc && <><br /><span className="tiny muted">{d.desc}</span></>}</span>
                 </label>
               ))}
             </fieldset>
