@@ -43,6 +43,7 @@ try {
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { maxHp: 24, hp: 24 });
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { damage: 7, conditions: ['Poisoned'], note: 'Spider bite' });
   await j('POST', `${P}/sheet/${jessId}/dm-notes`, dm, { kind: 'goal', text: 'Find the lighthouse keeper before the new moon.' });
+  await j('POST', `${P}/lights/scenes`, dm, { name: 'Candlelight', color: '#ff9933', brightness: 40 });
   await j('POST', `${P}/sheet/${tomId}/dm-notes`, dm, { kind: 'note', text: 'Your brother Edric is alive and hiding in Saltmarsh.' });
 
   const ask = async (tok, text) => {
@@ -70,6 +71,8 @@ try {
     ['House rule: re-roll', 'Give Anselm a personal re-roll for that great speech.', ['give_reroll']],
     ['NPC encounters', 'Send Tomas a street gambler encounter.', ['send_encounter', 'list_encounter_templates']],
     ['Shops', 'Make a small blacksmith shop for this town and save it.', ['generate_shop']],
+    ['Fog of war', 'Turn on the fog of war on the world map, then uncover a circle around the middle of it.', ['set_fog', 'reveal_fog']],
+    ['Lights', 'Set the room lights to the Candlelight scene.', ['run_light_scene', 'list_light_scenes']],
     ['Quick events', 'Send the party a quick perception save, DC 13, with a 30 second timer.', ['send_quick_event']],
   ];
   for (const [feature, text, want] of DM_PROMPTS) {

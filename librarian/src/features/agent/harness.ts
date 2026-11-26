@@ -764,6 +764,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
   };
   try {
     let tools = await harnessTools(c.harness);
+    // A player is not offered what this world keeps for the DM (it would only answer 403).
+    if (c.harness === 'player') tools = tools.filter((t) => !t.playerWhen || t.playerWhen(c.settings));
     const opts = agentOptions(d);
     if (c.harness === 'dm') {
       if (!opts.bible) tools = tools.filter((t) => t.name !== 'story_bible' && t.name !== 'related_pages');

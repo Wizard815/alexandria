@@ -7,6 +7,7 @@ import type { Router } from 'express';
 import type { Express } from 'express';
 import type { Deps } from '../app.ts';
 import type { DB } from '../core/db.ts';
+import type { WorldSettings } from '../core/policy.ts';
 
 /** One world setting a feature adds. Stored in the world's settings JSON. */
 export type SettingSpec =
@@ -27,6 +28,8 @@ export interface McpTool {
   playerOnly?: boolean;
   /** Only listed for the DM (any key): a DM-only read players would only get 403 from. */
   dmOnly?: boolean;
+  /** Listed for a player only when this is true for the world's settings (a feature the DM may open to players). */
+  playerWhen?: (settings: WorldSettings) => boolean;
   props: Record<string, any>;
   required?: string[];
   /** The world API request to make; the path is relative to /api/worlds/:world. */

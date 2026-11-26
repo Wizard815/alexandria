@@ -36,6 +36,8 @@ const CATEGORIES: Category[] = [
   { re: /\b(ally|rival|neutral|attitude|let the (whole )?party (see|know)|make \w+( \w+)? (an? )?(ally|rival)|has been met|mark .* as met)\b/i, tools: ['update_person', 'list_people', 'add_person'] },
   { re: /\b(journal draft|draft (my|a) journal|write up (my|the) (session|journal)|(summari[sz]e|write) (the|my) (session|night) for my (journal|notes))\b/i, tools: ['my_journal_draft', 'my_memory_log', 'my_context'] },
   { re: /\b(catch me up|previously|what happened (last|in the last|so far)|recap (of )?(the )?(last|previous))\b/i, tools: ['my_recap', 'list_session_log', 'search_transcript'] },
+  { re: /\b(fog( of war)?|uncover|reveal (the |a |an )?(room|area|map|part|corridor|hall)|cover (it|that|the \w+) (up|again)|table (screen|display)|which map)\b/i, tools: ['reveal_fog', 'get_fog', 'set_fog', 'get_table_display', 'list_map_marks'] },
+  { re: /\b(lights?|lamps?|lighting|leds?|wled|hue|dim the|brighten)\b/i, tools: ['run_light_scene', 'list_light_scenes', 'lights_off', 'activate_scene'] },
   { re: /\b(activate|run|trigger|switch to|go to|start|cue) (the |a |my )?([\w' -]{1,30} )?(scene|preset)\b|\b(saved|my) scenes?\b|\bset the (whole )?room\b|\bone[- ]button\b/i, tools: ['activate_scene', 'list_scenes'] },
   { re: /\b(play|mood|tense|ambience|ambient|sound|sounds|music|scene|layer|soundtrack|sound ?board|sound effects?|sfx|thunder|rain|creak|hush|eerie|spooky|creepy|ominous|haunting|battle music)\b/i, tools: ['get_sound_now', 'play_music', 'play_ambience', 'send_scene', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes'] },
   { re: /\b(templates?|sculpt\w*)\b/i, tools: ['list_templates', 'sculpt_templates', 'sculpt', 'create_template'] },

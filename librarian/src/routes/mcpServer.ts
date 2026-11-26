@@ -10,6 +10,8 @@ import { Router, type Request, type Response } from 'express';
 import type { Deps } from '../app.ts';
 import { type Auth, resolveToken } from '../core/auth.ts';
 import { one } from '../core/db.ts';
+import { DEFAULT_SETTINGS } from '../core/policy.ts';
+import { parseJson } from '../core/util.ts';
 
 import type { McpTool } from '../features/types.ts';
 import { featureMcpTools } from '../features/registry.ts';
@@ -70,7 +72,8 @@ export default function mcpServerRoutes(d: Deps) {
     const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', auth.keyWorldId, auth.account.id);
     if (!m) return rpcError(req.body?.id, -32001, 'This key no longer has a world', 401);
     const canWrite = auth.access === 'write' && m.role === 'dm';
-    const tools = toolsFor(canWrite).filter((t) => (!t.playerOnly || m.role === 'player') && (!t.dmOnly || m.role === 'dm'));
+    const ws = { ...DEFAULT_SETTINGS, ...parseJson(one<{ settings: string }>(d.db, 'SELECT settings FROM worlds WHERE id = ?', auth.keyWorldId)?.settings ?? '{}', {}) };
+    const tools = toolsFor(canWrite).filter((t) => (!t.playerOnly || m.role === 'player') && (!t.dmOnly || m.role === 'dm') && (m.role !== 'player' || !t.playerWhen || t.playerWhen(ws)));
 
     const msg = req.body;
     if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return rpcError(msg?.id, -32600, 'Invalid request', 400);

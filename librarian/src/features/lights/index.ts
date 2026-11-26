@@ -234,5 +234,24 @@ const feature: Feature = {
     return r;
   },
   start: (d) => startPoll(d),
+  mcpTools: [
+    {
+      name: 'list_light_scenes', dmOnly: true,
+      description: "DM: the room's light scenes (colours and effects per light group) and whether any lights are set up. Run one with run_light_scene.",
+      props: {}, call: () => ({ method: 'GET', path: '/lights/scenes' }),
+    },
+    {
+      name: 'run_light_scene', write: true,
+      description: 'DM: set the room lights to a saved light scene, by name or id (from list_light_scenes). A light that is down never stops the game.',
+      props: { scene: { type: 'string', description: 'Light scene name or id' } },
+      required: ['scene'],
+      call: (a) => ({ method: 'POST', path: `/lights/scenes/${encodeURIComponent(String(a.scene))}/run` }),
+    },
+    {
+      name: 'lights_off', write: true,
+      description: 'DM: turn every room light off.',
+      props: {}, call: () => ({ method: 'POST', path: '/lights/off' }),
+    },
+  ],
 };
 export default feature;

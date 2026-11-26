@@ -162,5 +162,42 @@ const feature: Feature = {
 
     return r;
   },
+  // The assistant uses the same 0 to 100 grid as map marks (list_map_marks), so it can uncover around a pin.
+  mcpTools: [
+    {
+      name: 'get_table_display', description: "Which map, and which picture of it, the face-up table screen shows now. Its mapId and pic are what the fog tools need.",
+      props: {}, call: () => ({ method: 'GET', path: '/fog/table' }),
+    },
+    {
+      name: 'get_fog', dmOnly: true,
+      description: "DM: the fog of war on one map picture: whether it is on and the areas uncovered or covered so far (x, y, r, w, h from 0 to 1). Leave mapId and pic out for what the table screen shows (see get_table_display).",
+      props: { mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (from get_table_display; default 'none')" } },
+      call: (a) => ({ method: 'GET', path: `/fog/map/${encodeURIComponent(a.mapId ?? 'world')}?pic=${encodeURIComponent(a.pic ?? 'none')}` }),
+    },
+    {
+      name: 'set_fog', write: true,
+      description: 'DM: turn the fog of war on (the map starts fully fogged) or off for one map picture. Off keeps what was uncovered.',
+      props: { mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (default 'none')" }, enabled: { type: 'boolean' } },
+      required: ['enabled'],
+      call: (a) => ({ method: 'PUT', path: `/fog/map/${encodeURIComponent(a.mapId ?? 'world')}/enabled`, body: { pic: a.pic ?? 'none', enabled: a.enabled } }),
+    },
+    {
+      name: 'reveal_fog', write: true,
+      description: "DM: uncover (or cover again) part of a fogged map picture: a circle at x,y with radius r, a rectangle from x,y of size w by h, or all of it. Numbers are 0 to 100 across and down, the same grid as map marks, so you can uncover around a pin from list_map_marks. Fog must be on (set_fog).",
+      props: {
+        mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (default 'none')" },
+        shape: { type: 'string', enum: ['circle', 'rect', 'all'] },
+        x: { type: 'number' }, y: { type: 'number' }, r: { type: 'number', description: 'Circle radius, 0 to 100' }, w: { type: 'number' }, h: { type: 'number' },
+        cover: { type: 'boolean', description: 'true covers the area again instead of uncovering it' },
+      },
+      required: ['shape'],
+      call: (a) => {
+        const u = (v: unknown, dflt: number) => Math.max(0, Math.min(1, (Number(v ?? dflt) || 0) / 100));
+        const v = a.cover === true ? 0 : 1;
+        const op = a.shape === 'all' ? { k: 'all', v } : a.shape === 'rect' ? { k: 'r', x: u(a.x, 0), y: u(a.y, 0), w: u(a.w, 10), h: u(a.h, 10), v } : { k: 'c', x: u(a.x, 50), y: u(a.y, 50), r: Math.max(0.003, u(a.r, 10)), v };
+        return { method: 'POST', path: `/fog/map/${encodeURIComponent(a.mapId ?? 'world')}/ops`, body: { pic: a.pic ?? 'none', op } };
+      },
+    },
+  ],
 };
 export default feature;

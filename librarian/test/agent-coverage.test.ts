@@ -282,6 +282,9 @@ const ARGS: Record<string, Maker> = {
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),
+  reveal_fog: async () => { await once('fog-on', () => dm('PUT', '/fog/map/world/enabled', { pic: 'none', enabled: true })); return { shape: 'circle', x: 40, y: 50, r: 10 }; },
+  set_fog: () => ({ enabled: true }),
+  run_light_scene: () => once('light-scene', async () => (await dm('POST', '/lights/scenes', { name: 'Candlelight', color: '#ff9933', brightness: 40 })).name as string).then((scene) => ({ scene })),
   add_sheet_note: () => ({ accountId: 'jess', kind: 'goal', text: 'Find out who darkened the lighthouse.' }),
   update_sheet_note: async () => ({ accountId: 'jess', noteId: await sheetNote(), done: true }),
   // Mana is off by default: the first time a mana tool runs, it is switched on and Jessamine gets a pool.
@@ -358,6 +361,8 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['publish the session log', ['publish_session_log']],
     ['approve the coin request', ['decide_approval']],
     ['add a pin on the map', ['add_map_mark']],
+    ['uncover the room around the shrine', ['reveal_fog']],
+    ['set the lights to candlelight', ['run_light_scene']],
   ] as const) {
     const picked = selectTools(text, toolsFor(true).map((t) => t.name));
     for (const n of tools) assert.ok(picked.includes(n), `"${text}" offers ${n}: got ${picked.join(', ')}`);
@@ -423,7 +428,16 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
     assert.match(r.result, /Unknown tool/, `${t.name} is hidden from players`);
     assert.ok(!r.offered.includes(t.name), `${t.name} is not offered to a player's model`);
   }
-  const readTools = toolsFor(false).filter((t) => !t.write && !t.dmOnly);
+  // A tool the DM may open to players (playerWhen) is hidden while it is closed, and runs once it is open.
+  const gated = toolsFor(false).filter((t) => !t.write && !t.dmOnly && t.playerWhen);
+  assert.ok(gated.some((t) => t.name === 'generate_names'));
+  for (const t of gated) assert.match((await drive('jess', t.name, await argsFor(t))).result, /Unknown tool/, `${t.name} is hidden from players while it is closed`);
+  await dm('PATCH', '/settings', { quickgenPlayers: true });
+  try {
+    const r = await drive('jess', 'generate_names', { race: 'elf', count: 2, seed: 'cov' });
+    assert.ok(!FAILED.test(r.result), `generate_names runs for a player once the DM opens it: ${r.result.slice(0, 200)}`);
+  } finally { await dm('PATCH', '/settings', { quickgenPlayers: false }); }
+  const readTools = toolsFor(false).filter((t) => !t.write && !t.dmOnly && !t.playerWhen);
   const writeTools = toolsFor(true).filter((t) => t.write);
   assert.ok(readTools.length >= 30 && writeTools.length >= 30);
   // toolsFor(false) is already read only: no write tool, and no DM's playerOnly mix-up either.
