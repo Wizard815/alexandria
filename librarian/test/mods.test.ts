@@ -620,3 +620,23 @@ test('Mods: chat text in a data system names real fields; {kind.field} is the re
   assert.match(said, /Jessamine starts Iron sword \(4 days, Iron sword\)/);
   await ok('DELETE', `${M()}/studio-projects`, T.dm);
 });
+
+test('Mods: the assistant part is checked, kept in the file, and its DM guidance never reaches players', async () => {
+  const base = { kit: 2, id: 'studio-assist', name: 'Assisted', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] };
+  const good = checkMod({ ...base, assistant: { words: ['Lucky'], dm: 'SECRET DM HINT', player: 'Help them spend.', tools: ['my_spell_codex'] } });
+  assert.deepEqual(good.errors, []);
+  assert.deepEqual(good.mod!.assistant!.words, ['lucky']);
+  assert.deepEqual((toFile(good.mod!) as any).assistant.tools, ['my_spell_codex']);
+  assert.ok(impliedPermissions(good.mod!).includes('assistant.tools'));
+  assert.equal((toFile(checkMod(base).mod!) as any).assistant, undefined);
+  const bad = checkMod({ ...base, assistant: { words: ['x'], tools: ['Not A Tool'], mood: 'happy' } });
+  assert.match(bad.errors.join('\n'), /assistant\.mood is not part of assistant/);
+  assert.match(bad.errors.join('\n'), /assistant\.words\[0\]/);
+  assert.match(bad.errors.join('\n'), /assistant\.tools\[0\] must be a tool name/);
+  await ok('POST', `${M()}/import`, T.dm, { mod: toFile(good.mod!) });
+  await ok('PUT', `${M()}/studio-assist/enabled`, T.dm, { on: true });
+  assert.ok(!JSON.stringify(await ok('GET', `${M()}`, T.jess)).includes('SECRET DM HINT'));
+  assert.equal((await call('GET', `${M()}/studio-assist/file`, T.jess)).status, 403);
+  for (const id of ['spell-crafting', 'spell-points', 'mana-pool']) assert.ok(shippedMod(id)!.mod.assistant?.player, `${id} helps players`);
+  await ok('DELETE', `${M()}/studio-assist`, T.dm);
+});

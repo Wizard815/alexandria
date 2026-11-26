@@ -56,6 +56,7 @@ import { webPrecheck } from '../templates/web.ts';
 import { setGuideNotes } from './store.ts';
 import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
 import { saveProblem } from '../mods/drafts.ts';
+import { ruleHints } from '../mods/assist.ts';
 import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
@@ -832,6 +833,16 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const names = tools.map((t) => t.name);
     const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
     const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
+    // House rules that are on and that this message is about: their guidance for this person, the exact calls, what
+    // they may see, and the tools (plus feature tools a rule names). The DM's assistant and a player's helper only.
+    if (dmHarness || c.mode === 'helper') {
+      const hr = ruleHints(d.db, c.worldId, `${input.text} ${input.context.selection ?? ''}`, dmHarness, c.accountId);
+      if (hr.text) {
+        built.text += `\n\n${hr.text}`;
+        for (const n of hr.tools) if (byName.has(n)) picked.add(n);
+        if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `House rules this is about: ${hr.mods.join(', ')}.` });
+      }
+    }
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
     const soundMod = dmHarness ? await import('../sound/index.ts') : null;
     const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
