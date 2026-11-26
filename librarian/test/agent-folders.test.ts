@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
-import { chatFolder } from '../src/features/agent/store.ts';
+import { chatFolder, notesContext } from '../src/features/agent/store.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
@@ -38,6 +38,7 @@ async function boot() {
   const inv = await ok('POST', `/api/worlds/${W}/invites`, dmT, { role: 'player' });
   const jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
   const A = `/api/worlds/${W}/agent`;
+  (globalThis as any).__alxFolders = { deps: made.deps };
   return { call, ok, dmT, jess, A };
 }
 
@@ -95,4 +96,29 @@ test('AgentFolders: template chats are listed apart from the main chats', async 
   assert.deepEqual(await ids('?template=only'), [t1.id, t2.id].sort());
   assert.deepEqual(await ids('?template=tpl_abc'), [t2.id]);
   assert.equal((await ok('GET', `${A}/chats?template=only`, dmT)).chats.find((c: any) => c.id === t1.id).template, 'starter:quick-event');
+});
+
+test('AgentFolders: tossing a chat keeps a note of what it made, which the assistant is handed later', async () => {
+  const { ok, call, dmT, jess, A } = await boot();
+  const { deps } = (globalThis as any).__alxFolders;
+  const c = await ok('POST', `${A}/chats`, dmT, { title: 'Pickpocket in the market' });
+  const row = deps.db.prepare('SELECT world_id, account_id FROM agent_chats WHERE id = ?').get(c.id);
+  // A question, a finished change and a rejected one, as a real chat would have them.
+  const now = new Date().toISOString();
+  deps.db.prepare("INSERT INTO agent_messages (id, chat_id, role, content, status, created_at) VALUES ('m1', ?, 'user', ?, 'done', ?)").run(c.id, 'Make a pickpocket event for the market', now);
+  const act = deps.db.prepare("INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, summary, status, created_at) VALUES (?, ?, ?, ?, 'save_page', ?, ?, ?)");
+  act.run('a1', row.world_id, c.id, row.account_id, 'Save page "Market pickpocket"', 'done', now);
+  act.run('a2', row.world_id, c.id, row.account_id, 'Give 5 gp', 'rejected', now);
+  const { note } = await ok('POST', `${A}/chats/${c.id}/toss`, dmT, {});
+  assert.equal(note.title, 'Pickpocket in the market');
+  assert.deepEqual(note.made, ['Save page "Market pickpocket"'], 'only what was really made');
+  assert.match(note.gist, /pickpocket event/);
+  assert.equal((await call('GET', `${A}/chats/${c.id}`, dmT)).status, 404, 'the chat itself is gone');
+  assert.equal((await ok('GET', `${A}/notes`, dmT)).notes.length, 1);
+  assert.equal((await ok('GET', `${A}/notes`, jess)).notes.length, 0, 'notes are per account');
+  assert.match(notesContext(deps.db, row.world_id, row.account_id, 'dm', ''), /Pickpocket in the market.*Made: Save page "Market pickpocket"/);
+  assert.equal(notesContext(deps.db, row.world_id, row.account_id, 'dm', 'helper'), '', 'the helper keeps its own notes');
+  assert.equal((await call('DELETE', `${A}/notes/${note.id}`, jess)).status, 404, "a player cannot forget the DM's note");
+  await ok('DELETE', `${A}/notes/${note.id}`, dmT);
+  assert.equal((await ok('GET', `${A}/notes`, dmT)).notes.length, 0);
 });
