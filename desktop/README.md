@@ -107,7 +107,13 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
   Android opens the system installer (it asks once to allow installs from Alexandria, and the APK
   must be signed with the same key); Windows runs the setup in passive mode and closes; Linux
   unpacks the .tar.gz, runs its `install.sh` and restarts (an AppImage replaces itself); macOS
-  opens the .dmg to drag into Applications. The release workflow sets the app's version from
+  opens the .dmg to drag into Applications. Before installing, the Android app compares the
+  update's signing key with its own and, if they differ, tells the person to uninstall and
+  reinstall instead of letting Android fail with "App not installed".
+- **Getting builds onto the server:** Admin, App builds. "Fetch the latest release" copies every
+  platform's build from GitHub (the release workflow builds macOS on GitHub's own Macs, so no Mac
+  is needed); "Upload a build" takes a file from any computer, for example a macOS build someone
+  made on their Mac. The release workflow sets the app's version from
   `VERSION`, so the apps and the server's builds compare correctly.
 
 Not part of the root npm workspaces, and not built by the server's Docker image. The

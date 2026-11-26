@@ -8,6 +8,7 @@
 // GET    /api/apps/file/:file?t=<ticket>   the file itself (a link a browser or the app can open)
 // GET    /api/admin/apps                   admins: the builds, the release source, the last fetch
 // POST   /api/admin/apps/fetch             admins: fetch the latest GitHub release into the folder
+// PUT    /api/admin/apps/:file?version=&replace=1  admins: upload a build (the raw file as the body)
 // DELETE /api/admin/apps/:file             admins: remove a build
 //
 // Builds are copied in by "Fetch the latest release" (Admin, or ALX_APPS_AUTO_FETCH=1 every
@@ -31,6 +32,9 @@ import { RELEASE, VERSION } from '../../version.ts';
 export const DEFAULT_DOWNLOADS = 'https://github.com/Wizard815/alexandria/releases/latest';
 export const DEFAULT_REPO = 'Wizard815/alexandria';
 const TICKET_MS = 15 * 60_000;
+/** The largest build an admin can upload (ALX_APPS_MAX_MB, default 1536 MB). */
+const maxUpload = (d: Deps) => Math.max(1, Number(d.env.ALX_APPS_MAX_MB) || 1536) * 1048576;
+const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
 
 export type Platform = 'android' | 'windows' | 'macos' | 'linux';
@@ -254,6 +258,60 @@ const feature: Feature = {
       if (!root) throw new HttpError(409, 'This server has no data folder for app builds (set ALX_APPS_DIR)');
       void fetchLatest(d, root);
       res.status(202).json(fetchState());
+    });
+    // Upload a build: the file itself as the body (streamed to disk, never held in memory).
+    // ?version= overrides the version in the name; ?replace=1 removes older builds of the same
+    // platform and arch once the new one is in. Someone with a Mac can upload the macOS build.
+    r.put('/:file', requireAdmin, async (req, res, next) => {
+      const root = appsDir(d);
+      const file = String(req.params.file);
+      const part = root ? path.join(root, `${file}.part`) : '';
+      try {
+        if (!root) throw new HttpError(409, 'This server has no data folder for app builds (set ALX_APPS_DIR)');
+        // The apps install what is here, so only a person signed in as admin uploads: never a key.
+        const via = (res.locals.auth as Auth | undefined)?.via;
+        if (via !== 'session' && via !== 'admin_session') throw new HttpError(403, 'Upload builds from a signed-in admin session, not with a key');
+        const kind = NAME.test(file) ? platformOf(file) : null;
+        if (!kind) throw new HttpError(400, 'Name the file like a release build: Alexandria-<version>-android.apk, -windows-x64-setup.exe, -macos-universal.dmg or -linux-x64.tar.gz');
+        const v = String(req.query.version ?? '').trim().replace(/^v/, '');
+        if (v && !VERSION_RE.test(v)) throw new HttpError(400, 'The version must look like 1.2.3 or 1.2.3-beta.1');
+        const version = v || versionIn(file);
+        if (!version) throw new HttpError(400, 'Give the version (in the file name or as ?version=), so the apps can tell it is newer');
+        const max = maxUpload(d);
+        if (Number(req.headers['content-length'] ?? 0) > max) throw new HttpError(413, `A build can be at most ${Math.round(max / 1048576)} MB`);
+        fs.mkdirSync(root, { recursive: true });
+        const h = createHash('sha256');
+        let size = 0;
+        const out = fs.createWriteStream(part);
+        await pipeline(req, async function* (src) {
+          for await (const chunk of src as AsyncIterable<Buffer>) {
+            size += chunk.length;
+            if (size > max) throw new HttpError(413, `A build can be at most ${Math.round(max / 1048576)} MB`);
+            h.update(chunk);
+            yield chunk;
+          }
+        }, out);
+        if (!size) throw new HttpError(400, 'The file was empty');
+        const target = path.join(root, file);
+        fs.renameSync(part, target);
+        const st = fs.statSync(target);
+        const meta = readMeta(root);
+        meta[file] = { version, release: null, sha256: h.digest('hex'), size: st.size, mtimeMs: st.mtimeMs };
+        const removed: string[] = [];
+        if (req.query.replace === '1') {
+          for (const e of fs.readdirSync(root)) {
+            const k = platformOf(e);
+            if (e !== file && k && k.platform === kind.platform && k.arch === kind.arch && NAME.test(e) && !e.endsWith('.part')) { fs.rmSync(path.join(root, e), { force: true }); delete meta[e]; removed.push(e); }
+          }
+        }
+        writeMeta(root, meta);
+        const auth = res.locals.auth as Auth;
+        try { d.db.prepare('INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)').run(null, auth?.account?.id ?? null, 'apps.upload', `${file} ${version}`, now()); } catch { /* the audit is best effort */ }
+        res.status(201).json({ build: (await listBuilds(root)).find((b) => b.file === file), removed });
+      } catch (e) {
+        if (part) fs.rmSync(part, { force: true });
+        next(e);
+      }
     });
     r.delete('/:file', requireAdmin, (req, res) => {
       const root = appsDir(d);

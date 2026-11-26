@@ -45,7 +45,7 @@ before(async () => {
     if (name in fakeFetch.files) return new Response(fakeFetch.files[name], { status: 200 });
     return new Response('nope', { status: 404 });
   }) as typeof fetch;
-  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: fake, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
+  const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: fake, env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_APPS_MAX_MB: '1' } });
   deps = made.deps;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
@@ -145,4 +145,39 @@ test('AppBuilds_fetch: the latest GitHub release replaces older builds', async (
   await ok('POST', '/api/admin/apps/fetch', T.admin);
   for (let i = 0; i < 50; i++) { st = await ok('GET', '/api/admin/apps', T.admin); if (!st.fetch.running) break; await new Promise((r) => setTimeout(r, 50)); }
   assert.match(st.fetch.error, /GitHub answered 404/);
+});
+
+const put = async (file: string, data: Buffer | string, token?: string, q = '') => {
+  const r = await fetch(`${base}/api/admin/apps/${file}${q}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: data });
+  return { status: r.status, body: await r.json().catch(() => null) };
+};
+
+test('AppBuilds_upload: an admin uploads a build from any computer, the apps see it', async () => {
+  assert.equal((await put('Alexandria-0.4.0-macos-universal.dmg', 'dmg', T.pat)).status, 403, 'not for players');
+  const key = await ok('POST', '/api/keys', T.admin, { scope: 'admin', label: 'uploader' });
+  assert.equal((await put('Alexandria-0.4.0-macos-universal.dmg', 'dmg', key.key)).status, 403, 'not with a key');
+  assert.equal((await put('notes.txt', 'x', T.admin)).status, 400, 'only app files');
+  assert.equal((await put('..%2Fescape.apk', 'x', T.admin)).status, 400, 'a name never leaves the folder');
+  assert.equal((await put('Alexandria-macos-universal.dmg', 'x', T.admin)).status, 400, 'a version is needed');
+  assert.equal((await put('Alexandria-0.4.0-android.apk', '', T.admin)).status, 400, 'not empty');
+  assert.equal((await put('Alexandria-0.4.0-android.apk', Buffer.alloc(1048577), T.admin)).status, 413, 'ALX_APPS_MAX_MB');
+  assert.ok(!fs.readdirSync(apps).some((f) => f.endsWith('.part')), 'a refused upload leaves nothing behind');
+
+  const up = await put('Alexandria-macos-universal.dmg', 'mac build', T.admin, '?version=0.4.0');
+  assert.equal(up.status, 201);
+  assert.equal(up.body.build.version, '0.4.0');
+  assert.equal(up.body.build.sha256, sha('mac build'));
+  let list = await ok('GET', '/api/apps/builds', T.pat);
+  assert.equal(list.latest.macos.file, 'Alexandria-macos-universal.dmg');
+  const t = await ok('POST', '/api/apps/builds/Alexandria-macos-universal.dmg/ticket', T.pat);
+  assert.equal((await call('GET', t.url)).buf.toString(), 'mac build', 'players download what the admin uploaded');
+
+  const before = list.builds.filter((b: any) => b.platform === 'android').length;
+  assert.ok(before >= 1);
+  const apk = await put('Alexandria-0.5.0-android.apk', 'apk 0.5', T.admin, '?replace=1');
+  assert.equal(apk.status, 201);
+  assert.ok(apk.body.removed.length >= 1, 'replace=1 removes older builds of the platform');
+  list = await ok('GET', '/api/apps/builds', T.pat);
+  assert.deepEqual(list.builds.filter((b: any) => b.platform === 'android').map((b: any) => b.file), ['Alexandria-0.5.0-android.apk']);
+  assert.equal(list.latest.macos.file, 'Alexandria-macos-universal.dmg', 'other platforms are left alone');
 });

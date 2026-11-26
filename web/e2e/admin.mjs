@@ -28,7 +28,7 @@ srv.stderr.on('data', (d) => { if (process.env.E2E_VERBOSE) process.stderr.write
 for (let i = 0; i < 150 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const ROUTES = ['', 'worlds', 'accounts', 'library', 'sources', 'models', 'keys', 'access', 'audit', 'search', 'integrations',
+const ROUTES = ['', 'worlds', 'accounts', 'library', 'sources', 'models', 'keys', 'access', 'audit', 'search', 'integrations', 'apps',
   'sources?tab=worlds', 'sources?tab=keys', 'sources?tab=files', 'access?tab=permissions', 'access?tab=security', 'search?tab=mirror',
   'models?tab=session', 'models?tab=memory', 'models?tab=embeddings', 'models?tab=calls'];
 const REDIRECTS = { connections: 'sources?tab=connections', 'source-keys': 'sources?tab=keys', 'source-files': 'sources?tab=files', permissions: 'access?tab=permissions', security: 'access?tab=security', mirror: 'search?tab=mirror' };
@@ -85,6 +85,26 @@ try {
 
   const j = async (method, p, tok, body) => (await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })).json();
   const dmTok = (await j('POST', '/api/auth/login', undefined, { username: 'dm', password: 'dungeon master 123' })).token;
+
+  // ---- App builds: upload one from this computer; players see it ----
+  {
+    const { ctx, page } = await signIn({ width: 390, height: 844 }, true, 'admin (app builds)');
+    await page.goto(`${base}/admin/apps`);
+    await page.getByTestId('admin-apps').waitFor({ timeout: 10000 });
+    const f = path.join(tmp, 'Alexandria-7.0.0-macos-universal.dmg');
+    fs.writeFileSync(f, 'a mac build made on someone else\'s Mac');
+    await page.getByTestId('upload-file').setInputFiles(f);
+    check(await page.getByTestId('upload-version').inputValue() === '7.0.0', 'app builds: the version is read from the file name');
+    await page.getByTestId('upload-send').click();
+    await page.getByTestId('upload-result').waitFor({ timeout: 10000 });
+    check(/Uploaded/.test(await page.getByTestId('upload-result').textContent()), 'app builds: the upload went in');
+    check(/macOS/.test((await page.getByTestId('admin-builds').textContent()) ?? ''), 'app builds: it is listed');
+    const list = await (await fetch(base + '/api/apps/builds', { headers: { Authorization: `Bearer ${dmTok}` } })).json();
+    check(list.latest?.macos?.version === '7.0.0', 'app builds: players are offered it');
+    const wide = await page.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
+    check(wide <= 1, 'App builds fits a phone screen');
+    await ctx.close();
+  }
 
   // ---- Models → Gateway calls ----
   // The DM calls /v1 (the prompt must never show), a player is refused; the admin sees both, and today's totals vs caps, at phone width.

@@ -3,6 +3,7 @@
 // (install, the Android widget link, change server) and the public /get-app page
 // (App.tsx routes it, as it is outside any world).
 import type { WebFeature } from '../registry.ts';
+import AdminApps from './AdminApps.tsx';
 import AppPage from './AppPage.tsx';
 import BackButton from './BackButton.tsx';
 import UpdateBanner from './UpdateBanner.tsx';
@@ -15,6 +16,8 @@ const feature: WebFeature = {
   playerRoutes: [{ path: 'app', element: <AppPage /> }],
   dmNav: [{ to: 'app' }],
   playerNav: [{ to: 'app', label: 'This device', icon: 'fa-mobile-screen-button' }],
+  adminRoutes: [{ path: 'apps', element: <AdminApps /> }],
+  adminNav: [{ to: 'apps', label: 'App builds' }],
   playerHome: [YouCard],
   topbar: BackButton,
   overlay: UpdateBanner,

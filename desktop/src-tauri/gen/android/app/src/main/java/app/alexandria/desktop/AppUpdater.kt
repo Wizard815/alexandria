@@ -2,6 +2,8 @@ package app.alexandria.desktop
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.FileObserver
@@ -25,6 +27,9 @@ import java.security.MessageDigest
  * checks its SHA-256 against the server's list, and opens Android's installer, which asks the
  * person to confirm. Android keeps the app's data when the new APK is signed with the same key.
  */
+/** An update that downloaded fine but must not be installed; the message says why. */
+private class Refused(message: String) : Exception(message)
+
 class AppUpdater(private val activity: Activity) {
   private val dir = File(activity.dataDir, activity.packageName)
   private val main = Handler(Looper.getMainLooper())
@@ -98,6 +103,12 @@ class AppUpdater(private val activity: Activity) {
       } finally { c.disconnect() }
       val got = md.digest().joinToString("") { "%02x".format(it) }
       if (got != sha) { out.delete(); throw Exception("the download does not match the server's checksum") }
+      // Android installs an update only over an app signed with the same key. Say so plainly
+      // instead of letting the installer fail with "App not installed".
+      if (!sameSigner(out)) {
+        out.delete()
+        throw Refused("This update was signed with a different key than the app you have, so Android would refuse it. Uninstall Alexandria, then install the new version (you will pick the server again). Ask your DM to sign every build with the same key.")
+      }
       main.post {
         ready = out
         if (canInstall()) install(out)
@@ -107,10 +118,32 @@ class AppUpdater(private val activity: Activity) {
         }
       }
     } catch (e: Exception) {
-      notify("failed", "The update did not download: ${e.message}")
+      notify("failed", if (e is Refused) e.message ?: "" else "The update did not download: ${e.message}")
     } finally {
       running = false
     }
+  }
+
+  /** True when the downloaded APK is signed by the same certificate as this app (or it can't tell). */
+  private fun sameSigner(apk: File): Boolean = try {
+    val pm = activity.packageManager
+    @Suppress("DEPRECATION")
+    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+    val mine = signers(pm.getPackageInfo(activity.packageName, flags))
+    val theirs = pm.getPackageArchiveInfo(apk.absolutePath, flags)?.let { signers(it) }
+    when {
+      theirs == null -> false // not an APK Android can read
+      theirs.isEmpty() -> false // unsigned: Android refuses it anyway
+      mine.isEmpty() -> true
+      else -> mine.intersect(theirs).isNotEmpty()
+    }
+  } catch (_: Exception) { true }
+
+  @Suppress("DEPRECATION")
+  private fun signers(p: PackageInfo): Set<String> {
+    val sigs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) p.signingInfo?.let { if (it.hasMultipleSigners()) it.apkContentsSigners else it.signingCertificateHistory } else p.signatures
+    val md = MessageDigest.getInstance("SHA-256")
+    return sigs.orEmpty().map { s -> md.digest(s.toByteArray()).joinToString("") { "%02x".format(it) } }.toSet()
   }
 
   private fun canInstall() = Build.VERSION.SDK_INT < Build.VERSION_CODES.O || activity.packageManager.canRequestPackageInstalls()

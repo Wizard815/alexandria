@@ -58,6 +58,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | GET/HEAD | `/api/apps/file/:file?t=` | The build itself, with a ticket for it and no sign-in header (the installers and the Android app download it this way) |
 | GET | `/api/admin/apps` | Admin: the builds |
 | POST | `/api/admin/apps/fetch` | Admin: fetch the latest release's builds from GitHub (`ALX_APP_RELEASES_REPO`) in the background (202) |
+| PUT | `/api/admin/apps/:file?version=&replace=1` | Admin, signed in (not a key): upload a build, the raw file as the body (`application/octet-stream`). The name must look like a release file; `version` overrides the one in the name; `replace=1` removes older builds of the same platform and arch. 201 `{build, removed}` |
 | DELETE | `/api/admin/apps/:file` | Admin: remove a build |
 
 ## A world (`/api/worlds/:world`, id or slug)
