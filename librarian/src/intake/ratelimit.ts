@@ -47,6 +47,8 @@ export const DEFAULT_LIMITS: Record<string, { perMinute: number; perSecond: numb
   'legendkeeper-api': { perMinute: 200, perSecond: 2, perHour: LK_PER_HOUR },
   'legendkeeper-mcp': { perMinute: 200, perSecond: 2, perHour: LK_PER_HOUR },
   'worldanvil-api': { perMinute: 60, perSecond: 2, perHour: 0 },
+  'obsidian-rest': { perMinute: 600, perSecond: 20, perHour: 0 },
+  'obsidian-publish': { perMinute: 60, perSecond: 2, perHour: 0 },
   api: { perMinute: 60, perSecond: 0, perHour: 0 },
 };
 const FALLBACK = { perMinute: 60, perSecond: 0, perHour: 0 };

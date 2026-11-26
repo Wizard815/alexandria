@@ -139,7 +139,7 @@ export function workspace(d: Deps, worldId: string): Workspace {
   return { cfg, src, connector, srcCfg, ctx, close: mcp.close };
 }
 
-const isMarkdown = (w: Workspace) => w.connector?.id === 'markdown-folder';
+const isMarkdown = (w: Workspace) => ['markdown-folder', 'obsidian-sync', 'obsidian-rest'].includes(String(w.connector?.id));
 
 /** Page rows inside the workspace, as the library has them. */
 function inside(d: Deps, worldId: string, w: Workspace): any[] {
