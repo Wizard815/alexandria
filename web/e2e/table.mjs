@@ -1,6 +1,7 @@
 // End-to-end test of the DM's Table, on the demo world: every zone renders, quiet blocks shrink to a line, the world clock
 // moves and undoes, a fight shows in initiative order and Next turn moves it, a shop opens from its block, the table map
-// picker follows the table screen's choice, a hidden block stays hidden after a reload, and a phone has no sideways scroll.
+// picker follows the table screen's choice, Arrange hides, brings back and moves blocks, the time can be set with AM/PM, effects show
+// on combatants, a quick event goes out from the Table, and a phone has no sideways scroll.
 // Run from web/: npm run build && node e2e/table.mjs   (TABLE_PORT; TABLE_SHOTS=<folder> saves screenshots)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,18 +77,43 @@ try {
     note('the map block follows the table display');
   } else note('demo has no map pictures: map picker step skipped');
 
-  // 5. Hide a block; it stays hidden after a reload.
-  await page.getByRole('button', { name: 'Choose blocks' }).click();
-  await page.getByTestId('table-pick').getByRole('checkbox', { name: 'Library' }).click();
+  // 5. Arrange: hide a block, it stays hidden after a reload; bring it back; move one to another zone.
+  await page.getByTestId('table-arrange').click();
+  await page.getByTestId('tb-hide-library').click();
   check(!(await page.getByTestId('tb-library').count()), 'hide: Library still shows');
+  await page.getByTestId('table-arrange').click();
   await page.reload();
   await shows(page.getByTestId('dm-table'));
   await page.waitForTimeout(800);
   check(!(await page.getByTestId('tb-library').count()), 'hide: Library came back after a reload');
-  note('a hidden block stays hidden');
+  await page.getByTestId('table-arrange').click();
+  await page.getByTestId('tb-show-library').click();
+  check(await shows(page.getByTestId('tb-library')), 'show: Library did not come back from the hidden list');
+  await page.getByLabel('Where Dice goes').selectOption('side');
+  check(await shows(page.getByTestId('table-side').getByTestId('tb-dice')), 'arrange: Dice did not move to the side column');
+  await page.getByTestId('table-arrange').click();
+  note('arrange: hide, bring back and move a block');
+
+  // 6. Set the time with AM/PM; quick event from the Table; effects on a combatant.
+  await page.getByTestId('tb-set-time').click();
+  await page.getByLabel('Hour', { exact: true }).fill('9');
+  await page.getByLabel('Minute', { exact: true }).fill('30');
+  await page.getByRole('radio', { name: 'PM' }).click();
+  await page.getByTestId('tb-set-time-go').click();
+  await page.waitForFunction(() => /9:30 PM|21:30/.test(document.querySelector('[data-testid=tb-hour]')?.textContent ?? ''), null, { timeout: 6000 }).catch(() => problems.push('clock: Set time did not set 9:30 PM'));
+  await page.getByTestId('tb-hour').click();
+  check((await page.getByTestId('tb-hour').innerText()).includes('21:30'), 'clock: the 24-hour switch did not show 21:30');
+  const hag = (await api('GET', '/live')).combat.combatants.find((c) => c.name === 'Sea hag');
+  await api('PATCH', `/live/combatants/${hag.id}`, { effects: [{ name: 'Poisoned', rounds: 3 }] });
+  check(await shows(page.getByTestId('tb-combat').getByText('Poisoned · 3 rd')), 'combat: the effect chip is missing');
+  await page.getByTestId('tb-quick').getByLabel('Title').fill('ZZ table quick');
+  await page.getByTestId('tb-quick-send').click();
+  check(await shows(page.getByTestId('tb-quick-open').getByText('ZZ table quick')), 'quick: the event sent from the Table is not listed');
+  note('set time, AM/PM, effect chips and a quick event');
+
   if (process.env.TABLE_SHOTS) { fs.mkdirSync(process.env.TABLE_SHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.TABLE_SHOTS, 'table.png'), fullPage: true }); }
 
-  // 6. A phone: no sideways scroll.
+  // 7. A phone: no sideways scroll.
   const { page: ph } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 390, height: 844 }, true);
   await ph.goto(`${W}/dm`);
   await shows(ph.getByTestId('dm-table'));

@@ -97,5 +97,7 @@ export default feature;
   world's date, the session, who is at the table), `main` (the play: the fight, the map on the table, scenes), `side`
   (what waits on the DM: inbox, encounters, world events, messages) and `world` (shops, the party pouch, the library).
   A feature adds a block with `dmTable: [{ id, label, zone, order?, component }]`; build it with `TableCard` from
-  `ui/TableCard.tsx` and pass `quiet="..."` when there is nothing going on, so it shrinks to one line. Every block can be
-  hidden by the DM (*Choose blocks*, kept per device). `dmHome` cards still show at the top of the side column, unhideable.
+  `ui/TableCard.tsx` and pass `quiet="..."` when there is nothing going on, so it shrinks to one line. The zone and order
+  are only the defaults: in *Arrange* the DM drags blocks (or uses the arrows and place picker) to any zone, makes a block
+  wide in the top band or the world row, hides it, or brings it back. The layout is kept per device
+  (`alx.dm.table.layout.<world>`). `dmHome` cards still show at the top of the side column, unhideable.
