@@ -150,7 +150,8 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   useEffect(() => {
     if (template || !isDM || harness !== 'dm' || !tplList.length) return;
     let alive = true;
-    w.call<{ templates: { id: string; name: string }[] }>('GET', '/templates').then((r) => { if (alive) setTplNames(Object.fromEntries((r.templates ?? []).map((x) => [x.id, x.name]))); }).catch(() => {});
+    // Built-in starters come as `starters` where the server lists them; else their names are made from the id.
+    w.call<{ templates: { id: string; name: string }[]; starters?: { id: string; name: string }[] }>('GET', '/templates').then((r) => { if (alive) setTplNames(Object.fromEntries([...(r.starters ?? []), ...(r.templates ?? [])].map((x) => [x.id, x.name]))); }).catch(() => {});
     return () => { alive = false; };
   }, [w, template, isDM, harness, tplList.length]);
   useEffect(() => { refreshList(); }, [refreshList, chat?.id, chat?.busy]);
