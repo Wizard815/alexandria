@@ -1,11 +1,14 @@
 // Copied from Wizard815/DND-Spell-Tree src/tree/TreeGraph.tsx by scripts/sync-alexandria.sh: change it there.
-// The spell tree drawn as a skill tree: a root on the left, one branch per
-// school of magic running left to right through its spell levels (cantrips
-// first), then a branch for hybrid spells (two elements) and one for Others.
-// Each level is a hub on the branch's spine; its spells hang off the hub.
-// Known spells and the paths to them glow gold, spells that can be learned
-// are bright, locked ones grey, unknown ones dark. Drag to pan, wheel or
-// pinch to zoom; click (or Enter on) a spell to open it.
+// The spell tree drawn as a web of spells, the way many games draw a skill
+// tree: the character in the middle, a region for each school of magic
+// around it, and spell levels moving outward ring by ring (cantrips closest).
+// Spells link to the nearest spells one level in: inside their school, and in
+// the early rings across into the neighbouring schools too; spells that share
+// an element (fire, cold...) link across regions with that element's colour.
+// Hybrid spells wear both elements' colours. Known spells and the links
+// between them glow gold; spells that can be learned are bright, locked ones
+// dim, unknown ones dark. Drag to pan, wheel or pinch to zoom; click (or
+// Enter on) a spell to open it.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react';
 import { ELEMENT_COLOR, SCHOOL_COLOR } from './treeCss.ts';
 import type { TreeData, TreeSpell, TreeStatus } from './types.ts';
@@ -15,71 +18,114 @@ export const STATUS_LABEL: Record<TreeStatus, string> = {
 };
 const levelName = (n: number) => (n === 0 ? 'Cantrip' : `Level ${n}`);
 
-// Layout, in SVG units.
-const ROOT_X = 70;
-const TRUNK_X = 150;
-const X0 = 250; // the cantrip hub
-const COL = 245; // between level hubs
-const SUBX = [-81, -27, 27, 81]; // a level's four columns of spells, around its hub
-const ROW = 62; // between rows of spells
-const R = 18; // spell node radius
-const LANE_GAP = 46;
-
-interface Lane { key: string; title: string; color: string; spells: TreeSpell[]; hybrid?: boolean }
-interface Placed { s: TreeSpell; x: number; y: number; hubX: number; lane: number }
-interface LaneLayout { lane: Lane; y: number; top: number; bottom: number; levels: number[]; litTo: number; known: number }
+// Layout, in SVG units, around the centre (0, 0).
+const RING0 = 280; // the cantrip ring
+const STEP = 125; // between level rings
+const SPACE = 60; // the least room a spell needs along its ring
+const SUBRING = 46; // between the sub-rings of a crowded level
+// Schools next to each other share the most elements, so the web crosses where it makes sense.
+const SCHOOL_ORDER = ['Evocation', 'Conjuration', 'Transmutation', 'Abjuration', 'Divination', 'Enchantment', 'Illusion', 'Necromancy'];
+const ELEMENT_ORDER = ['Necrotic', 'Poison', 'Acid', 'Fire', 'Lightning', 'Thunder', 'Cold', 'Force', 'Radiant', 'Psychic'];
 
 const isKnown = (s: TreeSpell) => s.status === 'known' || s.status === 'gift';
+const radiusOf = (level: number) => RING0 + level * STEP;
+const nodeR = (level: number) => 14 + level * 0.9;
 
-function layout(lanes: Lane[]) {
-  const placed: Placed[] = [];
-  const out: LaneLayout[] = [];
-  let top = 30;
-  lanes.forEach((lane, li) => {
-    const by = new Map<number, TreeSpell[]>();
-    for (const s of lane.spells) by.set(s.level, [...(by.get(s.level) ?? []), s]);
-    const levels = [...by.keys()].sort((a, b) => a - b);
-    // Rows above and below the spine: four columns per level, filling outward.
-    const most = Math.max(1, ...[...by.values()].map((l) => l.length));
-    const rowsPerSide = Math.ceil(Math.ceil(most / 2) / SUBX.length);
-    const half = rowsPerSide * ROW + 14;
-    const y = top + half;
-    for (const lv of levels) {
-      const list = (by.get(lv) ?? []).sort((a, b) => Number(isKnown(b)) - Number(isKnown(a)) || a.name.localeCompare(b.name));
-      const hubX = X0 + lv * COL;
-      list.forEach((s, k) => {
-        const side = k % 2 === 0 ? -1 : 1;
-        const j = Math.floor(k / 2);
-        // Inner columns first, so a level with few spells stays close to its hub.
-        const col = [1, 2, 0, 3][j % SUBX.length];
-        const row = Math.floor(j / SUBX.length) + 1;
-        placed.push({ s, x: hubX + SUBX[col], y: y + side * (row * ROW - 14), hubX, lane: li });
-      });
-    }
-    const knownLv = lane.spells.filter(isKnown).map((s) => s.level);
-    out.push({ lane, y, top, bottom: y + half, levels, litTo: knownLv.length ? Math.max(...knownLv) : -1, known: knownLv.length });
-    top = y + half + LANE_GAP;
-  });
-  const endX = X0 + 9 * COL + 170;
-  return { placed, lanes: out, width: endX + 130, height: top, endX };
-}
+interface Node { s: TreeSpell; x: number; y: number; a: number; sector: number }
+interface Sector { name: string; color: string; a0: number; a1: number; spells: TreeSpell[]; known: number }
+interface Edge { a: Node | null; b: Node; kind: 'tree' | 'cross' | 'element'; color?: string }
 
-/** A path with the angled corners of a circuit: across, then up or down at 45°, then across. */
-const elbow = (x1: number, y1: number, x2: number, y2: number) => {
-  const dy = y2 - y1;
-  if (Math.abs(dy) < 1) return `M${x1},${y1}H${x2}`;
-  const run = Math.min(Math.abs(dy), Math.abs(x2 - x1) * 0.5);
-  const mid = x1 + (x2 - x1 - run) / 2;
-  return `M${x1},${y1}H${mid}L${mid + run},${y2}H${x2}`;
+const elemKey = (s: TreeSpell) => {
+  const i = s.lines.map((l) => ELEMENT_ORDER.indexOf(l)).filter((x) => x >= 0);
+  return i.length ? Math.min(...i) : ELEMENT_ORDER.length / 2;
 };
-/** Between two hubs: the spine splits in two and meets again, like the photo's hexagons. */
-const hex = (x1: number, x2: number, y: number) => `M${x1 + 11},${y}L${x1 + 30},${y - 17}H${x2 - 30}L${x2 - 11},${y}L${x2 - 30},${y + 17}H${x1 + 30}Z`;
+
+function layout(data: TreeData) {
+  const spells = [...data.schools.flatMap((g) => g.spells), ...data.hybrids];
+  const names = [...new Set(spells.map((s) => s.school || 'Others'))];
+  const order = [...SCHOOL_ORDER.filter((n) => names.includes(n)), ...names.filter((n) => !SCHOOL_ORDER.includes(n) && n !== 'Others').sort(), ...(names.includes('Others') ? ['Others'] : [])];
+  const weight = (n: string) => Math.max(14, spells.filter((s) => (s.school || 'Others') === n).length);
+  const total = order.reduce((a, n) => a + weight(n), 0);
+  const GAP = 0.05;
+  let a = -Math.PI / 2;
+  const sectors: Sector[] = order.map((name) => {
+    const span = (weight(name) / total) * Math.PI * 2;
+    const list = spells.filter((s) => (s.school || 'Others') === name);
+    const sec = { name, color: SCHOOL_COLOR[name] ?? SCHOOL_COLOR.Others, a0: a + GAP / 2, a1: a + span - GAP / 2, spells: list, known: list.filter(isKnown).length };
+    a += span;
+    return sec;
+  });
+  const nodes: Node[] = [];
+  sectors.forEach((sec, si) => {
+    for (let lv = 0; lv <= 9; lv++) {
+      const list = sec.spells.filter((s) => s.level === lv).sort((x, y) => elemKey(x) - elemKey(y) || x.name.localeCompare(y.name));
+      if (!list.length) continue;
+      const r = radiusOf(lv);
+      const span = sec.a1 - sec.a0;
+      const k = Math.max(1, Math.ceil((list.length * SPACE) / (span * r)));
+      // Crowded: deal the spells round-robin onto k staggered sub-rings.
+      for (let ring = 0; ring < k; ring++) {
+        const mine = list.filter((_, i) => i % k === ring);
+        const rr = r + (ring - (k - 1) / 2) * SUBRING;
+        mine.forEach((s, j) => {
+          const t = (j + 0.5 + (k > 1 ? (ring / k) - 0.5 + 0.5 / k : 0)) / mine.length;
+          const ang = sec.a0 + span * Math.max(0.02, Math.min(0.98, t));
+          nodes.push({ s, x: rr * Math.cos(ang), y: rr * Math.sin(ang), a: ang, sector: si });
+        });
+      }
+    }
+  });
+  // The web.
+  const edges: Edge[] = [];
+  const seen = new Set<string>();
+  const add = (x: Node | null, y: Node, kind: Edge['kind'], color?: string) => {
+    const key = [x?.s.id ?? 'root', y.s.id].sort().join('|');
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push({ a: x, b: y, kind, color });
+  };
+  const d = (p: Node, q: Node) => Math.hypot(p.x - q.x, p.y - q.y);
+  const nearest = (n: Node, pool: Node[]) => pool.reduce<Node | null>((best, q) => (!best || d(n, q) < d(n, best) ? q : best), null);
+  for (const n of nodes) {
+    const sameIn = nodes.filter((q) => q.sector === n.sector && q.s.level < n.s.level);
+    const lowest = !sameIn.length;
+    if (lowest) add(null, n, 'tree');
+    else {
+      const lv = Math.max(...sameIn.map((q) => q.s.level));
+      const p = nearest(n, sameIn.filter((q) => q.s.level === lv));
+      if (p) add(p, n, 'tree');
+    }
+    // Early rings reach across into the neighbouring schools.
+    if (n.s.level >= 1 && n.s.level <= 3) {
+      const other = nodes.filter((q) => q.sector !== n.sector && q.s.level === n.s.level - 1);
+      const p = nearest(n, other);
+      if (p && d(n, p) < STEP * 1.45) add(p, n, 'cross');
+    }
+    // Shared elements link across regions.
+    if (n.s.level >= 1 && n.s.lines.length) {
+      const kin = nodes.filter((q) => q.sector !== n.sector && q.s.level < n.s.level && q.s.level >= n.s.level - 2 && q.s.lines.some((l) => n.s.lines.includes(l)));
+      const p = nearest(n, kin);
+      if (p && d(n, p) < STEP * 2.6) add(p, n, 'element', ELEMENT_COLOR[p.s.lines.find((l) => n.s.lines.includes(l))!]);
+    }
+  }
+  const R9 = radiusOf(9) + SUBRING * 1.5;
+  const pad = 260;
+  return { nodes, edges, sectors, box: { x1: -R9 - pad, y1: -R9 - pad, x2: R9 + pad, y2: R9 + pad } };
+}
 
 const initials = (name: string) => {
   const w = name.replace(/[^A-Za-z' ]/g, ' ').split(/\s+/).filter((x) => x && !/^(of|the|and|to|from|with)$/i.test(x));
   return ((w[0]?.[0] ?? '') + (w[1]?.[0] ?? w[0]?.[1] ?? '')).toUpperCase();
 };
 const short = (name: string, n: number) => (name.length > n ? `${name.slice(0, n - 1)}…` : name);
+/** A gentle curve between two points, bowed around the centre like the rings. */
+const curve = (x1: number, y1: number, x2: number, y2: number) => {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const len = Math.hypot(mx, my) || 1;
+  const bow = Math.min(40, Math.hypot(x2 - x1, y2 - y1) * 0.12);
+  return `M${x1},${y1}Q${mx + (mx / len) * bow},${my + (my / len) * bow} ${x2},${y2}`;
+};
 
 export interface TreeGraphProps {
   data: TreeData;
@@ -90,17 +136,9 @@ export interface TreeGraphProps {
 }
 
 export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
-  const lanes = useMemo<Lane[]>(() => {
-    const out: Lane[] = data.schools.filter((g) => g.name !== 'Others').map((g) => ({ key: g.name, title: g.name, color: SCHOOL_COLOR[g.name] ?? SCHOOL_COLOR.Others, spells: g.spells }));
-    if (data.hybrids.length) out.push({ key: 'hybrids', title: 'Where lines meet', color: '#c9a2ff', spells: data.hybrids, hybrid: true });
-    const others = data.schools.find((g) => g.name === 'Others');
-    if (others?.spells.length) out.push({ key: 'Others', title: 'Others', color: SCHOOL_COLOR.Others, spells: others.spells });
-    return out;
-  }, [data]);
-  const L = useMemo(() => layout(lanes), [lanes]);
-  const byName = useMemo(() => new Map(L.placed.map((p) => [p.s.name, p])), [L]);
-  const picked = L.placed.find((p) => p.s.id === sel) ?? null;
-  const rootY = (L.lanes[0]?.y ?? 0) + ((L.lanes[L.lanes.length - 1]?.y ?? 0) - (L.lanes[0]?.y ?? 0)) / 2;
+  const L = useMemo(() => layout(data), [data]);
+  const byName = useMemo(() => new Map(L.nodes.map((p) => [p.s.name, p])), [L]);
+  const picked = L.nodes.find((p) => p.s.id === sel) ?? null;
 
   // ---- pan and zoom ----
   const box = useRef<HTMLDivElement>(null);
@@ -115,20 +153,19 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
     if (!el) return;
     const w = el.clientWidth;
     const h = el.clientHeight;
-    const k = clampK(Math.min(w / L.width, h / L.height));
-    setView({ k, x: (w - L.width * k) / 2, y: (h - L.height * k) / 2 });
-  }, [L.width, L.height]);
-  /** Readable size, the root at the left edge, the branch with the most known spells in the middle. */
+    const b = L.box;
+    const k = clampK(Math.min(w / (b.x2 - b.x1), h / (b.y2 - b.y1)));
+    setView({ k, x: w / 2 - ((b.x1 + b.x2) / 2) * k, y: h / 2 - ((b.y1 + b.y2) / 2) * k });
+  }, [L.box]);
+  /** The start in the middle, the first rings readable around it. */
   const home = useCallback(() => {
     const el = box.current;
     if (!el) return;
     const w = el.clientWidth;
     const h = el.clientHeight;
-    const k = w < 700 ? 0.62 : 0.8;
-    const best = [...L.lanes].sort((a, b) => b.known - a.known)[0];
-    const cy = best && best.known ? best.y : rootY;
-    setView({ k, x: 12 - (ROOT_X - 50) * k, y: h / 2 - cy * k });
-  }, [L.lanes, rootY]);
+    const k = clampK(Math.min(w, h) / (2 * (RING0 + 2.6 * STEP)));
+    setView({ k, x: w / 2, y: h / 2 });
+  }, []);
   useLayoutEffect(() => { home(); }, [home]);
 
   const zoomAt = (cx: number, cy: number, f: number) => setView((v) => {
@@ -198,10 +235,10 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
     });
   }, [picked?.s.id]);
 
-  const recipe = picked ? picked.s.from.map((n) => byName.get(n)).filter((p): p is Placed => !!p) : [];
-  // Names under the spells that matter (known, open, studying, picked); every name once zoomed in.
-  const allLabels = view.k >= 1.25;
-  const labelled = (s: TreeSpell) => view.k >= 0.42 && (allLabels || sel === s.id || isKnown(s) || s.status === 'learn' || s.status === 'studying' || s.status === 'stopped');
+  const recipe = picked ? picked.s.from.map((n) => byName.get(n)).filter((p): p is Node => !!p) : [];
+  const allLabels = view.k >= 1.15;
+  const labelled = (s: TreeSpell) => view.k >= 0.45 && (allLabels || sel === s.id || isKnown(s) || s.status === 'learn' || s.status === 'studying' || s.status === 'stopped');
+  const R9 = radiusOf(9);
 
   return (
     <div className="stg" ref={box} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
@@ -211,80 +248,75 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
         <button type="button" className="st-btn small" onClick={home}>Start</button>
         <button type="button" className="st-btn small" onClick={fit}>All</button>
       </div>
-      <svg width="100%" height="100%" role="img" aria-label={`Spell tree: ${L.placed.length} spells`}>
+      <svg width="100%" height="100%" role="img" aria-label={`Spell tree: ${L.nodes.length} spells`}>
         <defs>
-          <radialGradient id="stg-gold" cx="40%" cy="35%" r="70%"><stop offset="0" stopColor="#fff3b8" /><stop offset=".55" stopColor="#f0c040" /><stop offset="1" stopColor="#a8740c" /></radialGradient>
-          <radialGradient id="stg-open" cx="40%" cy="35%" r="70%"><stop offset="0" stopColor="#ffffff" /><stop offset=".6" stopColor="#c9ced8" /><stop offset="1" stopColor="#7d8594" /></radialGradient>
-          <radialGradient id="stg-root" cx="45%" cy="40%" r="70%"><stop offset="0" stopColor="#c8f070" /><stop offset=".7" stopColor="#3f8f1e" /><stop offset="1" stopColor="#1d4a0c" /></radialGradient>
-          <filter id="stg-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+          <radialGradient id="stg-gold" cx="40%" cy="35%" r="70%"><stop offset="0" stopColor="#ffe7a8" /><stop offset=".55" stopColor="#d9a24a" /><stop offset="1" stopColor="#8a5a1c" /></radialGradient>
+          <radialGradient id="stg-open" cx="40%" cy="35%" r="70%"><stop offset="0" stopColor="#ffffff" /><stop offset=".6" stopColor="#cfd2da" /><stop offset="1" stopColor="#80869a" /></radialGradient>
+          <radialGradient id="stg-dim" cx="40%" cy="35%" r="70%"><stop offset="0" stopColor="#6b5a45" /><stop offset="1" stopColor="#2b2219" /></radialGradient>
+          <radialGradient id="stg-core" cx="50%" cy="45%" r="60%"><stop offset="0" stopColor="#fff6c8" /><stop offset=".5" stopColor="#f0b440" /><stop offset="1" stopColor="#7a4a10" /></radialGradient>
+          <filter id="stg-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         </defs>
         <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
-          {/* The trunk from the root to every branch. */}
-          {L.lanes.map((ln, i) => (
-            <path key={`t${i}`} className={`stg-line${ln.litTo >= 0 ? ' lit' : ''}`} d={elbow(ROOT_X + 40, rootY, X0 - 12, ln.y)} />
+          {/* Faint level rings and the borders between schools. */}
+          {Array.from({ length: 10 }, (_, lv) => <circle key={`ring${lv}`} r={radiusOf(lv)} className="stg-ring" />)}
+          {L.sectors.map((sec) => (
+            <line key={`b${sec.name}`} className="stg-border" x1={(RING0 - 70) * Math.cos(sec.a0 - 0.025)} y1={(RING0 - 70) * Math.sin(sec.a0 - 0.025)} x2={(R9 + 90) * Math.cos(sec.a0 - 0.025)} y2={(R9 + 90) * Math.sin(sec.a0 - 0.025)} />
           ))}
-          {L.lanes.map((ln, li) => {
-            const hubs = Array.from({ length: 10 }, (_, lv) => lv).filter((lv) => ln.levels.includes(lv) || lv <= Math.max(...ln.levels, 0));
-            const last = hubs[hubs.length - 1] ?? 0;
+          {/* Region names. */}
+          {L.sectors.map((sec) => {
+            const mid = (sec.a0 + sec.a1) / 2;
+            const r = R9 + 150;
             return (
-              <g key={ln.lane.key} role="group" aria-label={ln.lane.title}>
-                <text className="stg-lane" x={TRUNK_X + 14} y={ln.top - 8} fill={ln.lane.color}>{ln.lane.title}</text>
-                {hubs.slice(0, -1).map((lv, i) => (
-                  <path key={`s${lv}`} className={`stg-line${ln.litTo > lv ? ' lit' : ''}`} d={hex(X0 + lv * COL, X0 + hubs[i + 1] * COL, ln.y)} fill="none" />
-                ))}
-                <path className={`stg-line${ln.litTo >= 0 && ln.known === ln.lane.spells.length ? ' lit' : ''}`} d={`M${X0 + last * COL + 11},${ln.y}H${L.endX - 44}`} />
-                {L.placed.filter((p) => p.lane === li).map((p) => (
-                  <path key={`c${p.s.id}`} className={`stg-line thin${isKnown(p.s) ? ' lit' : p.s.status === 'studying' ? ' study' : ''}`} d={`M${p.hubX},${ln.y}V${p.y}H${p.x}`} />
-                ))}
-                {hubs.map((lv) => (
-                  <g key={`h${lv}`} className={`stg-hub${ln.litTo >= lv ? ' lit' : ''}`}>
-                    <circle cx={X0 + lv * COL} cy={ln.y} r={11} />
-                    <text x={X0 + lv * COL} y={ln.y + 4} textAnchor="middle">{lv === 0 ? 'C' : lv}</text>
-                  </g>
-                ))}
-                <g className={`stg-emblem${ln.known ? ' lit' : ''}`}>
-                  <circle cx={L.endX} cy={ln.y} r={42} style={{ stroke: ln.lane.color }} />
-                  <text x={L.endX} y={ln.y + 2} textAnchor="middle" className="stg-emblem-k">{ln.known}</text>
-                  <text x={L.endX} y={ln.y + 18} textAnchor="middle" className="stg-emblem-n">of {ln.lane.spells.length}</text>
-                  <text x={L.endX + 52} y={ln.y + 5} className="stg-lane" fill={ln.lane.color}>{ln.lane.title}</text>
-                </g>
+              <g key={`n${sec.name}`} role="group" aria-label={sec.name}>
+                <text className="stg-region" x={r * Math.cos(mid)} y={r * Math.sin(mid)} fill={sec.color} textAnchor="middle">{sec.name.toUpperCase()}</text>
+                <text className="stg-region-n" x={r * Math.cos(mid)} y={r * Math.sin(mid) + 30} textAnchor="middle">{sec.known} of {sec.spells.length}</text>
+                <text className="stg-region-inner" x={(RING0 + STEP * 1.5) * Math.cos(mid)} y={(RING0 + STEP * 1.5) * Math.sin(mid)} fill={sec.color} textAnchor="middle">{sec.name}</text>
               </g>
             );
           })}
-          {/* The picked spell's recipe: dashed lines from the spells that teach it. */}
+          {/* The web. */}
+          {L.edges.map((e, i) => {
+            const ax = e.a?.x ?? 0;
+            const ay = e.a?.y ?? 0;
+            const aKnown = e.a ? isKnown(e.a.s) : true;
+            const bKnown = isKnown(e.b.s);
+            const lit = aKnown && bKnown;
+            const open = !lit && (aKnown || bKnown) && (e.b.s.status === 'learn' || e.a?.s.status === 'learn');
+            return <path key={i} className={`stg-edge ${e.kind}${lit ? ' lit' : open ? ' open' : ''}`} d={curve(ax, ay, e.b.x, e.b.y)} style={e.kind === 'element' && !lit ? { stroke: e.color } : undefined} />;
+          })}
           {picked && recipe.map((p) => <path key={`r${p.s.id}`} className="stg-recipe" d={`M${p.x},${p.y}L${picked.x},${picked.y}`} />)}
-          {L.placed.map((p) => {
+          {L.nodes.map((p) => {
             const s = p.s;
+            const r = nodeR(s.level);
             const faded = dim?.(s) ?? false;
             const pct = s.study ? Math.max(0, Math.min(1, s.study.banked / Math.max(1, s.study.needed))) : 0;
-            const circ = 2 * Math.PI * (R + 4);
+            const circ = 2 * Math.PI * (r + 5);
             const two = s.hybrid && s.lines.length >= 2;
+            const rim = L.sectors[p.sector].color;
             return (
               <g key={s.id} className={`stg-node s-${s.status}${sel === s.id ? ' sel' : ''}${faded ? ' faded' : ''}`} transform={`translate(${p.x},${p.y})`}
                 role="button" tabIndex={0} aria-label={`${s.name}, ${levelName(s.level)}, ${STATUS_LABEL[s.status]}`} aria-pressed={sel === s.id}
                 onClick={() => pick(s.id)} onKeyDown={key(s.id)}>
-                <title>{`${s.name} (${levelName(s.level)}): ${STATUS_LABEL[s.status]}`}</title>
-                {sel === s.id && <circle r={R + 9} className="stg-selring" />}
-                <circle r={R} className="stg-disc" filter={isKnown(s) || s.status === 'learn' ? 'url(#stg-glow)' : undefined} />
+                <title>{`${s.name} (${levelName(s.level)}, ${s.school}${s.lines.length ? `, ${s.lines.join(' + ')}` : ''}): ${STATUS_LABEL[s.status]}`}</title>
+                {sel === s.id && <circle r={r + 10} className="stg-selring" />}
+                <circle r={r} className="stg-disc" style={{ stroke: two ? 'transparent' : rim }} filter={isKnown(s) || s.status === 'learn' ? 'url(#stg-glow)' : undefined} />
                 {two && (
                   <>
-                    <path d={`M0,${-R - 3}A${R + 3},${R + 3} 0 0 0 0,${R + 3}`} fill="none" stroke={ELEMENT_COLOR[s.lines[0]] ?? '#999'} strokeWidth={3} />
-                    <path d={`M0,${-R - 3}A${R + 3},${R + 3} 0 0 1 0,${R + 3}`} fill="none" stroke={ELEMENT_COLOR[s.lines[1]] ?? '#999'} strokeWidth={3} />
+                    <path d={`M0,${-r}A${r},${r} 0 0 0 0,${r}`} fill="none" stroke={ELEMENT_COLOR[s.lines[0]] ?? rim} strokeWidth={3.5} />
+                    <path d={`M0,${-r}A${r},${r} 0 0 1 0,${r}`} fill="none" stroke={ELEMENT_COLOR[s.lines[1]] ?? rim} strokeWidth={3.5} />
                   </>
                 )}
-                {s.study && (
-                  <circle r={R + 4} className="stg-prog" strokeDasharray={`${pct * circ} ${circ}`} transform="rotate(-90)" />
-                )}
+                {s.study && <circle r={r + 5} className="stg-prog" strokeDasharray={`${pct * circ} ${circ}`} transform="rotate(-90)" />}
                 <text className="stg-ini" y={4} textAnchor="middle">{initials(s.name)}</text>
-                {labelled(s) && <text className="stg-name" y={R + 14} textAnchor="middle">{sel === s.id ? s.name : short(s.name, allLabels ? 14 : 11)}</text>}
+                {labelled(s) && <text className="stg-name" y={r + 14} textAnchor="middle">{sel === s.id ? s.name : short(s.name, allLabels ? 16 : 12)}</text>}
               </g>
             );
           })}
-          {/* The root: the character. */}
+          {/* The centre: the character. */}
           <g className="stg-root">
-            <circle cx={ROOT_X} cy={rootY} r={46} className="stg-root-ring" />
-            <circle cx={ROOT_X} cy={rootY} r={36} fill="url(#stg-root)" filter="url(#stg-glow)" />
-            <text x={ROOT_X} y={rootY + 9} textAnchor="middle" className="stg-root-t">✦</text>
+            <circle r={78} className="stg-root-halo" />
+            <circle r={52} fill="url(#stg-core)" filter="url(#stg-glow)" />
+            <text y={12} textAnchor="middle" className="stg-root-t">✦</text>
           </g>
         </g>
       </svg>
@@ -293,51 +325,49 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
 }
 
 export const GRAPH_CSS = `
-.stg { position: relative; height: min(76vh, 900px); min-height: 420px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;
-  background: radial-gradient(ellipse at 30% 40%, #1d1f26 0%, #0c0d11 70%); }
+.stg { position: relative; height: min(78vh, 920px); min-height: 440px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;
+  background: radial-gradient(ellipse at 50% 50%, #3a1f4a 0%, #1f1029 40%, #0d0812 85%), #0d0812; }
+.stg::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 20% 30%, rgba(160, 60, 140, .22), transparent 40%), radial-gradient(circle at 80% 70%, rgba(60, 80, 170, .2), transparent 45%); }
 .stg:active { cursor: grabbing; }
-.stg svg { display: block; }
+.stg svg { display: block; position: relative; }
 .stg-tools { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; z-index: 2; }
-.stg-tools .st-btn { background: rgba(20,20,26,.85); color: #eee; border-color: #444; min-width: 34px; }
-.stg-line { fill: none; stroke: #6f7380; stroke-width: 2.4; }
-.stg-line.thin { stroke-width: 1.8; stroke: #575b66; }
-.stg-line.lit { stroke: #f0c040; filter: drop-shadow(0 0 3px rgba(240,192,64,.7)); }
-.stg-line.study { stroke: #f0c040; stroke-dasharray: 5 5; }
-.stg-recipe { stroke: #fff; stroke-width: 2; stroke-dasharray: 3 6; fill: none; opacity: .85; }
-.stg-hub circle { fill: #16171c; stroke: #8a8e99; stroke-width: 2; }
-.stg-hub text { fill: #b9bcc6; font: 600 10px system-ui, sans-serif; }
-.stg-hub.lit circle { fill: #3a2f0c; stroke: #f0c040; }
-.stg-hub.lit text { fill: #ffe08a; }
-.stg-lane { font: 700 15px system-ui, sans-serif; letter-spacing: .03em; }
-.stg-emblem circle { fill: #141519; stroke-width: 3; opacity: .9; }
-.stg-emblem.lit circle { fill: #241d08; }
-.stg-emblem-k { fill: #fff; font: 700 20px system-ui, sans-serif; }
-.stg-emblem-n { fill: #9aa0ab; font: 11px system-ui, sans-serif; }
+.stg-tools .st-btn { background: rgba(20,14,26,.85); color: #eee; border-color: #4a3a55; min-width: 34px; }
+.stg-ring { fill: none; stroke: rgba(255,255,255,.04); stroke-width: 1; }
+.stg-border { stroke: rgba(255,255,255,.07); stroke-width: 1.5; stroke-dasharray: 4 10; }
+.stg-region { font: 700 34px Georgia, "Times New Roman", serif; letter-spacing: .08em; opacity: .9; }
+.stg-region-n { fill: #b9a9c6; font: 18px system-ui, sans-serif; }
+.stg-region-inner { font: 700 22px Georgia, serif; letter-spacing: .06em; opacity: .55; paint-order: stroke; stroke: #120c1c; stroke-width: 5px; }
+.stg-edge { fill: none; stroke: rgba(205, 180, 150, .28); stroke-width: 2; }
+.stg-edge.cross { stroke-dasharray: 2 6; stroke: rgba(205, 180, 150, .3); }
+.stg-edge.element { stroke-width: 1.6; opacity: .35; stroke-dasharray: 8 6; }
+.stg-edge.open { stroke: rgba(255,255,255,.65); stroke-width: 2.4; opacity: 1; stroke-dasharray: none; }
+.stg-edge.lit { stroke: #e9a94a; stroke-width: 3.2; opacity: 1; stroke-dasharray: none; filter: drop-shadow(0 0 4px rgba(240,170,70,.8)); }
+.stg-recipe { stroke: #fff; stroke-width: 2.2; stroke-dasharray: 3 6; fill: none; opacity: .9; }
 .stg-node { cursor: pointer; outline: none; }
-.stg-node .stg-disc { stroke-width: 2.5; }
+.stg-node .stg-disc { stroke-width: 3; }
 .stg-node .stg-ini { font: 700 12px system-ui, sans-serif; pointer-events: none; }
-.stg-node .stg-name { font: 10px system-ui, sans-serif; pointer-events: none; paint-order: stroke; stroke: #0c0d11; stroke-width: 3px; }
-.stg-node.s-known .stg-disc, .stg-node.s-gift .stg-disc { fill: url(#stg-gold); stroke: #ffe8a0; }
-.stg-node.s-gift .stg-disc { stroke: #d8b8ff; }
-.stg-node.s-known .stg-ini, .stg-node.s-gift .stg-ini { fill: #3b2500; }
-.stg-node.s-known .stg-name, .stg-node.s-gift .stg-name { fill: #ffe08a; }
-.stg-node.s-learn .stg-disc { fill: url(#stg-open); stroke: #ffffff; }
+.stg-node .stg-name { font: 11px system-ui, sans-serif; pointer-events: none; paint-order: stroke; stroke: #0d0812; stroke-width: 3px; }
+.stg-node.s-known .stg-disc, .stg-node.s-gift .stg-disc { fill: url(#stg-gold); }
+.stg-node.s-known .stg-ini, .stg-node.s-gift .stg-ini { fill: #3b2200; }
+.stg-node.s-known .stg-name, .stg-node.s-gift .stg-name { fill: #ffd98a; }
+.stg-node.s-learn .stg-disc { fill: url(#stg-open); }
 .stg-node.s-learn .stg-ini { fill: #20232b; }
-.stg-node.s-learn .stg-name { fill: #f2f4f8; font-weight: 600; }
-.stg-node.s-studying .stg-disc, .stg-node.s-stopped .stg-disc { fill: #2a2d36; stroke: #c9ced8; }
+.stg-node.s-learn .stg-name { fill: #f4f4f8; font-weight: 600; }
+.stg-node.s-studying .stg-disc, .stg-node.s-stopped .stg-disc { fill: url(#stg-dim); }
 .stg-node.s-stopped .stg-disc { stroke-dasharray: 4 3; }
-.stg-node.s-studying .stg-ini, .stg-node.s-stopped .stg-ini { fill: #f2f4f8; }
-.stg-node.s-studying .stg-name, .stg-node.s-stopped .stg-name { fill: #e6e8ee; }
-.stg-prog { fill: none; stroke: #f0c040; stroke-width: 3.5; stroke-linecap: round; }
-.stg-node.s-locked .stg-disc { fill: #2b2c33; stroke: #6a6d78; }
-.stg-node.s-locked .stg-ini { fill: #9a9ea8; }
-.stg-node.s-locked .stg-name { fill: #9a9ea8; }
-.stg-node.s-dark .stg-disc, .stg-node.s-hidden .stg-disc { fill: #121317; stroke: #2e3038; }
-.stg-node.s-dark .stg-ini, .stg-node.s-hidden .stg-ini { fill: #4a4d57; }
-.stg-node.s-dark .stg-name, .stg-node.s-hidden .stg-name { fill: #555964; }
-.stg-node:hover .stg-disc, .stg-node:focus-visible .stg-disc { stroke: #fff; stroke-width: 3.5; }
+.stg-node.s-studying .stg-ini, .stg-node.s-stopped .stg-ini { fill: #f2e6d6; }
+.stg-node.s-studying .stg-name, .stg-node.s-stopped .stg-name { fill: #f2e6d6; }
+.stg-prog { fill: none; stroke: #f0b440; stroke-width: 3.5; stroke-linecap: round; }
+.stg-node.s-locked .stg-disc { fill: url(#stg-dim); opacity: .85; }
+.stg-node.s-locked .stg-ini { fill: #c8b8a4; }
+.stg-node.s-locked .stg-name { fill: #a8998a; }
+.stg-node.s-dark .stg-disc, .stg-node.s-hidden .stg-disc { fill: #19141d; stroke: #2e2733 !important; }
+.stg-node.s-dark .stg-ini, .stg-node.s-hidden .stg-ini { fill: #4d4453; }
+.stg-node.s-dark .stg-name, .stg-node.s-hidden .stg-name { fill: #5a5060; }
+.stg-node:hover .stg-disc, .stg-node:focus-visible .stg-disc { stroke: #fff !important; stroke-width: 3.5; }
 .stg-selring { fill: none; stroke: #fff; stroke-width: 2.5; stroke-dasharray: 6 4; }
-.stg-node.faded { opacity: .14; }
-.stg-root-ring { fill: none; stroke: #f0c040; stroke-width: 3; filter: drop-shadow(0 0 6px rgba(240,192,64,.7)); }
-.stg-root-t { fill: #f8ffd8; font: 700 26px system-ui, sans-serif; }
+.stg-node.faded { opacity: .12; }
+.stg-root-halo { fill: none; stroke: rgba(240,180,64,.55); stroke-width: 2; stroke-dasharray: 3 7; }
+.stg-root-t { fill: #fffbe0; font: 700 34px system-ui, sans-serif; pointer-events: none; }
 `;
