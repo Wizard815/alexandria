@@ -31,7 +31,8 @@ export function GuideBox({ guides, phone }: { guides: GuideNote[]; phone?: boole
 export interface Act { id: string; tool: string; summary: string; call: unknown; args?: Record<string, unknown>; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
 export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
 export interface Live { text: string; status: string; queue?: string }
-export interface ChatRow { id: string; title: string; updatedAt: string }
+/** A chat in the list: `folder` is its path ('' = top level), `template` the template it was started from ('' = a main chat). */
+export interface ChatRow { id: string; title: string; updatedAt: string; folder?: string; template?: string }
 export type Item = { t: 'msg'; m: Msg } | { t: 'act'; a: Act };
 
 /** [Title] in a reply becomes a [[wikilink]] when it names a page the reply drew on. */
@@ -50,12 +51,19 @@ export interface Switcher {
   renaming: string | null; setRenaming: (v: string | null) => void;
   confirmDel: boolean; setConfirmDel: (v: boolean) => void;
   open: (id: string) => void; fresh?: () => void; rename: (id: string, title: string) => void; remove: () => void;
+  /** The open chat's title, wherever it is listed (main or template chats). */
+  titleOf?: (id: string) => string;
 }
 
-/** Switch between past chats; rename or delete the open one. */
+/** How many chats the recent dropdown lists. */
+export const RECENT = 15;
+
+/** Switch between recent chats; rename or delete the open one. */
 export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
   const { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel } = s;
   const btn = (extra: string) => (phone ? `b ${extra}`.trim() : `btn small ${extra}`.trim());
+  // The dropdown is for a session: the most recent chats only (the tree has them all).
+  const recent = list.slice(0, RECENT);
   return (
     <div className={phone ? 'row ag-chats ask-chats' : 'row ag-chats'} aria-label="Your chats" data-testid="ag-chats">
       {renaming !== null && chat ? (
@@ -69,13 +77,13 @@ export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
           <label className="grow" style={{ flex: 1, minWidth: 0 }}><span className="sr-only">Switch chat</span>
             <select style={{ width: '100%' }} value={chat?.id ?? ''} onChange={(e) => { if (e.target.value) s.open(e.target.value); }} data-testid="ag-chat-select">
               {!chat && <option value="">New chat</option>}
-              {list.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
-              {chat && !list.some((c) => c.id === chat.id) && <option value={chat.id}>New chat</option>}
+              {recent.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'}{c.folder ? ` (${c.folder})` : ''} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
+              {chat && !recent.some((c) => c.id === chat.id) && <option value={chat.id}>{s.titleOf?.(chat.id) || 'New chat'}</option>}
             </select>
           </label>
           {chat && !confirmDel && <>
             {phone && s.fresh && <button type="button" className="b" aria-label="New chat" title="New chat" disabled={busy} onClick={() => s.fresh?.()} data-testid="ag-new"><i className="fa-solid fa-plus" aria-hidden="true" /></button>}
-            <button type="button" className={btn('ghost')} aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
+            <button type="button" className={btn('ghost')} aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(s.titleOf?.(chat.id) ?? list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
             <button type="button" className={btn('ghost')} aria-label="Delete this chat" title="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
           </>}
           {chat && confirmDel && <>
