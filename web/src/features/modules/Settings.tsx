@@ -4,7 +4,10 @@ import { useState } from 'react';
 import { ErrorBox, Field, Loading, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 
-type Src = 'json' | 'zip' | 'folder' | 'git' | 'api';
+type Src = 'open5e' | 'dnd5eapi' | 'json' | 'zip' | 'folder' | 'git' | 'api';
+
+// The kinds a free source can be narrowed to, in the order the picker shows them.
+const KIND_LABELS: [string, string][] = [['spell', 'Spells'], ['monster', 'Monsters'], ['item', 'Items'], ['condition', 'Conditions'], ['other', 'Feats, backgrounds, species'], ['rule', 'Rules'], ['class', 'Classes']];
 
 const b64 = (buf: ArrayBuffer) => {
   let s = '';
@@ -88,7 +91,13 @@ export default function ModuleSettings() {
 function ImportBox({ onDone }: { onDone: () => void }) {
   const { w } = useWorld();
   const act = useAction();
-  const [src, setSrc] = useState<Src>('json');
+  const [src, setSrc] = useState<Src>('open5e');
+  const sources = useLoad<any>(() => (src === 'open5e' || src === 'dnd5eapi' ? w.call('GET', '/modules/sources') : Promise.resolve(null)), [w, src === 'open5e' || src === 'dnd5eapi']);
+  const [books, setBooks] = useState<string[]>([]);
+  const [edition, setEdition] = useState('2024');
+  const [kinds, setKinds] = useState<string[]>([]);
+  const [feed, setFeed] = useState({ spells: true, items: true });
+  const [fed, setFed] = useState<any | null>(null);
   const [req, setReq] = useState<any | null>(null);
   const [meta, setMeta] = useState({ name: '', version: '', license: '', attribution: '' });
   const [text, setText] = useState('');
@@ -100,6 +109,9 @@ function ImportBox({ onDone }: { onDone: () => void }) {
 
   const body = (): any => {
     const module = Object.fromEntries(Object.entries(meta).filter(([, v]) => v.trim()));
+    const only = kinds.length ? { kinds } : {};
+    if (src === 'open5e') return { type: 'open5e', documents: books, ...only, module };
+    if (src === 'dnd5eapi') return { type: 'dnd5eapi', edition, ...only, module };
     if (src === 'git') return { type: 'git', url, module };
     if (src === 'api') {
       const mapping = Object.fromEntries(['term', 'text', 'kind', 'summary', 'aliases', 'id'].map((k) => [k, (api as any)[k]]).filter(([, v]) => v));
@@ -124,16 +136,51 @@ function ImportBox({ onDone }: { onDone: () => void }) {
     }
   }
 
-  const ready = src === 'git' || src === 'api' ? !!url.trim() : src === 'json' ? !!(req || text.trim()) : !!req;
+  const free = src === 'open5e' || src === 'dnd5eapi';
+  const ready = src === 'open5e' ? books.length > 0 : src === 'dnd5eapi' ? true : src === 'git' || src === 'api' ? !!url.trim() : src === 'json' ? !!(req || text.trim()) : !!req;
   const payload = () => (src === 'json' && !req ? { type: 'json', json: text, module: body().module } : body());
   const doPreview = () => act.run(async () => { setDone(false); setPre(await w.call('POST', '/modules/import/preview', payload())); });
-  const doSave = () => act.run(async () => { await w.call('POST', '/modules/import', { ...payload(), replace }); setDone(true); setPre(null); onDone(); });
+  const doSave = () => act.run(async () => { const r = await w.call('POST', '/modules/import', { ...payload(), replace, ...(feed.spells || feed.items ? { feed } : {}) }); setFed(r?.fed ?? null); setDone(true); setPre(null); onDone(); });
+  const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  const docs: any[] = sources.data?.open5e?.documents ?? [];
+  const systems = [...new Set(docs.map((d) => d.gamesystem || 'Other'))];
+  const kindChoices = src === 'open5e' ? KIND_LABELS.filter(([k]) => (sources.data?.open5e?.kinds ?? []).includes(k)) : KIND_LABELS;
 
   return (
     <section className="card stack">
       <h3>Import a module</h3>
-      <Tabs label="Import from" value={src} onChange={(s) => { setSrc(s); setReq(null); setPre(null); setDone(false); }} items={[['json', 'JSON'], ['zip', 'Zip'], ['folder', 'Folder'], ['git', 'Git repo'], ['api', 'API']]} />
-      <ErrorBox error={act.error} />
+      <Tabs label="Import from" value={src} onChange={(s) => { setSrc(s); setReq(null); setPre(null); setDone(false); setKinds([]); }} items={[['open5e', 'Open5e'], ['dnd5eapi', '5e SRD API'], ['json', 'JSON'], ['zip', 'Zip'], ['folder', 'Folder'], ['git', 'Git repo'], ['api', 'API']]} />
+      <ErrorBox error={act.error ?? sources.error} />
+      {src === 'open5e' && (
+        <div className="stack tight">
+          <p className="tiny muted">Free books from <a href="https://open5e.com" target="_blank" rel="noreferrer">Open5e</a>: monsters, spells, magic items and more, each under its own open licence (shown in Credits once saved). Pick one or more.</p>
+          {sources.loading && !sources.data ? <Loading /> : sources.data?.open5e?.error ? <p className="error-box">Open5e could not be reached: {sources.data.open5e.error}</p> : systems.map((sys) => (
+            <fieldset key={sys} className="stack tight" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend className="tiny muted">{sys}</legend>
+              {docs.filter((d) => (d.gamesystem || 'Other') === sys).map((d) => (
+                <label key={d.key} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'start' }}>
+                  <input type="checkbox" checked={books.includes(d.key)} onChange={() => { setBooks(toggle(books, d.key)); setPre(null); setDone(false); }} />
+                  <span><strong>{d.name}</strong> <span className="tiny muted">{[d.publisher, d.license].filter(Boolean).join(' · ')}</span>{d.desc && <><br /><span className="tiny muted">{d.desc}</span></>}</span>
+                </label>
+              ))}
+            </fieldset>
+          ))}
+        </div>
+      )}
+      {src === 'dnd5eapi' && (
+        <div className="stack tight">
+          <p className="tiny muted">A fresh copy of the System Reference Document from the <a href="https://www.dnd5eapi.co" target="_blank" rel="noreferrer">5e SRD API</a>, as its own module. The app already has both SRDs built in; use this to pick up the API's newer fixes and additions.</p>
+          <Field label="Edition"><select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}>{(sources.data?.dnd5eapi?.editions ?? [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }]).map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+        </div>
+      )}
+      {free && (
+        <div className="stack tight">
+          <p className="tiny muted">Only some kinds (none ticked: everything)</p>
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+            {kindChoices.map(([k, label]) => <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" checked={kinds.includes(k)} onChange={() => { setKinds(toggle(kinds, k)); setPre(null); }} /> {label}</label>)}
+          </div>
+        </div>
+      )}
       {src === 'json' && (
         <>
           <Field label="JSON file"><input type="file" accept=".json,application/json" onChange={(e) => void pickFiles(e.target.files)} /></Field>
@@ -153,7 +200,7 @@ function ImportBox({ onDone }: { onDone: () => void }) {
         </div>
       )}
       <div className="stack tight">
-        <Field label="Name"><input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} placeholder="Required for zips, folders, Git and APIs" /></Field>
+        <Field label="Name"><input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} placeholder={free ? 'Optional: taken from the source' : 'Required for zips, folders, Git and APIs'} /></Field>
         <Field label="Version"><input value={meta.version} onChange={(e) => setMeta({ ...meta, version: e.target.value })} /></Field>
         <Field label="License"><input value={meta.license} onChange={(e) => setMeta({ ...meta, license: e.target.value })} placeholder="e.g. CC-BY-4.0" /></Field>
         <Field label="Credit line (shown in the app)"><textarea rows={2} value={meta.attribution} onChange={(e) => setMeta({ ...meta, attribution: e.target.value })} /></Field>
@@ -167,10 +214,13 @@ function ImportBox({ onDone }: { onDone: () => void }) {
           {pre.warnings.map((m: string, i: number) => <p key={i} className="tiny muted">{m}</p>)}
           {pre.reserved && <p className="error-box">That id belongs to a built-in module. Give the module another name.</p>}
           {pre.exists && <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Replace the module already imported with this id</label>}
+          <p className="tiny muted">Monsters go straight into the encounter builder, initiative and rules cards once the module is on.</p>
+          {(pre.counts.spell ?? 0) > 0 && <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={feed.spells} onChange={(e) => setFeed({ ...feed, spells: e.target.checked })} /> Also add its {pre.counts.spell} spells to the Codex (spell list and spell tree)</label>}
+          {(pre.counts.item ?? 0) > 0 && <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={feed.items} onChange={(e) => setFeed({ ...feed, items: e.target.checked })} /> Also add its {pre.counts.item} items to the shop's item database</label>}
           <div className="row"><button type="button" className="btn primary" disabled={act.busy || pre.reserved || (pre.exists && !replace)} onClick={() => void doSave()}>Save module</button></div>
         </div>
       )}
-      {done && <p role="status">Saved. It is on at the end of the list; reorder it above to let it win clashes.</p>}
+      {done && <p role="status">Saved. It is on at the end of the list; reorder it above to let it win clashes.{fed?.spells ? ` Codex: ${fed.spells.added} spells added${fed.spells.skipped ? `, ${fed.spells.skipped} already there` : ''}.` : ''}{fed?.items ? ` Shop: ${fed.items.added} items added${fed.items.skipped ? `, ${fed.items.skipped} already there` : ''}.` : ''}</p>}
     </section>
   );
 }
