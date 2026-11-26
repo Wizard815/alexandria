@@ -4,6 +4,9 @@ import type { WebFeature } from '../registry.ts';
 import { DMHouseRules, MyHouseRulesCard, PlayerHouseRules } from './Pages.tsx';
 import HouseRulesSettings from './Settings.tsx';
 import { RerollAction } from './shared.tsx';
+import { PromptOverlay, ViewsFor } from './System.tsx';
+
+const SheetViews = () => <ViewsFor place="sheet" />;
 
 const feature: WebFeature = {
   id: 'mods',
@@ -12,7 +15,8 @@ const feature: WebFeature = {
   dmNav: [{ to: 'house-rules' }],
   playerNav: [{ to: 'house-rules', label: 'House rules', icon: 'fa-dice' }],
   settings: { title: 'House rules', component: HouseRulesSettings },
-  playerHome: [MyHouseRulesCard],
+  playerHome: [MyHouseRulesCard, SheetViews],
+  overlay: PromptOverlay,
   chatActions: [RerollAction],
 };
 export default feature;

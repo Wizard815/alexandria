@@ -1,10 +1,15 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "downtime",
   "name": "DownTime",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Wizard",
   "summary": "Downtime activities from common to legendary. The DM presses Downtime when days pass and each player picks what to spend them on, skips, or makes a new activity. Progress, rewards and a log of what was done, when and for how long.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["clock"],
+    "worksWith": ["sheet", "table", "codex", "assistant", "inventory"]
+  },
   "options": {
     "dayHours": {
       "type": "int",

@@ -5,9 +5,12 @@
 import { type DB, all, one, run, tx as dbTx } from '../../core/db.ts';
 import { DEFAULT_SETTINGS, mergeSettings, type Role } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
-import { invalidate as invalidateGlossary } from '../modules/store.ts';
-import { shippedMod, shippedMods } from './catalog.ts';
-import { checkMod, okOption, presetValues, resolveOptions, val, type Action, type ModFile, type Resource } from './format.ts';
+import { enabledIds as gameModuleIds, invalidate as invalidateGlossary } from '../modules/store.ts';
+import { VERSION } from '../../version.ts';
+import { shippedMod, shippedMods, targetInfo } from './catalog.ts';
+import { satisfies } from './semver.ts';
+import { seedRecords } from './recstore.ts';
+import { MOD_API, checkMod, toFile, okOption, presetValues, resolveOptions, val, type Action, type ModFile, type Resource } from './format.ts';
 
 export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS mods (
@@ -58,6 +61,10 @@ export interface Installed {
   missing: string[];
   /** Preset settings this Alexandria does not have yet: skipped, and applied once they exist. */
   waiting: string[];
+  /** Why it cannot be turned on here, in plain words (empty: it can). Filled by listMods / getMod. */
+  needs: string[];
+  /** Its targets and whether this world has each. */
+  targets: { builtFor: { id: string; label: string; ok: boolean }[]; worksWith: { id: string; label: string; ok: boolean }[] };
 }
 
 const known = (k: string) => k in DEFAULT_SETTINGS;
@@ -79,7 +86,47 @@ function build(mod: ModFile, source: Installed['source'], row: any | undefined, 
     saved: parseJson(row?.saved, {}),
     missing: mod.requires.settings.filter((k) => !known(k)),
     waiting: Object.keys(mod.presets).filter((k) => !known(k)),
+    needs: [], targets: { builtFor: [], worksWith: [] },
   };
+}
+
+/** Work out, for every rule of a world, what it is missing: Alexandria or mod API version, settings, targets, the rules it needs. */
+function annotate(db: DB, worldId: string, list: Installed[]): Installed[] {
+  let games: string[] = [];
+  try { games = gameModuleIds(db, worldId); } catch { /* no game modules table yet */ }
+  const byId = new Map(list.map((m) => [m.mod.id, m]));
+  const own = new Map<string, string[]>();
+  for (const m of list) {
+    const n: string[] = [];
+    if (m.mod.alexandria && !satisfies(VERSION, m.mod.alexandria)) n.push(`Needs Alexandria ${m.mod.alexandria} (this server runs ${VERSION})`);
+    if (m.mod.api > MOD_API) n.push(`Needs mod API ${m.mod.api} (this Alexandria offers ${MOD_API})`);
+    if (m.missing.length) n.push(`Needs a part of Alexandria this server does not have yet (${m.missing.join(', ')})`);
+    m.targets = { builtFor: m.mod.targets.builtFor.map((t) => targetInfo(t, games)), worksWith: m.mod.targets.worksWith.map((t) => targetInfo(t, games)) };
+    for (const t of m.targets.builtFor) if (!t.ok) n.push(`Built for ${t.label}, which this world does not have`);
+    for (const [rid, range] of Object.entries(m.mod.requires.mods)) {
+      const r = byId.get(rid);
+      if (!r) n.push(`Needs the house rule ${rid}${range !== '*' ? ` ${range}` : ''}, which this world does not have`);
+      else if (!satisfies(r.mod.version, range)) n.push(`Needs ${r.mod.name} ${range} (this world has ${r.mod.version})`);
+    }
+    own.set(m.mod.id, n);
+  }
+  // A rule whose required rule cannot be turned on cannot be turned on either (followed a few steps; cycles stop).
+  const blocked = (id: string, seen: Set<string>): boolean => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    const m = byId.get(id);
+    if (!m) return true;
+    return own.get(id)!.length > 0 || Object.keys(m.mod.requires.mods).some((r) => blocked(r, seen));
+  };
+  for (const m of list) {
+    const n = [...own.get(m.mod.id)!];
+    for (const rid of Object.keys(m.mod.requires.mods)) {
+      const r = byId.get(rid);
+      if (r && !own.get(m.mod.id)!.some((x) => x.includes(r.mod.name)) && blocked(rid, new Set([m.mod.id]))) n.push(`Needs ${r.mod.name}, which cannot be turned on here`);
+    }
+    m.needs = n;
+  }
+  return list;
 }
 
 /** Every house rule this world could turn on: shipped ones, then its imports. */
@@ -91,10 +138,17 @@ export function listMods(db: DB, worldId: string): Installed[] {
     const { mod } = checkMod(r.json);
     if (mod) out.push(build(mod, 'imported', r));
   }
-  return out;
+  return annotate(db, worldId, out);
 }
 
 export function getMod(db: DB, worldId: string, modId: string): Installed {
+  const m = listMods(db, worldId).find((x) => x.mod.id === modId);
+  if (m) return m;
+  throw new HttpError(404, `No house rule ${String(modId).slice(0, 60)}`);
+}
+
+/** One rule without working out what it needs (cheap; for counters and actions). */
+export function getModRaw(db: DB, worldId: string, modId: string): Installed {
   const s = shippedMod(modId);
   const row = one<any>(db, 'SELECT * FROM mods WHERE world_id = ? AND id = ?', worldId, modId);
   if (s) return build(s.mod, 'shipped', row, s.feature);
@@ -133,28 +187,47 @@ function patchSettings(db: DB, worldId: string, patch: Record<string, unknown>):
   return true;
 }
 
-export interface Switched { settingsChanged: boolean; turnedOff: string[] }
+export interface Switched { settingsChanged: boolean; turnedOff: string[]; turnedOn: string[] }
 
-/** Turn a rule on or off. On: another rule of its group goes off first, then its presets are applied (old values kept). Off: the old values come back. */
-export function setEnabled(db: DB, worldId: string, modId: string, on: boolean, by: string | null): Switched {
+/**
+ * Turn a rule on or off.
+ * On: the rules it needs go on first, rules of its group or in conflict with it go off, then its presets are
+ * applied (old values kept). Off: rules that need it are refused unless `cascade` turns them off too; then
+ * the old setting values come back.
+ */
+export function setEnabled(db: DB, worldId: string, modId: string, on: boolean, by: string | null, opts: { cascade?: boolean; chain?: Set<string> } = {}): Switched {
   return tx(db, () => {
     const m = getMod(db, worldId, modId);
-    const out: Switched = { settingsChanged: false, turnedOff: [] };
+    const out: Switched = { settingsChanged: false, turnedOff: [], turnedOn: [] };
     if (on === m.enabled) return out;
+    const merge = (r: Switched) => { out.settingsChanged ||= r.settingsChanged; out.turnedOff.push(...r.turnedOff.filter((x) => !out.turnedOff.includes(x))); out.turnedOn.push(...r.turnedOn.filter((x) => !out.turnedOn.includes(x))); };
     if (on) {
-      if (m.missing.length) throw new HttpError(409, `${m.mod.name} needs a part of Alexandria this server does not have yet (${m.missing.join(', ')})`);
-      if (m.mod.group) {
-        for (const o of enabledMods(db, worldId)) {
-          if (o.mod.id !== modId && o.mod.group === m.mod.group) { const r = setEnabled(db, worldId, o.mod.id, false, by); out.settingsChanged ||= r.settingsChanged; out.turnedOff.push(o.mod.id); }
-        }
+      if (m.needs.length) throw new HttpError(409, `${m.mod.name} cannot be turned on here: ${m.needs.join('; ')}`);
+      const chain = opts.chain ?? new Set<string>();
+      chain.add(modId);
+      // The rules it builds on.
+      for (const rid of Object.keys(m.mod.requires.mods)) {
+        if (chain.has(rid)) continue;
+        const r = getMod(db, worldId, rid);
+        if (!r.enabled) { merge(setEnabled(db, worldId, rid, true, by, { chain })); out.turnedOn.push(rid); }
+      }
+      // Its group and its conflicts (either way round).
+      for (const o of enabledMods(db, worldId)) {
+        if (o.mod.id === modId || chain.has(o.mod.id)) continue;
+        const clash = (m.mod.group && o.mod.group === m.mod.group) || m.mod.conflicts.includes(o.mod.id) || o.mod.conflicts.includes(modId);
+        if (clash) { merge(setEnabled(db, worldId, o.mod.id, false, by, { cascade: true })); if (!out.turnedOff.includes(o.mod.id)) out.turnedOff.push(o.mod.id); }
       }
       const cur = worldSettings(db, worldId);
       const presets = presetValues(m.mod, m.options);
       const saved = Object.fromEntries(Object.keys(presets).filter(known).map((k) => [k, cur[k]]));
       out.settingsChanged = patchSettings(db, worldId, presets) || out.settingsChanged;
       upsert(db, worldId, modId, m.source, { enabled: true, saved }, by);
+      seedRecords(db, worldId, m);
     } else {
-      out.settingsChanged = patchSettings(db, worldId, m.saved) || out.settingsChanged;
+      const dependents = enabledMods(db, worldId).filter((o) => o.mod.requires.mods[modId]);
+      if (dependents.length && !opts.cascade) throw new HttpError(409, `${dependents.map((d) => d.mod.name).join(', ')} ${dependents.length > 1 ? 'need' : 'needs'} ${m.mod.name}: turn ${dependents.length > 1 ? 'them' : 'it'} off too`);
+      for (const d of dependents) { merge(setEnabled(db, worldId, d.mod.id, false, by, { cascade: true })); if (!out.turnedOff.includes(d.mod.id)) out.turnedOff.push(d.mod.id); }
+      out.settingsChanged = patchSettings(db, worldId, getMod(db, worldId, modId).saved) || out.settingsChanged;
       upsert(db, worldId, modId, m.source, { enabled: false, saved: {} }, by);
     }
     invalidateGlossary(db, worldId);
@@ -198,7 +271,7 @@ export function importMod(db: DB, worldId: string, raw: unknown, by: string | nu
   const n = all<any>(db, "SELECT 1 FROM mods WHERE world_id = ? AND source = 'imported'", worldId).length;
   if (!cur && n >= 50) throw new HttpError(409, 'A world holds at most 50 imported house rules');
   tx(db, () => {
-    upsert(db, worldId, mod.id, 'imported', { json: JSON.stringify(mod), options: resolveOptions(mod, parseJson(cur?.options, {})) }, by);
+    upsert(db, worldId, mod.id, 'imported', { json: JSON.stringify(toFile(mod)), options: resolveOptions(mod, parseJson(cur?.options, {})) }, by);
     // Counters of resources the new version dropped go; the rest are kept (clamped to the new max).
     const ids = new Set(mod.resources.map((r) => r.id));
     for (const r of all<any>(db, 'SELECT DISTINCT resource FROM mod_counts WHERE world_id = ? AND mod_id = ?', worldId, mod.id)) if (!ids.has(r.resource)) run(db, 'DELETE FROM mod_counts WHERE world_id = ? AND mod_id = ? AND resource = ?', worldId, mod.id, r.resource);
@@ -211,9 +284,10 @@ export function removeMod(db: DB, worldId: string, modId: string, by: string | n
   const m = getMod(db, worldId, modId);
   if (m.source !== 'imported') throw new HttpError(400, 'A house rule that comes with Alexandria can be turned off, not removed');
   tx(db, () => {
-    if (m.enabled) setEnabled(db, worldId, modId, false, by);
+    if (m.enabled) setEnabled(db, worldId, modId, false, by, { cascade: true });
     run(db, 'DELETE FROM mods WHERE world_id = ? AND id = ?', worldId, modId);
     run(db, 'DELETE FROM mod_counts WHERE world_id = ? AND mod_id = ?', worldId, modId);
+    for (const t of ['mod_records', 'mod_record_log', 'mod_prompts']) run(db, `DELETE FROM ${t} WHERE world_id = ? AND mod_id = ?`, worldId, modId);
   });
 }
 
@@ -319,7 +393,7 @@ export function readLog(db: DB, worldId: string, opts: { accountId?: string; mod
 
 /** A counter's value, whether or not the rule is on (its start value until it is first changed). */
 export function readCounter(db: DB, worldId: string, modId: string, accountId: string, resource: string): number {
-  const m = getMod(db, worldId, modId);
+  const m = getModRaw(db, worldId, modId);
   const r = m.mod.resources.find((x) => x.id === resource);
   if (!r) throw new HttpError(400, `${m.mod.name} has no ${resource}`);
   return count(db, worldId, m, accountId, r);
@@ -327,7 +401,7 @@ export function readCounter(db: DB, worldId: string, modId: string, accountId: s
 
 /** Set a counter to `next`, logged like an action. The caller has checked who may do it and the limits. */
 export function writeCounter(db: DB, worldId: string, modId: string, accountId: string, resource: string, next: number, action: string, by: string | null, note: string) {
-  const m = getMod(db, worldId, modId);
+  const m = getModRaw(db, worldId, modId);
   const r = m.mod.resources.find((x) => x.id === resource);
   if (!r) throw new HttpError(400, `${m.mod.name} has no ${resource}`);
   const before = count(db, worldId, m, accountId, r);

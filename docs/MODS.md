@@ -77,7 +77,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 
 ```json
 {
-  "kit": 1,
+  "kit": 2,
   "id": "hero-points",
   "name": "Hero points",
   "version": "1.0.0",
@@ -104,7 +104,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 
 | Part | Holds |
 | --- | --- |
-| `kit` | The format version: `1`. |
+| `kit` | The format version: `2` (files with `1` still work; the kit 2 fields are below). |
 | `id`, `name` | Required. The id is lowercase letters, digits and dashes. |
 | `version`, `author`, `summary` | Shown in World settings. |
 | `group` | Rules of one group are exclusive (`magic`). |
@@ -117,27 +117,135 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `sheet`, `dmBand`, `table` | Where the counters show: the player's card and sheet, the DM's status bar chips and actions, a Table block. |
 | `rules` | `{ term, text }`: the rule in plain words (Markdown). |
 | `presets` | World settings to set while on, e.g. `{ "spellMana": true }`. A setting this server does not have yet is skipped. |
-| `requires` | `{ settings: [...] }`: settings the rule cannot work without. |
+| `requires` | `{ settings: [...], mods: { "rule-id": "^1" } }`: settings the rule cannot work without, and other house rules it builds on with a version range. Turning it on turns those on first; turning one of them off asks to turn this one off too. |
+| `alexandria` | Kit 2: the Alexandria versions it is built for, a range like `">=0.2"`, `"^0.1"` or `">=1.2 <2"`. Outside it the rule shows why and cannot be turned on. |
+| `targets` | Kit 2: `{ builtFor: [...], worksWith: [...] }`. The parts it is made for (`sheet`, `codex`, `chat`, `table`, `combat`, `inventory`, `clock`, `map`, `shop`, `encounters`, `stage`, `assistant`, `library`, or a game module id such as `dnd-2024`) and the ones it only adds to. Shown as badges; a missing `builtFor` part keeps it off. |
+| `conflicts` | Kit 2: ids of rules that cannot be on at the same time. Turning this one on turns them off, like a `group`. |
+| `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
+| `assistant` | Kit 2: how the DM's assistant and the player helper work with the rule (see below). |
+| `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
-Limits: 64 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
+Limits: 128 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
 options. A world holds up to 50 of its own rules.
 
-## Making one with the assistant
+## Data systems: lists, progress and a popup for each player
+
+Counters cover points and tokens. A rule that has to keep lists (downtime
+activities, crafting projects, reputation with factions) uses the data-system
+parts, with no code. [`mods/examples/downtime-lite.alxmod.json`](../mods/examples/downtime-lite.alxmod.json)
+is a whole downtime system in about 60 lines.
+
+| Part | Holds |
+| --- | --- |
+| `records` | Kinds of record: `{ "<kind>": { label, plural?, owned?, title?, fields, seed? } }`. `owned`: each record belongs to one player. Fields are `"text"`, `"int"`, `"bool"`, `"enum:a\|b"`, `"ref:<kind>"` (add `?` for optional), or `{ type, label, default, min, max, values, ref }`. `seed`: ready-made records made the first time the rule goes on (not for owned kinds). |
+| `recordActions` | `{ id, label, by, record, do: create \| set \| add \| remove }` with `ask` (fields the caller fills in), `set` (fixed values), `copy: { via, fields }` (copy from the record a ref points at), `field` + `amount` (a number or `"ask"`) for add, `where` (only records like this) and `effect` (`chat`, `dmnote`). |
+| `timers` | `{ id, record, on, where, field, add, goal, done: { set, chat } }`. `on` is a rest, a session start or end, or `prompt:<id>`. `goal` is a number, an option or another field of the record. `done` runs once when the field reaches it. |
+| `prompts` | `{ id, button, title, text, choices: [{ label, action } \| { label, skip: true }] }`. The DM presses the button and every player gets a popup. A choice runs its record action for them, and `prompt:<id>` timers move only the records of players who did not skip. |
+| `views` | `{ id, title, record, place: dm \| sheet \| player, columns, where?, actions?, groupByPlayer? }`. `dm` is a tab on the DM's House rules page, `sheet` the player's sheet and home card, `player` the player's House rules page. |
+
+Chat text in a data system may use `{name}` (always the player's character),
+`{field}`, `{title}`, `{kind.field}` for the record's own field (so a field
+called `name` is `{project.name}`) and `{ref.field}` (the record a ref points
+at). The check names any placeholder that does not exist.
+
+Limits: 8 kinds, 16 fields each, 300 seed records, 24 record actions, 8
+timers, 4 prompts of up to 6 choices, 8 views. Every change is logged with
+who did it.
+
+What goes wrong: a record action whose `by` is `owner` on a shared kind can
+only be run by the DM (nobody owns it). Use `any` or `player`. Removing a rule
+deletes its records and log.
+
+![The DM's downtime tab](screenshots/house-rules/8-dm-downtime-tab.png)
+![A player's downtime popup](screenshots/house-rules/9-player-downtime-popup.png)
+
+## How the assistant and the player helper work with a rule
+
+A rule that is on is known to the DM's assistant and to each player's table
+helper without any code. When a message is about the rule (its name, its
+counters, its record kinds, its prompt button, its chat words, or the words in
+its `assistant` part), they get a short note with:
+
+- the rule's summary and the guidance written for them. The DM's text is
+  only for the DM, and the player's text only for players.
+- the exact calls they can make with it, such as
+  `house_rule_my_record {"mod":"downtime-lite","action":"start","values":{"activity":...}}`.
+- what they may see now. The DM sees every record and counter. A player sees
+  shared lists (the activities) and their own records and counters, never
+  another player's.
+
+They are also offered the house rule tools, and any feature tools the rule
+names. That is how a Codex rule hooks the assistant into the Codex:
+
+```json
+"assistant": {
+  "words": ["craft a spell", "combine spells", "spell recipe", "codex"],
+  "tools": ["my_spell_codex", "list_spell_recipes", "read_spell", "draft_spell_recipe"],
+  "player": "To help a player craft: read their codex with my_spell_codex, then list_spell_recipes; say which recipes they can make now and what each still needs.",
+  "dm": "draft_spell_recipe proposes a new recipe for the DM to approve. When a player asks to craft, check they know every spell the recipe needs."
+}
+```
+
+| Field | Holds |
+| --- | --- |
+| `words` | Up to 24 extra words or phrases (3 to 40 letters) that bring the rule up. |
+| `dm` | Guidance only the DM's assistant sees (up to 1,200 letters). |
+| `player` | Guidance only the player helper sees. Write it as advice to the helper. |
+| `tools` | Tools from features to offer with the rule (Codex: `my_spell_codex`, `read_spell`, `list_spell_recipes`, `draft_spell_recipe`, `list_spells`). A tool the server does not have is left out. |
+
+Spell crafting, spell points and the simple mana pool ship with an
+`assistant` part, and so does `mods/examples/downtime-lite.alxmod.json`. In a
+test with the real player model, a player asked their helper "what should I
+do for downtime? I want gold or contacts". The helper suggested Work a trade
+and Carouse from the rule's list. Told "a day passes", the DM's assistant
+proposed opening the Downtime day (`web/e2e/houserule-helpers-real.mjs`).
+
+What goes wrong: a word that is too common (`day`, `rest`) brings the rule
+into messages that are not about it. Use phrases. At most three rules are
+added to one message.
+
+## Making one with the assistant (the Mod studio)
 
 Under **House rules → Make or add one**, describe the rule (or pick a starter
-idea) and press **Ask the assistant**. Or describe the rule in the chat in your own words ("my players get hero points: one per
-session, spend one to add 1d6 to a roll"). The assistant writes the file,
-checks it with `house_rule_check` until it has no errors, shows it to you, and
-saves it with `house_rule_save` once you agree. It starts off; turn it on
-under Rules. You can also paste a file under **Add a house rule** and press
-**Check**.
+idea: hero points, downtime, crafting projects, spell points...) and press
+**Ask the assistant**. Or say it in the chat in your own words ("my players
+get hero points: one per session, spend one to add 1d6 to a roll").
+
+The assistant:
+
+1. reads `house_rule_guide`, which says which kind of rule fits (counters, a
+   data system, or presets for a system Alexandria already has) and gives
+   every field,
+2. opens a close example with `house_rule_file` (`hero-points`,
+   `downtime-lite`, or any rule that comes with Alexandria),
+3. writes the file and runs `house_rule_check` until it has no errors,
+4. tells you what the rule does from the check's **preview**, in plain words,
+5. saves it with `house_rule_save { draft }` once you agree. The draft id
+   from the check saves exactly the file that was checked, so nothing is
+   retyped. A save of a file that does not check is never shown to you as a
+   card.
+
+It starts off; turn it on under Rules. To change a rule, ask for the change:
+the assistant reads it with `house_rule_file`, keeps its id and raises its
+version. A rule that comes with Alexandria is copied under a new id instead.
+You can also paste a file under **Add a house rule** and press **Check**;
+**What it does** shows the same preview.
 
 ![Make or add one](screenshots/house-rules/7-dm-make-or-add-a-rule.png)
 
 Assistant tools: `house_rules` (what is on and how it works),
 `house_rule_counters`, `house_rule_grant` (DM: give a reroll for good
 roleplay, with the reason), `house_rule_spend` (a player spends their own),
-`house_rule_check` and `house_rule_save` (DM: draft and save rules).
+`house_rule_records`, `house_rule_record_act` (DM) and `house_rule_my_record`
+(a player) for data systems, `house_rule_prompt` (DM: open a downtime day),
+and `house_rule_guide`, `house_rule_file`, `house_rule_check`,
+`house_rule_save` (DM: make and change rules).
+
+Tested against the test chat model (`web/e2e/modstudio-real.mjs`, a few
+tenths of a cent a run): from one sentence each it made luck points
+(counters), crafting projects (a data system with a long-rest timer and two
+views), a full Downtime rule with tiers and the daily popup, and a copy of
+inspiration rerolls with a higher cap. Each one saved and turned on.
 
 ## Sharing
 
@@ -148,13 +256,13 @@ and for which Alexandria:
 ```json
 {
   "type": "alexandria-house-rules",
-  "kit": 1,
+  "kit": 2,
   "name": "Saltreach table rules",
   "author": "Wizard",
   "summary": "Inspiration as rerolls, Hero points",
   "exported": "2026-11-26T15:00:00.000Z",
   "alexandria": "0.1.0-alpha.1",
-  "mods": [ { "kit": 1, "id": "inspiration-rerolls", "...": "..." } ]
+  "mods": [ { "kit": 2, "id": "inspiration-rerolls", "...": "..." } ]
 }
 ```
 
@@ -176,8 +284,16 @@ only those on), `GET /rules`, `GET /counters`, `GET /log`, `POST /check`,
 those rules, or of every rule that is on), `GET /:id/export` (a package of one), `PUT /:id/enabled { on }`,
 `PUT /:id/options { options }`, `DELETE /:id` (DM only, except the reads), and
 `POST /:id/act { action, player?, resource?, note?, rollId?, channel?, atTable? }`.
+Mod studio: `GET /guide?part=start|counters|data|presets|manifest` and
+`GET /:id/file` (a rule or an example as its file), both DM only; `POST /check`
+also returns `preview` (lines) and `draft`, and `POST /import { draft }` saves
+a checked draft (an hour). Data systems: `GET /:id/records?kind&player`,
+`GET /:id/records-log`, `POST /:id/records/:action { recordId?, player?, values?, amount?, note? }`,
+`POST /:id/prompts/:prompt` (DM), `GET /prompts/open`,
+`POST /:id/prompts/round/:round/answer { choice, values? }` and
+`POST /:id/prompts/round/:round/close` (DM).
 Live events: `mods` (rules changed), `mods-counts` (to the DM and the
-player whose counters changed), `mods-note` (DM only).
+player whose counters changed), `mods-note` (DM only), `mods-records` and `mods-prompt`.
 
 ## For developers: shipping a system as a house rule
 
