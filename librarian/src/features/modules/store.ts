@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS modules_server_terms (
   data TEXT,
   PRIMARY KEY (module_id, id)
 );
+CREATE TABLE IF NOT EXISTS modules_left_out (
+  world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+  module_id TEXT NOT NULL,
+  term_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (world_id, module_id, term_id)
+);
 CREATE TABLE IF NOT EXISTS modules_world (
   world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
   enabled TEXT NOT NULL DEFAULT '[]'
@@ -222,19 +229,41 @@ export function available(db: DB, worldId: string): ModuleInfo[] {
   return out;
 }
 
-/** The enabled modules in order, with their terms merged: earlier modules win on a clash. */
+// ---- entries a world leaves out of a module ----------------------------------
+/** The term ids this world left out of one module, or of every module (keys `${moduleId}:${termId}`). */
+export function leftOut(db: DB, worldId: string, moduleId?: string): Set<string> {
+  const rows = moduleId
+    ? all<{ term_id: string }>(db, 'SELECT term_id FROM modules_left_out WHERE world_id = ? AND module_id = ?', worldId, moduleId).map((r) => r.term_id)
+    : all<{ module_id: string; term_id: string }>(db, 'SELECT module_id, term_id FROM modules_left_out WHERE world_id = ?', worldId).map((r) => `${r.module_id}:${r.term_id}`);
+  return new Set(rows);
+}
+
+/** Leave entries out of (or put them back into) this world. */
+export function setLeftOut(db: DB, worldId: string, moduleId: string, termIds: string[], out: boolean) {
+  tx(db, () => {
+    for (const t of termIds) {
+      if (out) run(db, 'INSERT INTO modules_left_out (world_id, module_id, term_id, at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', worldId, moduleId, t, now());
+      else run(db, 'DELETE FROM modules_left_out WHERE world_id = ? AND module_id = ? AND term_id = ?', worldId, moduleId, t);
+    }
+  });
+  invalidate(db, worldId);
+}
+
+/** The enabled modules in order, with their terms merged: earlier modules win on a clash. Entries the world left out are skipped (a later module's entry of the same name then shows). */
 export function worldModules(db: DB, worldId: string): WorldModules {
   const cached = caches.get(db)?.get(worldId);
   if (cached && cached.version === ver(db, worldId) + serverVer(db) * 1e6) return cached;
   const enabled: ModuleInfo[] = [];
   const terms: MergedTerm[] = [];
   const seen = new Set<string>();
+  const skip = leftOut(db, worldId);
   for (const id of enabledIds(db, worldId)) {
     const m = moduleDoc(db, worldId, id);
     if (!m) continue;
     const rank = enabled.length;
     enabled.push(m.server ? { ...info(m.doc, false, m.source), server: true } : info(m.doc, m.builtin, m.source));
     for (const t of m.doc.terms) {
+      if (skip.has(`${m.doc.id}:${t.id}`)) continue;
       const key = `${t.kind}|${t.term.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);

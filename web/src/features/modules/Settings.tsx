@@ -1,7 +1,7 @@
 // World settings → Game module: which modules are on and in what order,
 // their credits, and Import (always a preview first).
 import { useState } from 'react';
-import { ErrorBox, Field, Loading, Tabs, useAction, useToast } from '../../ui/index.tsx';
+import { ErrorBox, Field, Loading, Markdown, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 
 type Src = 'open5e' | 'dnd5eapi' | 'json' | 'zip' | 'folder' | 'git' | 'api';
@@ -23,6 +23,7 @@ export default function ModuleSettings() {
   const { toast, toastNode } = useToast();
   const enabled: any[] = mods.data?.modules ?? [];
   const off: any[] = (mods.data?.available ?? []).filter((m: any) => !enabled.some((e) => e.id === m.id));
+  const [browse, setBrowse] = useState<string | null>(null);
 
   const save = (ids: string[]) => act.run(async () => { await w.call('PUT', '/modules/enabled', { ids }); await mods.reload(); toast('Saved'); });
   const move = (i: number, d: number) => {
@@ -47,6 +48,7 @@ export default function ModuleSettings() {
                 <span><strong>{i + 1}. {m.name}</strong> <span className="tiny muted">{m.terms} terms{m.version ? ` · v${m.version}` : ''}{m.builtin ? '' : m.server ? ' · server library' : ' · imported'}</span></span>
                 {isDM && (
                   <span className="row" style={{ gap: 6 }}>
+                    <button type="button" className="btn small" onClick={() => setBrowse(browse === m.id ? null : m.id)} aria-pressed={browse === m.id}>Browse</button>
                     {!m.builtin && <button type="button" className="btn small" disabled={act.busy} title="Its spells into the Codex and its items into the shop's item database" onClick={() => void act.run(async () => { const r = await w.call('POST', '/modules/feed', { id: m.id }); toast(`Codex: ${r.fed?.spells?.added ?? 0} spells added · Shop: ${r.fed?.items?.added ?? 0} items added`); })}>Add spells &amp; items</button>}
                     <button type="button" className="btn small" disabled={act.busy || i === 0} onClick={() => move(i, -1)} aria-label={`Move ${m.name} up`}>↑</button>
                     <button type="button" className="btn small" disabled={act.busy || i === enabled.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${m.name} down`}>↓</button>
@@ -65,6 +67,7 @@ export default function ModuleSettings() {
                   <span><strong>{m.name}</strong> {m.edition && <span className="chip">5e {m.edition}</span>} <span className="tiny muted">{m.terms} terms{m.builtin ? '' : m.server ? ' · server library, no download' : ' · imported'}</span></span>
                   {isDM && (
                     <span className="row" style={{ gap: 6 }}>
+                      <button type="button" className="btn small" onClick={() => setBrowse(browse === m.id ? null : m.id)} aria-pressed={browse === m.id}>Browse</button>
                       <button type="button" className="btn small" disabled={act.busy} onClick={() => void save([...enabled.map((x) => x.id), m.id])}>Turn on</button>
                       {!m.builtin && !m.server && <button type="button" className="btn small" disabled={act.busy} onClick={() => { if (confirm(`Delete ${m.name} from this world?`)) void act.run(async () => { await w.call('DELETE', `/modules/imported/${encodeURIComponent(m.id)}`); await mods.reload(); }); }}>Delete</button>}
                     </span>
@@ -73,6 +76,8 @@ export default function ModuleSettings() {
               ))}
             </section>
           )}
+
+          {isDM && browse && <ModuleBrowser key={browse} id={browse} onClose={() => setBrowse(null)} />}
 
           <section className="card stack">
             <h3>Credits</h3>
@@ -222,6 +227,62 @@ function ImportBox({ onDone }: { onDone: () => void }) {
         </div>
       )}
       {done && <p role="status">Saved. It is on at the end of the list; reorder it above to let it win clashes.{fed?.spells ? ` Codex: ${fed.spells.added} spells added${fed.spells.skipped ? `, ${fed.spells.skipped} already there` : ''}.` : ''}{fed?.items ? ` Shop: ${fed.items.added} items added${fed.items.skipped ? `, ${fed.items.skipped} already there` : ''}.` : ''}</p>}
+    </section>
+  );
+}
+
+const KIND_TABS: [string, string][] = [['', 'All'], ['spell', 'Spells'], ['monster', 'Monsters'], ['item', 'Items'], ['condition', 'Conditions'], ['rule', 'Rules'], ['class', 'Classes'], ['action', 'Actions'], ['other', 'Other']];
+
+/** Everything in one module, searchable; the DM can read an entry and leave it out of this world (or put it back). */
+export function ModuleBrowser({ id, onClose }: { id: string; onClose: () => void }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const [q, setQ] = useState('');
+  const [kind, setKind] = useState('');
+  const [onlyOut, setOnlyOut] = useState(false);
+  const [limit, setLimit] = useState(50);
+  const [open, setOpen] = useState<any | null>(null);
+  const qs = new URLSearchParams({ ...(q.trim() ? { q: q.trim() } : {}), ...(kind ? { kind } : {}), ...(onlyOut ? { left: '1' } : {}), limit: String(limit) }).toString();
+  const list = useLoad<any>(() => w.call('GET', `/modules/browse/${encodeURIComponent(id)}?${qs}`), [w, id, qs], ['modules']);
+  const d = list.data;
+  const toggle = (t: any) => act.run(async () => {
+    await w.call('PUT', '/modules/left-out', { module: id, terms: [t.id], out: !t.leftOut });
+    await list.reload();
+    if (open?.id === t.id) setOpen({ ...open, leftOut: !t.leftOut });
+  });
+  const read = (t: any) => act.run(async () => setOpen(open?.id === t.id ? null : await w.call('GET', `/modules/browse/${encodeURIComponent(id)}/${encodeURIComponent(t.id)}`)));
+  const kinds = KIND_TABS.filter(([k]) => !k || (d?.counts?.[k] ?? 0) > 0);
+
+  return (
+    <section className="card stack" aria-label={`Browse ${d?.module?.name ?? id}`}>
+      <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <h3>{d?.module?.name ?? 'Module'}</h3>
+        <button type="button" className="btn small" onClick={onClose}>Close</button>
+      </div>
+      <p className="tiny muted">Leave out anything you don't want in this world: it stops showing in rules lookups, cards, highlights, the encounter builder and initiative, and won't be added to the Codex or the shop. If another module that's on has an entry with the same name, that one shows instead. Copies already added to the Codex or the shop stay there; remove them in the Codex or the shop.{d?.leftOut ? ` ${d.leftOut} left out so far.` : ''}</p>
+      <ErrorBox error={list.error ?? act.error} />
+      <input type="search" className="input" placeholder="Find in this module" aria-label="Find in this module" value={q} onChange={(e) => { setQ(e.target.value); setLimit(50); }} />
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {kinds.map(([k, label]) => <button key={k || 'all'} type="button" className={`btn small${kind === k ? ' primary' : ''}`} aria-pressed={kind === k} onClick={() => { setKind(k); setLimit(50); }}>{label}{k && d?.counts?.[k] ? ` ${d.counts[k]}` : ''}</button>)}
+        <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={onlyOut} onChange={(e) => setOnlyOut(e.target.checked)} /> Only left out</label>
+      </div>
+      {list.loading && !d ? <Loading /> : (
+        <div className="stack tight">
+          {d?.terms?.length === 0 && <p className="muted">Nothing matches.</p>}
+          {d?.terms?.map((t: any) => (
+            <div key={t.id} className="stack tight" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 6, opacity: t.leftOut ? 0.6 : 1 }}>
+              <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn ghost small" style={{ textAlign: 'left' }} aria-expanded={open?.id === t.id} onClick={() => void read(t)}>
+                  <strong style={{ textDecoration: t.leftOut ? 'line-through' : undefined }}>{t.term}</strong> <span className="chip">{t.kind}</span>{t.leftOut && <> <span className="chip">left out</span></>}
+                </button>
+                <button type="button" className="btn small" disabled={act.busy} onClick={() => void toggle(t)}>{t.leftOut ? 'Put back' : 'Leave out'}</button>
+              </div>
+              {open?.id === t.id ? <div className="tiny"><Markdown text={open.text || open.summary} /></div> : <span className="tiny muted">{t.summary}</span>}
+            </div>
+          ))}
+          {d && d.total > (d.terms?.length ?? 0) && <button type="button" className="btn small" onClick={() => setLimit(limit + 100)}>Show more ({d.total - d.terms.length} more)</button>}
+        </div>
+      )}
     </section>
   );
 }
