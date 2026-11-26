@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DB } from '../core/db.ts';
 import { registerSettings } from '../core/policy.ts';
 import type { Feature } from './types.ts';
-import { addHouseRules } from './mods/catalog.ts';
+import { addHouseRules, setFeatureIds } from './mods/catalog.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +32,8 @@ export const FEATURES: Feature[] = await load();
 for (const f of FEATURES) if (f.settings) registerSettings(f.id, f.settings);
 // House rules the features ship (spell points, spell crafting, ...), checked once; a bad one stops the start like a bad feature.
 for (const f of FEATURES) if (f.houseRules?.length) addHouseRules(f.id, f.houseRules);
+// The parts of Alexandria a house rule can be built for (targets.builtFor).
+setFeatureIds(FEATURES.map((f) => f.id));
 
 /** Tables and columns for every feature. Called by createApp after openDb. */
 export function applyFeatureSchemas(db: DB) {

@@ -1,11 +1,15 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "spell-points",
   "name": "Spell points",
   "version": "1.0.0",
   "author": "Alexandria",
   "group": "magic",
   "summary": "The standard spell points variant: every character casts from a pool of points instead of spell slots. Pool by caster level (full caster table), cost by spell level, full refill on a long rest.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex", "sheet"]
+  },
   "presets": {
     "spellMana": true,
     "spellManaName": "Spell points",

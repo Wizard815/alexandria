@@ -76,7 +76,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 
 ```json
 {
-  "kit": 1,
+  "kit": 2,
   "id": "hero-points",
   "name": "Hero points",
   "version": "1.0.0",
@@ -103,7 +103,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 
 | Part | Holds |
 | --- | --- |
-| `kit` | The format version: `1`. |
+| `kit` | The format version: `2` (files with `1` still work; the kit 2 fields are below). |
 | `id`, `name` | Required. The id is lowercase letters, digits and dashes. |
 | `version`, `author`, `summary` | Shown in World settings. |
 | `group` | Rules of one group are exclusive (`magic`). |
@@ -116,7 +116,12 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `sheet`, `dmBand`, `table` | Where the counters show: the player's card and sheet, the DM's status bar chips and actions, a Table block. |
 | `rules` | `{ term, text }`: the rule in plain words (Markdown). |
 | `presets` | World settings to set while on, e.g. `{ "spellMana": true }`. A setting this server does not have yet is skipped. |
-| `requires` | `{ settings: [...] }`: settings the rule cannot work without. |
+| `requires` | `{ settings: [...], mods: { "rule-id": "^1" } }`: settings the rule cannot work without, and other house rules it builds on with a version range. Turning it on turns those on first; turning one of them off asks to turn this one off too. |
+| `alexandria` | Kit 2: the Alexandria versions it is built for, a range like `">=0.2"`, `"^0.1"` or `">=1.2 <2"`. Outside it the rule shows why and cannot be turned on. |
+| `targets` | Kit 2: `{ builtFor: [...], worksWith: [...] }`. The parts it is made for (`sheet`, `codex`, `chat`, `table`, `combat`, `inventory`, `clock`, `map`, `shop`, `encounters`, `stage`, `assistant`, `library`, or a game module id such as `dnd-2024`) and the ones it only adds to. Shown as badges; a missing `builtFor` part keeps it off. |
+| `conflicts` | Kit 2: ids of rules that cannot be on at the same time. Turning this one on turns them off, like a `group`. |
+| `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
+| `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
 Limits: 64 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
 options. A world holds up to 50 of its own rules.

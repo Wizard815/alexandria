@@ -1,11 +1,15 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "mana-system",
   "name": "MANA spell system",
   "version": "1.0.0",
   "author": "Wizard",
   "group": "magic",
   "summary": "Spells cost mana from a pool by caster type, with study, spell lines, surge casting and dual casting. Replaces spell slots for every character.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex", "sheet"]
+  },
   "presets": {
     "spellMana": true,
     "spellRulesOn": true,

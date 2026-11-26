@@ -12,14 +12,16 @@ import { only } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, settingsFor, type Role } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, names } from '../../routes/_shared.ts';
-import { addTermSource } from '../modules/store.ts';
+import { addTermSource, enabledIds as gameModuleIds } from '../modules/store.ts';
+import { targetInfo } from './catalog.ts';
+import { satisfies } from './semver.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
 import { addCommandResolver, latestRoll, postChat, rollMessage } from '../sessionchat/hooks.ts';
 import type { Feature } from '../types.ts';
 import { VERSION } from '../../version.ts';
-import { MAX_PACKAGE, commandActions, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
+import { MAX_PACKAGE, MOD_API, PERMISSIONS, commandActions, impliedPermissions, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
 import {
-  SCHEMA, act, counters, enabledMods, getMod, importMod, listMods, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
+  SCHEMA, act, counters, enabledMods, getMod, getModRaw, importMod, listMods, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
   type Actor, type Installed,
 } from './store.ts';
 
@@ -36,7 +38,8 @@ function view(m: Installed, dm: boolean) {
     actions: mod.actions.map((a) => ({ id: a.id, label: a.label, by: a.by, resource: a.resource, askReason: a.askReason, reroll: a.effect?.reroll?.whose ?? null })),
     commands: commandActions(mod).map((c) => `/${c.word}${c.arg ? ` ${c.arg}` : ''}`),
     sheet: mod.sheet, dmBand: mod.dmBand, table: mod.table, rules: mod.rules,
-    ...(dm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting } : {}),
+    kit: mod.kit, targets: m.targets, requires: mod.requires.mods, conflicts: mod.conflicts,
+    ...(dm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting, needs: m.needs, alexandria: mod.alexandria || null, api: mod.api, permissions: impliedPermissions(mod).map((k) => PERMISSIONS[k]) } : {}),
   };
 }
 
@@ -109,10 +112,20 @@ function routes(d: Deps) {
     if (!mods.length) { res.json({ ok: false, errors }); return; }
     const notes: string[] = [];
     const have = listMods(db, W(res));
+    let games: string[] = [];
+    try { games = gameModuleIds(db, W(res)); } catch { /* none */ }
     for (const mod of mods) {
       const at = mods.length > 1 ? `${mod.id}: ` : '';
       for (const k of Object.keys(mod.presets)) if (!(k in DEFAULT_SETTINGS)) notes.push(`${at}presets.${k} is not a setting of this Alexandria yet; it is skipped until it exists`);
       for (const k of mod.requires.settings) if (!(k in DEFAULT_SETTINGS)) notes.push(`${at}requires ${k}, which this Alexandria does not have: the rule cannot be turned on here yet`);
+      if (mod.alexandria && !satisfies(VERSION, mod.alexandria)) notes.push(`${at}built for Alexandria ${mod.alexandria}; this server runs ${VERSION}, so it cannot be turned on here`);
+      if (mod.api > MOD_API) notes.push(`${at}needs mod API ${mod.api}; this Alexandria offers ${MOD_API}`);
+      for (const t of mod.targets.builtFor.map((x) => targetInfo(x, games))) if (!t.ok) notes.push(`${at}built for ${t.label}, which this world does not have: it cannot be turned on here`);
+      for (const [rid, range] of Object.entries(mod.requires.mods)) {
+        const r = have.find((m) => m.mod.id === rid)?.mod ?? mods.find((m) => m.id === rid);
+        if (!r) notes.push(`${at}needs the house rule ${rid}, which this world does not have yet: add it too`);
+        else if (!satisfies(r.version, range)) notes.push(`${at}needs ${r.name} ${range}, but the one here is ${r.version}`);
+      }
       const taken = have.find((m) => m.mod.id === mod.id);
       if (taken) notes.push(taken.source === 'shipped' ? `${at}the id ${mod.id} belongs to a rule that comes with Alexandria: pick another id` : `${at}saving replaces the world's rule ${mod.id} (counters of kept resources stay)`);
     }
@@ -150,11 +163,11 @@ function routes(d: Deps) {
   r.put('/:id/enabled', requireDM, (req, res) => {
     if (typeof req.body?.on !== 'boolean') throw new HttpError(400, 'on must be true or false');
     const id = String(req.params.id);
-    const out = setEnabled(db, W(res), id, req.body.on, me(res));
-    audit(db, W(res), me(res), req.body.on ? 'mods.on' : 'mods.off', [id, ...out.turnedOff.map((x) => `-${x}`)].join(','));
+    const out = setEnabled(db, W(res), id, req.body.on, me(res), { cascade: req.body.cascade === true });
+    audit(db, W(res), me(res), req.body.on ? 'mods.on' : 'mods.off', [id, ...out.turnedOn.map((x) => `+${x}`), ...out.turnedOff.map((x) => `-${x}`)].join(','));
     changedList(W(res));
     if (out.settingsChanged) changedSettings(W(res));
-    res.json({ ...view(getMod(db, W(res), id), true), turnedOff: out.turnedOff });
+    res.json({ ...view(getMod(db, W(res), id), true), turnedOff: out.turnedOff, turnedOn: out.turnedOn });
   });
 
   r.put('/:id/options', requireDM, (req, res) => {
@@ -203,7 +216,7 @@ function routes(d: Deps) {
    */
   r.post('/:id/act', requirePlayerOrDM, (req, res) => {
     const w = W(res);
-    const m = getMod(db, w, String(req.params.id));
+    const m = getModRaw(db, w, String(req.params.id));
     const b = req.body ?? {};
     const who = actor(res);
     const target = b.player === undefined && who.role === 'player' ? who.accountId : findPlayer(db, w, b.player);

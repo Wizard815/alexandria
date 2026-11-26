@@ -23,7 +23,13 @@ export interface HouseRule {
   table: { title: string; actions: string[] } | null;
   rules: { term: string; text: string }[];
   presets?: Record<string, unknown>; missing?: string[]; waiting?: string[];
+  kit: number;
+  targets: { builtFor: Target[]; worksWith: Target[] };
+  requires: Record<string, string>; conflicts: string[];
+  /** DM only: why it cannot be turned on here, the Alexandria range, the mod API and what it touches. */
+  needs?: string[]; alexandria?: string | null; api?: number; permissions?: string[];
 }
+export interface Target { id: string; label: string; ok: boolean }
 export interface Counter { id: string; label: string; icon: string; value: number; max: number | null; private: boolean }
 export interface PlayerCounters { accountId: string; name: string; mods: Record<string, Counter[]> }
 export interface LogLine { id: string; modId: string; accountId: string; resource: string; before: number; after: number; action: string; by: string | null; note: string; at: string }

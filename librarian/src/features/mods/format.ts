@@ -6,7 +6,28 @@
 // whole system such as spell points or MANA turns on with one switch).
 // Pure: no database. See docs/MODS.md.
 
-export const KIT_VERSION = 1;
+import { parseRange, parseVer } from './semver.ts';
+export const KIT_VERSION = 2;
+/** The mod API version this Alexandria offers (code mods, see the Workshop design). */
+export const MOD_API = 1;
+/** What a mod may touch. Data rules get theirs from the parts they use (impliedPermissions). */
+export const PERMISSIONS = {
+  'chat.post': 'Post in session chat',
+  'chat.commands': 'Add chat words like /reroll',
+  'chat.buttons': 'Add buttons under chat messages',
+  'sheet.card': 'Show a card on the player sheet',
+  'sheet.write': 'Change the player sheet',
+  'dmband': 'Show chips on the DM status bar',
+  'table': 'Add a block to the DM Table',
+  'clock.read': 'Run on rests and sessions',
+  'clock.write': 'Move the world clock',
+  'settings.write': 'Change world settings while on',
+  'glossary': 'Add rule text to the glossary',
+  'assistant.tools': 'Give the assistant tools',
+  'records': 'Keep its own lists',
+  'net': 'Reach the internet',
+} as const;
+export type Permission = keyof typeof PERMISSIONS;
 export const MAX_JSON = 64_000;
 const MAX = { options: 16, resources: 12, actions: 24, triggers: 12, commands: 8, rules: 12, presets: 24, args: 8 };
 
@@ -37,7 +58,8 @@ export type When = 'longRest' | 'shortRest' | 'sessionStart' | 'sessionEnd';
 export interface Trigger { on: When; resource: string; set?: Num | 'max'; add?: Num }
 export interface Command { word: string; args: string[]; action: string }
 export interface Rule { term: string; text: string }
-export interface Requires { settings: string[] }
+export interface Requires { settings: string[]; /** Other house rules it builds on: id → version range. */ mods: Record<string, string> }
+export interface Targets { /** Parts of Alexandria or game modules it is made for: it cannot be turned on without them. */ builtFor: string[]; /** Ones it adds to when present. */ worksWith: string[] }
 
 export interface ModFile {
   kit: number;
@@ -60,6 +82,14 @@ export interface ModFile {
   /** World settings to set while the mod is on (values may be "$option"); restored when it goes off. */
   presets: Record<string, unknown>;
   requires: Requires;
+  /** Kit 2: the Alexandria versions it is built for (a range like ">=0.2"), '' for any. */
+  alexandria: string;
+  /** Kit 2: the mod API version it was written against (0 = none, a data rule). */
+  api: number;
+  targets: Targets;
+  /** Rules that cannot be on at the same time (they are turned off when this one goes on). */
+  conflicts: string[];
+  permissions: Permission[];
 }
 
 export interface Checked { mod: ModFile | null; errors: string[] }
@@ -105,9 +135,9 @@ export function checkMod(raw: unknown): Checked {
     return v.slice(0, max);
   };
 
-  if (o.kit !== undefined && o.kit !== KIT_VERSION) err(`kit must be ${KIT_VERSION} (this Alexandria reads mod kit version ${KIT_VERSION})`);
+  if (o.kit !== undefined && !(Number.isInteger(o.kit) && o.kit >= 1 && o.kit <= KIT_VERSION)) err(typeof o.kit === 'number' && o.kit > KIT_VERSION ? `kit ${o.kit} needs a newer Alexandria (this one reads mod kit versions 1 to ${KIT_VERSION})` : `kit must be 1 or ${KIT_VERSION}`);
   const mod: ModFile = {
-    kit: KIT_VERSION,
+    kit: Number.isInteger(o.kit) && o.kit >= 1 && o.kit <= KIT_VERSION ? o.kit : 1,
     id: slug(o.id, 'id'),
     name: text(o.name, 'name', 60, true),
     version: text(o.version, 'version', 20) || '1.0.0',
@@ -115,7 +145,8 @@ export function checkMod(raw: unknown): Checked {
     summary: text(o.summary, 'summary', 300),
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
     options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
-    requires: { settings: [] },
+    requires: { settings: [], mods: {} },
+    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [],
   };
 
   // ---- options
@@ -264,13 +295,71 @@ export function checkMod(raw: unknown): Checked {
     }
   }
   if (o.requires !== undefined) {
+    if (!o.requires || typeof o.requires !== 'object' || Array.isArray(o.requires)) err('requires must be an object: { settings?: [...], mods?: { id: version range } }');
     mod.requires.settings = list(o.requires?.settings, 'requires.settings', 12).filter((x: unknown, i: number) => typeof x === 'string' && /^[a-zA-Z][a-zA-Z0-9]{0,59}$/.test(x) ? true : (err(`requires.settings[${i}] is not a setting name`), false));
+    const rm = o.requires?.mods;
+    if (rm !== undefined) {
+      if (!rm || typeof rm !== 'object' || Array.isArray(rm)) err('requires.mods must be an object of rule id: version range, like { "inspiration-rerolls": "^1" }');
+      else {
+        const ent = Object.entries(rm);
+        if (ent.length > 12) err('requires.mods holds at most 12 rules');
+        for (const [k, v] of ent.slice(0, 12)) {
+          if (!SLUG.test(k)) { err(`requires.mods: "${k}" is not a rule id`); continue; }
+          if (k === mod.id) { err('requires.mods: a rule cannot need itself'); continue; }
+          if (typeof v !== 'string' || !parseRange(v)) { err(`requires.mods.${k}: "${String(v)}" is not a version range (like "^1", ">=1.2" or "*")`); continue; }
+          mod.requires.mods[k] = v.trim() || '*';
+        }
+      }
+    }
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires']);
+  // ---- kit 2: what it is built for, needs and conflicts with
+  if (o.alexandria !== undefined && o.alexandria !== '') {
+    if (typeof o.alexandria !== 'string' || !parseRange(o.alexandria)) err(`alexandria must be a version range, like ">=0.2" or "^0.1"`);
+    else mod.alexandria = o.alexandria.trim();
+  }
+  if (o.api !== undefined) {
+    if (!Number.isInteger(o.api) || o.api < 0 || o.api > 99) err('api must be the mod API version, a whole number like 1');
+    else mod.api = o.api;
+  }
+  if (o.targets !== undefined) {
+    if (!o.targets || typeof o.targets !== 'object' || Array.isArray(o.targets)) err('targets must be an object: { builtFor: [...], worksWith: [...] }');
+    else {
+      for (const k of Object.keys(o.targets)) if (k !== 'builtFor' && k !== 'worksWith') err(`targets.${k} is not a part of targets (builtFor, worksWith)`);
+      const ids = (v: unknown, at: string) => list(v, at, 8).filter((x: unknown, i: number) => typeof x === 'string' && SLUG.test(x) ? true : (err(`${at}[${i}] must be a module id like "sheet", "codex" or "dnd-2024"`), false));
+      mod.targets.builtFor = [...new Set(ids(o.targets.builtFor, 'targets.builtFor'))];
+      mod.targets.worksWith = [...new Set(ids(o.targets.worksWith, 'targets.worksWith'))].filter((x) => !mod.targets.builtFor.includes(x));
+    }
+  }
+  if (o.conflicts !== undefined) {
+    mod.conflicts = [...new Set(list(o.conflicts, 'conflicts', 12).filter((x: unknown, i: number) => typeof x === 'string' && SLUG.test(x) && x !== mod.id ? true : (err(`conflicts[${i}] must be the id of another rule`), false)))] as string[];
+    for (const c of mod.conflicts) if (mod.requires.mods[c]) err(`${c} cannot be both needed and in conflicts`);
+  }
+  if (o.permissions !== undefined) {
+    mod.permissions = [...new Set(list(o.permissions, 'permissions', 16).filter((x: unknown, i: number) => typeof x === 'string' && x in PERMISSIONS ? true : (err(`permissions[${i}] "${String(x)}" is not a permission (${Object.keys(PERMISSIONS).join(', ')})`), false)))] as Permission[];
+  }
+
+  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
+  if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
+
   return errors.length ? { mod: null, errors } : { mod, errors: [] };
+}
+
+/** What a rule touches, from the parts it uses, plus what it declares. */
+export function impliedPermissions(mod: ModFile): Permission[] {
+  const p = new Set<Permission>(mod.permissions);
+  if (mod.commands.length) p.add('chat.commands');
+  if (mod.actions.some((a) => a.effect?.chat || a.effect?.reroll)) p.add('chat.post');
+  if (mod.actions.some((a) => a.effect?.reroll)) p.add('chat.buttons');
+  if (mod.sheet) p.add('sheet.card');
+  if (mod.dmBand) p.add('dmband');
+  if (mod.table) p.add('table');
+  if (mod.triggers.length) p.add('clock.read');
+  if (Object.keys(mod.presets).length) p.add('settings.write');
+  if (mod.rules.length) p.add('glossary');
+  return (Object.keys(PERMISSIONS) as Permission[]).filter((k) => p.has(k));
 }
 
 /** The DM's option values over the defaults, checked; unknown or bad values fall back to the default. */
