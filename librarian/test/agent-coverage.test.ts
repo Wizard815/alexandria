@@ -224,6 +224,7 @@ const ARGS: Record<string, Maker> = {
   foundry_send_handout: () => ({ page: ID.saltmarsh }),
   foundry_send_map: async () => ({ pic: await foundryPic(), name: 'Cove' }),
   foundry_move_token: async () => ({ token: await foundryToken(), x: 40, y: 60 }),
+  owlbear_link: () => once('owlbear', async () => { await dm('POST', '/owlbear/key', {}); return 'ok'; }).then(() => ({ lead: 'alexandria' })),
   search_library: () => ({ query: 'Saltmarsh' }),
   search_world: () => ({ query: 'Saltmarsh' }),
   related_pages: () => ({ page: ID.saltmarsh }),

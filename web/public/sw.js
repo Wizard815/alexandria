@@ -2,7 +2,7 @@
 // fonts) on the device so it opens with no connection. World data is not
 // cached here; the app keeps that per account in IndexedDB.
 const SHELL = 'alx-shell-v1';
-const NEVER = /^\/(api|mcp|v1|dav|health)(\/|$)/;
+const NEVER = /^\/(api|mcp|v1|dav|health|owlbear)(\/|$)/;
 
 async function cacheShell() {
   const cache = await caches.open(SHELL);
