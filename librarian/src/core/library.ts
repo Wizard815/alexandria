@@ -1158,6 +1158,7 @@ export function sourceApp(kind: string | null): string {
   if (k.startsWith('legendkeeper') || k === 'mcp:legendkeeper') return 'legendkeeper';
   if (k.startsWith('kanka') || k === 'mcp:kanka') return 'kanka';
   if (k.startsWith('worldanvil')) return 'worldanvil';
+  if (k.startsWith('notion')) return 'notion';
   if (k === 'obsidian-publish') return 'obsidian-publish';
   if (['markdown-folder', 'vault', 'git', 'mcp-files', 'obsidian-sync', 'obsidian-rest'].includes(k)) return 'markdown';
   return 'other';

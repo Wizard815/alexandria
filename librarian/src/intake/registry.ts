@@ -7,6 +7,8 @@ import { gitRepo, markdownFolder, mcpFiles } from './connectors/markdown.ts';
 import { genericApi } from './connectors/api.ts';
 import { worldAnvilApi } from './connectors/worldanvil.ts';
 import { obsidianPublish, obsidianRest, obsidianRestWrite, obsidianSync, obsidianSyncWrite } from './connectors/obsidian.ts';
+import { notionApi } from './connectors/notion.ts';
+import { notionWrite } from './connectors/notion-write.ts';
 import { pushSource } from './connectors/push.ts';
 import { lkMcpWrite, lkRestWrite } from './connectors/legendkeeper-write.ts';
 import { markdownWrite } from './connectors/markdown-write.ts';
@@ -24,8 +26,9 @@ kankaMcp.write = kankaMcpWrite;
 worldAnvilApi.write = waWrite;
 obsidianSync.write = obsidianSyncWrite;
 obsidianRest.write = obsidianRestWrite;
+notionApi.write = notionWrite;
 
-export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, worldAnvilApi, markdownFolder, obsidianSync, obsidianRest, obsidianPublish, gitRepo, mcpFiles, genericApi, pushSource];
+export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, worldAnvilApi, notionApi, markdownFolder, obsidianSync, obsidianRest, obsidianPublish, gitRepo, mcpFiles, genericApi, pushSource];
 
 /**
  * Which settings belong to the connection (the account: tokens, URLs of the
@@ -41,6 +44,7 @@ const CONNECTION_FIELDS: Record<string, string[] | 'all-but-source'> = {
   'kanka-api': ['token', 'apiUrl'],
   'worldanvil-api': ['token', 'appKey', 'apiUrl'],
   'obsidian-rest': ['url', 'apiKey'],
+  'notion-api': ['token'],
   'kanka-mcp': ['transport', 'server', 'url', 'token', 'appUrl', 'trustPostVisibility'],
   'mcp-files': ['transport', 'server', 'url', 'token', 'preset', 'listTool', 'listArgs', 'readTool', 'readArg'],
   api: 'all-but-source',

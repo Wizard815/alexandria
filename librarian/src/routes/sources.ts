@@ -23,7 +23,7 @@ import { worldStatus } from '../features/connections/status.ts';
 import { crawlRunning, latestCrawl, levelCounts, shapeCrawl, startCrawl, stopCrawl } from '../features/connections/crawl.ts';
 
 /** The picker order: the dedicated connectors first, the generic API (with its presets) last. */
-const ORDER = ['legendkeeper-mcp', 'legendkeeper-api', 'kanka-api', 'kanka-mcp', 'worldanvil-api', 'markdown-folder', 'obsidian-sync', 'obsidian-rest', 'obsidian-publish', 'git', 'mcp-files', 'push', 'api'];
+const ORDER = ['legendkeeper-mcp', 'legendkeeper-api', 'kanka-api', 'kanka-mcp', 'worldanvil-api', 'notion-api', 'markdown-folder', 'obsidian-sync', 'obsidian-rest', 'obsidian-publish', 'git', 'mcp-files', 'push', 'api'];
 
 export default function sourceRoutes(d: Deps) {
   const r = Router();
