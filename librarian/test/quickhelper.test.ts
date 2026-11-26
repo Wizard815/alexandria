@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { run } from '../src/core/db.ts';
-import { parseHandoff, routeFirst, stripThinking, briefBudget, groundAnswer } from '../src/features/playerhelp/quick.ts';
+import { parseHandoff, routeFirst, noBriefTalk, stripThinking, briefBudget, groundAnswer } from '../src/features/playerhelp/quick.ts';
 
 let base = '';
 let server: any;
@@ -201,6 +201,9 @@ test('TestQuickHelper_Helpers', () => {
   assert.equal(routeFirst('ask', 'Who is the baron?', { ...empty, lore: [{ id: 'p', title: 'Baron' }] })?.to, 'broker', 'even with a library match');
   assert.equal(routeFirst('ask', 'Is my rope long enough to climb down?', empty), null);
   assert.equal(routeFirst('turn', 'What can I do on my turn?', empty), null);
+  assert.equal(routeFirst('rules', 'Who rules the lighthouse?', empty)?.to, 'broker', 'who rules is not a rules question');
+  assert.equal(noBriefTalk('Attack with the old sword (damage not listed in brief).'), 'Attack with the old sword.');
+  assert.equal(noBriefTalk('The brief mentions goblins.'), 'Your notes mention goblins.');
 });
 
 test('TestQuickHelper_UnsetUsesThePlayersModel', async () => {
@@ -220,4 +223,46 @@ test('TestQuickHelper_UnsetUsesThePlayersModel', async () => {
     for (const k of Object.keys(deps.env)) delete deps.env[k];
     Object.assign(deps.env, keep);
   }
+});
+
+test('TestQuickHelper_TurnKnowsWeaponsFeaturesAndSpells', async () => {
+  await ok('PUT', `/api/worlds/${W}/spells/characters/${ID.jess}`, T.dm, { class: 'Rogue', level: 3, abilities: { dex: 16, str: 10 } });
+  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Shortsword', qty: 1, reason: 'Loot' });
+  await ok('POST', `/api/worlds/${W}/spells/characters/${ID.jess}/known`, T.dm, { spell: 'Minor Illusion' });
+  reply = '- Attack with the Shortsword\n- Cunning Action: Hide';
+  await ok('POST', Q(), T.jess, { task: 'turn' });
+  const u = userText(last());
+  assert.match(u, /## What they can do/);
+  assert.match(u, /Class: Rogue, level 3/);
+  assert.match(u, /DEX 16 \(\+3\)/);
+  assert.match(u, /Shortsword: 1d6 Piercing; Finesse, Light/, 'the weapon with its damage from the module');
+  assert.match(u, /Sneak Attack \(level 1\)/, 'class features up to their level');
+  assert.match(u, /Cunning Action \(level 2\)/);
+  assert.ok(!/Uncanny Dodge/.test(u), 'nothing above their level');
+  assert.match(u, /Minor Illusion \(cantrip/, 'the spells they know');
+  // Tom is not a rogue: none of Jess's kit is in his brief.
+  const tom = await ok('GET', `${Q()}/brief?task=turn`, T.tom);
+  assert.ok(!/Sneak Attack|Minor Illusion/.test(JSON.stringify(tom.sections)));
+});
+
+test('TestQuickHelper_RecapUsesOnlyWhatThePlayerKnows', async () => {
+  const at = new Date().toISOString();
+  run(deps.db, `INSERT INTO sessionlog_entries (id, world_id, number, title, summary, session_at, world_from_minutes, world_to_minutes, published_at) VALUES ('sl1', ?, 1, 'Into Saltmarsh', 'The party reached Saltmarsh and met the seven captains.', ?, 0, 60, ?)`, W, at, at);
+  run(deps.db, `INSERT INTO sessionlog_entries (id, world_id, number, title, summary, session_at, world_from_minutes, world_to_minutes, published_at, unpublished_at) VALUES ('sl2', ?, 2, 'Hidden', 'Velmira the smuggler queen watched them from the lighthouse.', ?, 60, 120, ?, ?)`, W, at, at, at);
+  reply = '- Session 1: you reached Saltmarsh.\n- Who leads the smugglers is not known yet.';
+  const r = await ok('POST', Q(), T.jess, { task: 'recap' });
+  const u = userText(last());
+  assert.match(u, /## The story so far[\s\S]*Into Saltmarsh/);
+  assert.ok(!/Velmira|smuggler queen|lighthouse/.test(u), 'an unpublished entry and DM pages stay out');
+  assert.match(r.answer, /reached Saltmarsh/);
+  assert.equal(r.handoff?.to, 'broker', 'what it does not know is offered to the broker');
+  assert.match(r.handoff.reason, /does not know/);
+});
+
+test('TestQuickHelper_UnknownAnswerOffersTheBroker', async () => {
+  reply = 'Your character does not know where the rope came from.';
+  const r = await ok('POST', Q(), T.jess, { task: 'ask', question: 'Where did my rope come from?' });
+  assert.match(r.answer, /does not know/);
+  assert.equal(r.handoff.to, 'broker');
+  assert.equal(r.handoff.question, 'Where did my rope come from?');
 });

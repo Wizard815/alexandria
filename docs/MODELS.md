@@ -310,8 +310,8 @@ local, main or fallback: `core/ai.ts` refuses the request before it leaves.
 ## The players' quick helper (a small second model)
 
 The **Quick help** card sits above the table helper on a player's Ask page:
-**My turn**, **Sum up my sheet**, **What next?** and a box for a quick rules
-question. It runs the **helper** job, meant for a small model on its own
+**My turn**, **Sum up my sheet**, **What next?**, **Story so far** and a box
+for a quick rules question. It runs the **helper** job, meant for a small model on its own
 llama.cpp server next to the main chat model.
 
 How it works (`librarian/src/features/playerhelp/quick.ts`):
@@ -325,8 +325,19 @@ How it works (`librarian/src/features/playerhelp/quick.ts`):
   DM-only text never goes in, and every section passes the classified guard
   first. The brief is about 1,000 to 2,000 characters, so a 4K context per
   slot is plenty and the slots are reused call after call.
-- **Narrow jobs.** `rules`, `turn`, `sheet`, `suggest` and short `ask`
-  questions. It changes nothing and has no tools.
+- **What they can do.** For My turn, What next? and a sheet summary the brief
+  also lists the character's class and level, ability scores with modifiers,
+  mana, weapons they carry (with damage and properties from the module's
+  item cards), class features up to their level, known spells, and sheet
+  modules about abilities, attacks or spells. My turn answers only from that
+  list.
+- **Story so far** (`recap`) sums up the last four published session logs,
+  the chronicle arcs players can see, the player's goals and journal, goals
+  the DM gave them and broker answers they bought. Nothing unpublished or
+  DM-only goes in, and the model is told to say "not known yet" instead of
+  filling a gap.
+- **Narrow jobs.** `rules`, `turn`, `sheet`, `suggest`, `recap` and short
+  `ask` questions. It changes nothing and has no tools.
 - **Hand-offs.** Who, why, history and rumour questions go to the **broker**
   without asking the small model, because small models invent names there.
   Writing, changes ("add a potion to my pack") and questions over 400
@@ -335,6 +346,11 @@ How it works (`librarian/src/features/playerhelp/quick.ts`):
   `HANDOFF broker:` or `HANDOFF helper:`. If it is down or slow, the question
   goes to the table helper. A hand-off puts the question in that chat's box
   for the player to send.
+- **The broker, in the background.** When a question goes to the broker, or
+  the answer says the character does not know, the card offers **Ask the
+  broker** right there: it gets the usual quote, the player pays (or not),
+  and the answer arrives on the Broker page. **Talk to the broker instead**
+  opens the broker chat with the question in its box.
 - **Made-up names are dropped.** A line that names two or more capitalised
   words the brief never mentions (a "Silas Blackwood" behind the council) is
   removed. If nothing is left, the question goes to the broker.

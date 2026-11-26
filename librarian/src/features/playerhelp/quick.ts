@@ -28,8 +28,12 @@ import { brokerContext } from '../minerva/player.ts';
 import { searchRules } from '../modules/search.ts';
 import { playerCard } from '../modules/hide.ts';
 import { hybridPages } from '../search/embeddings.ts';
+import { worldModules } from '../modules/store.ts';
+import { character, knownRows, spellById } from '../spells/store.ts';
+import { ABILITIES } from '../spells/format.ts';
+import { playerView } from '../minerva/player.ts';
 
-export const QUICK_TASKS = ['ask', 'rules', 'turn', 'sheet', 'suggest'] as const;
+export const QUICK_TASKS = ['ask', 'rules', 'turn', 'sheet', 'suggest', 'recap'] as const;
 export type QuickTask = (typeof QUICK_TASKS)[number];
 export type HandoffTo = 'broker' | 'helper';
 
@@ -49,14 +53,15 @@ export interface QuickAnswer {
 const TASKS: Record<QuickTask, string> = {
   ask: 'Answer the player\'s question in at most 80 words.',
   rules: 'Answer the rules question: name the rule, give the short version, then say in one line what it means for this character right now. Use the Rules passages; if none covers it, say so.',
-  turn: 'List 3 to 5 options for this character\'s turn right now, one line each, using their health, conditions, items and the combat as shown. Use the actions anyone has (Attack, Dash, Disengage, Dodge, Help, Hide, Ready, Use an Object, moving) and what their items allow; no spells or class features unless the brief names them. Then say in one line which you would pick and why.',
+  turn: 'List 3 to 5 options for this character\'s turn right now, one line each, using their health, conditions and the combat as shown. Use the actions anyone has (Attack, Dash, Disengage, Dodge, Help, Hide, Ready, Use an Object, moving) and what is under What they can do: their weapons (with the damage), class features and spells (say when one uses the bonus action, the reaction or mana). Nothing that is not listed there. Then say in one line which you would pick and why.',
   sheet: 'Sum up this character in 4 to 6 short bullets: health and conditions, what they carry that matters, their goals, and what is going on for them right now.',
+  recap: 'Sum up for this player, in 4 to 8 short bullets: what happened in the past sessions (newest first), then the open quests and goals and where each one stands. Use only the brief. Where the brief says nothing, say it is not known yet; never fill a gap.',
   suggest: 'Suggest 3 things this character could do next, one line each, grounded in what just happened and their goals. Only use people, places and things named in the brief. Do not decide for them.',
 };
 
 /** The question a task stands for when the player typed none. */
 const DEFAULT_Q: Record<QuickTask, string> = {
-  ask: '', rules: '', turn: 'What can I do on my turn?', sheet: 'Sum up my character.', suggest: 'What should I do next?',
+  ask: '', rules: '', turn: 'What can I do on my turn?', sheet: 'Sum up my character.', suggest: 'What should I do next?', recap: 'What has happened so far, and what are we after?',
 };
 
 // Questions that need more than a small model with a short brief.
@@ -66,12 +71,22 @@ const TABLE_TALK = /\b(initiative|my turn|next turn|round|combat|fight|hp|hit po
 const WRITING = /\b(write|draft|compose|rewrite|journal entry|backstory|poem|song|letter|speech)\b/i;
 const CHANGES = /\b(add|remove|delete|give|send|buy|sell|update|change|set|record|save|log)\b.{0,30}\b(my|the|to|from|item|items|inventory|journal|goal|hp|coin|gold)\b/i;
 const MAX_QUESTION = 400;
-const REASONS: Record<HandoffTo, string> = {
+const REASONS = {
   broker: 'That is in-world knowledge; ask the broker.',
   helper: 'The table helper can take this one.',
-};
+  unknown: 'Your character does not know that yet. The broker might find out.',
+} as const;
+/** An answer that says the player does not know (yet). */
+export const DOES_NOT_KNOW = /\b(not known( yet)?|unknown|(do|does|did)(n['’]t| not) (know|say|mention|tell)|not sure|no (information|record|mention)|(is|are)(n['’]t| not) (stated|mentioned|known|clear)|nothing (about|on) (that|this|it))\b/i;
 
 /** Where a question goes before any model is asked, or null for the quick helper. */
+/** Small models still say "(not listed in the brief)": drop those asides and call the brief the player's notes. */
+export const noBriefTalk = (t: string) => t
+  .replace(/\s*\([^()]*\bbrief\b[^()]*\)/gi, '')
+  .replace(/\b(?:the|your|this) brief (say|mention|list|show)s\b/gi, (_m, v: string) => `your notes ${v}`)
+  .replace(/\b(?:the|your|this) brief\b/gi, 'your notes')
+  .replace(/(^|[.!?]\s+)your notes/g, '$1Your notes');
+
 export function routeFirst(task: QuickTask, question: string, brief: Brief): { to: HandoffTo; reason: string } | null {
   const q = question.trim();
   if (q.length > MAX_QUESTION) return { to: 'helper', reason: 'That is a long question; the table helper can take it.' };
@@ -80,7 +95,7 @@ export function routeFirst(task: QuickTask, question: string, brief: Brief): { t
     if (CHANGES.test(q)) return { to: 'helper', reason: 'The quick helper cannot change anything; the table helper can propose it.' };
     // Who, why, history, rumours: the broker's trade, with its own secret checks. A small model asked this
     // with a page or two in front of it fills the gaps with names of its own (seen with 3-4B models).
-    if (task === 'ask' && IN_WORLD.test(q) && !TABLE_TALK.test(q)) return { to: 'broker', reason: REASONS.broker };
+    if (IN_WORLD.test(q) && !TABLE_TALK.test(q)) return { to: 'broker', reason: REASONS.broker };
   }
   return null;
 }
@@ -230,6 +245,103 @@ async function lorePart(d: Deps, worldId: string, q: string, v: Viewer): Promise
   return { text: keep.map((h) => `[${h.title}] ${clip(flat(h.snippet), 300)}`).join('\n'), hits: keep.map((h) => ({ id: h.id, title: h.title })) };
 }
 
+const mod = (n: number) => { const m = Math.floor((n - 10) / 2); return m >= 0 ? `+${m}` : String(m); };
+const plain = (s: string) => s.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+const singular = (s: string) => s.toLowerCase().replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim().replace(/(e?s)$/, '');
+
+/**
+ * What the character can do in a fight: class, level and ability scores (the spell sheet, or the player's profile),
+ * weapons they carry with the module's damage line, their class features up to their level, the spells they know,
+ * and any sheet note the player titled abilities, features, attacks or spells. Only their own sheet, never another's.
+ */
+export function kitPart(d: Deps, worldId: string, accountId: string): string {
+  const L: string[] = [];
+  let ch: ReturnType<typeof character> | null = null;
+  try { ch = character(d.db, worldId, accountId); } catch { /* no spells feature */ }
+  if (ch) {
+    const head = [ch.class, ch.level ? `level ${ch.level}` : ''].filter(Boolean).join(', ');
+    if (head) L.push(`Class: ${head}.`);
+    const ab = ABILITIES.filter((k) => typeof ch!.abilities[k] === 'number').map((k) => `${k.toUpperCase()} ${ch!.abilities[k]} (${mod(ch!.abilities[k]!)})`);
+    if (ab.length) L.push(`Ability scores: ${ab.join(', ')}.`);
+    if (ch.manaMax !== null) L.push(`Mana: ${ch.mana ?? '?'} of ${ch.manaMax}.`);
+  }
+  let terms: any[] = [];
+  try { terms = worldModules(d.db, worldId).terms as any[]; } catch { /* no modules */ }
+  // Weapons: an item they carry whose name is a module item with a damage line.
+  const items = all<any>(d.db, "SELECT name FROM items WHERE world_id = ? AND owner = ? AND status = 'approved' LIMIT 40", worldId, accountId);
+  const byName = new Map<string, any>();
+  for (const t of terms) if (t.kind === 'item' && /\*\*Damage:\*\*/.test(String(t.text ?? '')) && !byName.has(singular(t.term))) byName.set(singular(t.term), t);
+  const weapons: string[] = [];
+  for (const it of items) {
+    const t = byName.get(singular(String(it.name)));
+    if (!t || weapons.length >= 6) continue;
+    const text = String(t.text);
+    const dmg = /\*\*Damage:\*\*\s*([^\n]+)/.exec(text)?.[1]?.trim() ?? '';
+    const props = /\*\*Properties:\*\*\s*([^\n]+)/.exec(text)?.[1]?.trim() ?? '';
+    const mastery = /\*\*Mastery:\*\*\s*([^\n]+)/.exec(text)?.[1]?.trim() ?? '';
+    weapons.push(`${it.name}: ${plain(dmg)}${props ? `; ${plain(props)}` : ''}${mastery ? `; mastery ${plain(mastery)}` : ''}`);
+  }
+  if (weapons.length) L.push(`Weapons: ${weapons.join(' | ')}.`);
+  // Class features up to their level, from the module ("Rogue feature ...", data.class / data.level).
+  if (ch?.class && ch.level) {
+    const cls = ch.class.toLowerCase().split(/[\s/,]+/)[0];
+    // The level is in data.level, or in the text's first line ("*Rogue · Rogue 3*"). A subclass's features
+    // ("*Rogue · Thief 3*") are left out: the sheet does not say which subclass they took.
+    const levelOf = (t: any): number | null => {
+      if (Number.isInteger(t.data?.level)) return t.data.level;
+      const m = /^\*[^*·]*·\s*([^*\d]+?)\s+(\d+)\*/.exec(String(t.text ?? ''));
+      return m && m[1].trim().toLowerCase() === cls ? Number(m[2]) : null;
+    };
+    const feats = terms.filter((t) => t.kind === 'class' && String(t.data?.class ?? '').toLowerCase() === cls && !/subclass|ability score improvement|epic boon/i.test(t.term))
+      .map((t) => ({ t, lv: levelOf(t) })).filter((x) => x.lv !== null && x.lv <= ch!.level!)
+      .sort((a, b) => a.lv! - b.lv!).slice(0, 10)
+      .map(({ t, lv }) => `${t.term} (level ${lv}): ${clip(plain(String(t.summary ?? '').replace(/^\w+ feature\.\s*/, '')), 140)}`);
+    if (feats.length) L.push(`Class features:\n${feats.map((f) => `- ${f}`).join('\n')}`);
+  }
+  // Spells they know.
+  try {
+    const spells = knownRows(d.db, worldId, accountId).map((k) => spellById(d.db, worldId, k.spellId)).filter(Boolean).slice(0, 16) as any[];
+    if (spells.length) L.push(`Spells known:\n${spells.map((sp) => `- ${sp.name} (${sp.level === 0 ? 'cantrip' : `level ${sp.level}`}, ${sp.castingTime}${sp.range ? `, ${sp.range}` : ''}${sp.concentration ? ', concentration' : ''})${sp.damageTypes?.length ? ` ${sp.damageTypes.join('/')}` : ''}`).join('\n')}`);
+  } catch { /* no spells */ }
+  // What the player wrote on their sheet under such a title (features/sheet; not a private module).
+  if (tableExists(d, 'sheets')) {
+    const row = one<any>(d.db, 'SELECT modules FROM sheets WHERE world_id = ? AND account_id = ?', worldId, accountId);
+    for (const m of parseJson<any[]>(row?.modules, []) ?? []) {
+      if (!m || m.private || !/abilit|feature|attack|weapon|spell|feat|power|trait|action/i.test(String(m.title ?? ''))) continue;
+      const body = m.type === 'list' ? (m.data?.entries ?? []).map((e: any) => e?.text).filter(Boolean).join('; ') : String(m.data?.text ?? '');
+      if (plain(body)) L.push(`${m.title} (their sheet): ${clip(plain(body), 500)}`);
+    }
+  }
+  return L.join('\n');
+}
+
+/**
+ * The story so far as this player knows it: the published session log (party level), the party's arcs, their own
+ * goals and the DM's goals for them, their latest journal, and what they bought from the broker. Nothing DM-only.
+ */
+export function recapPart(d: Deps, worldId: string, accountId: string): string {
+  const L: string[] = [];
+  const logs = all<any>(d.db, 'SELECT number, title, summary FROM sessionlog_entries WHERE world_id = ? AND unpublished_at IS NULL ORDER BY number DESC LIMIT 4', worldId);
+  if (logs.length) L.push(`Past sessions (newest first):\n${logs.map((x) => `- #${x.number}${x.title ? ` ${x.title}` : ''}: ${clip(plain(String(x.summary ?? '')), 450) || '(no summary)'}`).join('\n')}`);
+  let v: ReturnType<typeof playerView> | null = null;
+  try { v = playerView(d, worldId, accountId); } catch { /* no vault */ }
+  if (v) {
+    const arcs = v.party.filter((p) => p.key.startsWith('chronicle/')).slice(-3);
+    if (arcs.length) L.push(`The party's story:\n${arcs.map((a) => `- ${a.title}: ${clip(plain(a.body.replace(/^#.*$/m, '')), 300)}`).join('\n')}`);
+    if (v.goals.length) L.push(`Their goals and quests:\n${v.goals.map((g) => `- ${g.title} (${g.heat ?? 'ongoing'}): ${clip(plain(g.body.replace(/^#.*$/m, '')), 200)}`).join('\n')}`);
+    if (v.journal.length) L.push(`Their latest journal:\n${v.journal.slice(-2).map((j) => `- ${j.title}: ${clip(plain(j.body.replace(/^#.*$/m, '')), 300)}`).join('\n')}`);
+  }
+  if (tableExists(d, 'sheet_dm_notes')) {
+    const goals = all<any>(d.db, "SELECT text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 8", worldId, accountId);
+    if (goals.length) L.push(`Quests from the DM:\n${goals.map((g) => `- ${clip(plain(g.text), 160)}${g.done ? ' (done)' : ''}`).join('\n')}`);
+  }
+  if (tableExists(d, 'broker_requests')) {
+    const bought = all<any>(d.db, "SELECT question, answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND answer IS NOT NULL AND answer <> '' AND status IN ('answered', 'noted') ORDER BY created_at DESC LIMIT 3", worldId, accountId);
+    if (bought.length) L.push(`What they learned from the broker:\n${bought.map((b) => `- ${clip(plain(b.question), 120)}: ${clip(plain(b.answer), 250)}`).join('\n')}`);
+  }
+  return L.join('\n\n');
+}
+
 /**
  * The brief for one call, from what this player may see and nothing else. Every section is checked against the
  * classified guard first and left out if it would make the request be refused. Rebuilt on every call.
@@ -239,15 +351,18 @@ export async function quickBrief(d: Deps, worldId: string, accountId: string, s:
   const q = question.trim();
   const look = task === 'sheet' ? '' : q;
   const lore = task === 'ask' || task === 'suggest' ? await lorePart(d, worldId, look, v) : { text: '', hits: [] };
+  const recap = task === 'recap';
   const parts: BriefSection[] = [
     { label: 'Character', text: characterPart(d, worldId, accountId) },
+    { label: 'What they can do', text: recap ? '' : kitPart(d, worldId, accountId) },
     { label: 'Items', text: itemsPart(d, worldId, accountId) },
-    { label: 'Combat', text: combatPart(d, worldId, v, s) },
+    { label: 'Combat', text: recap ? '' : combatPart(d, worldId, v, s) },
+    { label: 'The story so far', text: recap ? recapPart(d, worldId, accountId) : '' },
     { label: 'Recent events', text: recentPart(d, worldId) },
-    { label: 'What this player knows', text: clip(brokerContext(d, worldId, accountId, look).trim(), 1500) },
+    { label: 'What this player knows', text: recap ? '' : clip(brokerContext(d, worldId, accountId, look).trim(), 1500) },
     // A turn with no question of its own gets no passages: a search for "my turn" finds magic items, which a small
     // model then offers as if the character had them.
-    { label: 'Rules passages', text: task === 'sheet' || task === 'suggest' || (task === 'turn' && !typed) ? '' : rulesPart(d, worldId, look, s) },
+    { label: 'Rules passages', text: task === 'sheet' || task === 'suggest' || recap || (task === 'turn' && !typed) ? '' : rulesPart(d, worldId, look, s) },
     { label: 'Library (shared with the party)', text: lore.text },
   ];
   const budget = briefBudget(d);
@@ -307,16 +422,18 @@ export async function askQuick(d: Deps, opts: { worldId: string; worldName: stri
         { role: 'user', content: `<brief>\n${brief.text || '(nothing yet)'}\n</brief>\n\nTask: ${TASKS[opts.task]}${question ? `\nQuestion: ${question}` : ''}` },
       ],
     }, opts.signal);
-    const text = stripThinking(r.content);
+    const text = noBriefTalk(stripThinking(r.content));
     const h = parseHandoff(text);
     const known = `${brief.text}\n${question}\n${opts.worldName}`;
     const g = groundAnswer(h ? h.answer : text, known);
     if (h) return out(g.text, { to: h.to, reason: h.reason, question }, c.model);
+    // It does not know (the player does not know it yet): offer to ask the broker, keeping what it did say.
+    if (g.text && (opts.task === 'ask' || opts.task === 'recap') && DOES_NOT_KNOW.test(g.text)) return out(g.text, { to: 'broker', reason: REASONS.unknown, question: opts.task === 'ask' ? question : '' }, c.model);
     if (!g.text) return out('', g.dropped.length ? { to: 'broker', reason: REASONS.broker, question } : { to: 'helper', reason: 'The quick helper had no answer; the table helper can take it.', question }, c.model);
     return out(g.text, null, c.model);
   } catch (e) {
     if (e instanceof ModelUnavailable && e.status === 429) throw e;
-    if (e instanceof ModelUnavailable) return out('', { to: 'helper', reason: 'The quick helper is not answering right now; the table helper can take it.', question }, c.model);
+    if (e instanceof ModelUnavailable) { console.warn(`quick helper: ${e.message}`); return out('', { to: 'helper', reason: 'The quick helper is not answering right now; the table helper can take it.', question }, c.model); }
     throw e;
   } finally { inFlight.delete(key); }
 }
