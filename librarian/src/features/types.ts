@@ -27,6 +27,11 @@ export interface McpTool {
   playerOnly?: boolean;
   /** Only listed for the DM (any key): a DM-only read players would only get 403 from. */
   dmOnly?: boolean;
+  /**
+   * A player's own action that the in-app helper may take for them (a request the DM still decides, like asking to
+   * learn a spell). Never listed over MCP, where a player's key is read-only.
+   */
+  selfAction?: boolean;
   props: Record<string, any>;
   required?: string[];
   /** The world API request to make; the path is relative to /api/worlds/:world. */

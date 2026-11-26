@@ -1324,7 +1324,7 @@ const feature: Feature = {
       call: () => ({ method: 'GET', path: '/spells/study' }),
     },
     {
-      name: 'my_start_study', playerOnly: true,
+      name: 'my_start_study', playerOnly: true, selfAction: true,
       description: 'Start (or pick up) studying a spell for the asking player. Only when they ask to start. A spell with an Arcana check needs its total in arcana (they roll it). Say a scroll only if they have one.',
       props: {
         spell: { type: 'string', description: 'Spell name or id' },
@@ -1336,14 +1336,14 @@ const feature: Feature = {
       call: (a) => ({ method: 'POST', path: '/spells/study', body: { spellId: a.spell, source: a.source, lab: a.lab === true, scroll: a.scroll === true, ...(a.arcana === undefined ? {} : { arcana: a.arcana }) } }),
     },
     {
-      name: 'my_study_days', playerOnly: true,
+      name: 'my_study_days', playerOnly: true, selfAction: true,
       description: 'Log downtime days the asking player spent studying (8 hours each). The DM may need to approve them. The study id comes from my_studies.',
       props: { studyId: { type: 'string' }, days: { type: 'integer', description: '1 to 60' } },
       required: ['studyId', 'days'],
       call: (a) => ({ method: 'POST', path: `/spells/study/${enc(a.studyId)}/days`, body: { days: a.days } }),
     },
     {
-      name: 'my_study_check', playerOnly: true,
+      name: 'my_study_check', playerOnly: true, selfAction: true,
       description: "Roll the final check for a study whose points are all in (d20 + casting modifier + proficiency against the DC). Give d20 when the player rolled their own die; leave it out to roll here. A failure keeps the points; they try again after a long rest.",
       props: { studyId: { type: 'string' }, d20: { type: 'integer', description: 'The die they rolled, 1 to 20' } },
       required: ['studyId'],
