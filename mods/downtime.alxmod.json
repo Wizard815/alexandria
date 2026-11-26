@@ -234,11 +234,13 @@
         "id": "pre-stronghold",
         "name": "Build a stronghold",
         "tier": "legendary",
-        "summary": "Raise a keep, tower or temple of your own.",
+        "summary": "Raise a keep, tower or temple for the party. Everyone's work counts toward it.",
         "days": 90,
         "tags": [
-          "money"
-        ]
+          "money",
+          "group"
+        ],
+        "group": true
       },
       {
         "id": "pre-craft-legendary",
@@ -263,13 +265,73 @@
           "magic",
           "codex"
         ]
+      },
+      {
+        "id": "pre-group-business",
+        "name": "Run a business together",
+        "tier": "rare",
+        "group": true,
+        "summary": "The party opens a tavern, shop or trading post and works it together. Everyone's days count toward getting it on its feet.",
+        "reward": {
+          "text": "The business is open and pays the party a share each month."
+        },
+        "tags": [
+          "money",
+          "business",
+          "group"
+        ]
+      },
+      {
+        "id": "pre-group-drill",
+        "name": "Party training regimen",
+        "tier": "uncommon",
+        "group": true,
+        "summary": "Drill together: formations, signals and covering each other in a fight.",
+        "reward": {
+          "text": "Once per long rest, the party may take a free Help action together in combat."
+        },
+        "tags": [
+          "training",
+          "combat",
+          "group"
+        ]
+      },
+      {
+        "id": "pre-group-festival",
+        "name": "Throw a festival",
+        "tier": "rare",
+        "group": true,
+        "summary": "Plan and hold a festival for the town: music, food, games. Good for the party's name.",
+        "reward": {
+          "text": "The town remembers the party kindly."
+        },
+        "tags": [
+          "social",
+          "reputation",
+          "group"
+        ]
+      },
+      {
+        "id": "pre-group-expedition",
+        "name": "Plan an expedition",
+        "tier": "uncommon",
+        "group": true,
+        "summary": "Gather maps, supplies and rumours for the next journey together.",
+        "reward": {
+          "text": "Advantage on the first navigation or foraging check of the journey."
+        },
+        "tags": [
+          "travel",
+          "research",
+          "group"
+        ]
       }
     ]
   },
   "rules": [
     {
       "term": "Downtime (house rule)",
-      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing."
+      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
     }
   ]
 }

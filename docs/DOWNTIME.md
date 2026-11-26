@@ -44,6 +44,31 @@ a bigger one in the same day.
   approval, items and mana work as always. "Study a spell" is there for
   MANA's study flow, which reads downtime days from the `downtime-day` event.
 
+## Personal and group
+
+Every activity is either **personal** or **group**, and the two are kept apart
+everywhere: the popup, the player's Downtime page, the DM's Party tab and the
+sheet module each show a Personal list and a Group list.
+
+- A **personal** task is one character's own. They can pause or stop it.
+- A **group** task belongs to the whole party (`accountId: "party"`). Anyone
+  can put days into it, and all of that work goes into one shared progress
+  bar. Starting a group activity the party already has open joins that task
+  instead of making a second one. Spending days on a group task also joins
+  you to it. Each task lists who joined and how much each person put in.
+- Players can **Join** or **Leave** a group task, but they cannot pause or
+  stop it. Only the DM can do that.
+- A group task's reward goes to the **party pouch and stash**.
+- The log shows group work to every player.
+
+The rule ships group activities: Build a stronghold, Run a business together,
+Party training regimen, Throw a festival and Plan an expedition. Any activity
+becomes a group one with `"group": true`. The DM sets this with a checkbox in
+the activity editor. A player sets it with the checkbox on a new activity.
+The DM can also assign one to "The whole party".
+
+![A player's group tasks](screenshots/downtime/8-player-group-tasks.png)
+
 ## In play
 
 1. When days pass, the DM presses **Downtime** (on the DM's home page, the
@@ -51,7 +76,7 @@ a bigger one in the same day.
    by that much (an option, undone if the DM takes the round back).
 2. Every player gets a popup: their tasks with days on each, **Start
    something** (with **Suggest**, which asks the small helper model for the
-   best three for what they want), **Make a new activity** (with **How big is
+   best three for what they want, and All / Personal / Group filters), **Make a new activity** (with **How big is
    it?**, which asks the helper model for the tier and length), or **Skip**.
    The hours have to fit the days. A new pick replaces the old one.
 3. The DM sees who picked what and can pick for a player. **Close** ends the
@@ -77,7 +102,9 @@ The DM's assistant: `downtime` (everyone's tasks and the open round),
 `downtime_round`, `downtime_close_round`, `downtime_assign`, `downtime_time`,
 `downtime_work`, `downtime_update`, `downtime_remove`, `downtime_reward`.
 Players' helpers: `downtime`, `downtime_log`, `downtime_activities`,
-`downtime_suggest`, `downtime_start` and `downtime_pick` (their own only).
+`downtime_suggest`, `downtime_start` and `downtime_pick` (their own only; `group: true` starts or
+joins a group activity). `downtime_assign` with `group: true` and no player
+gives the whole party a group task.
 
 The rank and decide steps use the players' small model (the quick helper's
 job when this server has it, else the player job); with no model, a word rule
@@ -88,8 +115,11 @@ does the same job and the answer says so (`by: "words"`). Real-model check:
 
 Under `/api/worlds/:world/downtime`: `GET /`, `GET|POST /activities`,
 `PATCH|DELETE /activities/:id`, `GET|POST /tasks`, `PATCH|DELETE /tasks/:id`,
-`POST /tasks/:id/time|work|reward`, `GET /log`, `GET /rounds`,
+`POST /tasks/:id/time|work|reward|join|leave`, `GET /log`, `GET /rounds`,
 `GET /rounds/current`, `POST /rounds`, `POST /rounds/:rid/pick|close|cancel`
-(`current` for the open one), `POST /suggest`, `POST /decide`. Live events:
+(`current` for the open one), `POST /suggest`, `POST /decide`. `POST /tasks`
+takes `group: true` (the DM may leave out `player` for the whole party);
+`GET /tasks?scope=personal|group` filters; `/tasks/:id/work` takes `worker`
+on a group task. Live events:
 `downtime`, `downtime-round`, `downtime-done`, and the server event
 `downtime-day` for features that count downtime days.

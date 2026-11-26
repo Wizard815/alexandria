@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, useAction, useToast } from '../../ui/index.tsx';
-import { CSS, KIND_LABEL, Progress, TierChip, rewardText, useDowntime, type Activity, type LogLine, type Overview, type Ranked, type Task } from './shared.tsx';
+import { CSS, GroupChip, KIND_LABEL, Progress, TierChip, isOpen, rewardText, splitScope, useDowntime, type Activity, type LogLine, type Overview, type Ranked, type Task } from './shared.tsx';
 
 const FOLD = 'alx.downtime.later';
 
@@ -29,17 +29,21 @@ function PopupInner() {
   return <PickModal o={o.data} onClose={() => fold(r.id)} onDone={() => void o.reload()} />;
 }
 
-type Choice = { key: string; taskId?: string; activityId?: string; activity?: { name: string; summary: string }; days: number; label: string; perDay: number };
+type NewAct = { name: string; summary: string; group?: boolean };
+type Choice = { key: string; taskId?: string; activityId?: string; activity?: NewAct; days: number; label: string; perDay: number };
 
 /** The popup: my tasks with days on each, start one from the list, make a new one, or skip. */
 export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose: () => void; onDone: () => void; player?: string }) {
-  const { w } = useWorld();
+  const { w, me } = useWorld();
   const act = useAction();
   const r = o.round!;
-  const mine = o.tasks.filter((t) => ['active', 'paused', 'proposed'].includes(t.status) && (!player || t.accountId === player));
+  // My own tasks, and the party's group tasks (working on one joins it). The DM paused a group task: nobody works it.
+  const mine = o.tasks.filter((t) => isOpen(t) && (t.scope === 'group' ? t.status !== 'paused' : !player || t.accountId === player));
+  const split = splitScope(mine);
   const prev = r.mine?.picks ?? [];
   const [choices, setChoices] = useState<Choice[]>(() => prev.map((p) => { const t = mine.find((x) => x.id === p.taskId); return { key: p.taskId, taskId: p.taskId, days: p.days, label: p.name, perDay: (t?.perDayMin ?? o.dayHours * 60) / 60 }; }));
-  const [mode, setMode] = useState<'mine' | 'start' | 'new'>(mine.length ? 'mine' : 'start');
+  // Open on my tasks when I have some of my own (or joined a group one); else on starting something.
+  const [mode, setMode] = useState<'mine' | 'start' | 'new'>(split.personal.length || split.group.some((t) => t.members.includes(player ?? me)) ? 'mine' : 'start');
   const used = choices.reduce((n, c) => n + c.days * c.perDay, 0);
   const left = r.days * o.dayHours - used;
   const toggle = (c: Choice) => setChoices((l) => (l.some((x) => x.key === c.key) ? l.filter((x) => x.key !== c.key) : [...l, { ...c, days: Math.max(1, Math.min(c.days, Math.floor((left + 0) / c.perDay) || 1)) }]));
@@ -73,22 +77,30 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
         </div>
         {mode === 'mine' && (
           <div className="stack tight">
-            {mine.map((t) => {
+            {([['personal', 'Personal', split.personal], ['group', "Group · the party's", split.group]] as const).map(([k, title, list]) => list.length > 0 && (
+              <div key={k} className="stack tight" data-testid={`downtime-pick-${k}`}>
+                {split.personal.length > 0 && split.group.length > 0 && <h3 className="dt-scope">{k === 'group' && <i className="fa-solid fa-people-group" aria-hidden="true" />}{title}</h3>}
+                {list.map((t) => {
               const on = choices.find((c) => c.key === t.id);
+              const who = player ?? me;
               return (
                 <div key={t.id} className="dt-task">
                   <label className="row between" style={{ gap: 8 }}>
                     <span className="row" style={{ gap: 8 }}>
                       <input type="checkbox" checked={!!on} onChange={() => toggle({ key: t.id, taskId: t.id, days: Math.min(r.days, t.daysLeft || 1), label: t.name, perDay: t.perDayMin / 60 })} />
                       <strong>{t.name}</strong> <TierChip tier={t.tier} label={t.tierLabel} />
+                      {t.scope === 'group' && <GroupChip />}
                       {t.status === 'proposed' && <span className="tiny muted">waiting for the DM</span>}
                     </span>
                     <span className="tiny muted">{t.leftLabel} left{t.perDayMin / 60 < o.dayHours ? ` · ${t.perDayMin / 60}h a day` : ''}</span>
                   </label>
                   <Progress t={t} />
+                  {t.scope === 'group' && <span className="tiny muted">{t.members.includes(who) ? `You and ${Math.max(0, t.members.length - 1)} other${t.members.length === 2 ? '' : 's'} on it` : 'Spending days on it joins you to it'}</span>}
                 </div>
               );
             })}
+              </div>
+            ))}
           </div>
         )}
         {mode === 'start' && <StartList player={player} onPick={(a) => toggle({ key: `a:${a.id}`, activityId: a.id, days: Math.min(r.days, a.daysNeeded), label: a.name, perDay: a.hoursPerDay })} picked={choices.map((c) => c.key)} />}
@@ -121,18 +133,20 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
 }
 
 /** Activities I can start, by tier, with the helper's three suggestions on top. */
-function StartList({ onPick, picked, player }: { onPick: (a: Activity) => void; picked: string[]; player?: string }) {
+function StartList({ onPick, picked, player, scope: scope0 = 'all' }: { onPick: (a: Activity) => void; picked: string[]; player?: string; scope?: 'all' | 'personal' | 'group' }) {
   const { w } = useWorld();
   const list = useLoad<{ activities: Activity[] }>(() => w.call('GET', '/downtime/activities', undefined, player ? { player } : undefined), [w, player], ['downtime']);
   const [q, setQ] = useState('');
+  const [scope, setScope] = useState(scope0);
   const [want, setWant] = useState('');
   const [ranked, setRanked] = useState<{ picks: Ranked[]; by: string } | null>(null);
   const act = useAction();
-  const shown = useMemo(() => (list.data?.activities ?? []).filter((a) => a.status !== 'hidden' && (!q || `${a.name} ${a.summary} ${a.tags.join(' ')}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q]);
+  const shown = useMemo(() => (list.data?.activities ?? []).filter((a) => a.status !== 'hidden' && (scope === 'all' || (scope === 'group') === !!a.group)
+    && (!q || `${a.name} ${a.summary} ${a.tags.join(' ')}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, scope]);
   const ask = () => act.run(async () => setRanked(await w.call('POST', '/downtime/suggest', { want, player })));
   const card = (a: Activity, why?: string) => (
     <button key={a.id} type="button" className={`btn dt-act${picked.includes(`a:${a.id}`) ? ' on' : ''}`} aria-pressed={picked.includes(`a:${a.id}`)} onClick={() => onPick(a)}>
-      <span className="row between" style={{ gap: 6 }}><strong>{a.name}</strong><TierChip tier={a.tier} label={a.tierLabel} /></span>
+      <span className="row between" style={{ gap: 6 }}><strong>{a.name}</strong><span className="row" style={{ gap: 4 }}>{a.group && <GroupChip />}<TierChip tier={a.tier} label={a.tierLabel} /></span></span>
       <span className="tiny muted">{a.daysNeeded} day{a.daysNeeded === 1 ? '' : 's'}{a.hoursPerDay < 8 ? `, ${a.hoursPerDay}h a day` : ''}{a.link?.kind === 'spell-craft' ? ' · Codex' : ''}{'text' in a.reward && (a.reward.text || a.reward.cp || a.reward.item) ? ` · ${rewardText(a.reward)}` : ''}</span>
       {why ? <span className="tiny">{why}</span> : <span className="tiny faint">{a.summary.slice(0, 110)}</span>}
     </button>
@@ -147,28 +161,36 @@ function StartList({ onPick, picked, player }: { onPick: (a: Activity) => void; 
       </div>
       <ErrorBox error={act.error} />
       {ranked && (ranked.picks.length ? <div className="dt-acts">{ranked.picks.map((p) => (byId.get(p.id) ? card(byId.get(p.id)!, p.why) : null))}</div> : <p className="small muted">No suggestion this time.</p>)}
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search activities" aria-label="Search activities" />
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <span className="row" style={{ gap: 4 }} role="group" aria-label="Personal or group">
+          {([['all', 'All'], ['personal', 'Personal'], ['group', 'Group']] as const).map(([k, label]) => <button key={k} type="button" className={`btn small${scope === k ? ' on' : ''}`} aria-pressed={scope === k} onClick={() => setScope(k)} data-testid={`downtime-scope-${k}`}>{label}</button>)}
+        </span>
+        <input className="input grow" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search activities" aria-label="Search activities" />
+      </div>
+      {scope === 'group' && <p className="tiny muted" style={{ margin: 0 }}>Group activities belong to the whole party: everyone's days count toward one shared task, and the reward goes to the party.</p>}
       <div className="dt-acts" style={{ maxHeight: 320, overflow: 'auto' }}>{shown.map((a) => card(a))}</div>
     </div>
   );
 }
 
 /** A new activity: name and what it is; the helper rates its tier and length. */
-function NewActivity({ onAdd, playerNew }: { onAdd: (a: { name: string; summary: string }, perDay: number) => void; playerNew: string }) {
+function NewActivity({ onAdd, playerNew }: { onAdd: (a: NewAct, perDay: number) => void; playerNew: string }) {
   const { w } = useWorld();
   const act = useAction();
   const [name, setName] = useState('');
   const [summary, setSummary] = useState('');
+  const [group, setGroup] = useState(false);
   const [dec, setDec] = useState<{ tierLabel: string; tier: any; days: number; hoursPerDay: number; why: string } | null>(null);
   const rate = () => act.run(async () => setDec(await w.call('POST', '/downtime/decide', { name, summary })));
   return (
     <div className="stack tight">
       <input className="input" value={name} maxLength={80} onChange={(e) => { setName(e.target.value); setDec(null); }} placeholder="Teach the orphans to read" aria-label="Activity name" />
       <textarea className="input" rows={2} value={summary} maxLength={600} onChange={(e) => { setSummary(e.target.value); setDec(null); }} placeholder="What you do, where, with whom" aria-label="What it is" />
+      <label className="small"><input type="checkbox" checked={group} onChange={(e) => setGroup(e.target.checked)} data-testid="downtime-new-group" /> A group activity: the whole party can join it and shares its progress</label>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="btn" disabled={act.busy || !name.trim()} onClick={() => void rate()}>How big is it?</button>
         {dec && <span className="small"><TierChip tier={dec.tier} label={dec.tierLabel} /> {dec.days} day{dec.days === 1 ? '' : 's'}{dec.hoursPerDay < 8 ? `, ${dec.hoursPerDay}h a day` : ''} {dec.why && <span className="muted">· {dec.why}</span>}</span>}
-        <button type="button" className="btn primary" disabled={!name.trim()} onClick={() => onAdd({ name: name.trim(), summary: summary.trim() }, dec?.hoursPerDay ?? 8)}>Add to my pick</button>
+        <button type="button" className="btn primary" disabled={!name.trim()} onClick={() => onAdd({ name: name.trim(), summary: summary.trim(), ...(group ? { group: true } : {}) }, dec?.hoursPerDay ?? 8)}>Add to my pick</button>
       </div>
       <ErrorBox error={act.error} />
       <span className="tiny muted">{playerNew === 'approve' ? 'The DM sets its tier and reward; the time you spend still counts.' : 'It starts right away.'}</span>
@@ -183,12 +205,14 @@ export function TaskLine({ t, children }: { t: Task; children?: React.ReactNode 
       <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
         <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <strong>{t.name}</strong> <TierChip tier={t.tier} label={t.tierLabel} />
+          {t.scope === 'group' && <GroupChip />}
           {t.status !== 'active' && <span className="tiny muted">{t.status === 'proposed' ? 'waiting for the DM' : t.status}</span>}
-          {t.player && <span className="tiny faint">{t.player}</span>}
+          {t.player && t.scope !== 'group' && <span className="tiny faint">{t.player}</span>}
         </span>
         <span className="tiny muted">{t.status === 'done' ? `done in ${t.doneLabel}` : `${t.doneLabel} of ${t.needLabel}`}</span>
       </div>
       <Progress t={t} />
+      {t.scope === 'group' && <span className="tiny muted" data-testid="downtime-members">{t.contributions.length ? t.contributions.map((c) => `${c.name || 'someone'} ${c.label}`).join(' · ') : t.memberNames?.length ? `${t.memberNames.join(', ')} joined` : 'Nobody on it yet'}</span>}
       <span className="tiny muted">{rewardText(t.reward) ? `Reward: ${rewardText(t.reward)}${t.rewardGivenAt ? ' (given)' : t.rewardWaiting ? ' (waiting for the DM)' : ''}` : ''}</span>
       {children}
     </div>
@@ -210,13 +234,14 @@ export function LogList({ log }: { log: LogLine[] }) {
 
 /** The player's Downtime page. */
 export function PlayerDowntime() {
-  const { w } = useWorld();
+  const { w, me } = useWorld();
   const o = useDowntime();
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [all, setAll] = useState(false);
   const [picking, setPicking] = useState(false);
   const tasks = useLoad<{ tasks: Task[] }>(() => w.call('GET', '/downtime/tasks', undefined, all ? { all: '1' } : undefined), [w, all], ['downtime', 'downtime-done']);
+  const split = splitScope(tasks.data?.tasks ?? []);
   const log = useLoad<{ log: LogLine[] }>(() => w.call('GET', '/downtime/log', undefined, { limit: 60 }), [w], ['downtime', 'downtime-done']);
   const [starting, setStarting] = useState(false);
   if (!o.data) return <div className="page"><Loading /></div>;
@@ -235,9 +260,9 @@ export function PlayerDowntime() {
       {picking && o.data.round && <PickModal o={o.data} onClose={() => setPicking(false)} onDone={() => { setPicking(false); void o.reload(); }} />}
       {starting && <section className="card"><StartList picked={[]} onPick={(a) => void run(async () => { await w.call('POST', '/downtime/tasks', { activityId: a.id }); setStarting(false); }, `Started ${a.name}`)} /></section>}
       <ErrorBox error={act.error ?? tasks.error} />
-      <section className="card">
+      <section className="card" data-testid="downtime-personal">
         <div className="card-head"><h2>My tasks</h2><label className="small"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Finished and stopped too</label></div>
-        {!tasks.data ? <Loading /> : !tasks.data.tasks.length ? <p className="small muted">Nothing yet. Start an activity, or wait for the DM's Downtime.</p> : tasks.data.tasks.map((t) => (
+        {!tasks.data ? <Loading /> : !split.personal.length ? <p className="small muted">Nothing yet. Start an activity, or wait for the DM's Downtime.</p> : split.personal.map((t) => (
           <TaskLine key={t.id} t={t}>
             {['active', 'paused'].includes(t.status) && (
               <span className="row" style={{ gap: 6 }}>
@@ -247,6 +272,21 @@ export function PlayerDowntime() {
             )}
           </TaskLine>
         ))}
+      </section>
+      <section className="card" data-testid="downtime-group">
+        <div className="card-head"><h2><i className="fa-solid fa-people-group" aria-hidden="true" /> Group tasks</h2><span className="tiny muted">The whole party's: everyone's days count, the reward goes to the party</span></div>
+        {!tasks.data ? <Loading /> : !split.group.length ? <p className="small muted">No group tasks. Start a group activity (a stronghold, a business, party training) and the others can join.</p> : split.group.map((t) => {
+          const inIt = t.members.includes(me);
+          return (
+            <TaskLine key={t.id} t={t}>
+              {isOpen(t) && (
+                <span className="row" style={{ gap: 6 }}>
+                  <button type="button" className={`btn small${inIt ? '' : ' primary'}`} disabled={act.busy} onClick={() => void run(() => w.call('POST', `/downtime/tasks/${t.id}/${inIt ? 'leave' : 'join'}`, {}), inIt ? `Left ${t.name}` : `Joined ${t.name}`)}>{inIt ? 'Leave' : 'Join'}</button>
+                </span>
+              )}
+            </TaskLine>
+          );
+        })}
       </section>
       <section className="card"><h2>My log</h2>{!log.data ? <Loading /> : <LogList log={log.data.log} />}</section>
       {toastNode}
@@ -264,7 +304,15 @@ export function DowntimeModule({ account }: { account: string }) {
   return (
     <div>
       <style>{CSS}</style>
-      {tasks.data.tasks.length ? tasks.data.tasks.slice(0, 6).map((t) => <TaskLine key={t.id} t={t} />) : <p className="tiny muted">No downtime tasks.</p>}
+      {(() => {
+        const sp = splitScope(tasks.data.tasks);
+        if (!sp.personal.length && !sp.group.length) return <p className="tiny muted">No downtime tasks.</p>;
+        return <>
+          {sp.personal.slice(0, 4).map((t) => <TaskLine key={t.id} t={t} />)}
+          {sp.group.length > 0 && <h4 className="dt-scope"><i className="fa-solid fa-people-group" aria-hidden="true" />Group</h4>}
+          {sp.group.slice(0, 3).map((t) => <TaskLine key={t.id} t={t} />)}
+        </>;
+      })()}
       <Link className="tiny" to={dm ? `/w/${info.slug}/dm/downtime` : `/w/${info.slug}/downtime`}>All downtime</Link>
     </div>
   );

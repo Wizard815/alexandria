@@ -147,9 +147,10 @@ test('TestDowntime_TimeAddedLostRemovedAndRewards', async () => {
   const inv = await ok('GET', `/api/worlds/${W}/inventory`, T.jess);
   assert.ok(JSON.stringify(inv).includes('Old map'));
   assert.equal((await call('POST', `${D()}/tasks/${r1.id}/reward`, T.dm, {})).status, 409);
-  // Tom's stronghold (legendary, 90 days) is stopped midway; the work stays in the log.
-  const sh = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activityId: 'pre-stronghold' });
-  assert.equal(sh.needMin, 90 * 8 * 60);
+  // Tom's legendary craft (180 days) is stopped midway; the work stays in the log.
+  const sh = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activityId: 'pre-craft-legendary' });
+  assert.equal(sh.needMin, 180 * 8 * 60);
+  assert.equal(sh.scope, 'personal');
   await ok('POST', `${D()}/tasks/${sh.id}/work`, T.dm, { days: 10, note: 'Foundations' });
   await ok('DELETE', `${D()}/tasks/${sh.id}?note=${encodeURIComponent('Ran out of gold')}`, T.dm);
   const log = (await ok('GET', `${D()}/log?player=Tomas`, T.dm)).log;
@@ -198,4 +199,52 @@ test('TestDowntime_SuggestAndDecideWithoutAModel', async () => {
 test('TestDowntime_PremadeListIsCheckedData', () => {
   const list = premadeFrom([{ id: 'pre-x', name: 'X', tier: 'rare' }, { id: 'bad', name: 'Y' }, { id: 'pre-z', name: 'Z', tier: 'mythic' }, { id: 'pre-x', name: 'dup' }]);
   assert.deepEqual(list.map((a) => a.id), ['pre-x']);
+});
+
+test('TestDowntime_GroupTasksAreSharedApartFromPersonal', async () => {
+  const acts = (await ok('GET', `${D()}/activities`, T.jess)).activities;
+  assert.ok(acts.find((a: any) => a.id === 'pre-group-drill')?.group, 'group activities come with the rule');
+  assert.equal(acts.find((a: any) => a.id === 'pre-work')?.group, false);
+  // Jess starts the drill: it belongs to the party, she joins it. Tom starting it joins the same task.
+  const g = await ok('POST', `${D()}/tasks`, T.jess, { activityId: 'pre-group-drill' });
+  assert.equal(g.scope, 'group');
+  assert.equal(g.accountId, 'party');
+  assert.deepEqual(g.members, [ID.jess]);
+  const again = await ok('POST', `${D()}/tasks`, T.tom, { activityId: 'pre-group-drill' });
+  assert.equal(again.id, g.id, 'one shared task, not a second one');
+  assert.deepEqual(again.members.sort(), [ID.jess, ID.tom].sort());
+  // Both see it on their list, beside their personal tasks; scope filters.
+  const tomList = (await ok('GET', `${D()}/tasks`, T.tom)).tasks;
+  assert.ok(tomList.some((t: any) => t.id === g.id && t.player === 'The party'));
+  assert.ok((await ok('GET', `${D()}/tasks?scope=group`, T.tom)).tasks.every((t: any) => t.scope === 'group'));
+  assert.ok((await ok('GET', `${D()}/tasks?scope=personal`, T.jess)).tasks.every((t: any) => t.scope === 'personal' && t.accountId === ID.jess));
+  // Rewarded to the party; both put days in during a round, progress is pooled (uncommon: 3 days).
+  await ok('PATCH', `${D()}/tasks/${g.id}`, T.dm, { reward: { gp: 30, text: 'Drilled as one' } });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 2, advance: false });
+  await ok('POST', `${D()}/rounds/current/pick`, T.jess, { picks: [{ taskId: g.id, days: 2 }] });
+  const p = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-group-drill', days: 1 }] });
+  assert.equal(p.finished.length, 1, 'two days + one day finish a three-day task');
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  const done = await task('tom', 'Party training regimen');
+  assert.equal(done.status, 'done');
+  assert.deepEqual(done.contributions.map((c: any) => [c.accountId, c.minutes]), [[ID.jess, 2 * 8 * 60], [ID.tom, 8 * 60]]);
+  // The log shows each one's work to every member.
+  const log = (await ok('GET', `${D()}/log?task=${g.id}`, T.tom)).log;
+  assert.ok(log.some((l: any) => l.kind === 'work' && l.accountId === ID.jess), 'Tom sees Jess\'s work on the shared task');
+  // The reward goes to the party pouch.
+  await ok('POST', `${D()}/tasks/${g.id}/reward`, T.dm);
+  const led = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
+  assert.ok(led.entries.some((e: any) => e.note === 'Downtime: Party training regimen' && e.amount_cp === 3000), 'the party pouch gets the coin');
+  // Players leave a group task; only the DM pauses or removes it.
+  const fest = await ok('POST', `${D()}/tasks`, T.jess, { activityId: 'pre-group-festival' });
+  assert.equal((await call('DELETE', `${D()}/tasks/${fest.id}`, T.jess)).status, 403);
+  assert.equal((await call('PATCH', `${D()}/tasks/${fest.id}`, T.jess, { status: 'paused' })).status, 403);
+  assert.deepEqual((await ok('POST', `${D()}/tasks/${fest.id}/leave`, T.jess)).members, []);
+  assert.deepEqual((await ok('POST', `${D()}/tasks/${fest.id}/join`, T.tom)).members, [ID.tom]);
+  // The DM gives the whole party a new group task (no player), and a personal one stays personal.
+  const camp = await ok('POST', `${D()}/tasks`, T.dm, { group: true, activity: { name: 'Fortify the camp', tier: 'common' } });
+  assert.equal(camp.accountId, 'party');
+  assert.deepEqual(camp.members, []);
+  assert.equal((await call('POST', `${D()}/tasks/${(await task('jess', 'Research lore')).id}/join`, T.jess)).status, 409, 'personal tasks have no members');
+  await ok('DELETE', `${D()}/tasks/${fest.id}`, T.dm);
 });

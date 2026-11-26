@@ -6,7 +6,7 @@ export type Tier = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';
 export interface Reward { text: string; cp: number; item: string; qty: number; hidden: boolean }
 export interface Activity {
   id: string; name: string; summary: string; tier: Tier; tierLabel: string; days: number | null; daysNeeded: number; hoursPerDay: number;
-  repeatable: boolean; reward: Reward | { hidden: true }; link: { kind: string; ref?: string } | null; tags: string[];
+  repeatable: boolean; group: boolean; reward: Reward | { hidden: true }; link: { kind: string; ref?: string } | null; tags: string[];
   source: 'premade' | 'dm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean;
 }
 export interface Task {
@@ -15,6 +15,9 @@ export interface Task {
   needLabel: string; doneLabel: string; leftLabel: string; daysLeft: number;
   reward: Reward | { hidden: true }; rewardGivenAt: string | null; rewardWaiting: boolean; link: { kind: string; ref?: string } | null;
   createdAt: string; finishedAt: string | null; dmNote?: string;
+  /** personal: one character's. group: the party's, shared; members joined it, contributions are what each put in. */
+  scope: 'personal' | 'group'; members: string[]; memberNames?: string[];
+  contributions: { accountId: string; name?: string; minutes: number; label: string }[];
 }
 export interface Answer { accountId: string; name: string; waiting?: boolean; skipped?: boolean; picks?: { taskId: string; days: number; name: string }[]; at?: string }
 export interface Round { id: string; days: number; hours: number; status: 'open' | 'closed' | 'cancelled'; note: string; worldLabel: string; createdAt: string; answers?: Answer[]; mine?: Answer | null }
@@ -24,6 +27,16 @@ export interface Overview {
 }
 export interface LogLine { id: string; at: string; worldDate: string; accountId: string; player: string; taskId: string | null; task: string; kind: string; minutes: number; time: string; by: string; note: string; undone: boolean }
 export interface Ranked { id: string; name: string; tier: Tier; tierLabel: string; days: number; hoursPerDay: number; why: string }
+
+const OPEN = ['active', 'paused', 'proposed'];
+/** Personal tasks (one character's) and group tasks (the party's), kept apart everywhere. */
+export const splitScope = <T extends { scope?: string }>(list: T[]) => ({ personal: list.filter((t) => t.scope !== 'group'), group: list.filter((t) => t.scope === 'group') });
+export const isOpen = (t: Pick<Task, 'status'>) => OPEN.includes(t.status);
+
+/** The marker on group activities and tasks. */
+export function GroupChip() {
+  return <span className="dt-group" title="A group activity: the whole party shares it"><i className="fa-solid fa-people-group" aria-hidden="true" /> Group</span>;
+}
 
 export const EVENTS = ['downtime', 'downtime-round', 'downtime-done', 'settings', 'clock'];
 
@@ -50,7 +63,7 @@ export const rewardText = (r: Task['reward']): string => ('text' in r ? [r.text,
 
 export const KIND_LABEL: Record<string, string> = {
   start: 'Started', work: 'Worked', time: 'Time changed', skip: 'Skipped', missed: 'No pick', pause: 'Paused', resume: 'Back to it',
-  remove: 'Stopped', edit: 'Changed', approve: 'Approved', complete: 'Finished', reward: 'Reward given',
+  remove: 'Stopped', edit: 'Changed', approve: 'Approved', complete: 'Finished', reward: 'Reward given', join: 'Joined', leave: 'Left',
 };
 
 export const CSS = `
@@ -66,5 +79,7 @@ export const CSS = `
 .dt-step input { width: 3.5em; text-align: center; }
 .dt-log { display: grid; gap: 2px; font-size: 13px; }
 .dt-log .undone { text-decoration: line-through; opacity: .6; }
+.dt-group { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 0 8px; font-size: 11px; background: var(--accent-soft, rgba(59,125,216,.15)); color: var(--accent, #3b7dd8); white-space: nowrap; }
+.dt-scope { margin: 8px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #888); display: flex; align-items: center; gap: 6px; }
 .dt-chip { position: fixed; right: 16px; bottom: 76px; z-index: 40; }
 `;
