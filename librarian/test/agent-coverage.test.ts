@@ -136,7 +136,7 @@ await dm('POST', '/sound/rescan', {});
 await dm('POST', '/sound/scenes', { name: 'Rainy night', layers: [{ kind: 'rain', volume: 0.4 }] });
 await dm('POST', '/voice/presets', { name: 'Narrator', voice: 'af_heart', speed: 1, effect: 'none', target: 'table' });
 await dm('PUT', '/worldlore/config', { kind: 'library', root: 'WorldLore', defaultLevel: 'party' });
-await dm('PATCH', '/settings', { agentAutoApprove: [] });
+await dm('PATCH', '/settings', { agentAutoApprove: [], sheetRerolls: true });
 await dm('POST', '/minerva/enable', {});
 // Three players asked the broker; the requests are set to the states the DM's tools act on.
 for (const [who, q] of [['jess', 'Who rules Saltmarsh?'], ['tom', 'How much is the ferry?'], ['ana', 'Where is the lighthouse?']] as const) {
@@ -279,6 +279,8 @@ const ARGS: Record<string, Maker> = {
   hide_map_mark: async () => ({ markId: await mark('A'), hidden: true }),
   delete_map_mark: async () => ({ markId: await mark('B') }),
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
+  change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
+  give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),
   add_recall: async () => ({ personId: await person(), accountId: ID.jess, text: 'Jessamine knew him as a child.', success: true }),
   resolve_quick_event: async () => ({ id: await quickEvent('resolve') }),
   cancel_quick_event: async () => ({ id: await quickEvent('cancel') }),
