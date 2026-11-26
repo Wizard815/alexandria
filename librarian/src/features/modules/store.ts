@@ -87,6 +87,10 @@ export interface WorldModules {
 const versions = new WeakMap<DB, Map<string, number>>();
 const caches = new WeakMap<DB, Map<string, WorldModules>>();
 const ver = (db: DB, w: string) => versions.get(db)?.get(w) ?? 0;
+/** Terms another feature adds to a world's glossary (house rules); call invalidate() when they change. */
+type TermSource = (db: DB, worldId: string) => { moduleId: string; moduleName: string; terms: Term[] }[];
+const termSources: TermSource[] = [];
+export function addTermSource(fn: TermSource) { termSources.push(fn); }
 /** Call after anything that changes a world's modules or their order. */
 export function invalidate(db: DB, worldId: string) {
   const m = versions.get(db) ?? new Map<string, number>();
@@ -144,6 +148,18 @@ export function worldModules(db: DB, worldId: string): WorldModules {
       if (seen.has(key)) continue;
       seen.add(key);
       terms.push({ ...t, ref: `${m.doc.id}:${t.id}`, moduleId: m.doc.id, moduleName: m.doc.name, rank });
+    }
+  }
+  // Terms other features add (the world's house rules), after every module.
+  for (const src of termSources) {
+    for (const g of src(db, worldId)) {
+      const rank = enabled.length + 1;
+      for (const t of g.terms) {
+        const key = `${t.kind}|${t.term.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        terms.push({ ...t, ref: `${g.moduleId}:${t.id}`, moduleId: g.moduleId, moduleName: g.moduleName, rank });
+      }
     }
   }
   const w: WorldModules = { version: ver(db, worldId), enabled, terms, byRef: new Map(terms.map((t) => [t.ref, t])) };

@@ -56,4 +56,9 @@ export interface Feature {
   start?: (d: Deps) => (() => void) | void;
   /** Folders under ALX_DATA_DIR this feature keeps files in; included in backups. */
   dataDirs?: string[];
+  /**
+   * House rules (mods, see features/mods and docs/MODS.md) this feature ships. Each is a mod file object; a big
+   * system usually ships one whose `presets` switch its own settings on, so the DM turns it on under House rules.
+   */
+  houseRules?: unknown[];
 }
