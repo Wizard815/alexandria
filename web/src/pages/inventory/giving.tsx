@@ -144,9 +144,10 @@ export function MoveItemModal({ item, onClose, onDone }: { item: Item; onClose: 
   const [to, setTo] = useState(targets[0] ?? '');
   const [qty, setQty] = useState(item.qty);
   const [reason, setReason] = useState('');
-  const needReason = isDM && item.owner !== 'party' && (info.settings as { dmChangeReason?: boolean }).dmChangeReason !== false;
+  const [quiet, setQuiet] = useState(false);
+  const needReason = isDM && !quiet && item.owner !== 'party' && (info.settings as { dmChangeReason?: boolean }).dmChangeReason !== false;
   const go = () => act.run(async () => {
-    await w.call('POST', `/inventory/${item.id}/move`, { to, qty, reason: reason.trim() || undefined });
+    await w.call('POST', `/inventory/${item.id}/move`, { to, qty, reason: reason.trim() || undefined, ...(quiet ? { quiet: true } : {}) });
     onDone(`${qty} × ${item.name} → ${to === 'party' ? 'the party stash' : label(to)}`);
   });
   return (
@@ -157,6 +158,7 @@ export function MoveItemModal({ item, onClose, onDone }: { item: Item; onClose: 
         <Field label={`How many (of ${item.qty})`}><input type="number" min={1} max={item.qty} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(item.qty, Number(e.target.value) || 1)))} /></Field>
       </div>
       {item.qty > 1 && <input type="range" min={1} max={item.qty} value={qty} onChange={(e) => setQty(Number(e.target.value))} aria-label="How many" style={{ width: '100%' }} />}
+      {isDM && item.owner !== 'party' && <QuietToggle on={quiet} set={setQuiet} />}
       {needReason && <Field label="Why (the player sees this)"><input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} /></Field>}
       <ErrorBox error={act.error} />
       <div className="row end">
@@ -255,5 +257,15 @@ export function TransfersList({ limit = 20, title = 'Given and moved' }: { limit
         </ul>
       )}
     </section>
+  );
+}
+
+/** "Don't tell": the DM's item changes skip the owner's alert (for the story). Off by default. */
+export function QuietToggle({ on, set, party }: { on: boolean; set: (v: boolean) => void; party?: boolean }) {
+  return (
+    <label className="row tiny muted" style={{ gap: 6, cursor: 'pointer' }} title={party ? 'The players are not told about these item changes' : 'The player is not told about these item changes'}>
+      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} data-testid="dm-quiet" />
+      <span><i className="fa-solid fa-eye-slash" aria-hidden="true" /> Don’t tell {party ? 'the players' : 'the player'}{on && ' (they won’t get an alert)'}</span>
+    </label>
   );
 }
