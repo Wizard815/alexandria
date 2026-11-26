@@ -9,8 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
-import { checkMod, commandActions, presetValues, resolveOptions } from '../src/features/mods/format.ts';
-import { INSPIRATION_REROLLS } from '../src/features/mods/catalog.ts';
+import { checkMod, commandActions, makePackage, presetValues, resolveOptions, unpack } from '../src/features/mods/format.ts';
+import { MODS_DIR, loadModsDir, shippedMod, shippedMods } from '../src/features/mods/catalog.ts';
+import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST } from '../src/features/spells/mana.ts';
+
+const INSPIRATION_REROLLS = JSON.parse(fs.readFileSync(path.join(MODS_DIR, 'inspiration-rerolls.alxmod.json'), 'utf8'));
 import { migrateSheetRerolls } from '../src/features/mods/index.ts';
 
 let base = '';
@@ -72,6 +75,53 @@ test('Mods: the inspiration rerolls rule is a valid mod with its chat words', ()
   assert.equal(mod!.resources.length, 3);
   assert.deepEqual(commandActions(mod!).map((c) => `${c.word} ${c.arg} ${c.action}`), ['reroll personal use-personal', 'reroll everyone use-everyone', 'reroll dm use-dm']);
   assert.deepEqual(resolveOptions(mod!, { cap: 4, keepBetter: 'yes' }), { cap: 4, keepBetter: false });
+});
+
+test('Mods: every rule file in the repo\'s mods/ folder is a built-in rule, claimed by its feature', () => {
+  const files = fs.readdirSync(MODS_DIR).filter((n) => n.endsWith('.alxmod.json'));
+  assert.ok(files.length >= 5);
+  for (const f of files) {
+    const { mods, errors } = unpack(fs.readFileSync(path.join(MODS_DIR, f), 'utf8'));
+    assert.deepEqual(errors, [], f);
+    for (const m of mods) assert.ok(shippedMod(m.id), `${m.id} is shipped`);
+  }
+  for (const f of fs.readdirSync(path.join(MODS_DIR, 'examples'))) assert.deepEqual(unpack(fs.readFileSync(path.join(MODS_DIR, 'examples', f), 'utf8')).errors, [], f);
+  assert.equal(shippedMod('hero-points'), undefined, 'examples are not built in');
+  assert.equal(shippedMod('spell-points')!.feature, 'spells');
+  assert.equal(shippedMod('inspiration-rerolls')!.feature, 'mods');
+  assert.equal(new Set(shippedMods().map((s) => s.mod.id)).size, shippedMods().length);
+  // The simple mana pool sets the spells feature's own defaults back.
+  const pool = shippedMod('mana-pool')!.mod.presets;
+  assert.deepEqual([pool.spellManaCosts, pool.spellManaPool, pool.spellManaRest, pool.spellManaMaxLevel], [DEFAULT_COSTS, DEFAULT_POOL, DEFAULT_REST, DEFAULT_MAX_LEVEL]);
+});
+
+test('Mods: a drop-in folder adds rules and skips broken files without stopping', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-mods-'));
+  fs.writeFileSync(path.join(dir, 'pack.alxmod.json'), JSON.stringify(makePackage([checkMod({ kit: 1, id: 'drop-a', name: 'A' }).mod!, checkMod({ kit: 1, id: 'drop-b', name: 'B' }).mod!], { alexandria: 'test' })));
+  fs.writeFileSync(path.join(dir, 'broken.alxmod.json'), '{ nope');
+  fs.writeFileSync(path.join(dir, 'twice.alxmod.json'), JSON.stringify({ kit: 1, id: 'spell-points', name: 'Again' }));
+  const warn = console.warn; console.warn = () => {};
+  try {
+    const r = loadModsDir(dir);
+    assert.deepEqual(r.loaded, ['drop-a', 'drop-b']);
+    assert.equal(r.problems.length, 2);
+    assert.equal(shippedMod('drop-b')!.mod.name, 'B');
+  } finally { console.warn = warn; fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Mods: a package holds several rules; a bad rule in it names where', () => {
+  const a = checkMod({ kit: 1, id: 'pkg-a', name: 'A' }).mod!;
+  const pkg = makePackage([a, checkMod({ kit: 1, id: 'pkg-b', name: 'B' }).mod!], { alexandria: '1.0', author: 'Wizard' });
+  assert.equal(pkg.summary, 'A, B');
+  const back = unpack(JSON.stringify(pkg));
+  assert.deepEqual(back.mods.map((m) => m.id), ['pkg-a', 'pkg-b']);
+  assert.equal(back.info!.author, 'Wizard');
+  assert.deepEqual(unpack({ kit: 1, id: 'solo', name: 'Solo' }).mods.map((m) => m.id), ['solo']);
+  const bad = unpack({ type: 'alexandria-house-rules', kit: 1, mods: [a, { id: 'Bad Id', name: 'x' }, a] });
+  assert.equal(bad.mods.length, 0);
+  assert.ok(bad.errors.some((e) => e.startsWith('mods[1] (Bad Id)')), bad.errors.join('\n'));
+  assert.ok(bad.errors.some((e) => e.includes('in the package twice')));
+  assert.match(unpack({ type: 'alexandria-house-rules', kit: 9, mods: [a] }).errors[0], /newer Alexandria/);
 });
 
 test('Mods: a bad file gets plain errors the assistant can fix', () => {
@@ -257,9 +307,27 @@ test('Mods: the DM checks, imports, exports and removes a rule; shipped ids are 
   assert.equal(imp.status, 201);
   assert.equal(imp.body.enabled, false);
   const ex = await ok('GET', `${M()}/hero-points/export`, T.dm);
-  assert.equal(ex.id, 'hero-points');
+  assert.equal(ex.type, 'alexandria-house-rules');
   assert.equal(ex.kit, 1);
+  assert.deepEqual(ex.mods.map((m: any) => m.id), ['hero-points']);
+  assert.equal(ex.mods[0].name, 'Hero points');
   assert.equal((await call('DELETE', `${M()}/inspiration-rerolls`, T.dm)).status, 400);
+  // A package: several rules in one file, checked and saved together; the export of what is on is a package too.
+  const VOW = { kit: 1, id: 'vows', name: 'Vows', resources: [{ id: 'vow', label: 'Vow' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'vow', add: 1 }] };
+  const pkg = { type: 'alexandria-house-rules', kit: 1, name: 'Saltreach rules', mods: [HERO, VOW] };
+  const pc = await ok('POST', `${M()}/check`, T.dm, { mod: pkg });
+  assert.equal(pc.ok, true);
+  assert.deepEqual(pc.mods.map((m: any) => m.id), ['hero-points', 'vows']);
+  assert.equal(pc.package.name, 'Saltreach rules');
+  assert.equal((await call('POST', `${M()}/import`, T.dm, { mod: { ...pkg, mods: [VOW, INSPIRATION_REROLLS] } })).status, 409);
+  assert.equal((await ok('GET', `${M()}/`, T.dm)).mods.some((r: any) => r.id === 'vows'), false, 'nothing saved when one rule is refused');
+  const pi = await call('POST', `${M()}/import`, T.dm, { mod: pkg });
+  assert.equal(pi.status, 201);
+  assert.deepEqual(pi.body.rules.map((r: any) => r.id), ['hero-points', 'vows']);
+  const two = await ok('GET', `${M()}/export?ids=hero-points,vows`, T.dm);
+  assert.deepEqual(two.mods.map((m: any) => m.id), ['hero-points', 'vows']);
+  assert.equal((await call('GET', `${M()}/export`, T.jess)).status, 403);
+  await ok('DELETE', `${M()}/vows`, T.dm);
 });
 
 test('Mods: triggers run on a long rest and at session start; chat words and effects work', async () => {

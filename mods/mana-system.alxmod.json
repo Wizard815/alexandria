@@ -1,0 +1,23 @@
+{
+  "kit": 1,
+  "id": "mana-system",
+  "name": "MANA spell system",
+  "version": "1.0.0",
+  "author": "Wizard",
+  "group": "magic",
+  "summary": "Spells cost mana from a pool by caster type, with study, spell lines, surge casting and dual casting. Replaces spell slots for every character.",
+  "presets": {
+    "spellMana": true,
+    "spellRulesOn": true,
+    "spellManaName": "Mana"
+  },
+  "requires": {
+    "settings": ["spellRulesOn"]
+  },
+  "rules": [
+    {
+      "term": "MANA (house rule)",
+      "text": "Spells are cast from a mana pool instead of spell slots. Pools depend on caster type and level; new spells are learned by study. See the Codex for costs and your pool."
+    }
+  ]
+}

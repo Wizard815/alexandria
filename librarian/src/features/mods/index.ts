@@ -16,7 +16,8 @@ import { addTermSource } from '../modules/store.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
 import { addCommandResolver, latestRoll, postChat, rollMessage } from '../sessionchat/hooks.ts';
 import type { Feature } from '../types.ts';
-import { checkMod, commandActions, presetValues, val, type Action, type ModFile } from './format.ts';
+import { VERSION } from '../../version.ts';
+import { MAX_PACKAGE, commandActions, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
 import {
   SCHEMA, act, counters, enabledMods, getMod, importMod, listMods, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
   type Actor, type Installed,
@@ -104,27 +105,46 @@ function routes(d: Deps) {
   // ---- the DM: check, import, export, turn on and off, options, remove ----
 
   r.post('/check', requireDM, (req, res) => {
-    const { mod, errors } = checkMod(req.body?.mod);
-    if (!mod) { res.json({ ok: false, errors }); return; }
+    const { mods, errors, info } = unpack(req.body?.mod);
+    if (!mods.length) { res.json({ ok: false, errors }); return; }
     const notes: string[] = [];
-    for (const k of Object.keys(mod.presets)) if (!(k in DEFAULT_SETTINGS)) notes.push(`presets.${k} is not a setting of this Alexandria yet; it is skipped until it exists`);
-    for (const k of mod.requires.settings) if (!(k in DEFAULT_SETTINGS)) notes.push(`requires ${k}, which this Alexandria does not have: the rule cannot be turned on here yet`);
-    const taken = listMods(db, W(res)).find((m) => m.mod.id === mod.id);
-    if (taken) notes.push(taken.source === 'shipped' ? `the id ${mod.id} belongs to a rule that comes with Alexandria: pick another id` : `saving replaces the world's rule ${mod.id} (counters of kept resources stay)`);
-    res.json({ ok: true, errors: [], notes, mod });
+    const have = listMods(db, W(res));
+    for (const mod of mods) {
+      const at = mods.length > 1 ? `${mod.id}: ` : '';
+      for (const k of Object.keys(mod.presets)) if (!(k in DEFAULT_SETTINGS)) notes.push(`${at}presets.${k} is not a setting of this Alexandria yet; it is skipped until it exists`);
+      for (const k of mod.requires.settings) if (!(k in DEFAULT_SETTINGS)) notes.push(`${at}requires ${k}, which this Alexandria does not have: the rule cannot be turned on here yet`);
+      const taken = have.find((m) => m.mod.id === mod.id);
+      if (taken) notes.push(taken.source === 'shipped' ? `${at}the id ${mod.id} belongs to a rule that comes with Alexandria: pick another id` : `${at}saving replaces the world's rule ${mod.id} (counters of kept resources stay)`);
+    }
+    res.json({ ok: true, errors: [], notes, mod: mods[0], mods, package: info });
   });
 
   r.post('/import', requireDM, (req, res) => {
-    const out = importMod(db, W(res), req.body?.mod, me(res));
-    audit(db, W(res), me(res), out.updated ? 'mods.update' : 'mods.import', out.mod.id);
+    const { mods, errors } = unpack(req.body?.mod);
+    if (!mods.length) throw new HttpError(400, `This house rule has problems: ${errors.join('; ')}`);
+    const shipped = mods.filter((m) => listMods(db, W(res)).some((x) => x.mod.id === m.id && x.source === 'shipped'));
+    if (shipped.length) throw new HttpError(409, `${shipped.map((m) => m.id).join(', ')} ${shipped.length > 1 ? 'are ids' : 'is the id'} of a house rule that comes with Alexandria; give yours another id`);
+    const out = mods.map((m) => importMod(db, W(res), m, me(res)));
+    for (const o of out) audit(db, W(res), me(res), o.updated ? 'mods.update' : 'mods.import', o.mod.id);
     changedList(W(res));
-    res.status(out.updated ? 200 : 201).json(view(getMod(db, W(res), out.mod.id), true));
+    const views = out.map((o) => view(getMod(db, W(res), o.mod.id), true));
+    // One rule: the rule itself (as before); a package: every rule it added.
+    res.status(out.some((o) => !o.updated) ? 201 : 200).json(views.length === 1 ? views[0] : { rules: views });
+  });
+
+  // A package to share: the rules named in ?ids= (comma-separated), else every rule that is on.
+  r.get('/export', requireDM, (req, res) => {
+    const ids = String(req.query.ids ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const mods = ids.length ? ids.slice(0, MAX_PACKAGE).map((id) => getMod(db, W(res), id).mod) : enabledMods(db, W(res)).map((m) => m.mod).slice(0, MAX_PACKAGE);
+    if (!mods.length) throw new HttpError(400, 'No house rule to export: turn one on or name it');
+    res.setHeader('Content-Disposition', `attachment; filename="${mods.length === 1 ? mods[0].id : 'house-rules'}.alxmod.json"`);
+    res.json(makePackage(mods, { alexandria: VERSION }));
   });
 
   r.get('/:id/export', requireDM, (req, res) => {
     const m = getMod(db, W(res), String(req.params.id));
     res.setHeader('Content-Disposition', `attachment; filename="${m.mod.id}.alxmod.json"`);
-    res.json(m.mod);
+    res.json(makePackage([m.mod], { alexandria: VERSION }));
   });
 
   r.put('/:id/enabled', requireDM, (req, res) => {
@@ -326,13 +346,13 @@ const feature: Feature = {
     {
       name: 'house_rule_check', dmOnly: true,
       description: 'Check a draft house rule (mod file JSON, see the House rules guide) without saving it. Returns plain errors to fix, notes and the cleaned file. Use it until ok is true, then show the DM and save with house_rule_save.',
-      props: { mod: { type: 'object', description: 'The mod file' } }, required: ['mod'],
+      props: { mod: { type: 'object', description: 'The mod file, or a package of several' } }, required: ['mod'],
       call: (a) => ({ method: 'POST', path: '/mods/check', body: { mod: a.mod } }),
     },
     {
       name: 'house_rule_save', write: true, dmOnly: true,
-      description: "Save a checked house rule to the world (it starts off; the DM turns it on under World settings → House rules). Saving a rule with an existing id replaces it and keeps its counters.",
-      props: { mod: { type: 'object', description: 'The mod file' } }, required: ['mod'],
+      description: "Save a checked house rule to the world (it starts off; the DM turns it on under World → House rules). Saving a rule with an existing id replaces it and keeps its counters. Takes one rule or a package (several).",
+      props: { mod: { type: 'object', description: 'The mod file, or a package of several' } }, required: ['mod'],
       call: (a) => ({ method: 'POST', path: '/mods/import', body: { mod: a.mod } }),
     },
   ],

@@ -701,33 +701,8 @@ const feature: Feature = {
   },
   worldMount: 'spells',
   worldRoutes: routes,
-  // House rules (World settings → House rules): each one switches this feature's settings as a set.
-  houseRules: [
-    {
-      kit: 1, id: 'spell-points', name: 'Spell points', version: '1.0.0', author: 'Alexandria', group: 'magic',
-      summary: 'The standard spell points variant: every character casts from a pool of points instead of spell slots. Pool by caster level (full caster table), cost by spell level, full refill on a long rest.',
-      presets: {
-        spellMana: true, spellManaName: 'Spell points', spellManaOverdraw: false,
-        spellManaCosts: [0, 2, 3, 5, 6, 7, 9, 10, 11, 13],
-        spellManaPool: { mode: 'table', formula: DEFAULT_POOL.formula, table: [4, 6, 14, 17, 27, 32, 38, 44, 57, 64, 73, 73, 83, 83, 94, 94, 107, 114, 123, 133] },
-        spellManaRest: { long: 'full', short: 'none' },
-        spellManaMaxLevel: { on: true, table: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 9, 9] },
-      },
-      rules: [{ term: 'Spell points (house rule)', text: 'Spells are cast with spell points instead of slots. A spell costs 2 points at 1st level, 3 at 2nd, 5 at 3rd, 6 at 4th, 7 at 5th, 9 at 6th, 10 at 7th, 11 at 8th and 13 at 9th. Your pool grows with your caster level and refills on a long rest. You can cast each spell of 6th level or higher only once between long rests. Half casters count half their level, rounded up; third casters a third.' }],
-    },
-    {
-      kit: 1, id: 'mana-pool', name: 'Simple mana pool', version: '1.0.0', author: 'Alexandria', group: 'magic',
-      summary: "Alexandria's own simple mana: a pool of 4 per level plus the casting modifier, spells cost 2 per spell level. Every number is editable under Spells & mana.",
-      presets: { spellMana: true, spellManaName: 'Mana', spellManaCosts: DEFAULT_COSTS, spellManaPool: DEFAULT_POOL, spellManaRest: DEFAULT_REST, spellManaMaxLevel: DEFAULT_MAX_LEVEL },
-    },
-    {
-      kit: 1, id: 'spell-crafting', name: 'Spell crafting (Codex)', version: '1.0.0', author: 'Wizard',
-      summary: 'Characters learn new spells by combining spells they already know, from recipes in the Codex.',
-      options: { approval: { type: 'enum', values: ['dm', 'auto'], default: 'dm', label: 'Who approves a crafted spell', help: 'dm: the DM approves each one; auto: learned at once when the recipe fits.' } },
-      presets: { spellCrafting: true, spellCraftApproval: '$approval' },
-      rules: [{ term: 'Spell crafting (house rule)', text: 'A character can learn a new spell by combining spells they already know, following a recipe in the Codex.' }],
-    },
-  ],
+  // House rules (World → House rules): each one switches this feature's settings as a set. The rule files are in the repo's mods/ folder.
+  houseRules: ['spell-points', 'mana-pool', 'spell-crafting'],
   mcpTools: [
     {
       name: 'list_spells',
