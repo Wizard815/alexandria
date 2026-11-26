@@ -354,7 +354,11 @@ character). Picking a spell opens its panel: what is missing, the study table,
 Start learning, days of study, the final check and the scroll. The view lives
 in `web/src/features/spells/tree/` and is copied from the standalone Spell
 Tree app ([Wizard815/DND-Spell-Tree](https://github.com/Wizard815/DND-Spell-Tree),
-`scripts/sync-alexandria.sh`): change it there. That app can also sign in to
+`scripts/sync-alexandria.sh`): change it there. On the web each spell shows
+an icon for its element (or its school), and `dark` and `hidden` spells show
+no icon or name. To change which spells teach a spell, the DM edits its
+recipe in Codex → Recipes; a spell with no recipe is taught by its school.
+That app can also sign in to
 a world and show its tree; the server must list the app's address in
 `ALX_CORS_ORIGINS`.
 

@@ -11,6 +11,7 @@
 // Enter on) a spell to open it.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react';
 import { ELEMENT_COLOR, SCHOOL_COLOR } from './treeCss.ts';
+import { GlyphMark, glyphFor } from './icons.tsx';
 import type { TreeData, TreeSpell, TreeStatus } from './types.ts';
 
 export const STATUS_LABEL: Record<TreeStatus, string> = {
@@ -19,17 +20,19 @@ export const STATUS_LABEL: Record<TreeStatus, string> = {
 const levelName = (n: number) => (n === 0 ? 'Cantrip' : `Level ${n}`);
 
 // Layout, in SVG units, around the centre (0, 0).
-const RING0 = 280; // the cantrip ring
-const STEP = 125; // between level rings
-const SPACE = 60; // the least room a spell needs along its ring
-const SUBRING = 46; // between the sub-rings of a crowded level
+const RING0 = 400; // the cantrip ring
+const STEP = 165; // between level rings
+const SPACE = 86; // the least room a spell needs along its ring
+const SUBRING = 64; // between the sub-rings of a crowded level
 // Schools next to each other share the most elements, so the web crosses where it makes sense.
 const SCHOOL_ORDER = ['Evocation', 'Conjuration', 'Transmutation', 'Abjuration', 'Divination', 'Enchantment', 'Illusion', 'Necromancy'];
 const ELEMENT_ORDER = ['Necrotic', 'Poison', 'Acid', 'Fire', 'Lightning', 'Thunder', 'Cold', 'Force', 'Radiant', 'Psychic'];
 
 const isKnown = (s: TreeSpell) => s.status === 'known' || s.status === 'gift';
 const radiusOf = (level: number) => RING0 + level * STEP;
-const nodeR = (level: number) => 14 + level * 0.9;
+/** Where the school names sit: the open ring between the start and the cantrips. */
+const LABEL_R = RING0 - 150;
+const nodeR = (level: number) => 20 + level * 1.2;
 
 interface Node { s: TreeSpell; x: number; y: number; a: number; sector: number }
 interface Sector { name: string; color: string; a0: number; a1: number; spells: TreeSpell[]; known: number }
@@ -113,9 +116,14 @@ function layout(data: TreeData) {
   return { nodes, edges, sectors, box: { x1: -R9 - pad, y1: -R9 - pad, x2: R9 + pad, y2: R9 + pad } };
 }
 
-const initials = (name: string) => {
-  const w = name.replace(/[^A-Za-z' ]/g, ' ').split(/\s+/).filter((x) => x && !/^(of|the|and|to|from|with)$/i.test(x));
-  return ((w[0]?.[0] ?? '') + (w[1]?.[0] ?? w[0]?.[1] ?? '')).toUpperCase();
+/** Unknown spells keep their secret on the web: no name, no glyph. */
+const secret = (s: TreeSpell) => s.status === 'dark' || s.status === 'hidden';
+/** An arc for a school's name to sit on, read left to right on both halves. */
+const arc = (r: number, a0: number, a1: number) => {
+  const mid = (a0 + a1) / 2;
+  const flip = Math.sin(mid) > 0.15; // the lower half reads the other way round
+  const [s, e] = flip ? [a1, a0] : [a0, a1];
+  return `M${r * Math.cos(s)},${r * Math.sin(s)}A${r},${r} 0 0 ${flip ? 0 : 1} ${r * Math.cos(e)},${r * Math.sin(e)}`;
 };
 const short = (name: string, n: number) => (name.length > n ? `${name.slice(0, n - 1)}…` : name);
 /** A gentle curve between two points, bowed around the centre like the rings. */
@@ -163,7 +171,7 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
     if (!el) return;
     const w = el.clientWidth;
     const h = el.clientHeight;
-    const k = clampK(Math.min(w, h) / (2 * (RING0 + 2.6 * STEP)));
+    const k = clampK(Math.min(w, h) / (2 * (RING0 + 1.6 * STEP)));
     setView({ k, x: w / 2, y: h / 2 });
   }, []);
   useLayoutEffect(() => { home(); }, [home]);
@@ -236,9 +244,29 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
   }, [picked?.s.id]);
 
   const recipe = picked ? picked.s.from.map((n) => byName.get(n)).filter((p): p is Node => !!p) : [];
-  const allLabels = view.k >= 1.15;
-  const labelled = (s: TreeSpell) => view.k >= 0.45 && (allLabels || sel === s.id || isKnown(s) || s.status === 'learn' || s.status === 'studying' || s.status === 'stopped');
+  const allLabels = view.k >= 0.95;
+  const labelled = (s: TreeSpell) => view.k >= 0.22 && (allLabels || sel === s.id || isKnown(s) || s.status === 'learn' || s.status === 'studying' || s.status === 'stopped');
   const R9 = radiusOf(9);
+  // Names keep a readable size on screen when zoomed out.
+  const nameSize = 13 * Math.max(1, 0.75 / view.k);
+  // Names that would overlap another name are left off; the picked spell, then
+  // known, studying and learnable spells win. Hover or zoom in to see the rest.
+  const shown = useMemo(() => {
+    const rank = (s: TreeSpell) => (s.id === sel ? 0 : isKnown(s) ? 1 : s.status === 'studying' || s.status === 'stopped' ? 2 : s.status === 'learn' ? 3 : 4);
+    const want = L.nodes.filter((p) => !secret(p.s) && labelled(p.s)).sort((a, b) => rank(a.s) - rank(b.s));
+    const boxes: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    const out = new Set<string>();
+    for (const p of want) {
+      const text = p.s.id === sel ? p.s.name : short(p.s.name, allLabels ? 18 : 13);
+      const w = text.length * nameSize * 0.56;
+      const y = p.y + nodeR(p.s.level) + 6;
+      const b = { x1: p.x - w / 2 - 3, x2: p.x + w / 2 + 3, y1: y, y2: y + nameSize * 1.2 };
+      if (p.s.id !== sel && boxes.some((o) => b.x1 < o.x2 && b.x2 > o.x1 && b.y1 < o.y2 && b.y2 > o.y1)) continue;
+      boxes.push(b);
+      out.add(p.s.id);
+    }
+    return out;
+  }, [L, sel, nameSize, allLabels]);
 
   return (
     <div className="stg" ref={box} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
@@ -265,12 +293,15 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
           {/* Region names. */}
           {L.sectors.map((sec) => {
             const mid = (sec.a0 + sec.a1) / 2;
-            const r = R9 + 150;
+            const r = R9 + 190;
             return (
               <g key={`n${sec.name}`} role="group" aria-label={sec.name}>
                 <text className="stg-region" x={r * Math.cos(mid)} y={r * Math.sin(mid)} fill={sec.color} textAnchor="middle">{sec.name.toUpperCase()}</text>
-                <text className="stg-region-n" x={r * Math.cos(mid)} y={r * Math.sin(mid) + 30} textAnchor="middle">{sec.known} of {sec.spells.length}</text>
-                <text className="stg-region-inner" x={(RING0 + STEP * 1.5) * Math.cos(mid)} y={(RING0 + STEP * 1.5) * Math.sin(mid)} fill={sec.color} textAnchor="middle">{sec.name}</text>
+                <text className="stg-region-n" x={r * Math.cos(mid)} y={r * Math.sin(mid) + 40} textAnchor="middle">{sec.known} of {sec.spells.length}</text>
+                <path id={`stg-arc-${sec.name}`} d={arc(LABEL_R, sec.a0, sec.a1)} fill="none" />
+                <text className="stg-region-inner" fill={sec.color} dy={Math.sin(mid) > 0.15 ? 20 : 0} style={{ fontSize: Math.max(22, Math.min(36, (0.9 * LABEL_R * (sec.a1 - sec.a0)) / (sec.name.length * 0.62))) }}>
+                  <textPath href={`#stg-arc-${sec.name}`} startOffset="50%" textAnchor="middle">{sec.name}</textPath>
+                </text>
               </g>
             );
           })}
@@ -293,11 +324,14 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
             const circ = 2 * Math.PI * (r + 5);
             const two = s.hybrid && s.lines.length >= 2;
             const rim = L.sectors[p.sector].color;
+            const hid = secret(s);
+            const glyph = glyphFor(s);
             return (
               <g key={s.id} className={`stg-node s-${s.status}${sel === s.id ? ' sel' : ''}${faded ? ' faded' : ''}`} transform={`translate(${p.x},${p.y})`}
-                role="button" tabIndex={0} aria-label={`${s.name}, ${levelName(s.level)}, ${STATUS_LABEL[s.status]}`} aria-pressed={sel === s.id}
+                role="button" tabIndex={0} aria-label={hid ? `Unknown spell, ${levelName(s.level)}` : `${s.name}, ${levelName(s.level)}, ${STATUS_LABEL[s.status]}`} aria-pressed={sel === s.id}
                 onClick={() => pick(s.id)} onKeyDown={key(s.id)}>
-                <title>{`${s.name} (${levelName(s.level)}, ${s.school}${s.lines.length ? `, ${s.lines.join(' + ')}` : ''}): ${STATUS_LABEL[s.status]}`}</title>
+                <title>{hid ? `Unknown spell (${levelName(s.level)}, ${s.school})` : `${s.name} (${levelName(s.level)}, ${s.school}${s.lines.length ? `, ${s.lines.join(' + ')}` : ''}): ${STATUS_LABEL[s.status]}`}</title>
+                <circle r={Math.max(r + 8, 18 / view.k)} className="stg-hit" />
                 {sel === s.id && <circle r={r + 10} className="stg-selring" />}
                 <circle r={r} className="stg-disc" style={{ stroke: two ? 'transparent' : rim }} filter={isKnown(s) || s.status === 'learn' ? 'url(#stg-glow)' : undefined} />
                 {two && (
@@ -307,8 +341,8 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
                   </>
                 )}
                 {s.study && <circle r={r + 5} className="stg-prog" strokeDasharray={`${pct * circ} ${circ}`} transform="rotate(-90)" />}
-                <text className="stg-ini" y={4} textAnchor="middle">{initials(s.name)}</text>
-                {labelled(s) && <text className="stg-name" y={r + 14} textAnchor="middle">{sel === s.id ? s.name : short(s.name, allLabels ? 16 : 12)}</text>}
+                {!hid && <GlyphMark g={glyph.g} size={r * 1.15} className="stg-ini" />}
+                {!hid && shown.has(s.id) && <text className="stg-name" y={r + 6 + nameSize} textAnchor="middle" style={{ fontSize: nameSize }}>{sel === s.id ? s.name : short(s.name, allLabels ? 18 : 13)}</text>}
               </g>
             );
           })}
@@ -325,7 +359,7 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
 }
 
 export const GRAPH_CSS = `
-.stg { position: relative; height: min(78vh, 920px); min-height: 440px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;
+.stg { position: relative; height: max(440px, calc(100vh - 190px)); min-height: 440px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;
   background: radial-gradient(ellipse at 50% 50%, #3a1f4a 0%, #1f1029 40%, #0d0812 85%), #0d0812; }
 .stg::before { content: ""; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(circle at 20% 30%, rgba(160, 60, 140, .22), transparent 40%), radial-gradient(circle at 80% 70%, rgba(60, 80, 170, .2), transparent 45%); }
@@ -335,9 +369,9 @@ export const GRAPH_CSS = `
 .stg-tools .st-btn { background: rgba(20,14,26,.85); color: #eee; border-color: #4a3a55; min-width: 34px; }
 .stg-ring { fill: none; stroke: rgba(255,255,255,.04); stroke-width: 1; }
 .stg-border { stroke: rgba(255,255,255,.07); stroke-width: 1.5; stroke-dasharray: 4 10; }
-.stg-region { font: 700 34px Georgia, "Times New Roman", serif; letter-spacing: .08em; opacity: .9; }
-.stg-region-n { fill: #b9a9c6; font: 18px system-ui, sans-serif; }
-.stg-region-inner { font: 700 22px Georgia, serif; letter-spacing: .06em; opacity: .55; paint-order: stroke; stroke: #120c1c; stroke-width: 5px; }
+.stg-region { paint-order: stroke; stroke: #0d0812; stroke-width: 8px; font: 700 52px Georgia, "Times New Roman", serif; letter-spacing: .08em; opacity: .9; }
+.stg-region-n { fill: #d4c6e0; font: 22px system-ui, sans-serif; paint-order: stroke; stroke: #0d0812; stroke-width: 5px; }
+.stg-region-inner { font: 700 30px Georgia, serif; letter-spacing: .04em; paint-order: stroke; stroke: #120c1c; stroke-width: 7px; }
 .stg-edge { fill: none; stroke: rgba(205, 180, 150, .28); stroke-width: 2; }
 .stg-edge.cross { stroke-dasharray: 2 6; stroke: rgba(205, 180, 150, .3); }
 .stg-edge.element { stroke-width: 1.6; opacity: .35; stroke-dasharray: 8 6; }
@@ -345,25 +379,25 @@ export const GRAPH_CSS = `
 .stg-edge.lit { stroke: #e9a94a; stroke-width: 3.2; opacity: 1; stroke-dasharray: none; filter: drop-shadow(0 0 4px rgba(240,170,70,.8)); }
 .stg-recipe { stroke: #fff; stroke-width: 2.2; stroke-dasharray: 3 6; fill: none; opacity: .9; }
 .stg-node { cursor: pointer; outline: none; }
+.stg-hit { fill: transparent; }
 .stg-node .stg-disc { stroke-width: 3; }
-.stg-node .stg-ini { font: 700 12px system-ui, sans-serif; pointer-events: none; }
-.stg-node .stg-name { font: 11px system-ui, sans-serif; pointer-events: none; paint-order: stroke; stroke: #0d0812; stroke-width: 3px; }
+.stg-node .stg-ini { pointer-events: none; }
+.stg-node .stg-name { font: 12.5px system-ui, sans-serif; pointer-events: none; paint-order: stroke; stroke: #0d0812; stroke-width: 3px; }
 .stg-node.s-known .stg-disc, .stg-node.s-gift .stg-disc { fill: url(#stg-gold); }
-.stg-node.s-known .stg-ini, .stg-node.s-gift .stg-ini { fill: #3b2200; }
+.stg-node.s-known .stg-ini, .stg-node.s-gift .stg-ini { color: #3b2200; }
 .stg-node.s-known .stg-name, .stg-node.s-gift .stg-name { fill: #ffd98a; }
 .stg-node.s-learn .stg-disc { fill: url(#stg-open); }
-.stg-node.s-learn .stg-ini { fill: #20232b; }
+.stg-node.s-learn .stg-ini { color: #20232b; }
 .stg-node.s-learn .stg-name { fill: #f4f4f8; font-weight: 600; }
 .stg-node.s-studying .stg-disc, .stg-node.s-stopped .stg-disc { fill: url(#stg-dim); }
 .stg-node.s-stopped .stg-disc { stroke-dasharray: 4 3; }
-.stg-node.s-studying .stg-ini, .stg-node.s-stopped .stg-ini { fill: #f2e6d6; }
+.stg-node.s-studying .stg-ini, .stg-node.s-stopped .stg-ini { color: #f2e6d6; }
 .stg-node.s-studying .stg-name, .stg-node.s-stopped .stg-name { fill: #f2e6d6; }
 .stg-prog { fill: none; stroke: #f0b440; stroke-width: 3.5; stroke-linecap: round; }
 .stg-node.s-locked .stg-disc { fill: url(#stg-dim); opacity: .85; }
-.stg-node.s-locked .stg-ini { fill: #c8b8a4; }
+.stg-node.s-locked .stg-ini { color: #c8b8a4; }
 .stg-node.s-locked .stg-name { fill: #a8998a; }
 .stg-node.s-dark .stg-disc, .stg-node.s-hidden .stg-disc { fill: #19141d; stroke: #2e2733 !important; }
-.stg-node.s-dark .stg-ini, .stg-node.s-hidden .stg-ini { fill: #4d4453; }
 .stg-node.s-dark .stg-name, .stg-node.s-hidden .stg-name { fill: #5a5060; }
 .stg-node:hover .stg-disc, .stg-node:focus-visible .stg-disc { stroke: #fff !important; stroke-width: 3.5; }
 .stg-selring { fill: none; stroke: #fff; stroke-width: 2.5; stroke-dasharray: 6 4; }

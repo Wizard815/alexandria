@@ -140,7 +140,7 @@ try {
   const nodes = await pl.locator('.stg-node').count();
   check(nodes > 300, `every SRD spell is on the tree (${nodes})`);
   check(await pl.getByRole('button', { name: 'Scorching Ray, Level 2, Known' }).count() === 1, 'Scorching Ray shows as known');
-  check(await pl.getByRole('button', { name: 'Wish, Level 9, Unknown' }).count() === 1, 'Wish is dark');
+  check(await pl.getByRole('button', { name: 'Unknown spell, Level 9' }).count() > 0, 'unknown level 9 spells show no name');
   check(await pl.getByRole('button', { name: 'Shatter, Level 2, Can learn' }).count() === 1, 'Shatter can be learned');
   await pl.getByLabel('Search spells').fill('Shatter');
   await pl.getByLabel('Search spells').press('Enter');

@@ -31,6 +31,11 @@ export const TREE_CSS = `
 .st-node[data-s="gift"] { background: #b8892b; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.45); box-shadow: 0 0 8px rgba(232,180,80,.6); }
 .st-node .st-prog { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--sc, var(--accent)); }
 .st-node[aria-current="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+.st-key { flex-basis: 100%; }
+.st-key summary { cursor: pointer; color: var(--text); }
+.st-key p { margin: 6px 0; }
+.st-key-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 12px; padding: 6px 0; }
+.st-key-grid span { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
 .st-empty { color: var(--muted); font-size: 13px; }
 .st-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 @media (min-width: 980px) { .st-layout.open { grid-template-columns: minmax(0, 1fr) 380px; } .st-panel { position: sticky; top: 10px; max-height: calc(100vh - 20px); overflow: auto; } }

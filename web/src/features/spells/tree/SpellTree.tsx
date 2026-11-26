@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ELEMENT_COLOR, SCHOOL_COLOR, TREE_CSS } from './treeCss.ts';
 import TreeGraph, { GRAPH_CSS, STATUS_LABEL } from './TreeGraph.tsx';
+import { ELEMENT_GLYPH, GlyphIcon, SCHOOL_GLYPH } from './icons.tsx';
 import { SOURCES, SOURCE_LABEL, type CheckOut, type SpellDetail, type Study, type StudyPlan, type StudySource, type TreeBackend, type TreeData, type TreeSpell, type TreeStatus } from './types.ts';
 
 const FILTERS: { key: string; label: string; has: (s: TreeSpell) => boolean }[] = [
@@ -26,9 +27,11 @@ export interface SpellTreeProps {
   reloadKey?: unknown;
   /** Told after every change the tree makes (a study started, a spell learned). */
   onChanged?: () => void;
+  /** When given, the spell panel offers "Edit requirements" (whoever may change a spell's recipe). */
+  onEditRequirements?: (spell: TreeSpell) => void;
 }
 
-export default function SpellTree({ backend, reloadKey, onChanged }: SpellTreeProps) {
+export default function SpellTree({ backend, reloadKey, onChanged, onEditRequirements }: SpellTreeProps) {
   const [data, setData] = useState<TreeData | null>(null);
   const [studies, setStudies] = useState<Study[]>([]);
   const [err, setErr] = useState('');
@@ -89,6 +92,14 @@ export default function SpellTree({ backend, reloadKey, onChanged }: SpellTreePr
         <span><i style={{ border: '2px solid #f0c040' }} /> Studying {(c.studying ?? 0) + (c.stopped ?? 0)}</span>
         <span><i style={{ background: '#2c2a35' }} /> Locked {c.locked ?? 0}</span>
         <span><i style={{ background: '#17161d', border: '1px solid #3b3846' }} /> Unknown {(c.dark ?? 0) + (c.hidden ?? 0)}</span>
+        <details className="st-key">
+          <summary>What the icons mean</summary>
+          <p>A spell shows its element. One with no element shows its school. The rim is the school's colour. Unknown spells show nothing.</p>
+          <div className="st-key-grid">
+            {Object.keys(ELEMENT_GLYPH).filter((k) => ELEMENT_COLOR[k]).map((k) => <span key={k}><GlyphIcon name={k} color={ELEMENT_COLOR[k]} /> {k}</span>)}
+            {Object.keys(SCHOOL_GLYPH).map((k) => <span key={k}><GlyphIcon name={k} color={SCHOOL_COLOR[k]} /> {k === 'Others' ? 'Other school' : k}</span>)}
+          </div>
+        </details>
       </div>
       {!data.engine && <p className="st-note">The spell rules are off, so studying is not available. The tree still shows what is known.</p>}
       <div className={`st-layout${picked ? ' open' : ''}`}>
@@ -100,7 +111,7 @@ export default function SpellTree({ backend, reloadKey, onChanged }: SpellTreePr
           })}
           {others && <Group title="Others" color={SCHOOL_COLOR.Others} spells={others.spells.filter(show)} all={others.spells} sel={sel} onPick={setSel} />}
         </div>}
-        {picked && <Panel key={picked.id} backend={backend} spell={picked} engine={data.engine} study={studies.find((x) => x.spellId === picked.id && x.status !== 'learned') ?? null} onClose={() => setSel(null)} onChanged={changed} />}
+        {picked && <Panel key={picked.id} backend={backend} spell={picked} engine={data.engine} study={studies.find((x) => x.spellId === picked.id && x.status !== 'learned') ?? null} onClose={() => setSel(null)} onChanged={changed} onEdit={onEditRequirements} />}
       </div>
     </div>
   );
@@ -135,7 +146,7 @@ function Group({ title, hint, color, hybrid, colorA, colorB, spells, all, sel, o
   );
 }
 
-function Panel({ backend, spell, engine, study, onClose, onChanged }: { backend: TreeBackend; spell: TreeSpell; engine: boolean; study: Study | null; onClose: () => void; onChanged: () => void }) {
+function Panel({ backend, spell, engine, study, onClose, onChanged, onEdit }: { backend: TreeBackend; spell: TreeSpell; engine: boolean; study: Study | null; onClose: () => void; onChanged: () => void; onEdit?: (s: TreeSpell) => void }) {
   const [detail, setDetail] = useState<SpellDetail | null>(null);
   const [source, setSource] = useState<StudySource>(study?.source ?? 'text');
   const [lab, setLab] = useState(study?.lab ?? false);
@@ -188,6 +199,7 @@ function Panel({ backend, spell, engine, study, onClose, onChanged }: { backend:
       {spell.status === 'hidden' && <p className="st-note">A hidden recipe teaches this spell. Players see it as unknown.</p>}
       {(spell.status === 'known' || spell.status === 'gift') && <p className="st-note">{spell.status === 'gift' ? 'Given by the DM.' : 'Learned.'} It's in the spell list.</p>}
       {spell.from.length > 0 && spell.status !== 'known' && <div><h4>Taught by</h4><div className="st-sub">{spell.from.join(' + ')}</div></div>}
+      {onEdit && <div><button type="button" className="st-btn small" onClick={() => onEdit(spell)}>Edit requirements</button></div>}
 
       {canPlan && plan && (
         <>
