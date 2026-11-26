@@ -101,7 +101,8 @@ The full API is in [docs/API.md](docs/API.md).
 
 A Roll20 game can stay in step with a world: HP, conditions (as token
 markers), rolls and handouts move both ways. Set it up under DM → Setup →
-Roll20. See [docs/ROLL20.md](docs/ROLL20.md).
+Roll20, with Roll20 Pro (a Mod script in the game) or without it (the bridge
+alone). See [docs/ROLL20.md](docs/ROLL20.md).
 
 ## Models
 

@@ -13,6 +13,19 @@ DM → Setup → **Roll20** keeps a Roll20 game and an Alexandria world in step.
 Maps are not synced: a Roll20 script can only place images already in the
 game owner's Roll20 library.
 
+## Two ways to host
+
+| | With Roll20 Pro | Without Pro |
+|---|---|---|
+| Install | the Mod script in the game + the bridge | the bridge only |
+| Who changes the game | the Mod script, through Roll20's documented Mod API | the bridge, through the Roll20 page's own game data (`window.Campaign`) |
+| Rolls, chat lines | yes | yes (read from and typed into the chat) |
+| HP, conditions, handouts | yes, on every page | yes, but Roll20 does not document the page data, so an update on their side can break it until the bridge is updated |
+
+The bridge picks the way by itself: it says hello to the Mod script when the
+game opens and, with no answer within 8 seconds, works alone ("Alexandria:
+Connected (no Mod script)"). The DM page shows which way a game uses.
+
 ## How it works
 
 Roll20 has no public API, and its Mod (API) scripts run in a sandbox that
@@ -41,6 +54,16 @@ Roll20 game (Mod script) ⇄ Roll20 chat ⇄ bridge (GM's browser) ⇄ Alexandri
   number, so a resend is applied once; the Mod keeps events until Alexandria
   acknowledges them (up to 300 while the bridge is away).
 - Every 2.5 s the bridge asks `/sync` for what changed in Alexandria.
+
+**Without the Mod** the bridge makes the same events itself (its own instance
+id and sequence, kept in the userscript's storage): it compares each player
+character's HP attribute, temporary HP and token markers every second, reads
+rolls from the chat as Roll20 draws them (`.rollresult`, `.inlinerollresult`;
+whispers, GM rolls and the chat history from before it started are skipped),
+types chat lines and Alexandria's rolls as `/as "Alexandria" …` (braces and
+`[[ ]]` are stripped, so a line cannot run a template or a roll), and makes
+handouts with `Campaign.handouts.create` and `updateBlobs`. What it changes
+is not reported back.
 
 **No echo.** Each link remembers the numbers both sides last agreed on. A
 change from Roll20 is agreed when it arrives, so it is never pushed back;
@@ -90,8 +113,10 @@ GM chat commands: `!alx status`, `!alx sync` (send the character list again),
   sandbox (`librarian/test/roll20-sandbox.js`), a test bridge and a real
   server.
 - `web/e2e/roll20.mjs`: the DM page, the downloaded bridge and the Mod in a
-  stand-in Roll20 page in a browser.
+  stand-in Roll20 page in a browser; then a second stand-in game with no Mod,
+  where the bridge works alone against page data shaped like Roll20's.
 
-The stand-in follows Roll20's documented Mod API; the chat selectors the
-bridge uses (`#textchat .content`, `#textchat-input textarea`) are the ones
-Roll20 has used for years, but a Roll20 redesign could move them.
+The stand-ins follow Roll20's documented Mod API and the page data and chat
+markup community scripts rely on (`#textchat .content`,
+`#textchat-input textarea`, `window.Campaign`); none of it is a public API,
+so a Roll20 redesign could move it. The Mod way depends only on the chat box.

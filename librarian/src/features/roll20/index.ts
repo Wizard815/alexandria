@@ -204,7 +204,9 @@ function bridgeRoutes(app: Express, d: Deps) {
     const w = one<any>(db, 'SELECT name FROM worlds WHERE id = ?', b.world_id);
     const mod = String(req.body?.modVersion ?? '').slice(0, 20) || null;
     const campaign = String(req.body?.campaign ?? '').slice(0, 120) || null;
-    run(db, 'UPDATE roll20_bridges SET mod_version = COALESCE(?, mod_version), campaign = COALESCE(?, campaign) WHERE world_id = ?', mod, campaign, b.world_id);
+    // 'mod': the Alexandria Mod script does the work (Roll20 Pro); 'free': the bridge does it alone in the GM's tab.
+    const mode = req.body?.mode === 'mod' || req.body?.mode === 'free' ? req.body.mode : null;
+    run(db, 'UPDATE roll20_bridges SET mod_version = CASE WHEN ? = \'free\' THEN NULL ELSE COALESCE(?, mod_version) END, campaign = COALESCE(?, campaign), mode = COALESCE(?, mode) WHERE world_id = ?', mode, mod, campaign, mode, b.world_id);
     d.hub.emit(b.world_id, 'roll20', {}, (v) => v.role === 'dm');
     res.json({ world: w?.name ?? '', modVersion: MOD_VERSION, config: modConfig(settingsOf(db, b.world_id)) });
   });
@@ -269,13 +271,14 @@ function worldRoutes(d: Deps) {
 
   r.get('/', (_req, res) => {
     const w = W(res);
-    const b = one<any>(db, 'SELECT prefix, created_at, last_seen_at, mod_version, campaign FROM roll20_bridges WHERE world_id = ?', w);
+    const b = one<any>(db, 'SELECT prefix, created_at, last_seen_at, mod_version, campaign, mode FROM roll20_bridges WHERE world_id = ?', w);
     const nm = names(db, w);
     res.json({
       key: b ? { prefix: b.prefix, createdAt: b.created_at } : null,
       lastSeen: b?.last_seen_at ?? null,
       online: !!b?.last_seen_at && Date.now() - new Date(b.last_seen_at).getTime() < ONLINE_MS,
       modVersion: b?.mod_version ?? null,
+      mode: (b?.mode ?? null) as 'mod' | 'free' | null,
       latestModVersion: MOD_VERSION,
       campaign: b?.campaign ?? null,
       links: linksOf(db, w).map((l) => ({ id: l.r20_id, name: l.r20_name, controlledBy: parseJson(l.controlled_by, []), accountId: l.account_id, player: l.account_id ? nm[l.account_id] ?? null : null, seenAt: l.seen_at })),
@@ -370,7 +373,8 @@ const feature: Feature = {
       last_seen_at TEXT,
       mod_version TEXT,
       campaign TEXT,
-      roll_cursor TEXT
+      roll_cursor TEXT,
+      mode TEXT
     );
     CREATE TABLE IF NOT EXISTS roll20_links (
       world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -418,6 +422,10 @@ const feature: Feature = {
     roll20TempAttr: { type: 'string', default: 'hp_temp', max: 60 },
     roll20HpBar: { type: 'enum', default: 'bar1', values: ['bar1', 'bar2', 'bar3'] },
     roll20Markers: { type: 'json', default: {}, validate: validateMarkers },
+  },
+  migrate: (db) => {
+    const cols = all<any>(db, 'PRAGMA table_info(roll20_bridges)').map((c) => c.name);
+    if (!cols.includes('mode')) db.exec('ALTER TABLE roll20_bridges ADD COLUMN mode TEXT');
   },
   worldMount: 'roll20',
   worldRoutes,

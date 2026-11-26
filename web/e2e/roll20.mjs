@@ -40,6 +40,8 @@ const api = async (token, method, p, body) => {
   return j;
 };
 const jessId = jessLogin.account.id;
+const tomLogin = await login('tom', 'player pass 123');
+const tomLoginToken = () => tomLogin.token;
 
 const browser = await chromium.launch();
 function watch(page, who) {
@@ -189,7 +191,7 @@ try {
   await game.locator('#textchat-input textarea').fill('half-typed note');
   await api(dmLogin.token, 'POST', '/roll20/say', { text: 'One more line' });
   await until(() => game.locator('.message:has-text("One more line")').count(), 'second line');
-  check((await game.locator('#textchat-input textarea').inputValue()) === 'half-typed note', 'what the GM was typing is kept');
+  await until(async () => (await game.locator('#textchat-input textarea').inputValue()) === 'half-typed note', 'what the GM was typing is kept');
   await game.locator('#textchat-input textarea').fill('');
   note('handout and chat lines sent');
 
@@ -205,6 +207,124 @@ try {
   await dm.goto(`${base}/w/saltreach/dm/sheets`);
   await dm.waitForTimeout(800);
   await shot(dm, '5-sheet-log-from-roll20');
+
+  // ======== a game without the Mod script (no Roll20 Pro): the bridge works alone ========
+  await game.context().close();
+  const free = await (await browser.newContext({ viewport: { width: 1280, height: 760 }, deviceScaleFactor: SHOTS ? 2 : 1 })).newPage();
+  watch(free, 'free game');
+  await free.route('https://app.roll20.net/**', (r) => r.fulfill({ contentType: 'text/html', body: gameHtml.replace('a stand-in for a Roll20 game', 'a stand-in for a Roll20 game, no Mod script') }));
+  await free.exposeFunction('__gmXhr', async (o) => {
+    const r = await fetch(o.url, { method: o.method, headers: o.headers, body: o.data });
+    return { status: r.status, responseText: await r.text() };
+  });
+  await free.goto('https://app.roll20.net/editor/');
+  await free.evaluate(() => {
+    // The page's own game data, shaped like Roll20's (Backbone models and collections).
+    function M(a) { this.attributes = a; this.id = a.id; }
+    M.prototype.get = function (k) { return this.attributes[k]; };
+    M.prototype.set = function (o) { Object.assign(this.attributes, o); };
+    M.prototype.save = function (o) { this.set(o); };
+    function C(ms) { this.models = ms || []; }
+    C.prototype.get = function (id) { return this.models.find((m) => m.id === id); };
+    C.prototype.create = function (a) { const m = new M({ id: 'h' + this.models.length, ...a }); m.updateBlobs = (b) => { m.blobs = { ...b }; }; this.models.push(m); return m; };
+    const players = new C([new M({ id: 'p-gm', displayname: 'The DM' }), new M({ id: 'p-jess', displayname: 'jess' }), new M({ id: 'p-tom', displayname: 'tom' })]);
+    const mk = (id, name, owner, hp, max, color, x, y) => {
+      const ch = new M({ id, name, controlledby: owner });
+      ch.attribs = new C([new M({ id: id + '-hp', name: 'hp', current: String(hp), max: String(max) }), new M({ id: id + '-tmp', name: 'hp_temp', current: '0', max: '' })]);
+      const tok = new M({ id: id + '-tok', represents: id, bar1_value: String(hp), bar1_max: String(max), bar1_link: id + '-hp', statusmarkers: '' });
+      return { ch, tok, color, x, y };
+    };
+    window.__toks = [mk('c-jess', 'Jessamine', 'p-jess', 24, 24, '#7b4bb3', 120, 160), mk('c-tom', 'Tomas', 'p-tom', 31, 31, '#b35b2e', 300, 260), mk('c-gob', 'Goblin', '', 7, 7, '#556b2f', 520, 180)];
+    const page = new M({ id: 'pg1', name: 'Docks' });
+    page.thegraphics = new C(window.__toks.map((t) => t.tok));
+    const camp = new M({ id: 'camp', name: 'Free game', token_markers: '[]' });
+    camp.characters = new C(window.__toks.map((t) => t.ch));
+    camp.players = players;
+    camp.handouts = new C([]);
+    camp.pages = new C([page]);
+    window.Campaign = camp;
+
+    // The chat: what the GM types shows as a message (an unknown !command too, as a game without the Mod would).
+    const log = document.querySelector('#textchat .content');
+    let n = 0;
+    window.__msg = (who, html, cls) => {
+      const d = document.createElement('div');
+      d.className = 'message ' + (cls || 'general');
+      d.setAttribute('data-messageid', '-m' + n++);
+      d.innerHTML = (who ? '<span class="by"></span>' : '') + html;
+      if (who) d.querySelector('.by').textContent = who + ':';
+      log.appendChild(d);
+      log.scrollTop = log.scrollHeight;
+    };
+    const ta = document.querySelector('#textchat-input textarea');
+    document.querySelector('#textchat-input .btn').addEventListener('click', () => {
+      const t = ta.value; ta.value = '';
+      const as = /^\/as "([^"]+)" (.*)$/s.exec(t);
+      if (as) window.__msg(as[1], '<span class="t"></span>'), log.lastChild.querySelector('.t').textContent = as[2];
+      else window.__msg('The DM', '<span class="t"></span>'), log.lastChild.querySelector('.t').textContent = t;
+    });
+    window.GM_xmlhttpRequest = (o) => window.__gmXhr({ method: o.method, url: o.url, headers: o.headers, data: o.data }).then((r) => o.onload(r), () => o.onerror());
+    // An old roll already in the chat when the game opens is history, not a new roll.
+    window.__msg('Jessamine', '<div class="formula">rolling 1d20</div><div class="formula formattedformula"><div class="diceroll d20"><div class="didroll">20</div></div></div><strong>=</strong><div class="rolled">20</div>', 'rollresult');
+    const board = document.getElementById('board');
+    const draw = () => {
+      for (const t of window.__toks) {
+        let el = document.getElementById('tok-' + t.ch.id);
+        if (!el) { el = document.createElement('div'); el.className = 'tok'; el.id = 'tok-' + t.ch.id; el.style.left = t.x + 'px'; el.style.top = t.y + 'px'; el.innerHTML = '<div class="c"></div><div class="bar"><i></i></div><div class="n"></div><div class="m"></div>'; board.appendChild(el); }
+        const a = t.ch.attribs.models[0];
+        const hp = Number(a.get('current')), max = Number(a.get('max')) || 1;
+        el.querySelector('.c').style.background = t.color;
+        el.querySelector('.c').textContent = t.ch.get('name')[0];
+        el.querySelector('.bar i').style.width = Math.max(0, Math.min(100, (hp / max) * 100)) + '%';
+        el.querySelector('.n').textContent = `${t.ch.get('name')} ${hp}/${max}`;
+        el.querySelector('.m').textContent = t.tok.get('statusmarkers').split(',').filter(Boolean).join(' · ');
+      }
+    };
+    setInterval(draw, 200);
+    draw();
+  });
+  await free.addScriptTag({ content: bridgeJs });
+  await until(async () => (await free.locator('#alx-bridge').textContent()) === 'Alexandria: Connected (no Mod script)', 'bridge works alone without the Mod', 20000);
+  check(await free.locator('.message:has-text("!alx-in")').evaluateAll((els) => els.length > 0 && els.every((e) => getComputedStyle(e).display === 'none')), 'the one hidden command a game without the Mod shows is hidden');
+  const fst = await until(async () => { const s = await api(dmLogin.token, 'GET', '/roll20'); return s.mode === 'free' && s.links.some((l) => l.id === 'c-jess' && l.accountId === jessId) ? s : null; }, 'free mode linked Jessamine');
+  check(fst?.modVersion === null, 'no Mod version in free mode');
+  // Alexandria sends its numbers once to the newly linked characters; let that land first.
+  await free.waitForTimeout(5000);
+  // A player changes HP on their Roll20 sheet: the bridge sees it in the page data.
+  await free.evaluate(() => window.__toks[0].ch.attribs.models[0].set({ current: '9' }));
+  await until(async () => (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 9, 'free mode: Roll20 HP reaches the sheet');
+  // The DM heals her and makes her prone in Alexandria.
+  await api(dmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { heal: 6, conditions: ['Prone'] });
+  await until(() => free.evaluate(() => window.__toks[0].ch.attribs.models[0].get('current') === 15 && window.__toks[0].tok.get('statusmarkers') === 'back-pain'), 'free mode: Alexandria HP and condition reach Roll20');
+  await free.waitForTimeout(2500);
+  check((await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 15, 'free mode: what Alexandria set is not sent back as a change');
+  // Rolls drawn in the chat: a /roll, a template with inline rolls; a whisper stays private.
+  const before20 = (await api(jessLogin.token, 'GET', '/sessionchat/chat/table')).messages.length;
+  await free.evaluate(() => {
+    window.__msg('Tomas', '<div class="formula">rolling 1d20+3</div><div class="formula formattedformula"><div class="diceroll d20"><div class="didroll">11</div></div>+3</div><strong>=</strong><div class="rolled">14</div>', 'rollresult');
+    window.__msg('Jessamine', '<table class="sheet-rolltemplate-default"><caption>Shortbow</caption><tr><td>Attack</td><td><span class="inlinerollresult showtip" title="Rolling 1d20+6 = (&lt;span class=&quot;basicdiceroll&quot;&gt;9&lt;/span&gt;)+6">15</span></td></tr></table>', 'general');
+    window.__msg('Tomas', '<span class="inlinerollresult" title="Rolling 1d20 = (&lt;span class=&quot;basicdiceroll&quot;&gt;2&lt;/span&gt;)">2</span>', 'whisper');
+  });
+  const msgs = await until(async () => { const m = (await api(jessLogin.token, 'GET', '/sessionchat/chat/table')).messages; return m.length >= before20 + 2 ? m : null; }, 'free mode: chat rolls reach the table chat');
+  const r1 = msgs?.find((m) => m.kind === 'roll' && m.roll.total === 14);
+  const r2 = msgs?.find((m) => m.kind === 'roll' && m.roll.total === 15);
+  check(r1 && r1.roll.expr === '1d20+3' && r1.roll.terms[0].dice[0] === 11, `free mode /roll: ${JSON.stringify(r1?.roll)}`);
+  check(r2 && r2.authorId === jessId && /Shortbow/.test(r2.roll.note) && r2.roll.terms[0].dice[0] === 9, `free mode template roll: ${JSON.stringify(r2?.roll)}`);
+  check(!msgs?.some((m) => m.kind === 'roll' && (m.roll.total === 2 || m.roll.total === 20)), 'whispers and old chat history are not sent');
+  // A line, a handout and a table roll from Alexandria.
+  await api(dmLogin.token, 'PATCH', '/settings', { roll20RollsOut: true });
+  await api(dmLogin.token, 'POST', '/roll20/say', { text: 'The {{bell}} tolls [[1d6]].' });
+  await api(dmLogin.token, 'POST', '/roll20/handout', { page: shared.title, players: true });
+  await api(tomLoginToken(), 'POST', '/sessionchat/chat/table', { body: '/roll 2d6 courage' });
+  await until(() => free.locator('.message:has-text("((bell)) tolls 1d6.")').count(), 'free mode: chat line typed as Alexandria (no templates or rolls)');
+  const ho = await until(() => free.evaluate((t) => { const h = window.Campaign.handouts.models.find((m) => m.get('name') === t); return h ? { j: h.get('inplayerjournals'), notes: h.blobs?.notes ?? '' } : null; }, shared.title), 'free mode: handout made');
+  check(ho?.j === 'all' && ho?.notes.length > 0, 'free mode handout in players journals with notes');
+  await until(() => free.locator('.message:has-text("rolls 2d6")').count(), 'free mode: table roll shown in Roll20');
+  await shot(free, '6-test-game-no-mod');
+  await dm.goto(`${base}/w/saltreach/dm/roll20`);
+  await dm.getByText(/Without the Mod script/).first().waitFor();
+  await shot(dm, '7-dm-roll20-no-mod');
+  note('without the Mod: HP, conditions, rolls, lines and handouts moved');
 } catch (e) {
   problems.push(`crashed: ${e.stack ?? e}`);
 } finally {
