@@ -97,6 +97,12 @@ what was learned from the live LegendKeeper and Kanka servers.
 
 The full API is in [docs/API.md](docs/API.md).
 
+## Roll20
+
+A Roll20 game can stay in step with a world: HP, conditions (as token
+markers), rolls and handouts move both ways. Set it up under DM → Setup →
+Roll20. See [docs/ROLL20.md](docs/ROLL20.md).
+
 ## Models
 
 `/v1/chat/completions`, `/v1/embeddings` and `/v1/models` pass through to
