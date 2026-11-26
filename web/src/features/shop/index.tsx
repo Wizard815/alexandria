@@ -3,6 +3,7 @@ import ItemsDM from './ItemsDM.tsx';
 import PlayerShop from './PlayerShop.tsx';
 import ShopsDM from './ShopsDM.tsx';
 import ShopPresent from './ShopPresent.tsx';
+import TableShops from './TableBlock.tsx';
 import './shop.css';
 
 const feature: WebFeature = {
@@ -12,5 +13,6 @@ const feature: WebFeature = {
   dmNav: [{ to: 'shops' }, { to: 'items' }],
   playerNav: [{ to: 'shop', label: 'Shop', icon: 'fa-store' }],
   overlay: ShopPresent,
+  dmTable: [{ id: 'shops', label: 'Shops', zone: 'world', order: 10, component: TableShops }],
 };
 export default feature;
