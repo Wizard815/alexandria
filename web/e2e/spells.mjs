@@ -123,12 +123,39 @@ try {
   const before = await mana.innerText();
   check(/13 \/ 13/.test(before), `a full pool of 13 (level 3 × 4 + INT mod 1): ${before.replace(/\s+/g, ' ')}`);
   await pl.getByRole('button', { name: 'Cast Scorching Ray' }).click();
-  await pl.getByTestId('mana').first().getByText('9 / 13').waitFor({ timeout: 8000 });
-  note('player: cast Scorching Ray, mana 13 -> 9');
+  await pl.getByTestId('mana').first().getByText('10 / 13').waitFor({ timeout: 8000 });
+  note('player: cast Scorching Ray, mana 13 -> 10');
   const me = await api(jessLogin.token, 'GET', '/spells/characters/me');
-  check(me.known.some((x) => x.name === 'Scorching Ray' && x.how === 'crafted') && me.mana.now === 9, 'the server agrees: known, crafted, 9 mana');
+  check(me.known.some((x) => x.name === 'Scorching Ray' && x.how === 'crafted') && me.mana.now === 10, 'the server agrees: known, crafted, 10 mana');
   const pc = await pl.content();
   check(!pc.includes('ZQX-E2E-RECIPENOTE'), 'still no DM note on the player page');
+
+  // 7. The spell tree (spell rules on): every spell by school, studying from the panel.
+  await api(dmLogin.token, 'PATCH', '/settings', { spellRulesOn: true, spellCraftApproval: 'auto' });
+  await api(dmLogin.token, 'PUT', `/spells/characters/${jessId}/caster`, { casterLevels: { full: 3 } });
+  await api(dmLogin.token, 'POST', '/spells/recipes', { result: 'Shatter', prereqs: ['Burning Hands', 'Magic Missile'] });
+  await api(dmLogin.token, 'POST', `/spells/characters/${jessId}/known`, { spellId: 'srd:magic-missile' });
+  await pl.getByRole('tab', { name: 'Spell tree' }).click();
+  await pl.getByRole('group', { name: 'Evocation' }).waitFor({ timeout: 8000 });
+  const nodes = await pl.locator('.stg-node').count();
+  check(nodes > 300, `every SRD spell is on the tree (${nodes})`);
+  check(await pl.getByRole('button', { name: 'Scorching Ray, Level 2, Known' }).count() === 1, 'Scorching Ray shows as known');
+  check(await pl.getByRole('button', { name: 'Wish, Level 9, Unknown' }).count() === 1, 'Wish is dark');
+  check(await pl.getByRole('button', { name: 'Shatter, Level 2, Can learn' }).count() === 1, 'Shatter can be learned');
+  await pl.getByLabel('Search spells').fill('Shatter');
+  await pl.getByLabel('Search spells').press('Enter');
+  const panel = pl.getByRole('complementary', { name: 'Shatter details' });
+  await panel.getByRole('button', { name: 'Start learning' }).click();
+  await panel.getByLabel('Downtime days').fill('3');
+  await panel.getByRole('button', { name: 'Log study days' }).click();
+  await panel.getByLabel('d20 (empty: roll)').fill('18');
+  await panel.getByRole('button', { name: 'Roll the final check' }).click();
+  await panel.getByText(/Shatter is learned!/).waitFor({ timeout: 8000 });
+  note('player: studied Shatter on the spell tree and learned it');
+  await dm.getByRole('tab', { name: 'Spell tree' }).click();
+  await dm.locator('.stack > label select').first().selectOption(jessId);
+  await dm.getByRole('button', { name: 'Shatter, Level 2, Known' }).waitFor({ timeout: 8000 });
+  note('DM: sees the same tree for Jess');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {

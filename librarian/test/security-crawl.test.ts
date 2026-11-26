@@ -708,6 +708,12 @@ const PLAYER_ROUTES = [
   'PATCH /inventory/:iid', 'PATCH /map/:mapId/marks/:mid', 'PATCH /sessionchat/messages/:mid',
   // Spells: a player edits their own spell sheet (when the world allows it), casts, asks to learn and takes back their own request.
   'PUT /spells/characters/:aid', 'POST /spells/cast', 'POST /spells/learn', 'POST /spells/learn/:lid/cancel',
+  // Spell rules in play: their own caster levels (dualAbility stays DM-only inside), a new turn, cast and dual cast quotes and the dual cast.
+  'PUT /spells/characters/:aid/caster', 'POST /spells/characters/:aid/turn', 'POST /spells/cast/quote', 'POST /spells/dual/quote', 'POST /spells/dual',
+  // A player changes their own mana with a reason (spellManaPlayerEdit).
+  'POST /spells/characters/:aid/mana',
+  // Studying their own spells: plan, start, log days, the final check, a scroll cast, stop (approve and adjust stay DM-only).
+  'POST /spells/study', 'POST /spells/study/plan', 'POST /spells/study/:sid/days', 'POST /spells/study/:sid/check', 'POST /spells/study/:sid/scroll-cast', 'POST /spells/study/:sid/stop',
   'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
   'POST /audio/consent', 'POST /audio/mics', 'POST /audio/sessions/:sid/chunks', 'POST /audio/sessions/:sid/holds', 'DELETE /audio/mics/:id', 'POST /audio/sessions/:sid/chunks/:seq/text', 'POST /audio/mics/:id/stt',

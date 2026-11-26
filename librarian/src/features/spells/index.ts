@@ -13,12 +13,17 @@ import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
 import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
 import { dmAnd, everyone } from '../../core/events.ts';
-import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
+import { DEFAULT_SETTINGS, featureSetting, mergeSettings, settingsFor, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { ABILITIES, ABILITY_NAMES, componentsText, normalizeSpell, spellLine, toCsv, type Ability } from './format.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST, castCost, checkCosts, checkMaxLevel, checkPool, checkRest, maxCastLevel, poolMax, poolNow, restGain, type ManaRules, type RestGain } from './mana.ts';
+import { STUDY_SOURCES, checkSpellRules, complexity, dailyProgress, extraRecipeSpells, finalCheckDC, gradeFinalCheck, isHybrid, learnGates, lineMastery, preview, quoteCast, quoteDual, resolveRules, scroll as scrollRule, studyCoin, studyDays, studyPoints, type LearnMissing, type StudySource } from './rules.ts';
+import { STUDY_SCHEMA, openStudy, proficiency, saveStudy, studies, studyById, studyLongRest, type Study } from './study.ts';
+import { randomInt } from 'node:crypto';
+import { STATE_SCHEMA, castMemory, normalizeCasterLevels, restMemory, saveMemory } from './castState.ts';
+import { LINES_SCHEMA, MAX_LINES, PROFILE_FORMAT, PROFILE_SETTINGS, linesOfSpells, deleteLine, forgetSpell, lineById, lineByName, lines, normalizeLine, readProfile, saveLine, setLineSpells, setSpellLines } from './lines.ts';
 import { eligibility, holding, normalizeRecipe, recipeById, recipes, tiers, type Eligibility, type Recipe } from './craft.ts';
 import { readImport, saveImport } from './importers.ts';
 import { facets, queryFrom, search } from './search.ts';
@@ -36,6 +41,7 @@ export const manaRules = (s: WorldSettings): ManaRules => ({
   rest: featureSetting<typeof DEFAULT_REST>(s, 'spellManaRest') ?? DEFAULT_REST,
   maxLevel: featureSetting<typeof DEFAULT_MAX_LEVEL>(s, 'spellManaMaxLevel') ?? DEFAULT_MAX_LEVEL,
   overdraw: featureSetting<boolean>(s, 'spellManaOverdraw') === true,
+  engine: featureSetting<boolean>(s, 'spellRulesOn') === true ? resolveRules(featureSetting(s, 'spellRules')) : null,
 });
 const craftOn = (s: WorldSettings) => featureSetting<boolean>(s, 'spellCrafting') === true;
 const publicSrd = (s: WorldSettings) => featureSetting<boolean>(s, 'spellsPublicSrd') === true;
@@ -58,7 +64,9 @@ const spellStub = (s: WorldSpell | null, ref: string) => (s ? { id: s.id, name: 
 
 function charOut(db: DB, worldId: string, c: Character, r: ManaRules) {
   const max = poolMax(c, r);
-  return { ...c, mana: r.on ? { on: true, now: poolNow(c, max), max, manual: c.manaMax !== null, maxCastLevel: maxCastLevel(c, r) } : { on: false } };
+  const m = r.on && r.engine ? castMemory(db, worldId, c.accountId) : null;
+  const casting = m ? { dualAbility: m.dualAbility, silentAbility: m.silentAbility, turnLeveled: m.turnLeveled, surgeUsed: m.surgeUsed, dualUsed: m.dualUsed, dualPenalty: m.dualPenalty, echo: m.echo, highUsed: m.highUsed } : null;
+  return { ...c, mana: r.on ? { on: true, now: poolNow(c, max), max, manual: c.manaMax !== null, maxCastLevel: maxCastLevel(c, r), ...(casting ? { casting } : {}) } : { on: false } };
 }
 
 function emitChar(d: Deps, worldId: string, accountId: string) {
@@ -85,6 +93,7 @@ function routes(d: Deps) {
     const gain: RestGain = kind === 'long' ? rules.rest.long : rules.rest.short;
     const out: { accountId: string; before: number | null; after: number | null }[] = [];
     for (const aid of only ?? playerIds(db, worldId)) {
+      if (rules.engine) { restMemory(db, worldId, aid, kind); if (kind === 'long') studyLongRest(db, worldId, aid); }
       const c = character(db, worldId, aid);
       const max = poolMax(c, rules);
       if (max === null) continue;
@@ -130,6 +139,13 @@ function routes(d: Deps) {
       playerStats: featureSetting<boolean>(s, 'spellPlayerStats') !== false,
       publicSrd: publicSrd(s),
     });
+  });
+
+  // The spell rules engine's settings (Spell_Plan.md) and the preview tables. Nothing secret: players read it too.
+  r.get('/rules', (_req, res) => {
+    const s = S(res);
+    const rules = resolveRules(featureSetting(s, 'spellRules'));
+    res.json({ rules, preview: preview(R(res).costs, rules) });
   });
 
   r.get('/list', (req, res) => {
@@ -196,6 +212,7 @@ function routes(d: Deps) {
       run(db, 'DELETE FROM spells_custom WHERE world_id = ? AND id = ?', W(res), cur.id);
       run(db, 'DELETE FROM spells_meta WHERE world_id = ? AND spell_id = ?', W(res), cur.id);
       run(db, 'DELETE FROM spells_known WHERE world_id = ? AND spell_id = ?', W(res), cur.id);
+      forgetSpell(db, W(res), cur.id);
     });
     audit(db, W(res), me(res), 'spells.delete', cur.name);
     changed(res);
@@ -326,11 +343,17 @@ function routes(d: Deps) {
     res.json({ ok: true });
   });
 
-  r.post('/characters/:aid/mana', requireDM, (req, res) => {
+  /** The DM changes anyone's mana; a player changes their own (a potion, say) with a reason, within 0 and their maximum. Every change is logged. */
+  r.post('/characters/:aid/mana', requirePlayerOrDM, (req, res) => {
     const aid = who(res, req.params.aid);
     const rules = R(res);
     if (!rules.on) throw new HttpError(409, 'Mana is off in this world');
     const b = req.body ?? {};
+    const dm = isDM(res);
+    if (!dm) {
+      if (featureSetting<boolean>(S(res), 'spellManaPlayerEdit') === false) throw new HttpError(403, 'The DM changes mana in this world');
+      if (!String(b.note ?? '').trim()) throw new HttpError(400, 'Say why the mana changes (a potion, a spell, ...)');
+    }
     const c = character(db, W(res), aid);
     const max = poolMax(c, rules);
     const cur = poolNow(c, max) ?? 0;
@@ -339,12 +362,118 @@ function routes(d: Deps) {
     else if (b.set !== undefined) next = Number(b.set);
     else next = cur + Number(b.delta);
     if (!Number.isInteger(next) || next < -9999 || next > 99999) throw new HttpError(400, 'Send delta (a whole number), set (the new amount) or full: true');
+    if (!dm && max !== null) next = Math.max(Math.min(next, max), Math.min(cur, 0));
     saveCharacter(db, W(res), aid, { mana: next });
     logEntry(db, W(res), aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: String(b.note ?? '').slice(0, 200) || 'Adjusted by the DM' });
-    audit(db, W(res), me(res), 'spells.mana', `${aid} ${cur} -> ${next}`);
+    audit(db, W(res), me(res), dm ? 'spells.mana' : 'spells.mana.player', `${aid} ${cur} -> ${next}`);
     emitChar(d, W(res), aid);
     res.json(charOut(db, W(res), character(db, W(res), aid), rules));
   });
+
+  // ---- the spell rules engine in play (Spell_Plan.md §3-4; world setting spellRulesOn) ----
+
+  /** The spell a cast names, the level to cast it at, and that the caster may use it. */
+  function castTarget(res: Response, aid: string, ref: unknown, level: unknown, toLearn = false) {
+    const s = toLearn ? catalog(db, W(res), publicSrd(S(res))).find((x) => x.id === String(ref ?? '')) ?? null : spellById(db, W(res), String(ref ?? ''));
+    if (!s) throw new HttpError(404, 'Spell not found');
+    if (toLearn && !isDM(res) && s.kind !== 'srd' && !s.public && !recipes(db, W(res)).some((x) => x.resultId === s.id && !x.draft && x.visibility === 'visible')) throw new HttpError(404, 'Spell not found');
+    if (!toLearn && !isDM(res) && !knownIds(db, W(res), aid).has(s.id)) throw new HttpError(s.public ? 403 : 404, s.public ? 'You do not know this spell' : 'Spell not found');
+    const at = level === undefined || level === null || level === '' ? s.level : Number(level);
+    if (!Number.isInteger(at) || at < s.level || at > 9) throw new HttpError(400, `Cast ${s.name} at level ${s.level} to 9`);
+    return { s, at };
+  }
+
+  /** What casting would cost and whether it may happen now, from the character's pool and cast memory. */
+  function quote(res: Response, aid: string, s: WorldSpell, at: number) {
+    const rules = R(res);
+    if (!rules.on || !rules.engine) throw new HttpError(409, 'The spell rules are off in this world');
+    const c = character(db, W(res), aid);
+    const max = poolMax(c, rules);
+    if (max === null) throw new HttpError(409, 'Set the character level, caster levels or a mana maximum first');
+    const lim = maxCastLevel(c, rules);
+    if (lim !== null && at > 0 && at > lim) throw new HttpError(409, `${c.name || 'This character'} casts spells of level ${lim} or lower`);
+    const m = castMemory(db, W(res), aid);
+    const charLevel = c.level ?? Object.values(c.casterLevels ?? {}).reduce((a, b) => a + (b ?? 0), 0);
+    const q = quoteCast({ level: s.level, manaCost: s.manaOverride ?? s.manaCost ?? null }, at, {
+      mana: poolNow(c, max) ?? max, max, characterLevel: charLevel, leveledThisTurn: m.turnLeveled, surgeUsed: m.surgeUsed,
+      echoCount: m.echo[s.id] ?? 0, highUsed: m.highUsed.includes(s.id),
+    }, rules.costs, rules.engine);
+    return { q, c, max, m, charLevel };
+  }
+
+  r.post('/cast/quote', requirePlayerOrDM, (req, res) => {
+    const b = req.body ?? {};
+    const aid = who(res, b.accountId ?? 'me');
+    const { s, at } = castTarget(res, aid, b.spellId, b.level);
+    const { q } = quote(res, aid, s, at);
+    res.json({ spellId: s.id, ...q });
+  });
+
+  /** Caster levels (the player too, when they keep their own sheet) and the Dual cast ability (the DM only). */
+  r.put('/characters/:aid/caster', requirePlayerOrDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    const b = req.body ?? {};
+    const dm = isDM(res);
+    const patch: Parameters<typeof saveMemory>[3] = {};
+    if (b.casterLevels !== undefined) {
+      if (!dm && featureSetting<boolean>(S(res), 'spellPlayerStats') === false) throw new HttpError(403, 'The DM keeps your spell sheet in this world');
+      try { patch.casterLevels = normalizeCasterLevels(b.casterLevels); } catch (e: any) { throw new HttpError(400, e.message); }
+    }
+    for (const k of ['dualAbility', 'silentAbility'] as const) {
+      if (b[k] === undefined) continue;
+      if (!dm) throw new HttpError(403, `Only the DM grants ${k === 'dualAbility' ? 'Dual cast' : 'Silent casting'}`);
+      if (typeof b[k] !== 'boolean') throw new HttpError(400, `${k} must be true or false`);
+      patch[k] = b[k];
+    }
+    saveMemory(db, W(res), aid, patch);
+    audit(db, W(res), me(res), 'spells.caster', JSON.stringify(patch).slice(0, 300));
+    emitChar(d, W(res), aid);
+    res.json(charOut(db, W(res), character(db, W(res), aid), R(res)));
+  });
+
+  /** A new turn: the one-leveled-spell-per-turn count starts again. */
+  r.post('/characters/:aid/turn', requirePlayerOrDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    saveMemory(db, W(res), aid, { turnLeveled: 0 });
+    emitChar(d, W(res), aid);
+    res.json(charOut(db, W(res), character(db, W(res), aid), R(res)));
+  });
+
+  /** Dual cast: the same spell twice (empower) or two known spells (fuse). Without `arcana` it only quotes. */
+  function dual(res: Response, b: any, commit: boolean) {
+    const aid = who(res, b.accountId ?? 'me');
+    const rules = R(res);
+    if (!rules.on || !rules.engine) throw new HttpError(409, 'The spell rules are off in this world');
+    const A = castTarget(res, aid, b.spellA, undefined).s;
+    const B = castTarget(res, aid, b.spellB ?? b.spellA, undefined).s;
+    if (A.level === 0 || B.level === 0) throw new HttpError(400, 'Dual cast is for leveled spells');
+    const c = character(db, W(res), aid);
+    const max = poolMax(c, rules);
+    if (max === null) throw new HttpError(409, 'Set the character level, caster levels or a mana maximum first');
+    const m = castMemory(db, W(res), aid);
+    const q = quoteDual({ id: A.id, level: A.level, manaCost: A.manaOverride ?? A.manaCost ?? null, concentration: A.concentration }, { id: B.id, level: B.level, manaCost: B.manaOverride ?? B.manaCost ?? null, concentration: B.concentration },
+      { characterLevel: c.level ?? 0, hasAbility: m.dualAbility, usedSinceShortRest: m.dualUsed, penalty: m.dualPenalty }, rules.costs, rules.engine);
+    const cur = poolNow(c, max) ?? max;
+    if (rules.engine.oneLeveledPerTurn && m.turnLeveled >= 1) q.reasons.push('A leveled spell was already cast this turn');
+    if (cur < q.cost) q.reasons.push(`Not enough mana (needs ${q.cost}, has ${cur})`);
+    q.allowed = q.reasons.length === 0;
+    const out = { kind: A.id === B.id ? 'empower' : 'fuse', ...q, mana: cur };
+    if (!commit) return out;
+    if (!q.allowed) throw new HttpError(409, q.reasons.join('; '));
+    const roll = Number(b.arcana);
+    if (!Number.isFinite(roll)) throw new HttpError(400, 'arcana must be the Arcana check total');
+    const success = roll >= q.dc;
+    const after = cur - q.cost;
+    tx(db, () => {
+      saveCharacter(db, W(res), aid, { mana: after });
+      saveMemory(db, W(res), aid, { dualUsed: true, turnLeveled: m.turnLeveled + 1, dualPenalty: success ? 0 : rules.engine!.dualCast.failPenalty });
+      logEntry(db, W(res), aid, 'cast', me(res), { spellId: A.id, amount: -q.cost, manaAfter: after, note: `Dual cast (${out.kind}): ${A.name}${A.id === B.id ? '' : ` + ${B.name}`}, Arcana ${roll} vs ${q.dc}: ${success ? 'success' : 'failed'}` });
+    });
+    emitChar(d, W(res), aid);
+    return { ...out, success, mana: after };
+  }
+  r.post('/dual/quote', requirePlayerOrDM, (req, res) => res.json(dual(res, req.body ?? {}, false)));
+  r.post('/dual', requirePlayerOrDM, (req, res) => res.json(dual(res, req.body ?? {}, true)));
 
   r.post('/cast', requirePlayerOrDM, (req, res) => {
     const b = req.body ?? {};
@@ -360,6 +489,27 @@ function routes(d: Deps) {
       logEntry(db, W(res), aid, 'cast', me(res), { spellId: s.id, note: `${s.name}${at > s.level ? ` at level ${at}` : ''}` });
       emitChar(d, W(res), aid);
       return res.json({ ok: true, cost: 0, mana: null });
+    }
+    if (rules.engine) {
+      const out = tx(db, () => {
+        const { q, max, m } = quote(res, aid, s, at);
+        if (b.silent === true && !m.silentAbility) throw new HttpError(409, 'Silent casting is an ability the DM grants');
+        if (!q.allowed) throw new HttpError(409, q.reasons.join('; '));
+        saveCharacter(db, W(res), aid, { mana: q.manaAfter });
+        if (s.level > 0) {
+          const e = rules.engine!;
+          saveMemory(db, W(res), aid, {
+            turnLeveled: m.turnLeveled + 1,
+            surgeUsed: m.surgeUsed || q.surge,
+            echo: { ...m.echo, [s.id]: (m.echo[s.id] ?? 0) + 1 },
+            highUsed: e.highLevelLimit.on && at >= e.highLevelLimit.fromLevel && !m.highUsed.includes(s.id) ? [...m.highUsed, s.id] : m.highUsed,
+          });
+        }
+        logEntry(db, W(res), aid, 'cast', me(res), { spellId: s.id, amount: -q.cost, manaAfter: q.manaAfter, note: `${s.name}${at > s.level ? ` at level ${at}` : ''}${q.surge ? ' (surge)' : ''}${b.silent === true ? ' (silent)' : ''}` });
+        return { cost: q.cost, mana: q.manaAfter, max, breakdown: q.breakdown, saves: q.saves, surge: q.surge, lowMana: q.lowMana, silent: b.silent === true };
+      });
+      emitChar(d, W(res), aid);
+      return res.json({ ok: true, ...out });
     }
     const out = tx(db, () => {
       const c = character(db, W(res), aid);
@@ -471,32 +621,160 @@ function routes(d: Deps) {
     res.json({ format: 'alexandria-spell-recipes', version: 1, recipes: recipes(db, W(res)).map((x) => ({ result: n(x.resultId), prereqs: x.prereqs.map(n), items: x.items, stats: x.stats, minLevel: x.minLevel, manaCost: x.manaCost, visibility: x.visibility, dmNotes: x.dmNotes, draft: x.draft })) });
   });
 
+  /** Add recipes from an import or a profile (by spell name or id); a recipe already there is skipped. With `dry`, only counts. */
+  function importRecipeList(res: Response, list: any[], replace: boolean, dry: boolean, inTx = false): { added: number; skipped: string[] } {
+    const out = { added: 0, skipped: [] as string[] };
+    const sig = (x: { resultId: string; prereqs: string[] }) => `${x.resultId}|${[...x.prereqs].sort().join(',')}`;
+    const have = new Set(replace ? [] : recipes(db, W(res)).map(sig));
+    const go = () => {
+      if (replace && !dry) run(db, 'DELETE FROM spells_recipes WHERE world_id = ?', W(res));
+      list.forEach((raw: any, i: number) => {
+        let x;
+        try { x = normalizeRecipe(raw, resolver(res)); } catch (e: any) { out.skipped.push(`Recipe ${i + 1}: ${e.message}`); return; }
+        if (have.has(sig(x))) { out.skipped.push(`Recipe ${i + 1}: already there`); return; }
+        have.add(sig(x));
+        if (!dry) run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, dm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          id('rcp_'), W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, me(res), now(), now());
+        out.added++;
+      });
+    };
+    if (dry || inTx) go(); else tx(db, go);
+    return out;
+  }
+
   r.post('/recipes/import', requireDM, (req, res) => {
     const b = req.body ?? {};
     let list = b.recipes ?? b.json;
     if (typeof list === 'string') { try { list = JSON.parse(list); } catch { throw new HttpError(400, 'That is not valid JSON'); } }
     if (list && !Array.isArray(list) && Array.isArray(list.recipes)) list = list.recipes;
     if (!Array.isArray(list) || list.length > 2000) throw new HttpError(400, 'Send recipes: a list of up to 2000 recipes');
-    const res2 = { added: 0, skipped: [] as string[] };
-    const existing = recipes(db, W(res));
-    const sig = (x: { resultId: string; prereqs: string[] }) => `${x.resultId}|${[...x.prereqs].sort().join(',')}`;
-    const have = new Set(existing.map(sig));
-    tx(db, () => {
-      if (b.replace === true) { run(db, 'DELETE FROM spells_recipes WHERE world_id = ?', W(res)); have.clear(); }
-      list.forEach((raw: any, i: number) => {
-        let x;
-        try { x = normalizeRecipe(raw, resolver(res)); } catch (e: any) { res2.skipped.push(`Recipe ${i + 1}: ${e.message}`); return; }
-        if (have.has(sig(x))) { res2.skipped.push(`Recipe ${i + 1}: already there`); return; }
-        have.add(sig(x));
-        run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, dm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          id('rcp_'), W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, me(res), now(), now());
-        res2.added++;
-      });
-    });
+    const res2 = importRecipeList(res, list, b.replace === true, false);
     audit(db, W(res), me(res), 'spells.recipe.import', `${res2.added} added, ${res2.skipped.length} skipped`);
     recipesChanged(res);
     res.json(res2);
   });
+
+  // ---- spell lines (Spell_Plan.md §5) ----
+  const linesChanged = (res: Response) => d.hub.emit(W(res), 'spells-lines', {}, everyone);
+  /** Lines with their spells; a player gets only the spells they may read. */
+  r.get('/lines', (_req, res) => {
+    const visible = new Set(visibleCatalog(res).list.map((x) => x.id));
+    res.json({ lines: lines(db, W(res)).map((l) => ({ ...l, spells: isDM(res) ? l.spells : l.spells.filter((x) => visible.has(x)) })) });
+  });
+
+  /** Spells of a line from names or ids; unknown ones are a 400 naming them. */
+  function lineSpellIds(res: Response, refs: unknown): string[] {
+    if (refs === undefined) return [];
+    if (!Array.isArray(refs) || refs.length > 1000) throw new HttpError(400, 'spells must be a list of up to 1000 spell names or ids');
+    const out: string[] = [];
+    const unknown: string[] = [];
+    for (const ref of refs) { const x = findSpell(db, W(res), String(ref ?? '').trim()); if (x) out.push(x.id); else unknown.push(String(ref).slice(0, 60)); }
+    if (unknown.length) throw new HttpError(400, `Unknown spell${unknown.length === 1 ? '' : 's'}: ${unknown.slice(0, 5).join(', ')}`);
+    return out;
+  }
+
+  r.post('/lines', requireDM, (req, res) => {
+    const x = normalizeLine(req.body);
+    if (lineByName(db, W(res), x.name)) throw new HttpError(409, `There is already a line called ${x.name}`);
+    const spells = lineSpellIds(res, req.body?.spells);
+    const lid = tx(db, () => { const lid = saveLine(db, W(res), x); if (req.body?.spells !== undefined) setLineSpells(db, W(res), lid, spells); return lid; });
+    audit(db, W(res), me(res), 'spells.line.create', x.name);
+    linesChanged(res);
+    res.status(201).json(lineById(db, W(res), lid));
+  });
+
+  r.put('/lines/:lid', requireDM, (req, res) => {
+    const cur = lineById(db, W(res), String(req.params.lid));
+    if (!cur) throw new HttpError(404, 'Line not found');
+    const x = normalizeLine({ name: cur.name, color: cur.color, theme: cur.theme, ...req.body });
+    const spells = lineSpellIds(res, req.body?.spells);
+    tx(db, () => { saveLine(db, W(res), x, cur.id); if (req.body?.spells !== undefined) setLineSpells(db, W(res), cur.id, spells); });
+    audit(db, W(res), me(res), 'spells.line.update', x.name);
+    linesChanged(res);
+    res.json(lineById(db, W(res), cur.id));
+  });
+
+  r.delete('/lines/:lid', requireDM, (req, res) => {
+    const cur = lineById(db, W(res), String(req.params.lid));
+    if (!cur) throw new HttpError(404, 'Line not found');
+    tx(db, () => deleteLine(db, W(res), cur.id));
+    audit(db, W(res), me(res), 'spells.line.delete', cur.name);
+    linesChanged(res);
+    res.json({ ok: true });
+  });
+
+  /** The lines of one spell, by line id or name. */
+  r.put('/s/:id/lines', requireDM, (req, res) => {
+    const sp = spellById(db, W(res), String(req.params.id));
+    if (!sp) throw new HttpError(404, 'Spell not found');
+    const refs = req.body?.lines;
+    if (!Array.isArray(refs) || refs.length > MAX_LINES) throw new HttpError(400, `lines must be a list of up to ${MAX_LINES} line ids or names`);
+    const all_ = lines(db, W(res));
+    const ids = refs.map((ref: unknown) => { const v = String(ref ?? '').trim(); const l = all_.find((x) => x.id === v || x.name.toLowerCase() === v.toLowerCase()); if (!l) throw new HttpError(400, `Unknown line: ${v.slice(0, 40)}`); return l.id; });
+    tx(db, () => setSpellLines(db, W(res), sp.id, ids));
+    audit(db, W(res), me(res), 'spells.line.tag', sp.name);
+    linesChanged(res);
+    res.json({ spellId: sp.id, lines: [...new Set(ids)] });
+  });
+
+  // ---- the spell rules profile (Spell_Plan.md step 2): settings, lines and recipes, by spell name ----
+  r.get('/profile/export', requireDM, (_req, res) => {
+    const s = S(res);
+    const n = nameOf(res);
+    const stored = parseJson<Record<string, unknown>>(one<any>(db, 'SELECT settings FROM worlds WHERE id = ?', W(res))?.settings ?? '{}', {});
+    res.json({
+      format: PROFILE_FORMAT, version: 1,
+      settings: Object.fromEntries(PROFILE_SETTINGS.map((k) => [k, k === 'spellRules' ? (stored.spellRules ?? {}) : featureSetting(s, k)])),
+      lines: lines(db, W(res)).map((l) => ({ name: l.name, color: l.color, theme: l.theme, spells: l.spells.map(n) })),
+      recipes: recipes(db, W(res)).map((x) => ({ result: n(x.resultId), prereqs: x.prereqs.map(n), items: x.items, stats: x.stats, minLevel: x.minLevel, manaCost: x.manaCost, visibility: x.visibility, dmNotes: x.dmNotes, draft: x.draft })),
+    });
+  });
+
+  /**
+   * What importing a profile would do, without doing it (`dry`), or do it.
+   * Settings are checked as a whole first: one bad value refuses the import.
+   * Lines merge by name; a spell this world lacks is skipped and named.
+   * Recipes are added unless already there; `replace: true` clears the
+   * world's lines and recipes first.
+   */
+  function applyProfile(res: Response, body: any, dry: boolean) {
+    const p = readProfile(body);
+    const replace = body?.replace === true;
+    const patch = (p.settings ?? {}) as Record<string, unknown>;
+    let next: WorldSettings;
+    try { next = mergeSettings(S(res), patch); } catch (e: any) { throw new HttpError(400, e.message); }
+    const changedSettings = Object.keys(patch).filter((k) => JSON.stringify((S(res) as any)[k]) !== JSON.stringify(patch[k]));
+    const have = new Map(lines(db, W(res)).map((l) => [l.name.toLowerCase(), l]));
+    const plan = { lines: { added: [] as string[], updated: [] as string[] }, missingSpells: [] as string[], tags: 0 };
+    const parsed = (p.lines ?? []).map((raw: any, i: number) => {
+      let x;
+      try { x = normalizeLine(raw); } catch (e: any) { throw new HttpError(400, `Line ${i + 1}: ${e.message}`); }
+      const ids: string[] = [];
+      for (const ref of Array.isArray(raw.spells) ? raw.spells.slice(0, 1000) : []) {
+        const sp = findSpell(db, W(res), String(ref ?? '').trim());
+        if (sp) ids.push(sp.id); else plan.missingSpells.push(`${x.name}: ${String(ref).slice(0, 60)}`);
+      }
+      (!replace && have.has(x.name.toLowerCase()) ? plan.lines.updated : plan.lines.added).push(x.name);
+      plan.tags += new Set(ids).size;
+      return { x, ids };
+    });
+    const recipeList = Array.isArray(p.recipes) ? p.recipes : [];
+    if (dry) return { settings: changedSettings, ...plan, recipes: importRecipeList(res, recipeList, replace, true) };
+    const out = tx(db, () => {
+      run(db, 'UPDATE worlds SET settings = ? WHERE id = ?', JSON.stringify(next), W(res));
+      if (replace) for (const l of have.values()) deleteLine(db, W(res), l.id);
+      for (const { x, ids } of parsed) setLineSpells(db, W(res), saveLine(db, W(res), x), ids);
+      return { settings: changedSettings, ...plan, recipes: importRecipeList(res, recipeList, replace, false, true) };
+    });
+    audit(db, W(res), me(res), 'spells.profile.import', `${changedSettings.length} settings, ${parsed.length} lines, ${out.recipes.added} recipes`);
+    d.hub.emitPer(W(res), 'settings', (v) => settingsFor(next, v.role));
+    linesChanged(res);
+    recipesChanged(res);
+    return out;
+  }
+
+  r.post('/profile/import/preview', requireDM, (req, res) => res.json(applyProfile(res, req.body, true)));
+  r.post('/profile/import', requireDM, (req, res) => res.json(applyProfile(res, req.body, false)));
 
   // ---- the codex of one character: learned, learnable now, and what is next ----
   function codexFor(res: Response, aid: string) {
@@ -592,6 +870,258 @@ function routes(d: Deps) {
     return { consumed };
   }
 
+
+  // ---- studying a spell (Spell_Plan.md §6; needs spellRulesOn) ----
+
+  const castingScore = (c: Character): number | null => {
+    if (c.castingAbility) return c.abilities[c.castingAbility] ?? null;
+    const xs = (['int', 'wis', 'cha'] as Ability[]).map((k) => c.abilities[k]).filter((x): x is number => typeof x === 'number');
+    return xs.length ? Math.max(...xs) : null;
+  };
+  const gateText = (m: LearnMissing): string => {
+    switch (m.kind) {
+      case 'gate': return `know ${m.need} of its recipe's spells${m.from === 'cantrip' ? ' that are cantrips' : m.from === 'below' ? ' that are one level lower' : ''} (knows ${m.have})`;
+      case 'arcana': return `an Arcana check, DC ${m.dc}, to start`;
+      case 'ability': return `spellcasting ability ${m.need} (has ${m.have ?? 'not set'})`;
+      case 'level': return `able to cast level ${m.spellLevel} spells (can cast up to ${m.highest})`;
+      case 'pool': return `a mana pool of ${m.need} (has ${m.have})`;
+      case 'source': return `study it with ${m.allowed.join(' or ')}`;
+      case 'research': return 'a research project the DM approves';
+      case 'mastery': return `${m.line} mastery ${m.need} (has ${m.have})`;
+    }
+  };
+
+  /** Everything about studying a spell for a character: the recipe, what is missing, the points, days and gold. */
+  function studyPlan(res: Response, aid: string, sp: WorldSpell, o: { recipeId?: unknown; source?: unknown; lab?: unknown; research?: boolean }) {
+    const rules = R(res);
+    if (!rules.engine) throw new HttpError(409, 'The spell rules are off in this world');
+    const e = rules.engine;
+    const dm = isDM(res);
+    const source = (STUDY_SOURCES as readonly string[]).includes(String(o.source)) ? (o.source as StudySource) : 'alone';
+    const lab = o.lab === true;
+    const known = knownIds(db, W(res), aid);
+    const c = character(db, W(res), aid);
+    const all_ = recipes(db, W(res)).filter((x) => x.resultId === sp.id && !x.draft && (dm || x.visibility === 'visible'));
+    const rc = o.recipeId ? all_.find((x) => x.id === String(o.recipeId)) ?? null : [...all_].sort((a, b) => b.prereqs.filter((p) => known.has(p)).length - a.prereqs.filter((p) => known.has(p)).length)[0] ?? null;
+    if (o.recipeId && !rc) throw new HttpError(404, 'Recipe not found');
+    const missing: string[] = [];
+    let arcanaDC: number | null = null;
+    if (known.has(sp.id)) missing.push('already known');
+    if (!rc) missing.push('no recipe teaches this spell yet (ask the DM)');
+    const own = sp.manaOverride ?? sp.manaCost ?? null;
+    const cx = complexity(sp.level, rules.costs, own);
+    const spellLines = linesOfSpells(db, W(res)).get(sp.id) ?? [];
+    const hybrid = isHybrid(spellLines);
+    const needed = studyPoints(cx, { hybrid, extraSpells: rc ? extraRecipeSpells(rc.prereqs.length, sp.level, e) : 0 }, e);
+    const coin = studyCoin(cx, source, e);
+    if (rc) {
+      const el = eligibility(db, W(res), rc, c, known, nameOf(res), { on: false, now: null });
+      for (const m of el.missing) missing.push(missingText(m));
+      const kr = knownRows(db, W(res), aid);
+      const lof = linesOfSpells(db, W(res));
+      const mastery = lineMastery(kr.map((k) => ({ id: k.spellId, how: k.how })), (x) => lof.get(x) ?? [], e);
+      const max = poolMax(c, rules) ?? 0;
+      const gates = learnGates({
+        spellLevel: sp.level, castCost: castCost(sp, sp.level, rules), knownRecipeLevels: rc.prereqs.filter((p) => known.has(p)).map((p) => spellById(db, W(res), p)?.level ?? 0),
+        highest: maxCastLevel(c, rules) ?? 9, casterLevel: c.level ?? 0, abilityScore: castingScore(c), poolMax: max, source, research: o.research === true, arcanaPassed: false,
+        hybridMastery: hybrid ? Object.fromEntries(spellLines.map((l) => [l, mastery[l] ?? 0])) : undefined,
+      }, e);
+      for (const g of gates) {
+        if (g.kind === 'arcana') { arcanaDC = g.dc; continue; }
+        if (g.kind === 'mastery') { const name = lines(db, W(res)).find((x) => x.id === g.line)?.name ?? g.line; missing.push(gateText({ ...g, line: name })); continue; }
+        missing.push(gateText(g));
+      }
+    }
+    const per = dailyProgress(source, lab, e);
+    const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e))]));
+    const bonus = (() => { const sc = castingScore(c); return (sc === null ? 0 : Math.floor((sc - 10) / 2)) + proficiency(c.level); })();
+    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : null, source, lab, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
+  }
+
+  const studyOut = (res: Response, x: Study) => ({ ...x, name: nameOf(res)(x.spellId), perDay: dailyProgress(x.source, x.lab, R(res).engine!), daysLeft: studyDays(x.needed, x.banked, dailyProgress(x.source, x.lab, R(res).engine!)) });
+  const studyMine = (res: Response, sid: string): Study => {
+    const x = studyById(db, W(res), sid);
+    if (!x || (!isDM(res) && x.accountId !== me(res))) throw new HttpError(404, 'Study not found');
+    if (!R(res).engine) throw new HttpError(409, 'The spell rules are off in this world');
+    return x;
+  };
+  const studyChanged = (res: Response, aid: string) => d.hub.emit(W(res), 'spells-study', { accountId: aid }, dmAnd(aid));
+
+  r.get('/study', (req, res) => {
+    if (!R(res).engine) return res.json({ on: false, studies: [] });
+    const aid = isDM(res) && !req.query.accountId ? undefined : who(res, req.query.accountId ?? 'me');
+    res.json({ on: true, studies: studies(db, W(res), aid).map((x) => studyOut(res, x)) });
+  });
+
+  /** What studying a spell needs and costs, without starting. */
+  r.post('/study/plan', requirePlayerOrDM, (req, res) => {
+    const b = req.body ?? {};
+    const aid = who(res, b.accountId ?? 'me');
+    const { s: sp } = castTarget(res, aid, b.spellId, undefined, true);
+    res.json(studyPlan(res, aid, sp, { recipeId: b.recipeId, source: b.source, lab: b.lab, research: isDM(res) && b.research === true }));
+  });
+
+  /** Start (or pick up) studying a spell. A gate with an Arcana check needs its total in `arcana`. */
+  r.post('/study', requirePlayerOrDM, (req, res) => {
+    const b = req.body ?? {};
+    const aid = who(res, b.accountId ?? 'me');
+    const { s: sp } = castTarget(res, aid, b.spellId, undefined, true);
+    const plan = studyPlan(res, aid, sp, { recipeId: b.recipeId, source: b.source, lab: b.lab, research: isDM(res) && b.research === true });
+    if (!plan.canStart) throw new HttpError(409, `Not yet: ${plan.missing.join('; ')}`);
+    const cur = openStudy(db, W(res), aid, sp.id);
+    if (plan.arcanaDC !== null && !cur) {
+      const roll = Number(b.arcana);
+      if (!Number.isFinite(roll)) throw new HttpError(400, `Starting needs an Arcana check, DC ${plan.arcanaDC}: send its total as arcana`);
+      if (roll < plan.arcanaDC) {
+        logEntry(db, W(res), aid, 'study', me(res), { spellId: sp.id, note: `Arcana ${roll} vs ${plan.arcanaDC}: not yet able to study ${sp.name}` });
+        throw new HttpError(409, `The Arcana check failed (${roll} vs DC ${plan.arcanaDC}); try again after a long rest`);
+      }
+    }
+    const scrollHelp = b.scroll === true;
+    const sid = tx(db, () => {
+      if (cur) {
+        saveStudy(db, W(res), cur.id, { source: plan.source, lab: plan.lab, recipeId: plan.recipe!.id, needed: plan.needed, status: cur.banked >= plan.needed ? 'ready' : 'studying', materials: plan.materials, mentorFee: plan.mentorFee,
+          ...(scrollHelp && !cur.scrollHelp ? { scrollHelp: true, banked: Math.min(plan.needed, cur.banked + plan.scrollPoints) } : {}) });
+        return cur.id;
+      }
+      const nid = id('stu_');
+      const banked = scrollHelp ? Math.min(plan.needed, plan.scrollPoints) : 0;
+      run(db, 'INSERT INTO spells_study (id, world_id, account_id, spell_id, recipe_id, source, lab, research, needed, banked, materials, mentor_fee, scroll_help, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        nid, W(res), aid, sp.id, plan.recipe!.id, plan.source, plan.lab ? 1 : 0, isDM(res) && b.research === true ? 1 : 0, plan.needed, banked, plan.materials, plan.mentorFee, scrollHelp ? 1 : 0, banked >= plan.needed ? 'ready' : 'studying', now(), now());
+      return nid;
+    });
+    logEntry(db, W(res), aid, 'study', me(res), { spellId: sp.id, note: `${cur ? 'Back to studying' : 'Started studying'} ${sp.name} (${plan.source}${plan.lab ? ', lab' : ''}${scrollHelp ? ', with a scroll' : ''}): ${plan.needed} points, ${plan.materials} gp of materials${plan.mentorFee ? ` + ${plan.mentorFee} gp to the mentor` : ''}` });
+    audit(db, W(res), me(res), 'spells.study.start', `${aid} ${sp.name}`);
+    studyChanged(res, aid);
+    res.status(cur ? 200 : 201).json(studyOut(res, studyById(db, W(res), sid)!));
+  });
+
+  /** Log downtime days of study. The DM's days count at once; a player's wait for the DM unless approval is automatic. */
+  r.post('/study/:sid/days', requirePlayerOrDM, (req, res) => {
+    const x = studyMine(res, String(req.params.sid));
+    if (x.status !== 'studying') throw new HttpError(409, x.status === 'ready' ? 'The study is complete: roll the final check' : `This study is ${x.status}`);
+    const n = Number(req.body?.days);
+    if (!Number.isInteger(n) || n < 1 || n > 365) throw new HttpError(400, 'days must be 1 to 365');
+    const auto = isDM(res) || featureSetting<string>(S(res), 'spellCraftApproval') === 'auto';
+    if (auto) applyDays(res, x, n); else saveStudy(db, W(res), x.id, { pendingDays: x.pendingDays + n });
+    logEntry(db, W(res), x.accountId, 'study', me(res), { spellId: x.spellId, note: `${n} downtime day${n === 1 ? '' : 's'} of study${auto ? '' : ' (waiting for the DM)'}` });
+    studyChanged(res, x.accountId);
+    res.json(studyOut(res, studyById(db, W(res), x.id)!));
+  });
+
+  function applyDays(res: Response, x: Study, n: number) {
+    const per = dailyProgress(x.source, x.lab, R(res).engine!);
+    const banked = Math.min(x.needed, x.banked + n * per);
+    saveStudy(db, W(res), x.id, { banked, days: x.days + n, status: banked >= x.needed ? 'ready' : 'studying' });
+  }
+
+  /** The DM approves the days a player logged (all, or `days` of them), or sets progress by hand. */
+  r.post('/study/:sid/approve', requireDM, (req, res) => {
+    const x = studyMine(res, String(req.params.sid));
+    const n = req.body?.days === undefined ? x.pendingDays : Number(req.body.days);
+    if (!Number.isInteger(n) || n < 0 || n > 365) throw new HttpError(400, 'days must be 0 to 365');
+    saveStudy(db, W(res), x.id, { pendingDays: 0 });
+    if (n > 0 && x.status === 'studying') applyDays(res, { ...x, pendingDays: 0 }, n);
+    audit(db, W(res), me(res), 'spells.study.approve', `${x.id} ${n} days`);
+    studyChanged(res, x.accountId);
+    res.json(studyOut(res, studyById(db, W(res), x.id)!));
+  });
+
+  r.put('/study/:sid', requireDM, (req, res) => {
+    const x = studyMine(res, String(req.params.sid));
+    const b = req.body ?? {};
+    const patch: Partial<Study> = {};
+    if (b.banked !== undefined) { const n = Number(b.banked); if (!Number.isInteger(n) || n < 0 || n > x.needed) throw new HttpError(400, `banked must be 0 to ${x.needed}`); patch.banked = n; patch.status = n >= x.needed ? 'ready' : 'studying'; }
+    if (b.research !== undefined) patch.research = b.research === true;
+    if (b.waitLongRest === false) patch.waitLongRest = false;
+    saveStudy(db, W(res), x.id, patch);
+    audit(db, W(res), me(res), 'spells.study.adjust', `${x.id} ${JSON.stringify(patch)}`);
+    studyChanged(res, x.accountId);
+    res.json(studyOut(res, studyById(db, W(res), x.id)!));
+  });
+
+  /** The final check: d20 (sent, or rolled here) + casting modifier + proficiency against the DC. */
+  r.post('/study/:sid/check', requirePlayerOrDM, (req, res) => {
+    const x = studyMine(res, String(req.params.sid));
+    if (x.status !== 'ready') throw new HttpError(409, x.status === 'studying' ? `Study first: ${x.banked} of ${x.needed} points` : `This study is ${x.status}`);
+    if (x.waitLongRest) throw new HttpError(409, 'The last check failed: try again after a long rest');
+    const b = req.body ?? {};
+    const d20 = b.d20 === undefined ? randomInt(1, 21) : Number(b.d20);
+    if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) throw new HttpError(400, 'd20 must be 1 to 20, or left out to roll here');
+    const plan = studyPlan(res, x.accountId, spellById(db, W(res), x.spellId)!, { recipeId: x.recipeId, source: x.source, lab: x.lab, research: x.research });
+    const out = gradeFinalCheck(d20, plan.checkBonus, plan.level, x.banked, x.materials, R(res).engine!);
+    tx(db, () => {
+      if (out.learned) {
+        const rc = recipeById(db, W(res), x.recipeId);
+        if (rc) complete(res, rc, x.accountId, me(res), true); else addKnown(db, W(res), x.accountId, x.spellId, 'crafted');
+        saveStudy(db, W(res), x.id, { status: 'learned', attempts: x.attempts + 1, lastCheck: out.outcome });
+      } else {
+        saveStudy(db, W(res), x.id, { banked: out.banked, status: out.banked >= x.needed ? 'ready' : 'studying', waitLongRest: true, attempts: x.attempts + 1, lastCheck: out.outcome });
+      }
+      logEntry(db, W(res), x.accountId, 'study', me(res), { spellId: x.spellId, note: `Final check for ${plan.name}: d20 ${d20} + ${plan.checkBonus} = ${out.total} vs DC ${out.dc}: ${out.outcome}${out.refund ? `, ${out.refund} gp of materials back` : ''}${out.coinLost ? `, ${out.coinLost} gp lost` : ''}${out.fatigue ? `, ${out.fatigue} fatigue` : ''}` });
+    });
+    audit(db, W(res), me(res), 'spells.study.check', `${x.id} ${out.outcome}`);
+    studyChanged(res, x.accountId);
+    emitChar(d, W(res), x.accountId);
+    res.json({ ...out, d20, bonus: plan.checkBonus, study: studyOut(res, studyById(db, W(res), x.id)!) });
+  });
+
+  /** The scroll of the spell was cast: it is spent, and its help to the study goes with it. */
+  r.post('/study/:sid/scroll-cast', requirePlayerOrDM, (req, res) => {
+    const x = studyMine(res, String(req.params.sid));
+    if (!x.scrollHelp) throw new HttpError(409, 'This study has no scroll');
+    const lose = x.status === 'learned' ? 0 : scrollRule(spellById(db, W(res), x.spellId)?.level ?? 0, x.needed, R(res).engine!).points;
+    const banked = Math.max(0, x.banked - lose);
+    saveStudy(db, W(res), x.id, { scrollHelp: false, banked, status: x.status === 'learned' ? 'learned' : banked >= x.needed ? 'ready' : 'studying' });
+    logEntry(db, W(res), x.accountId, 'study', me(res), { spellId: x.spellId, note: `Cast the scroll of ${nameOf(res)(x.spellId)}${lose ? `: ${lose} study points of its help are lost` : ''}` });
+    studyChanged(res, x.accountId);
+    res.json(studyOut(res, studyById(db, W(res), x.id)!));
+  });
+
+  r.post('/study/:sid/stop', requirePlayerOrDM, (req, res) => {
+    const x = studyMine(res, String(req.params.sid));
+    if (x.status === 'learned') throw new HttpError(409, 'Already learned');
+    saveStudy(db, W(res), x.id, { status: 'stopped' });
+    logEntry(db, W(res), x.accountId, 'study', me(res), { spellId: x.spellId, note: `Stopped studying ${nameOf(res)(x.spellId)} (${x.banked} of ${x.needed} points kept)` });
+    studyChanged(res, x.accountId);
+    res.json(studyOut(res, studyById(db, W(res), x.id)!));
+  });
+
+  // ---- the spell tree: every spell, by school, hybrids between schools, Others ----
+  r.get('/tree', (req, res) => {
+    const rules = R(res);
+    const aid = who(res, req.query.accountId ?? 'me');
+    const dm = isDM(res);
+    const list = catalog(db, W(res), publicSrd(S(res)));
+    const kr = new Map(knownRows(db, W(res), aid).map((k) => [k.spellId, k.how]));
+    const st = new Map((rules.engine ? studies(db, W(res), aid) : []).filter((x) => x.status !== 'learned').map((x) => [x.spellId, x]));
+    const lof = linesOfSpells(db, W(res));
+    const lineNames = new Map(lines(db, W(res)).map((l) => [l.id, l.name]));
+    const rcs = recipes(db, W(res)).filter((x) => !x.draft);
+    const known = new Set(kr.keys());
+    // Every SRD spell shows by name (darkened until it opens up). A homebrew spell shows to a player only when it is public,
+    // known, studied or taught by a recipe they can see, and a hidden recipe looks like no recipe at all.
+    const shown = dm ? list : list.filter((sp) => sp.kind === 'srd' || sp.public || kr.has(sp.id) || st.has(sp.id) || rcs.some((x) => x.resultId === sp.id && x.visibility === 'visible'));
+    const out = shown.map((sp) => {
+      const made = rcs.filter((x) => x.resultId === sp.id);
+      const seen = made.filter((x) => dm || x.visibility === 'visible');
+      let status: string;
+      let missing: string[] = [];
+      const how = kr.get(sp.id);
+      if (how) status = how === 'gift' || how === 'dm' ? 'gift' : 'known';
+      else if (st.has(sp.id)) status = st.get(sp.id)!.status === 'stopped' ? 'stopped' : 'studying';
+      else if (!made.length) status = 'dark';
+      else if (!seen.length) status = dm ? 'hidden' : 'dark';
+      else if (rules.engine) { const p = studyPlan(res, aid, sp, {}); missing = p.missing; status = p.canStart ? 'learn' : 'locked'; }
+      else status = seen.some((x) => x.prereqs.every((p) => known.has(p))) ? 'learn' : 'locked';
+      const ln = (lof.get(sp.id) ?? []).map((l) => lineNames.get(l) ?? l);
+      const x = st.get(sp.id);
+      return { id: sp.id, name: sp.name, level: sp.level, school: sp.school || 'Others', lines: ln, hybrid: ln.length >= 2, status, missing, from: status === 'hidden' ? [] : (seen[0]?.prereqs ?? []).map(nameOf(res)), ...(x ? { study: { id: x.id, banked: x.banked, needed: x.needed } } : {}) };
+    });
+    const schools = [...new Set(out.filter((x) => !x.hybrid).map((x) => x.school))].sort((a, b) => (a === 'Others' ? 1 : b === 'Others' ? -1 : a.localeCompare(b)));
+    res.json({ engine: !!rules.engine, schools: schools.map((name) => ({ name, spells: out.filter((x) => !x.hybrid && x.school === name) })), hybrids: out.filter((x) => x.hybrid), counts: Object.fromEntries(['known', 'gift', 'studying', 'stopped', 'learn', 'locked', 'hidden', 'dark'].map((k) => [k, out.filter((x) => x.status === k).length])) });
+  });
+
   r.post('/learn', requirePlayerOrDM, (req, res) => {
     const b = req.body ?? {};
     const aid = who(res, isDM(res) ? b.accountId : 'me');
@@ -685,7 +1215,7 @@ const qs = (a: Record<string, unknown>) => Object.entries(a).filter(([, v]) => v
 
 const feature: Feature = {
   id: 'spells',
-  schema: SCHEMA,
+  schema: SCHEMA + LINES_SCHEMA + STATE_SCHEMA + STUDY_SCHEMA,
   settings: {
     spellMana: { type: 'boolean', default: false },
     spellManaCosts: { type: 'json', default: DEFAULT_COSTS, validate: checkCosts },
@@ -693,6 +1223,9 @@ const feature: Feature = {
     spellManaRest: { type: 'json', default: DEFAULT_REST, validate: checkRest },
     spellManaMaxLevel: { type: 'json', default: DEFAULT_MAX_LEVEL, validate: checkMaxLevel },
     spellManaOverdraw: { type: 'boolean', default: false },
+    spellRules: { type: 'json', default: {}, validate: checkSpellRules },
+    spellRulesOn: { type: 'boolean', default: false },
+    spellManaPlayerEdit: { type: 'boolean', default: true },
     spellCrafting: { type: 'boolean', default: false },
     spellCraftApproval: { type: 'enum', values: ['dm', 'auto'], default: 'dm' },
     spellCraftHidden: { type: 'enum', values: ['mystery', 'hide'], default: 'mystery' },

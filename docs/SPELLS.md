@@ -114,8 +114,8 @@ World settings → Spells & mana → **Use mana** (`spellMana`). Then:
   scores), `strMod` ... `chaMod`, and `min`, `max`, `floor`, `ceil`, `round`,
   `abs`. The DM can set a maximum by hand per character.
 - **Cost.** `spellManaCosts`: ten numbers, cantrip then levels 1 to 9. The
-  default is this app's own simple table, `0, 2, 4, 6, 8, 10, 12, 14, 16, 18`;
-  change it to taste. A spell can have its own cost (Codex → the spell → Mana
+  default is Spell_Plan.md's table, `0, 2, 3, 5, 6, 7, 9, 11, 13, 15` (what 5e
+  spell slots are worth); change it to taste. A spell can have its own cost (Codex → the spell → Mana
   cost, or `manaCost` in an import); casting it higher adds the table's step.
 - **Casting.** A player casts a spell they know from the Codex (My spells →
   Cast, or the spell card with a level to cast at); the DM can cast for anyone.
@@ -127,7 +127,11 @@ World settings → Spells & mana → **Use mana** (`spellMana`). Then:
   pool, a short rest gives nothing). The rest presets of the world clock (Clock
   page, Minerva's `advance_world_time`, the macro actions) give it back by
   themselves; the Codex's Characters tab has its own rest buttons.
-- **DM adjustments.** `POST /spells/characters/:aid/mana {delta | set | full}`.
+- **Changing mana.** `POST /spells/characters/:aid/mana {delta | set | full, note}`.
+  The DM can set anything. A player changes their own mana (a potion, a
+  feature) with a note saying why, never above their maximum; the world can
+  turn that off with `spellManaPlayerEdit`. Every change is logged with who made
+  it, and the DM sees each character's mana in `GET /spells/characters`.
 
 Everything is logged per character (`GET /spells/log`: casts, rests,
 adjustments, spells learned). Changes reach the player and the DM live
@@ -213,6 +217,149 @@ carries content.
 | `draft_spell_recipe` | DM (write) | Suggest a recipe: a card to approve, and even then it lands as a draft the DM approves in the editor |
 | `my_spell_codex` | players | Their spells, mana and what they can learn |
 
+## The spell rules engine
+
+`librarian/src/features/spells/rules.ts` holds the rest of
+[Spell_Plan.md](../Spell_Plan.md) as pure formulas with the plan's numbers as
+defaults: pools and highest spell level per caster type (full, half, third,
+none) and for multiclass characters, upcasting with a surcharge, the casting
+limits (one leveled spell per turn, surge cast, echo strain, the high-level
+limit, overchannel, low mana), dual cast (empower, fuse, the Arcana check,
+the fuse insight), learning (tier gates, ability minimums, study points,
+progress per day, materials, the graded final check, level-up insight, memory
+a memory of learning, scroll) and spell line mastery.
+
+A world changes any part of it with the setting `spellRules`: a partial object
+laid over the defaults, so `{"dualCast": {"unlock": "level"}}` changes only
+that. Unknown keys and wrong kinds of value are refused. Lists (the pool
+tables, the DC table) are replaced whole; `learning.gates` merges per spell
+level. `GET /api/worlds/:w/spells/rules` returns the merged rules and the
+preview tables (pool and highest level per character level and caster type;
+complexity, study points, days per source, materials and DC per spell level).
+
+The plan's open questions, answered as settings:
+
+| Question | Default | Setting |
+|---|---|---|
+| Third-caster pool | the plan's table; every pool table is editable per world | `pools.full`, `pools.half`, `pools.third`, `pools.none` |
+| Dual cast at level 5 or by a feat | an ability the DM grants; nothing in play gives it yet | `dualCast.unlock` (`ability` or `level`), `dualCast.level` |
+| Failed final checks cost coin | no | `learning.failCoinLoss`, `learning.setbackCoinLoss` (share of the materials) |
+| Gifted spells count toward line mastery | yes | `lines.giftsCountForMastery` |
+| Scrolls and memories | a scroll is a study aid (adds study points; the spell is still studied and checked); a full memory of learning a spell (e.g. taken by a memory spell) teaches it at once | `learning.scroll`, `learning.memory` (`save: true` adds a WIS save) |
+
+### Spell lines
+
+The DM defines lines (World → Codex, or the API): a name (unique, up to 40
+characters), a colour (`#e25822`) and a short theme. A spell can be in more
+than one line; one in two or more is a hybrid. Line mastery (how many known
+spells a character has in a line) comes from `lineMastery` in `rules.ts`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/spells/lines` | Every line with its spell ids; a player gets only the spells they may read |
+| POST | `/spells/lines` | DM: `{name, color, theme, spells: [names or ids]}` |
+| PUT | `/spells/lines/:lid` | DM: change any of those; `spells` replaces the list |
+| DELETE | `/spells/lines/:lid` | DM |
+| PUT | `/spells/s/:id/lines` | DM: `{lines: [line ids or names]}` replaces a spell's lines |
+
+### The spell rules profile
+
+Everything a world's spell rules are made of, by spell name so it moves
+between worlds: the mana settings (`spellManaCosts`, `spellManaPool`,
+`spellManaRest`, `spellManaMaxLevel`, `spellManaOverdraw`), `spellRules` (only
+what the world changed), the lines with their spells, and the recipes.
+
+- `GET /spells/profile/export` (DM): `{format: "alexandria-spell-rules", version: 1, settings, lines, recipes}`.
+- `POST /spells/profile/import/preview` (DM), body `{profile, replace?}`:
+  which settings would change, the lines added and updated, the spells this
+  world lacks (skipped), the tags and the recipes added and skipped. Nothing is
+  written.
+- `POST /spells/profile/import` (DM): the same, done. A bad setting, a setting
+  a profile does not carry or a bad line refuses the whole import. Lines merge
+  by name; `replace: true` clears the world's lines and recipes first.
+
+### The engine in play
+
+World setting `spellRulesOn` (off by default, needs `spellMana`) puts the
+engine into casting:
+
+- **Caster levels.** `PUT /spells/characters/:aid/caster {casterLevels: {full, half, third}}`
+  (the player too when `spellPlayerStats` is on). With caster levels set, the
+  pool and the highest spell level come from the engine's tables (multiclass:
+  the full table at the combined caster level); a mana maximum set by hand
+  still wins. Without them the old formula or table applies.
+- **Abilities.** `PUT .../caster {dualAbility: true, silentAbility: true}`, the
+  DM only. Silent casting (`POST /spells/cast {silent: true}`) costs no extra
+  mana; the log marks the cast as silent.
+- **Casting.** `POST /spells/cast` applies every limit: upcast surcharge, echo
+  strain, one leveled spell per turn with the surge cast, the high-level
+  limit, overchannel and low mana. It answers with the cost breakdown and the
+  saves to roll (the DM applies fatigue on a failure). `POST /spells/cast/quote`
+  shows the same without casting.
+- **Turns.** `POST /spells/characters/:aid/turn` starts a new turn.
+- **Dual cast.** `POST /spells/dual/quote {spellA, spellB}` (the same spell
+  twice is empower), then `POST /spells/dual {..., arcana: total}`. The mana is
+  spent either way; a failure gives the next Arcana check its penalty.
+- **Rests.** A short rest resets the turn, echo strain, the surge cast and the
+  dual cast; a long rest also the high-level spells.
+
+### Studying a spell
+
+With `spellRulesOn`, a character learns a spell taught by a recipe by studying
+it on downtime days. Downtime is time between adventures, not a rest: one day
+is 8 hours of study. Each day earns 1 to 3 study points: 1 alone, 2 with a
+text, 3 with a mentor (a lab adds 1). For a 3rd-level spell (13 points):
+
+| How | Days | Gold |
+|---|---|---|
+| Alone | 13 | 250 |
+| With a text | 7 | 250 |
+| With a mentor | 5 | 500 |
+
+- **Plan.** `POST /spells/study/plan {spellId, source, lab}` shows what is
+  missing (the recipe's spells, the tier gate, ability, level, pool, the source
+  the tier allows), the points, days by source, gold, the final check's DC and
+  the character's bonus (casting modifier + proficiency).
+- **Start.** `POST /spells/study {spellId, source, scroll, arcana}`. A tier with
+  an Arcana check needs its total to start. Starting again picks up a stopped
+  study with its points.
+- **Days.** `POST /spells/study/:sid/days {days}`. The DM's days count at once,
+  a player's wait for `POST /spells/study/:sid/approve` unless
+  `spellCraftApproval` is `auto`. The DM can set points with `PUT /spells/study/:sid`.
+- **Final check.** When the points are complete, `POST /spells/study/:sid/check
+  {d20}` (or leave d20 out to roll on the server). A failure keeps the points
+  and waits for a long rest; then try again. A natural 1 or failing by 10 sets
+  the points back.
+- **Scrolls.** A scroll is used once. Studying with it (`scroll: true`) adds a
+  quarter of the points and keeps the scroll, so it can still be cast after
+  the spell is learned. Casting it first (`POST /spells/study/:sid/scroll-cast`)
+  spends it and takes its points back off the study.
+- **Stop.** `POST /spells/study/:sid/stop` keeps the points.
+
+`GET /spells/study` lists the character's studies (the DM sees all). Changes
+go out live as `spells-study`.
+
+### The spell tree
+
+`GET /spells/tree` lists every spell in the world (all SRD spells, and homebrew
+a player may see), grouped by school of magic, with hybrid spells (in two or
+more lines) in `hybrids` between the schools and spells without a school
+under Others. Each spell has a status: `known`, `gift`, `studying`, `stopped`,
+`learn` (its requirements are met: it can be started), `locked` (a recipe
+teaches it but something is missing, listed in `missing`), `hidden` (a hidden
+recipe, DM only; a player sees it as dark) or `dark` (no recipe yet).
+
+In the app: Codex → **Spell tree** (players see their own; the DM picks a
+character). Picking a spell opens its panel: what is missing, the study table,
+Start learning, days of study, the final check and the scroll. The view lives
+in `web/src/features/spells/tree/` and is copied from the standalone Spell
+Tree app ([Wizard815/DND-Spell-Tree](https://github.com/Wizard815/DND-Spell-Tree),
+`scripts/sync-alexandria.sh`): change it there. That app can also sign in to
+a world and show its tree; the server must list the app's address in
+`ALX_CORS_ORIGINS`.
+
+Not yet: the fuse insight toward recipes, and the cast panel.
+
 ## Settings
 
 | Key | Default | |
@@ -220,11 +367,13 @@ carries content.
 | `spellsPublicSrd` | false | Players may read every SRD spell |
 | `spellPlayerStats` | true | Players fill in their own spell sheet |
 | `spellMana` | false | Mana instead of spell slots |
-| `spellManaCosts` | `[0,2,4,...,18]` | Cost per spell level |
+| `spellManaCosts` | `[0,2,3,5,6,7,9,11,13,15]` | Cost per spell level |
 | `spellManaPool` | formula `level * 4 + mod` | `{mode: formula \| table, formula, table[20]}` |
 | `spellManaRest` | `{long: full, short: none}` | |
 | `spellManaMaxLevel` | off | `{on, table[20]}` |
 | `spellManaOverdraw` | false | |
+| `spellManaPlayerEdit` | true | Players may change their own mana, with a note |
+| `spellRules` | `{}` (all defaults) | The spell rules engine, below; only what the world changes |
 | `spellCrafting` | false | |
 | `spellCraftApproval` | `dm` | or `auto` |
 | `spellCraftHidden` | `mystery` | or `hide` |
