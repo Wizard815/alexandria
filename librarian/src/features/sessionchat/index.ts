@@ -19,6 +19,15 @@ import { acceptTrade, closeTrade, createTrade, tradeOut } from './trade.ts';
 
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 
+/** Send each reader their own view of a message; only readers of the channel get it. Exported for features that post as a player (the Discord bot's /roll). */
+export function fanoutChat(d: Pick<Deps, 'db' | 'hub'>, worldId: string, channel: Channel, type: string, row: any) {
+  for (const m of all<any>(d.db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId)) {
+    const v = { accountId: m.account_id as string, role: m.role as Viewer['role'] };
+    if (!canRead(v, channel)) continue;
+    d.hub.emit(worldId, 'chat', { type, channel, sessionId: row.session_id, message: viewMessage(d.db, row, v, worldId) }, only(v.accountId));
+  }
+}
+
 const feature: Feature = {
   id: 'sessionchat',
   schema: `
@@ -92,13 +101,7 @@ const feature: Feature = {
     const viewer = (res: Response): Viewer => ctx(res).viewer;
     const roles = (worldId: string) => all<any>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId).map((m) => ({ accountId: m.account_id as string, role: m.role as Viewer['role'] }));
 
-    /** Send each reader their own view of a message; only readers of the channel get it. */
-    function fanout(worldId: string, channel: Channel, type: string, row: any) {
-      for (const v of roles(worldId)) {
-        if (!canRead(v, channel)) continue;
-        d.hub.emit(worldId, 'chat', { type, channel, sessionId: row.session_id, message: viewMessage(db, row, v, worldId) }, only(v.accountId));
-      }
-    }
+    const fanout = (worldId: string, channel: Channel, type: string, row: any) => fanoutChat(d, worldId, channel, type, row);
     const channelOf = (res: Response, raw: unknown, write = false): Channel => {
       if (!isChannel(raw)) throw new HttpError(404, 'No such chat');
       const v = viewer(res);
