@@ -153,6 +153,12 @@ test('Sheet_Mana: players change their own mana within the pool, logged in the s
   assert.deepEqual(jess.mana, { on: true, now: 10, max: 10 });
   assert.equal(jess.name, 'Jessamine');
   assert.equal((await call('GET', `${SH()}/party`, T.jess)).status, 403, 'the status bar is the DM’s');
+  // The MANA setting spellManaPlayerEdit: off stops players, never the DM.
+  const row = deps.db.prepare('SELECT settings FROM worlds WHERE id = ?').get(W) as any;
+  run(deps.db, 'UPDATE worlds SET settings = ? WHERE id = ?', JSON.stringify({ ...JSON.parse(row.settings), spellManaPlayerEdit: false }), W);
+  assert.equal((await call('POST', `${SH()}/me/mana`, T.jess, { delta: -1 })).status, 403);
+  assert.equal((await ok('POST', `${SH()}/${ID.jess}/mana`, T.dm, { delta: -1 })).now, 9);
+  run(deps.db, 'UPDATE worlds SET settings = ? WHERE id = ?', row.settings, W);
 });
 
 test('Sheet_Recent: people and places named in published summaries, only what the player may see', async () => {

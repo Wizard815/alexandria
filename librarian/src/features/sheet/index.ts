@@ -14,7 +14,7 @@ import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
 import { combatViewFor } from '../../core/combatView.ts';
 import { all, one, run, tx } from '../../core/db.ts';
 import { dmAnd } from '../../core/events.ts';
-import { DEFAULT_SETTINGS, type WorldSettings } from '../../core/policy.ts';
+import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { manaRules } from '../spells/index.ts';
@@ -159,6 +159,8 @@ function routes(d: Deps) {
     if (!rules.on) throw new HttpError(409, 'Mana is off in this world');
     const b = req.body ?? {};
     const dm = isDM(res);
+    // The MANA branch's world setting (default on); the DM is never stopped by it.
+    if (!dm && featureSetting<boolean>(settings(res), 'spellManaPlayerEdit') === false) throw new HttpError(403, 'The DM changes mana in this world');
     const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
     const out = tx(db, () => {
       const c = character(db, w, aid);
@@ -175,7 +177,7 @@ function routes(d: Deps) {
       return { now: next, max, changed: next !== cur, before: cur };
     });
     if (out.changed) {
-      if (!dm) audit(db, w, me(res), 'sheet.mana', `${out.before} -> ${out.now}${note ? ` (${note})` : ''}`);
+      if (!dm) audit(db, w, me(res), 'spells.mana.player', `${out.before} -> ${out.now}${note ? ` (${note})` : ''}`);
       d.hub.emit(w, 'spells-char', { accountId: aid }, dmAnd(aid));
       changed(w, aid);
     }
