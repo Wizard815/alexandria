@@ -1,10 +1,14 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "inspiration-rerolls",
   "name": "Inspiration as rerolls",
   "version": "1.0.0",
   "author": "Wizard",
   "summary": "The DM rewards good roleplay with rerolls: a personal reroll for your own roll, an everyone reroll for any player's roll, and a DM reroll that makes the DM roll again.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["sheet", "chat"]
+  },
   "options": {
     "cap": {
       "type": "int",

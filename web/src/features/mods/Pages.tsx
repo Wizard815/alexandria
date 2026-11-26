@@ -1,12 +1,13 @@
 // The DM's House rules page (each player's counters with Grant and Take back,
 // and the change log), the player's card (my counters with Use buttons) and
 // the player's page (the rules in play and what I hold).
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { MakeHouseRule, RulesList } from './Settings.tsx';
 import { houseRuleTabs } from '../registry.ts';
+import { DMSystemTab, ViewsFor } from './System.tsx';
 import { Chip, useHouseRules, type HouseRule, type LogLine } from './shared.tsx';
 
 const withCounters = (list: HouseRule[]) => list.filter((r) => r.enabled && r.resources.length);
@@ -18,10 +19,16 @@ export function DMHouseRules() {
   const { list, rules } = useHouseRules();
   const [tab, setTab] = useState<Tab | null>(null);
   const on = list.filter((r) => r.enabled).length;
-  const extra = houseRuleTabs.filter((t) => list.some((r) => r.id === t.mod && r.enabled)).map((t) => ({ key: `x:${t.mod}:${t.title}`, ...t }));
+  const extra: { key: string; title: string; render: () => ReactNode }[] = [
+    ...houseRuleTabs.filter((t) => list.some((r) => r.id === t.mod && r.enabled)).map((t) => ({ key: `x:${t.mod}:${t.title}`, title: t.title, render: () => { const C = t.component; return <C />; } })),
+    // A data system's own tab: its prompt buttons and the views it puts on the DM's page.
+    ...list.filter((r) => r.enabled && r.system && (r.system.views.some((v) => v.place === 'dm') || r.system.prompts.length)).map((r) => ({
+      key: `x:sys:${r.id}`, title: r.system!.views.find((v) => v.place === 'dm')?.title ?? r.name, render: () => <DMSystemTab rule={r} />,
+    })),
+  ];
   const fallback = withCounters(list).length ? 'play' : 'rules';
   const shown: Tab = tab && (!tab.startsWith('x:') || extra.some((t) => t.key === tab)) ? tab : fallback;
-  const Extra = extra.find((t) => t.key === shown)?.component;
+  const extra1 = extra.find((t) => t.key === shown);
   return (
     <div className="stack">
       <PageHead title="House rules" lead="Your table’s own rules, from a reroll token to a whole spell system. Turn them on, reward players, or make your own." />
@@ -31,7 +38,7 @@ export function DMHouseRules() {
         ...extra.map((t) => [t.key, t.title] as [Tab, string]),
         ['make', 'Make or add one'],
       ]} />
-      {Extra && <Extra />}
+      {extra1?.render()}
       {shown === 'play' && <InPlay onRules={() => setTab('rules')} />}
       {shown === 'rules' && <RulesList />}
       {shown === 'make' && <MakeHouseRule />}
@@ -152,6 +159,8 @@ export function PlayerHouseRules() {
       <PageHead title="House rules" lead="The rules your table plays with on top of the game module." />
       <ErrorBox error={rules.error} />
       <MyHouseRulesCard />
+      <ViewsFor place="sheet" />
+      <ViewsFor place="player" />
       {!rules.data ? <Loading /> : list.length === 0 ? <Empty>Your DM has no house rules on.</Empty> : list.map((r) => (
         <section key={r.id} className="card stack">
           <h2 style={{ margin: 0 }}>{r.name}</h2>

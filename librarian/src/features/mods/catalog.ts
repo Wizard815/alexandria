@@ -62,3 +62,34 @@ export const shippedMods = (): Shipped[] => [...shipped.values(), ...[...files.v
 export const shippedMod = (id: string): Shipped | undefined => shipped.get(id) ?? (files.has(id) ? { mod: files.get(id)!.mod, feature: 'mods', file: files.get(id)!.file } : undefined);
 
 loadModsDir();
+
+// ---- targets: the parts of Alexandria a rule can be built for --------------------------------------------------------
+
+let featureIds = new Set<string>();
+export function setFeatureIds(ids: string[]) { featureIds = new Set(ids); }
+
+/** Target names people write → the feature that provides it. Parts of the core (no feature) are always there. */
+const TARGETS: Record<string, { label: string; feature?: string }> = {
+  sheet: { label: 'Player sheet', feature: 'sheet' },
+  codex: { label: 'Codex (spells)', feature: 'spells' },
+  spells: { label: 'Codex (spells)', feature: 'spells' },
+  chat: { label: 'Session chat', feature: 'sessionchat' },
+  clock: { label: 'World clock', feature: 'clock' },
+  shop: { label: 'Shops', feature: 'shop' },
+  map: { label: 'Map', feature: 'fog' },
+  encounters: { label: 'Encounters', feature: 'encounters' },
+  stage: { label: 'Stage', feature: 'stage' },
+  assistant: { label: 'Assistant', feature: 'agent' },
+  table: { label: 'DM Table' },
+  combat: { label: 'Combat tracker' },
+  inventory: { label: 'Inventory' },
+  library: { label: 'Library' },
+};
+
+/** Is this target here, for a world whose game modules are `gameModules`? Unknown names are a game module id or another feature. */
+export function targetInfo(id: string, gameModules: string[]): { id: string; label: string; ok: boolean } {
+  const t = TARGETS[id];
+  if (t) return { id, label: t.label, ok: !t.feature || featureIds.has(t.feature) };
+  if (gameModules.includes(id)) return { id, label: id, ok: true };
+  return { id, label: id, ok: featureIds.has(id) };
+}

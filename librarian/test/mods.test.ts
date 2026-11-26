@@ -9,12 +9,13 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
-import { checkMod, commandActions, makePackage, presetValues, resolveOptions, unpack } from '../src/features/mods/format.ts';
+import { checkMod, commandActions, impliedPermissions, makePackage, presetValues, resolveOptions, toFile, unpack } from '../src/features/mods/format.ts';
 import { MODS_DIR, loadModsDir, shippedMod, shippedMods } from '../src/features/mods/catalog.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST } from '../src/features/spells/mana.ts';
 
 const INSPIRATION_REROLLS = JSON.parse(fs.readFileSync(path.join(MODS_DIR, 'inspiration-rerolls.alxmod.json'), 'utf8'));
 import { migrateSheetRerolls } from '../src/features/mods/index.ts';
+import { all } from '../src/core/db.ts';
 
 let base = '';
 let server: any;
@@ -117,7 +118,7 @@ test('Mods: a package holds several rules; a bad rule in it names where', () => 
   assert.deepEqual(back.mods.map((m) => m.id), ['pkg-a', 'pkg-b']);
   assert.equal(back.info!.author, 'Wizard');
   assert.deepEqual(unpack({ kit: 1, id: 'solo', name: 'Solo' }).mods.map((m) => m.id), ['solo']);
-  const bad = unpack({ type: 'alexandria-house-rules', kit: 1, mods: [a, { id: 'Bad Id', name: 'x' }, a] });
+  const bad = unpack({ type: 'alexandria-house-rules', kit: 1, mods: [toFile(a), { id: 'Bad Id', name: 'x' }, toFile(a)] });
   assert.equal(bad.mods.length, 0);
   assert.ok(bad.errors.some((e) => e.startsWith('mods[1] (Bad Id)')), bad.errors.join('\n'));
   assert.ok(bad.errors.some((e) => e.includes('in the package twice')));
@@ -141,7 +142,7 @@ test('Mods: a bad file gets plain errors the assistant can fix', () => {
     assert.match(all, want);
   }
   assert.deepEqual(checkMod('{not json').errors.length, 1);
-  assert.match(checkMod('x'.repeat(70_000)).errors[0], /larger than 64 KB/);
+  assert.match(checkMod('x'.repeat(130_000)).errors[0], /larger than 128 KB/);
 });
 
 test('Mods: presets read the options', () => {
@@ -308,7 +309,7 @@ test('Mods: the DM checks, imports, exports and removes a rule; shipped ids are 
   assert.equal(imp.body.enabled, false);
   const ex = await ok('GET', `${M()}/hero-points/export`, T.dm);
   assert.equal(ex.type, 'alexandria-house-rules');
-  assert.equal(ex.kit, 1);
+  assert.equal(ex.kit, 2);
   assert.deepEqual(ex.mods.map((m: any) => m.id), ['hero-points']);
   assert.equal(ex.mods[0].name, 'Hero points');
   assert.equal((await call('DELETE', `${M()}/inspiration-rerolls`, T.dm)).status, 400);
@@ -386,4 +387,256 @@ test('Mods: a world that used the sheet\'s re-roll switch gets the house rule on
   // Turning it off now goes back to the sheet's defaults.
   await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: false });
   assert.equal((await settings()).sheetRerolls, false);
+});
+
+// ---- kit 2: versions, targets, needed rules, conflicts, permissions -----------------------------------------------
+
+test('Mods: a kit 2 manifest is checked field by field', () => {
+  const good = checkMod({
+    kit: 2, id: 'downtime-lite', name: 'Downtime lite', version: '1.2.0', alexandria: '>=0.1', api: 0,
+    targets: { builtFor: ['sheet', 'table'], worksWith: ['codex', 'sheet'] },
+    requires: { mods: { 'inspiration-rerolls': '^1' } }, conflicts: ['hero-points'], permissions: ['records', 'chat.post'],
+    commands: [{ word: 'rest', action: 'x' }], actions: [{ id: 'x', label: 'X', by: 'dm', resource: 'r', add: 1 }], resources: [{ id: 'r', label: 'R' }],
+  });
+  assert.deepEqual(good.errors, []);
+  assert.equal(good.mod!.kit, 2);
+  assert.deepEqual(good.mod!.targets.worksWith, ['codex'], 'a target in builtFor is not repeated in worksWith');
+  assert.deepEqual(impliedPermissions(good.mod!), ['chat.post', 'chat.commands', 'records']);
+  const bad = checkMod({
+    kit: 3, id: 'bad', name: 'Bad', version: 'one', alexandria: 'soon', api: 'x', targets: { builtFor: ['Sheet!'], other: [] },
+    requires: { mods: { bad: '1', 'hero-points': 'whenever' } }, conflicts: ['bad'], permissions: ['root'],
+  });
+  for (const want of [/kit 3 needs a newer Alexandria/, /version must look like/, /alexandria must be a version range/, /api must be/, /targets.builtFor\[0\]/, /targets.other/, /cannot need itself/, /requires.mods.hero-points/, /conflicts\[0\]/, /permissions\[0\] "root"/]) {
+    assert.ok(bad.errors.some((e) => want.test(e)), `${want} in ${bad.errors.join(' | ')}`);
+  }
+});
+
+test('Mods: a rule built for a missing part, or a newer Alexandria, cannot be turned on and says why', async () => {
+  const rule = (id: string, extra: object) => ({ kit: 2, id, name: id, ...extra });
+  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, mods: [
+    rule('for-space', { targets: { builtFor: ['spaceships'] } }),
+    rule('for-later', { alexandria: '>=99' }),
+    rule('for-sheet', { targets: { builtFor: ['sheet', 'dnd-2024'], worksWith: ['codex'] } }),
+  ] } });
+  const list = (await ok('GET', `${M()}/`, T.dm)).mods;
+  const by = (id: string) => list.find((r: any) => r.id === id);
+  assert.match(by('for-space').needs[0], /Built for spaceships/);
+  assert.match(by('for-later').needs[0], /Needs Alexandria >=99/);
+  assert.deepEqual(by('for-sheet').needs, []);
+  assert.deepEqual(by('for-sheet').targets.builtFor.map((t: any) => [t.label, t.ok]), [['Player sheet', true], ['dnd-2024', true]]);
+  const r = await call('PUT', `${M()}/for-space/enabled`, T.dm, { on: true });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /cannot be turned on here: Built for spaceships/);
+  const chk = await ok('POST', `${M()}/check`, T.dm, { mod: rule('for-later-2', { alexandria: '>=99', requires: { mods: { nowhere: '*' } } }) });
+  assert.ok(chk.notes.some((n: string) => /built for Alexandria >=99/.test(n)));
+  assert.ok(chk.notes.some((n: string) => /needs the house rule nowhere/.test(n)));
+  for (const id of ['for-space', 'for-later', 'for-sheet']) await ok('DELETE', `${M()}/${id}`, T.dm);
+});
+
+test('Mods: turning a rule on turns on what it needs and off what it conflicts with; its needed rules stay until it goes', async () => {
+  const base = { kit: 2, version: '1.4.0', resources: [{ id: 'p', label: 'P' }], actions: [{ id: 'g', label: 'G', by: 'dm', resource: 'p', add: 1 }] };
+  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, mods: [
+    { ...base, id: 'k-base', name: 'Base' },
+    { ...base, id: 'k-rival', name: 'Rival' },
+    { ...base, id: 'k-addon', name: 'Addon', requires: { mods: { 'k-base': '^1.2' } }, conflicts: ['k-rival'] },
+    { ...base, id: 'k-old', name: 'Old addon', requires: { mods: { 'k-base': '^2' } } },
+  ] } });
+  await ok('PUT', `${M()}/k-rival/enabled`, T.dm, { on: true });
+  const on = await ok('PUT', `${M()}/k-addon/enabled`, T.dm, { on: true });
+  assert.deepEqual(on.turnedOn, ['k-base']);
+  assert.deepEqual(on.turnedOff, ['k-rival']);
+  const list = (await ok('GET', `${M()}/`, T.dm)).mods;
+  assert.equal(list.find((r: any) => r.id === 'k-base').enabled, true);
+  assert.match(list.find((r: any) => r.id === 'k-old').needs[0], /Needs Base \^2 \(this world has 1.4.0\)/);
+  // Turning the base off would leave the addon without it: refused, unless the DM turns both off.
+  const no = await call('PUT', `${M()}/k-base/enabled`, T.dm, { on: false });
+  assert.equal(no.status, 409);
+  assert.match(no.body.error, /Addon needs Base/);
+  const both = await ok('PUT', `${M()}/k-base/enabled`, T.dm, { on: false, cascade: true });
+  assert.deepEqual(both.turnedOff, ['k-addon']);
+  assert.equal((await ok('GET', `${M()}/`, T.dm)).mods.find((r: any) => r.id === 'k-addon').enabled, false);
+  for (const id of ['k-base', 'k-rival', 'k-addon', 'k-old']) await ok('DELETE', `${M()}/${id}`, T.dm);
+});
+
+// ---- kit 2 data systems: records, record actions, timers, prompts, views ------------------------------------------
+
+const DOWNTIME = {
+  kit: 2, id: 'downtime-lite', name: 'Downtime lite', version: '1.0.0', author: 'Wizard',
+  targets: { builtFor: ['sheet'] },
+  options: { common: { type: 'int', default: 1, min: 1, max: 30, label: 'Days for a common activity' } },
+  records: {
+    activity: { label: 'Activity', plural: 'Activities', fields: { name: 'text', tier: 'enum:common|rare|legendary', days: 'int', reward: 'text?' },
+      seed: [{ name: 'Work a trade', tier: 'common', days: 2, reward: '5 gp' }, { name: 'Study a spell', tier: 'rare', days: 7 }] },
+    task: { label: 'Task', owned: true, title: 'activity', fields: { activity: 'ref:activity', done: { type: 'int', default: 0, min: 0 }, goal: 'int', status: { type: 'enum', values: ['open', 'done', 'dropped'], default: 'open' } } },
+  },
+  recordActions: [
+    { id: 'start', label: 'Start', by: 'owner', record: 'task', do: 'create', ask: ['activity'], copy: { via: 'activity', fields: { goal: 'days' } }, effect: { chat: '{name} starts {activity.name}' } },
+    { id: 'work', label: 'Keep working', by: 'owner', record: 'task', do: 'set', where: { status: 'open' } },
+    { id: 'adjust', label: 'Add or take days', by: 'dm', record: 'task', do: 'add', field: 'done', amount: 'ask' },
+    { id: 'drop', label: 'Drop', by: 'any', record: 'task', do: 'remove', where: { status: 'open' } },
+    { id: 'new-activity', label: 'New activity', by: 'player', record: 'activity', do: 'create', ask: ['name', 'tier', 'days'] },
+  ],
+  timers: [{ id: 'day', record: 'task', on: 'prompt:downtime-day', where: { status: 'open' }, field: 'done', add: 1, goal: 'goal', done: { set: { status: 'done' }, chat: '{name} finished {activity.name}: {activity.reward}' } }],
+  prompts: [{ id: 'downtime-day', button: 'Downtime', title: 'A downtime day', choices: [{ label: 'Keep working', action: 'work' }, { label: 'Start something', action: 'start' }, { label: 'Skip', skip: true }] }],
+  views: [
+    { id: 'tasks', title: 'Downtime', record: 'task', place: 'dm', columns: ['player', 'activity', 'done', 'goal', 'status'], actions: ['adjust', 'drop'], groupByPlayer: true },
+    { id: 'mine', title: 'My downtime', record: 'task', place: 'sheet', columns: ['activity', 'done', 'goal'], where: { status: 'open' }, actions: ['drop'] },
+  ],
+};
+
+test('Mods: a data system is checked: kinds, fields, actions, timers, prompts and views', () => {
+  const good = checkMod(DOWNTIME);
+  assert.deepEqual(good.errors, []);
+  assert.deepEqual(good.mod!.system.records.map((k) => k.id), ['activity', 'task']);
+  assert.ok(impliedPermissions(good.mod!).includes('records'));
+  // Its file shape checks again unchanged (what is saved and exported).
+  assert.deepEqual(checkMod(toFile(good.mod!)).errors, []);
+  const bad = checkMod({
+    ...DOWNTIME,
+    records: { ...DOWNTIME.records, task: { ...DOWNTIME.records.task, fields: { ...DOWNTIME.records.task.fields, activity: 'ref:nowhere', id: 'text', size: 'huge' } } },
+    recordActions: [...DOWNTIME.recordActions, { id: 'bump', label: 'Bump', by: 'dm', record: 'task', do: 'add', field: 'status' }, { id: 'x', label: 'X', by: 'king', record: 'ghost', do: 'fly' }],
+    timers: [{ record: 'task', on: 'prompt:nope', field: 'done', goal: 'status' }],
+    views: [{ title: 'V', record: 'task', place: 'wall', columns: ['colour'], actions: ['new-activity'] }],
+  });
+  for (const want of [/ref "nowhere" is not a record kind/, /"id" cannot be a field name/, /"huge" is not a field type/, /recordActions\[5\].field must be a number field/, /recordActions\[6\].by/, /recordActions\[6\].record "ghost"/, /recordActions\[6\].do/, /timers\[0\].on/, /timers\[0\].goal "status"/, /views\[0\].place/, /views\[0\].columns: "colour"/, /"new-activity" works on activity, not task/]) {
+    assert.ok(bad.errors.some((e) => want.test(e)), `${want} in ${bad.errors.join(' | ')}`);
+  }
+});
+
+test('Mods: a data system runs: seeds, record actions with who may, a DM prompt, timers to the goal, and its log', async () => {
+  await ok('POST', `${M()}/import`, T.dm, { mod: DOWNTIME });
+  assert.equal((await call('GET', `${M()}/downtime-lite/records`, T.jess)).status, 404, 'a player sees nothing of a rule that is off');
+  await ok('PUT', `${M()}/downtime-lite/enabled`, T.dm, { on: true });
+  const acts = (await ok('GET', `${M()}/downtime-lite/records?kind=activity`, T.jess)).records.activity;
+  assert.deepEqual(acts.map((a: any) => a.name), ['Work a trade', 'Study a spell'], 'the seed activities are there');
+  const trade = acts[0].id;
+  // Jess starts a task: it is hers, its goal comes from the activity's days.
+  const started = await call('POST', `${M()}/downtime-lite/records/start`, T.jess, { values: { activity: trade } });
+  assert.equal(started.status, 201);
+  const task = started.body.record;
+  assert.equal(task.player, ID.jess);
+  assert.equal(task.goal, 2);
+  assert.equal(task.status, 'open');
+  assert.equal((await call('POST', `${M()}/downtime-lite/records/start`, T.jess, { values: { activity: trade, goal: 1 } })).status, 400, 'only asked fields');
+  assert.equal((await call('POST', `${M()}/downtime-lite/records/adjust`, T.jess, { recordId: task.id, amount: 5 })).status, 403, 'adjust is the DM\'s');
+  assert.equal((await call('POST', `${M()}/downtime-lite/records/work`, T.tom, { recordId: task.id })).status, 403, 'not Tomas\'s task');
+  assert.equal((await ok('GET', `${M()}/downtime-lite/records?kind=task`, T.tom)).records.task.length, 0, 'Tomas does not see Jess\'s tasks');
+  // A player adds an activity everyone can pick.
+  const made = await ok('POST', `${M()}/downtime-lite/records/new-activity`, T.tom, { values: { name: 'Carve a figurehead', tier: 'legendary', days: 90 } });
+  assert.equal(made.record.player, null);
+  // The DM opens a downtime day; Jess keeps working, Tomas skips.
+  const round = await call('POST', `${M()}/downtime-lite/prompts/downtime-day`, T.dm, {});
+  assert.equal(round.status, 201);
+  assert.equal((await call('POST', `${M()}/downtime-lite/prompts/downtime-day`, T.dm, {})).status, 409, 'one open at a time');
+  assert.equal((await ok('GET', `${M()}/prompts/open`, T.jess)).rounds.length, 1);
+  const a1 = await ok('POST', `${M()}/downtime-lite/prompts/round/${round.body.id}/answer`, T.jess, { choice: 0, recordId: task.id });
+  assert.equal(a1.result.record.done, 1);
+  await ok('POST', `${M()}/downtime-lite/prompts/round/${round.body.id}/answer`, T.tom, { choice: 2 });
+  assert.equal((await call('POST', `${M()}/downtime-lite/prompts/round/${round.body.id}/answer`, T.jess, { choice: 0, recordId: task.id })).status, 409, 'one answer each');
+  await ok('POST', `${M()}/downtime-lite/prompts/round/${round.body.id}/close`, T.dm, {});
+  // The next day finishes it.
+  const r2 = await ok('POST', `${M()}/downtime-lite/prompts/downtime-day`, T.dm, {});
+  const a2 = await ok('POST', `${M()}/downtime-lite/prompts/round/${r2.id}/answer`, T.jess, { choice: 0, recordId: task.id });
+  assert.equal(a2.said.chat.at(-1), 'Jessamine finished Work a trade: 5 gp');
+  const done = (await ok('GET', `${M()}/downtime-lite/records?kind=task`, T.dm)).records.task[0];
+  assert.deepEqual([done.done, done.status], [2, 'done']);
+  assert.equal((await call('POST', `${M()}/downtime-lite/records/work`, T.jess, { recordId: task.id })).status, 409, 'a finished task takes no more work');
+  // The DM takes a day back; the log shows every step with who and when.
+  await ok('POST', `${M()}/downtime-lite/records/adjust`, T.dm, { recordId: task.id, amount: -1, note: 'Lost a day to the storm' });
+  const log = (await ok('GET', `${M()}/downtime-lite/records-log?record=${task.id}`, T.dm)).log.map((l: any) => l.action);
+  assert.deepEqual(log, ['adjust', 'timer:day:done', 'timer:day', 'work', 'timer:day', 'work', 'start']);
+  assert.equal((await ok('GET', `${M()}/downtime-lite/records-log`, T.tom)).log.every((l: any) => l.player === ID.tom), true, 'a player reads only their own log');
+  // The rule's view comes with it for the web.
+  const rule = (await ok('GET', `${M()}/`, T.dm)).mods.find((r: any) => r.id === 'downtime-lite');
+  assert.deepEqual(rule.system.views.map((v: any) => v.place), ['dm', 'sheet']);
+  await ok('DELETE', `${M()}/downtime-lite`, T.dm);
+  assert.equal(all(db, "SELECT 1 FROM mod_records WHERE mod_id = 'downtime-lite'").length, 0, 'removing the rule removes its records');
+});
+
+test('Mods: the Mod studio guide covers every part, and every rule shipped or in the examples reads back as a file that checks', async () => {
+  const start = await ok('GET', `${M()}/guide`, T.dm);
+  assert.match(start.text, /house_rule_check/);
+  assert.match(start.text, /downtime-lite/);
+  for (const part of ['counters', 'data', 'presets', 'manifest']) {
+    const g = await ok('GET', `${M()}/guide?part=${part}`, T.dm);
+    assert.equal(g.part, part);
+    assert.ok(g.text.length > 400, part);
+  }
+  assert.match((await ok('GET', `${M()}/guide?part=presets`, T.dm)).text, /sheetRerolls: false/);
+  assert.equal((await call('GET', `${M()}/guide`, T.jess)).status, 403);
+  const ids = [...shippedMods().map((s) => s.mod.id), 'hero-points', 'downtime-lite'];
+  for (const id of ids) {
+    const f = await ok('GET', `${M()}/${id}/file`, T.dm);
+    const back = checkMod(f.file);
+    assert.deepEqual(back.errors, [], id);
+    const c = await ok('POST', `${M()}/check`, T.dm, { mod: f.file });
+    assert.equal(c.ok, true, id);
+    assert.ok(c.preview.length > 0, `${id} has a preview`);
+  }
+  assert.equal((await call('GET', `${M()}/nope/file`, T.dm)).status, 404);
+});
+
+test('Mods: the check preview tells the DM what a rule does in plain words', async () => {
+  const dl = (await ok('GET', `${M()}/downtime-lite/file`, T.dm)).file;
+  const p: string[] = (await ok('POST', `${M()}/check`, T.dm, { mod: { ...dl, id: 'studio-downtime' } })).preview;
+  const all = p.join('\n');
+  assert.match(all, /Keeps a list of Activities: .*starts with 5 ready-made/);
+  assert.match(all, /Keeps a list of Tasks \(each player has their own\)/);
+  assert.match(all, /The DM gets a Downtime button: every player is asked "How do you spend the day\?" with Keep working \/ Start something \/ Skip the day/);
+  assert.match(all, /Each A downtime day \(for players who did not skip\): \+1 done on each task; done when it reaches its goal/);
+  assert.match(all, /The DM can Add or take days: add or take done on a task/);
+  const hp = (await ok('GET', `${M()}/hero-points/file`, T.dm)).file;
+  const h: string[] = (await ok('POST', `${M()}/check`, T.dm, { mod: { ...hp, id: 'studio-hero' } })).preview;
+  assert.ok(h.some((l) => /^Each player has Hero point \(starts at 1, at most 3 \(option max\)\)/.test(l)), h.join('\n'));
+  assert.ok(h.some((l) => /^At the start of a session: Hero point \+1/.test(l)), h.join('\n'));
+  assert.ok(h.some((l) => l === 'Chat word /hero runs spend'), h.join('\n'));
+});
+
+test('Mods: a checked draft saves exactly the checked file; an unknown draft says to check again', async () => {
+  const hp = (await ok('GET', `${M()}/hero-points/file`, T.dm)).file;
+  const c = await ok('POST', `${M()}/check`, T.dm, { mod: { ...hp, id: 'draft-hero', name: 'Draft hero' } });
+  assert.match(c.draft, /^draft-hero-[a-z0-9]{1,5}$/);
+  const saved = await ok('POST', `${M()}/import`, T.dm, { draft: c.draft });
+  assert.equal(saved.id, 'draft-hero');
+  assert.equal(saved.enabled, false);
+  const bad = await call('POST', `${M()}/import`, T.dm, { draft: 'draft-hero-zzzzz' });
+  assert.equal(bad.status, 404);
+  assert.match(bad.body.error, /house_rule_check/);
+  assert.equal((await call('POST', `${M()}/import`, T.jess, { draft: c.draft })).status, 403);
+  await ok('DELETE', `${M()}/draft-hero`, T.dm);
+});
+
+test('Mods: chat text in a data system names real fields; {kind.field} is the record\'s own field and {name} the player', async () => {
+  const proj = (chat: string) => ({ kit: 2, id: 'studio-projects', name: 'Projects',
+    records: { project: { label: 'Project', owned: true, fields: { name: 'text', done: { type: 'int', default: 0 }, goal: 'int' } } },
+    recordActions: [{ id: 'start', label: 'Start', by: 'owner', record: 'project', do: 'create', ask: ['name', 'goal'], effect: { chat } }] });
+  assert.deepEqual(checkMod(proj('{name} starts {project.name} ({goal} days, {title})')).errors, []);
+  assert.match(checkMod(proj('{name} starts {bogus}')).errors.join('\n'), /\{bogus\} is not a field of project/);
+  assert.match(checkMod(proj('{name} starts {task.name}')).errors.join('\n'), /task is not a ref field of project/);
+  await ok('POST', `${M()}/import`, T.dm, { mod: proj('{name} starts {project.name} ({goal} days, {title})') });
+  await ok('PUT', `${M()}/studio-projects/enabled`, T.dm, { on: true });
+  await ok('POST', `${M()}/studio-projects/records/start`, T.jess, { values: { name: 'Iron sword', goal: 4 } });
+  const said = (await ok('GET', `${CH()}/chat/table`, T.dm)).messages.map((x: any) => x.body).join('\n');
+  assert.match(said, /Jessamine starts Iron sword \(4 days, Iron sword\)/);
+  await ok('DELETE', `${M()}/studio-projects`, T.dm);
+});
+
+test('Mods: the assistant part is checked, kept in the file, and its DM guidance never reaches players', async () => {
+  const base = { kit: 2, id: 'studio-assist', name: 'Assisted', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] };
+  const good = checkMod({ ...base, assistant: { words: ['Lucky'], dm: 'SECRET DM HINT', player: 'Help them spend.', tools: ['my_spell_codex'] } });
+  assert.deepEqual(good.errors, []);
+  assert.deepEqual(good.mod!.assistant!.words, ['lucky']);
+  assert.deepEqual((toFile(good.mod!) as any).assistant.tools, ['my_spell_codex']);
+  assert.ok(impliedPermissions(good.mod!).includes('assistant.tools'));
+  assert.equal((toFile(checkMod(base).mod!) as any).assistant, undefined);
+  const bad = checkMod({ ...base, assistant: { words: ['x'], tools: ['Not A Tool'], mood: 'happy' } });
+  assert.match(bad.errors.join('\n'), /assistant\.mood is not part of assistant/);
+  assert.match(bad.errors.join('\n'), /assistant\.words\[0\]/);
+  assert.match(bad.errors.join('\n'), /assistant\.tools\[0\] must be a tool name/);
+  await ok('POST', `${M()}/import`, T.dm, { mod: toFile(good.mod!) });
+  await ok('PUT', `${M()}/studio-assist/enabled`, T.dm, { on: true });
+  assert.ok(!JSON.stringify(await ok('GET', `${M()}`, T.jess)).includes('SECRET DM HINT'));
+  assert.equal((await call('GET', `${M()}/studio-assist/file`, T.jess)).status, 403);
+  for (const id of ['spell-crafting', 'spell-points', 'mana-pool']) assert.ok(shippedMod(id)!.mod.assistant?.player, `${id} helps players`);
+  await ok('DELETE', `${M()}/studio-assist`, T.dm);
 });

@@ -1,10 +1,15 @@
 {
-  "kit": 1,
+  "kit": 2,
   "id": "spell-crafting",
   "name": "Spell crafting (Codex)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Wizard",
   "summary": "Characters learn new spells by combining spells they already know, from recipes in the Codex.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex"],
+    "worksWith": ["sheet"]
+  },
   "options": {
     "approval": {
       "type": "enum",
@@ -23,5 +28,25 @@
       "term": "Spell crafting (house rule)",
       "text": "A character can learn a new spell by combining spells they already know, following a recipe in the Codex."
     }
-  ]
+  ],
+  "assistant": {
+    "words": [
+      "craft a spell",
+      "crafting",
+      "combine spells",
+      "spell recipe",
+      "recipes",
+      "codex",
+      "new spell"
+    ],
+    "tools": [
+      "my_spell_codex",
+      "list_spell_recipes",
+      "read_spell",
+      "draft_spell_recipe",
+      "list_spells"
+    ],
+    "player": "To help a player craft: read their codex with my_spell_codex (the spells they know), then list_spell_recipes for recipes; say which recipes they can make now and what each one still needs. Read a spell with read_spell before describing it. A crafted spell waits for the DM unless the DM set approval to auto.",
+    "dm": "To help the DM with spell crafting: list_spell_recipes shows the recipes and draft_spell_recipe proposes a new one (the DM approves it). When a player asks to craft, check they know every spell the recipe needs."
+  }
 }
