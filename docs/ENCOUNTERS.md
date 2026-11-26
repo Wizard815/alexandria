@@ -145,3 +145,27 @@ refetch.
 
 MCP tools: `list_encounters`, `list_encounter_templates` (DM),
 `send_encounter`, `encounter_say`, `end_encounter` (DM write key).
+
+## NPC voices
+
+Off by default. With `npcVoices` on (a world setting; the assistant's
+`set_npc_voices` tool sets it), what an NPC says in an encounter (the
+script's lines and the DM's live `say` lines) is read aloud by the voice
+model on **that player's device only**: the other players do not hear a
+private talk, the table does not play it, and another player cannot fetch
+the audio file. The player hears it when one of their devices has the sound
+effects switch on.
+
+- The voice: the NPC's own preset (`PUT /voice/npcs {npc, preset}`, or the
+  `set_npc_voice` tool; an empty preset takes it away), else the default
+  NPC voice `npcVoicePreset`. With neither, the NPC stays silent.
+- Each line is spoken once, even after a restart (`voice_spoken`). Lines
+  from before voices were turned on are not read.
+- Quick events: with `quickEventVoicePreset` set, a new quick event's
+  title and prompt are read to the players it went to, once.
+- Nothing new is revealed: a voiced line is the text that player already
+  sees on screen.
+
+`GET /voice/npcs` (DM) returns the settings and the NPCs with their own
+voice. MCP tools: `list_npc_voices` (DM), `set_npc_voice`,
+`set_npc_voices` (DM write key).

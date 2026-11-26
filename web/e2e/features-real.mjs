@@ -45,6 +45,7 @@ try {
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { damage: 7, conditions: ['Poisoned'], note: 'Spider bite' });
   await j('POST', `${P}/sheet/${jessId}/dm-notes`, dm, { kind: 'goal', text: 'Find the lighthouse keeper before the new moon.' });
   await j('POST', `${P}/lights/scenes`, dm, { name: 'Candlelight', color: '#ff9933', brightness: 40 });
+  await j('POST', `${P}/voice/presets`, dm, { name: 'Gravel', voice: 'bm_george', speed: 0.9, target: 'table' });
   await j('POST', `${P}/sheet/${tomId}/dm-notes`, dm, { kind: 'note', text: 'Your brother Edric is alive and hiding in Saltmarsh.' });
 
   const ask = async (tok, text, mode) => {
@@ -75,12 +76,24 @@ try {
     ['Fog of war', 'Turn on the fog of war on the world map, then uncover a circle around the middle of it.', ['set_fog', 'reveal_fog']],
     ['Lights', 'Set the room lights to the Candlelight scene.', ['run_light_scene', 'list_light_scenes']],
     ['Quick events', 'Send the party a quick perception save, DC 13, with a 30 second timer.', ['send_quick_event']],
+    ['Session prep', 'Write each player a session prep for Friday. Tell them we start at the lighthouse.', ['draft_session_prep']],
+    ['NPC voices', 'Give Captain Vex the Gravel voice in encounters, and turn NPC voices on.', ['set_npc_voice', 'set_npc_voices']],
   ];
   for (const [feature, text, want] of DM_PROMPTS) {
     const r = await ask(dm, text);
     const hit = want.some((t) => r.used.includes(t));
     rows.push({ who: 'DM', feature, hit, used: r.used.join(', ') || '(none)' });
     if (!hit) problems.push(`DM, ${feature}: wanted ${want.join(' or ')}, used ${r.used.join(', ') || 'nothing'}`);
+  }
+
+  // Session prep, written by the Players model from each player's own brief: Jessamine's must not carry Tomas's private note.
+  {
+    const preps = (await j('GET', `${P}/prep`, dm)).x.preps.filter((p) => p.status === 'draft');
+    const mine = preps.find((p) => p.accountId === jessId);
+    const leak = preps.filter((p) => p.accountId !== tomId).some((p) => /Edric/i.test(p.text));
+    const okPrep = !!mine && mine.byModel && !leak && /lighthouse/i.test(mine.text);
+    rows.push({ who: 'DM', feature: 'Session prep drafts', hit: okPrep, used: `${preps.length} drafts; Jessamine: ${(mine?.text ?? '(none)').replace(/\s+/g, ' ').slice(0, 160)}` });
+    if (!okPrep) problems.push(`DM, session prep: ${mine ? (leak ? 'a draft has Tomas\'s note' : mine.byModel ? 'no lighthouse' : 'no model') : 'no draft for Jessamine'}`);
   }
 
   // Map vision: a dungeon map on the table screen with the fog on; "open the crypt" should look at the map, then uncover the
