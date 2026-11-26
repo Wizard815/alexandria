@@ -17,7 +17,7 @@
 // model round. Only the tools that fit the message are offered. Replies
 // stream to the owner as 'agent' events. Obvious commands run with no model.
 import type { Deps } from '../../app.ts';
-import { chatStream, hasJob, jobConfig, rerankItems, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
+import { chatStream, hasJob, jobConfig, rerankItems, ModelPreempted, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly, only } from '../../core/events.ts';
 import type { Viewer, WorldSettings } from '../../core/policy.ts';
@@ -594,6 +594,8 @@ export interface RunInput { chatId: string; replyId: string; text: string; conte
 
 /** Runs in progress, so the Stop button can end one. */
 const running = new Map<string, AbortController>();
+/** The end of a player's answer that was cut short because the DM needed the model. */
+export const PAUSED_FOR_DM = '_Paused so the DM could go first. Ask again in a moment._';
 export const stopRun = (chatId: string): boolean => { const a = running.get(chatId); if (!a) return false; a.abort(); return true; };
 
 /** Tell the owner's screens about an action (a new card, or a decision): the card travels with the event, so no screen re-reads the chat. */
@@ -937,7 +939,11 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       think(d, c.worldId, { ...meta, kind: 'done', chatId: input.chatId, text: `Answered in ${took(T.totalMs)}${T.toolCalls ? `, ${T.toolCalls} tool call${T.toolCalls === 1 ? '' : 's'}` : ''}${waiting ? `. ${waiting} change${waiting === 1 ? '' : 's'} waiting for you` : ''}.`, detail: reply.slice(0, 600) });
     }
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
+    if (err instanceof ModelPreempted) {
+      // The DM needed the model and this answer gave way (DM first, core/ai.ts): keep what was shown and say why it stopped.
+      const shown = (gate ? gate.sent : live.text).trim();
+      finish(`${shown ? `${shown}\n\n` : ''}${PAUSED_FOR_DM}`, 'done');
+    } else if (err?.name === 'AbortError') {
       // Stopped by the user: keep what was shown (the player's is only what passed the check).
       const shown = (gate ? gate.sent : live.text).trim();
       finish(shown ? `${shown}\n\n_Stopped._` : '_Stopped._', 'done');

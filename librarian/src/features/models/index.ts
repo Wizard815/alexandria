@@ -21,14 +21,16 @@
 //   POST   /api/admin/models/providers/:id/detect probe the backend type again (PUT a provider with { backend } to override)
 //   POST   /api/admin/models/unload-all           "Release models now": each job model on a backend that can unload
 //   GET    /api/admin/models/vram                 per Argos provider: GET /api/pool + /running, the job-model budget, the config snippets
+//   GET    /api/admin/models/queue                running and waiting per model, and the DM-first setting
+//   PUT    /api/admin/models/dm-first             { preempt, reserve, holdPlayers }: how hard the DM's requests go first (core/ai.ts)
 //   GET    /api/worlds/:world/models/ready        DM only: which local jobs are ready (for the table page card)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts'; // type only: a runtime import would deadlock the registry's top-level await
-import { all, one, run } from '../../core/db.ts';
+import { all, one, run, type DB } from '../../core/db.ts';
 import { requireDM, type Auth } from '../../core/auth.ts';
 import { HttpError, now } from '../../core/util.ts';
-import { ALL_JOBS, CHAT_PARTS, JOBS, activeJobs, ownJobConfig, chat, chainFor, gateStats, embed, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
+import { ALL_JOBS, CHAT_PARTS, JOBS, activeJobs, ownJobConfig, chat, chainFor, gateStats, embed, normalizeDmFirst, setDmFirstResolver, DM_FIRST_DEFAULTS, type DmFirst, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
 import { argosWebUrl, discover, fetchVoices, listModels, type ModelStatus } from './argos.ts';
 import { testJob } from './probe.ts';
 import { argosSnippets, budgetFor, readArgos } from './pool.ts';
@@ -92,6 +94,12 @@ function fromSaved(d: Deps, job: Job): JobConfig | null {
 
 // Set when the feature loads. A null answer makes jobConfig() use the environment.
 setJobResolver((d, job) => fromSaved(d, job));
+/** How hard the DM's requests go first (core/ai.ts, the queue), saved in Admin → Models → GPU & queue. */
+export function getDmFirst(db: DB): DmFirst {
+  try { return normalizeDmFirst(JSON.parse(metaGet(db, 'dm_first') ?? 'null')); } catch { return DM_FIRST_DEFAULTS; }
+}
+// Read on every model call: one small row, and a change takes effect for the next request.
+setDmFirstResolver((d) => (d.db ? getDmFirst(d.db) : DM_FIRST_DEFAULTS));
 
 const usedBy = (d: Deps, pid: string): Job[] =>
   all<Row>(d.db, 'SELECT job, provider_id, fallback_provider_id FROM models_jobs WHERE provider_id = ? OR fallback_provider_id = ?', pid, pid).map((r) => r.job as Job);
@@ -255,7 +263,17 @@ const feature: Feature = {
 
     r.get('/status', async (_req, res) => res.json(await statusOf(d)));
     // The queue in front of each model right now: how many requests run and how many wait (core/ai.ts).
-    r.get('/queue', (_req, res) => res.json({ models: gateStats() }));
+    r.get('/queue', (_req, res) => res.json({ models: gateStats(), dmFirst: getDmFirst(d.db) }));
+    r.put('/dm-first', (req, res) => {
+      const b = req.body ?? {};
+      if (b.preempt !== undefined && typeof b.preempt !== 'boolean') throw new HttpError(400, 'preempt must be true or false');
+      if (b.holdPlayers !== undefined && typeof b.holdPlayers !== 'boolean') throw new HttpError(400, 'holdPlayers must be true or false');
+      if (b.reserve !== undefined && !(Number.isInteger(b.reserve) && b.reserve >= 0 && b.reserve <= 8)) throw new HttpError(400, 'reserve must be a whole number from 0 to 8');
+      const next = normalizeDmFirst(b, getDmFirst(d.db));
+      metaSet(d.db, 'dm_first', JSON.stringify(next));
+      audit(d, who(res), 'models.dm_first', JSON.stringify(next));
+      res.json({ models: gateStats(), dmFirst: next });
+    });
 
     // ---- providers
     r.post('/providers', (req, res) => {
