@@ -7,8 +7,9 @@ import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, Modal, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { LogList, PickModal, TaskLine } from './Player.tsx';
-import { CSS, TierChip, useDowntime, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
+import { CSS, GroupChip, TierChip, splitScope, useDowntime, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
 
+const PARTY = 'party';
 const TIERS: [Tier, string][] = [['common', 'Common'], ['uncommon', 'Uncommon'], ['rare', 'Rare'], ['very-rare', 'Very rare'], ['legendary', 'Legendary']];
 
 /** Press Downtime, or follow the open round: who picked what, Close or Take back. */
@@ -126,13 +127,30 @@ function Party() {
         </span>
       </div>
       <ErrorBox error={act.error ?? tasks.error} />
-      {!tasks.data ? <Loading /> : players.map((p) => {
-        const mine = tasks.data!.tasks.filter((t) => t.accountId === p.id);
+      {!tasks.data ? <Loading /> : <>
+        <div className="stack tight" data-testid="downtime-dm-group">
+          <h3 style={{ margin: '6px 0 0', fontSize: 15 }}><i className="fa-solid fa-people-group" aria-hidden="true" /> Group tasks <span className="tiny muted">the whole party's</span></h3>
+          {!splitScope(tasks.data.tasks).group.length && <p className="tiny muted">No group tasks.</p>}
+          {splitScope(tasks.data.tasks).group.map((t) => line(t, 'the party'))}
+        </div>
+        {players.map((p) => {
+        const mine = splitScope(tasks.data!.tasks).personal.filter((t) => t.accountId === p.id);
         return (
           <div key={p.id} className="stack tight">
             <h3 style={{ margin: '6px 0 0', fontSize: 15 }}>{p.character_name || p.display_name}</h3>
-            {!mine.length && <p className="tiny muted">No tasks.</p>}
-            {mine.map((t) => (
+            {!mine.length && <p className="tiny muted">No personal tasks.</p>}
+            {mine.map((t) => line(t, p.character_name || p.display_name))}
+          </div>
+        );
+      })}
+      </>}
+      {editing && <EditTask t={editing} onClose={() => setEditing(null)} />}
+      {assign && <Assign onClose={() => setAssign(false)} />}
+      {toastNode}
+    </section>
+  );
+  function line(t: Task, who: string) {
+    return (
               <TaskLine key={t.id} t={t}>
                 <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
                   {t.status !== 'removed' && t.status !== 'done' && <>
@@ -141,21 +159,14 @@ function Party() {
                     {t.status !== 'proposed' && <button type="button" className="btn small" disabled={act.busy} onClick={() => void run(() => w.call('PATCH', `/downtime/tasks/${t.id}`, { status: t.status === 'paused' ? 'active' : 'paused' }), t.status === 'paused' ? 'Resumed' : 'Paused')}>{t.status === 'paused' ? 'Resume' : 'Pause'}</button>}
                   </>}
                   {t.status === 'proposed' && <button type="button" className="btn small primary" onClick={() => setEditing(t)}>Approve…</button>}
-                  {t.rewardWaiting && <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void run(() => w.call('POST', `/downtime/tasks/${t.id}/reward`, {}), `Reward given to ${p.character_name || p.display_name}`)}>Give reward</button>}
+                  {t.rewardWaiting && <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void run(() => w.call('POST', `/downtime/tasks/${t.id}/reward`, {}), `Reward given to ${who}`)}>Give reward</button>}
                   {t.status !== 'removed' && <button type="button" className="btn small ghost" onClick={() => setEditing(t)}>Edit</button>}
                   {t.status !== 'removed' && t.status !== 'done' && <button type="button" className="btn small danger" disabled={act.busy} onClick={() => void run(() => w.call('DELETE', `/downtime/tasks/${t.id}`), `Stopped ${t.name}`)}>Stop</button>}
                 </span>
                 {t.dmNote && <span className="tiny faint">Your note: {t.dmNote}</span>}
               </TaskLine>
-            ))}
-          </div>
-        );
-      })}
-      {editing && <EditTask t={editing} onClose={() => setEditing(null)} />}
-      {assign && <Assign onClose={() => setAssign(false)} />}
-      {toastNode}
-    </section>
-  );
+    );
+  }
 }
 
 function RewardFields({ r, onChange }: { r: Reward; onChange: (r: Reward) => void }) {
@@ -213,22 +224,24 @@ function Assign({ onClose }: { onClose: () => void }) {
   const act = useAction();
   const players = members.filter((m) => m.role === 'player');
   const [player, setPlayer] = useState(players[0]?.id ?? '');
-  const list = useLoad<{ activities: Activity[] }>(() => w.call('GET', '/downtime/activities', undefined, player ? { player } : undefined), [w, player]);
+  const party = player === PARTY;
+  const list = useLoad<{ activities: Activity[] }>(() => w.call('GET', '/downtime/activities', undefined, player && !party ? { player } : undefined), [w, player]);
   const [aid, setAid] = useState('');
   const [custom, setCustom] = useState({ name: '', summary: '', tier: 'common' as Tier });
   const [reward, setReward] = useState<Reward>({ text: '', cp: 0, item: '', qty: 1, hidden: false });
   const chosen = list.data?.activities.find((a) => a.id === aid);
   const go = () => act.run(async () => {
-    await w.call('POST', '/downtime/tasks', { player, ...(aid ? { activityId: aid } : { activity: custom }), ...(reward.text || reward.cp || reward.item ? { reward } : {}) });
+    await w.call('POST', '/downtime/tasks', { ...(party ? { group: true } : { player }), ...(aid ? { activityId: aid } : { activity: custom }), ...(reward.text || reward.cp || reward.item ? { reward } : {}) });
     onClose();
   });
   return (
     <Modal title="Assign downtime" onClose={onClose}>
       <div className="stack tight">
-        <select className="input" value={player} onChange={(e) => setPlayer(e.target.value)} aria-label="Player">{players.map((p) => <option key={p.id} value={p.id}>{p.character_name || p.display_name}</option>)}</select>
+        <select className="input" value={player} onChange={(e) => setPlayer(e.target.value)} aria-label="Player"><option value={PARTY}>The whole party (a group task)</option>{players.map((p) => <option key={p.id} value={p.id}>{p.character_name || p.display_name}</option>)}</select>
+        {(party || chosen?.group) && <p className="tiny muted" style={{ margin: 0 }}><GroupChip /> Shared by the party: anyone can put days in, and the reward goes to the party pouch.</p>}
         <select className="input" value={aid} onChange={(e) => { setAid(e.target.value); const a = list.data?.activities.find((x) => x.id === e.target.value); if (a && 'text' in a.reward) setReward(a.reward); }} aria-label="Activity">
           <option value="">A new one…</option>
-          {TIERS.map(([t, label]) => <optgroup key={t} label={label}>{(list.data?.activities ?? []).filter((a) => a.tier === t && a.status !== 'hidden').map((a) => <option key={a.id} value={a.id}>{a.name} ({a.daysNeeded}d)</option>)}</optgroup>)}
+          {TIERS.map(([t, label]) => <optgroup key={t} label={label}>{(list.data?.activities ?? []).filter((a) => a.tier === t && a.status !== 'hidden').map((a) => <option key={a.id} value={a.id}>{a.name} ({a.daysNeeded}d{a.group ? ', group' : ''})</option>)}</optgroup>)}
         </select>
         {chosen ? <p className="small muted" style={{ margin: 0 }}>{chosen.summary}</p> : <>
           <input className="input" value={custom.name} maxLength={80} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="Name" aria-label="Name" />
@@ -271,7 +284,7 @@ export function Activities() {
   const td = tierDays ?? Object.fromEntries((o.data?.tiers ?? []).map((t) => [t.id, t.days]));
   const saveTiers = () => act.run(async () => { await w.call('PATCH', '/settings', { downtimeTierDays: td }); setTierDays(null); });
   const save = () => act.run(async () => {
-    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, reward: edit!.reward };
+    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward };
     if (edit!.id) await w.call('PATCH', `/downtime/activities/${edit!.id}`, body); else await w.call('POST', '/downtime/activities', body);
     setEdit(null);
   });
@@ -298,7 +311,7 @@ export function Activities() {
               <h3 style={{ margin: '6px 0 0', fontSize: 14 }}><TierChip tier={t} label={label} /></h3>
               {rows.map((a) => (
                 <div key={a.id} className="row between" style={{ gap: 8, opacity: a.status === 'hidden' ? 0.5 : 1 }}>
-                  <span><strong>{a.name}</strong> <span className="tiny muted">{a.daysNeeded}d{a.hoursPerDay < 8 ? ` × ${a.hoursPerDay}h` : ''}{a.repeatable ? ' · repeatable' : ''}{a.source === 'player' ? ' · a player\'s' : a.source === 'premade' ? '' : ' · yours'}{a.status === 'proposed' ? ' · waiting for you' : ''}</span></span>
+                  <span><strong>{a.name}</strong> {a.group && <GroupChip />} <span className="tiny muted">{a.daysNeeded}d{a.hoursPerDay < 8 ? ` × ${a.hoursPerDay}h` : ''}{a.repeatable ? ' · repeatable' : ''}{a.source === 'player' ? ' · a player\'s' : a.source === 'premade' ? '' : ' · yours'}{a.status === 'proposed' ? ' · waiting for you' : ''}</span></span>
                   <span className="row" style={{ gap: 4 }}>
                     {!a.link && <button type="button" className="btn small ghost" onClick={() => setEdit(a)}>Edit</button>}
                     {!a.link && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void hide(a)}>{a.status === 'hidden' ? 'Show' : a.id.startsWith('pre-') ? 'Hide' : 'Remove'}</button>}
@@ -319,6 +332,7 @@ export function Activities() {
               <label className="small">Days <input className="input" type="number" min={1} style={{ width: 80 }} value={edit.days ?? ''} placeholder="tier" onChange={(e) => setEdit({ ...edit, days: Number(e.target.value) || null })} /></label>
               <label className="small">Hours a day <input className="input" type="number" min={1} max={24} style={{ width: 60 }} value={edit.hoursPerDay ?? 8} onChange={(e) => setEdit({ ...edit, hoursPerDay: Number(e.target.value) || 8 })} /></label>
               <label className="small"><input type="checkbox" checked={!!edit.repeatable} onChange={(e) => setEdit({ ...edit, repeatable: e.target.checked })} /> Repeatable</label>
+              <label className="small"><input type="checkbox" checked={!!edit.group} onChange={(e) => setEdit({ ...edit, group: e.target.checked })} /> Group activity (the party shares it)</label>
             </div>
             <RewardFields r={asReward(edit.reward as any)} onChange={(r) => setEdit({ ...edit, reward: r })} />
             <ErrorBox error={act.error} />

@@ -30,7 +30,9 @@ export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS downtime_tasks (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,          -- the character, or 'party' for a group task
+    scope TEXT NOT NULL DEFAULT 'personal', -- personal | group
+    members TEXT NOT NULL DEFAULT '[]', -- a group task: the characters who joined it
     activity_id TEXT,
     name TEXT NOT NULL,
     summary TEXT NOT NULL DEFAULT '',
@@ -81,7 +83,7 @@ export const SCHEMA = `
     account_id TEXT NOT NULL,
     task_id TEXT,
     task_name TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL,              -- start | work | time | skip | missed | pause | resume | remove | edit | approve | complete | reward
+    kind TEXT NOT NULL,              -- start | work | time | skip | missed | pause | resume | remove | edit | approve | complete | reward | join | leave
     minutes INTEGER NOT NULL DEFAULT 0,
     round_id TEXT,
     world_minutes INTEGER,
@@ -183,7 +185,15 @@ export interface Task {
   link: Link | null; createdBy: string | null; createdAt: string; updatedAt: string;
   startedWorld: number | null; finishedWorld: number | null; finishedAt: string | null;
   dmNote?: string;
+  scope: 'personal' | 'group';
+  /** A group task: who joined, and how much each has put in. */
+  members: string[];
+  contributions: { accountId: string; minutes: number; label: string }[];
 }
+
+export const PARTY = 'party';
+export const isGroup = (r: any) => r?.scope === 'group';
+export const membersOf = (r: any): string[] => parseJson<string[]>(r?.members, []);
 
 export function taskOut(db: DB, s: WorldSettings, r: any, dm: boolean): Task {
   const reward = checkReward(parseJson(r.reward, {}));
@@ -199,20 +209,26 @@ export function taskOut(db: DB, s: WorldSettings, r: any, dm: boolean): Task {
     link: parseJson<Link | null>(r.link, null), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
     startedWorld: r.started_world ?? null, finishedWorld: r.finished_world ?? null, finishedAt: r.finished_at ?? null,
     ...(dm ? { dmNote: r.dm_note } : {}),
+    scope: isGroup(r) ? 'group' : 'personal',
+    members: membersOf(r),
+    contributions: isGroup(r) ? all<any>(db, "SELECT account_id, SUM(minutes) AS m FROM downtime_log WHERE world_id = ? AND task_id = ? AND kind = 'work' AND undone = 0 AND account_id != 'party' GROUP BY account_id ORDER BY m DESC", r.world_id, r.id)
+      .filter((x) => x.m > 0).map((x) => ({ accountId: x.account_id, minutes: x.m, label: span(x.m, r.per_day_min / 60) })) : [],
   };
 }
 
 export const taskRow = (db: DB, worldId: string, tid: string) => one<any>(db, 'SELECT * FROM downtime_tasks WHERE world_id = ? AND id = ?', worldId, tid);
 export function mustTask(db: DB, worldId: string, tid: string, viewer: { accountId: string; dm: boolean }) {
   const r = taskRow(db, worldId, tid);
-  if (!r || (!viewer.dm && r.account_id !== viewer.accountId)) throw new HttpError(404, 'Task not found');
+  if (!r || (!viewer.dm && r.account_id !== viewer.accountId && !isGroup(r))) throw new HttpError(404, 'Task not found');
   return r;
 }
 
-export function listTasks(db: DB, worldId: string, opts: { accountId?: string; status?: string; open?: boolean } = {}): any[] {
+/** Tasks: one character's (with withGroup, the party's group tasks too), or everyone's. scope filters personal or group. */
+export function listTasks(db: DB, worldId: string, opts: { accountId?: string; status?: string; open?: boolean; withGroup?: boolean; scope?: 'personal' | 'group' } = {}): any[] {
   const where = ['world_id = ?'];
   const args: unknown[] = [worldId];
-  if (opts.accountId) { where.push('account_id = ?'); args.push(opts.accountId); }
+  if (opts.accountId) { where.push(opts.withGroup ? "(account_id = ? OR scope = 'group')" : 'account_id = ?'); args.push(opts.accountId); }
+  if (opts.scope) { where.push('scope = ?'); args.push(opts.scope); }
   if (opts.status) { where.push('status = ?'); args.push(opts.status); } else if (opts.open) where.push(`(status IN (${OPEN.map(() => '?').join(',')}) OR (status = 'done' AND reward_given_at IS NULL AND (COALESCE(json_extract(reward, '$.text'), '') != '' OR COALESCE(json_extract(reward, '$.cp'), 0) > 0 OR COALESCE(json_extract(reward, '$.item'), '') != '')))`), args.push(...OPEN);
   return all<any>(db, `SELECT * FROM downtime_tasks WHERE ${where.join(' AND ')} ORDER BY (status = 'done'), (status = 'removed'), updated_at DESC LIMIT 500`, ...args);
 }
@@ -226,24 +242,43 @@ export function writeLog(db: DB, worldId: string, e: LogIn): string {
   return lid;
 }
 
-export interface NewTask { activity: Activity; accountId: string; status?: Status; reward?: Reward; dmNote?: string; by: string; note?: string }
+export interface NewTask { activity: Activity; accountId: string; group?: boolean; status?: Status; reward?: Reward; dmNote?: string; by: string; note?: string }
 export function startTask(db: DB, worldId: string, t: NewTask): any {
   const s = worldSettings(db, worldId);
   const perDay = Math.min(t.activity.hoursPerDay, dayHours(s)) * 60;
   const need = daysFor(s, t.activity) * perDay;
-  const open = one<any>(db, `SELECT COUNT(*) AS n FROM downtime_tasks WHERE world_id = ? AND account_id = ? AND status IN ('active','paused','proposed')`, worldId, t.accountId)!.n;
-  if (open >= 30) throw new HttpError(409, 'This character has 30 unfinished tasks; finish or remove some first');
-  if (t.activity.id && !t.activity.repeatable && one(db, `SELECT 1 FROM downtime_tasks WHERE world_id = ? AND account_id = ? AND activity_id = ? AND status IN ('active','paused','proposed')`, worldId, t.accountId, t.activity.id)) {
-    throw new HttpError(409, `${t.activity.name} is already on this character's list`);
+  // A group task belongs to the party; the character who starts it joins it.
+  const group = t.group ?? t.activity.group;
+  const owner = group ? PARTY : t.accountId;
+  const members = group && t.accountId !== PARTY ? [t.accountId] : [];
+  const open = one<any>(db, `SELECT COUNT(*) AS n FROM downtime_tasks WHERE world_id = ? AND account_id = ? AND status IN ('active','paused','proposed')`, worldId, owner)!.n;
+  if (open >= 30) throw new HttpError(409, `${group ? 'The party has' : 'This character has'} 30 unfinished tasks; finish or remove some first`);
+  if (t.activity.id && !t.activity.repeatable && one(db, `SELECT 1 FROM downtime_tasks WHERE world_id = ? AND account_id = ? AND activity_id = ? AND status IN ('active','paused','proposed')`, worldId, owner, t.activity.id)) {
+    throw new HttpError(409, `${t.activity.name} is already on ${group ? "the party's" : "this character's"} list`);
   }
   const tid = id('dtt_');
   const c = getClock(db, worldId);
-  run(db, `INSERT INTO downtime_tasks (id, world_id, account_id, activity_id, name, summary, tier, need_min, done_min, per_day_min, status, reward, link, dm_note, created_by, created_at, updated_at, started_world)
-    VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)`,
-    tid, worldId, t.accountId, t.activity.id || null, t.activity.name, t.activity.summary, t.activity.tier, need, perDay, t.status ?? 'active',
+  run(db, `INSERT INTO downtime_tasks (id, world_id, account_id, scope, members, activity_id, name, summary, tier, need_min, done_min, per_day_min, status, reward, link, dm_note, created_by, created_at, updated_at, started_world)
+    VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)`,
+    tid, worldId, owner, group ? 'group' : 'personal', JSON.stringify(members), t.activity.id || null, t.activity.name, t.activity.summary, t.activity.tier, need, perDay, t.status ?? 'active',
     JSON.stringify(t.reward ?? t.activity.reward), t.activity.link ? JSON.stringify(t.activity.link) : null, (t.dmNote ?? '').slice(0, 1000), t.by, now(), now(), c.minutes);
-  writeLog(db, worldId, { accountId: t.accountId, taskId: tid, taskName: t.activity.name, kind: 'start', by: t.by, note: t.note ?? `${TIER_LABEL[t.activity.tier]}, ${span(need, perDay / 60)}` });
+  writeLog(db, worldId, { accountId: owner, taskId: tid, taskName: t.activity.name, kind: 'start', by: t.by, note: t.note ?? `${group ? 'Group, ' : ''}${TIER_LABEL[t.activity.tier]}, ${span(need, perDay / 60)}` });
   return taskRow(db, worldId, tid);
+}
+
+/** A character joins (or leaves) a group task. Their work stays in it either way. */
+export function setMember(db: DB, worldId: string, tid: string, aid: string, join: boolean, by: string): any {
+  return tx(db, () => {
+    const r = taskRow(db, worldId, tid);
+    if (!r || !isGroup(r)) throw new HttpError(404, 'Group task not found');
+    if (r.status === 'removed' || (r.status === 'done' && join)) throw new HttpError(409, `${r.name} is ${r.status === 'done' ? 'finished' : 'removed'}`);
+    const m = membersOf(r);
+    if (join === m.includes(aid)) return r;
+    const next = join ? [...m, aid] : m.filter((x) => x !== aid);
+    run(db, 'UPDATE downtime_tasks SET members = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), now(), tid);
+    writeLog(db, worldId, { accountId: aid, taskId: tid, taskName: r.name, kind: join ? 'join' : 'leave', by });
+    return taskRow(db, worldId, tid);
+  });
 }
 
 /** What happened to a task, for the caller to announce: finished now (a reward may wait), or nothing. */
@@ -253,7 +288,7 @@ export interface Progress { row: any; finished: boolean; logId: string }
  * Add (or take away, minutes < 0) work on a task. Logged; a task that reaches its time is done (unless it is still a
  * proposal waiting for the DM), and its link's onComplete runs.
  */
-export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: string, minutes: number, e: { kind: 'work' | 'time'; by: string | null; roundId?: string | null; note?: string }): Progress {
+export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: string, minutes: number, e: { kind: 'work' | 'time'; by: string | null; roundId?: string | null; note?: string; worker?: string }): Progress {
   const { db } = d;
   return tx(db, () => {
     const r = taskRow(db, worldId, tid);
@@ -263,7 +298,9 @@ export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: stri
     const done = Math.max(0, r.done_min + Math.round(minutes));
     const delta = done - r.done_min;
     run(db, 'UPDATE downtime_tasks SET done_min = ?, updated_at = ? WHERE id = ?', done, now(), tid);
-    const logId = writeLog(db, worldId, { accountId: r.account_id, taskId: tid, taskName: r.name, kind: e.kind, minutes: delta, roundId: e.roundId, by: e.by, note: e.note });
+    // On a group task the log row names the character who did the work (the party when the DM changes the time).
+    const who = e.worker ?? r.account_id;
+    const logId = writeLog(db, worldId, { accountId: who, taskId: tid, taskName: r.name, kind: e.kind, minutes: delta, roundId: e.roundId, by: e.by, note: e.note });
     let finished = false;
     if (r.status === 'done' && done < r.need_min) {
       // Time taken away from a finished task opens it again.
@@ -271,7 +308,7 @@ export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: stri
       writeLog(db, worldId, { accountId: r.account_id, taskId: tid, taskName: r.name, kind: 'resume', by: e.by, note: 'Not finished after all' });
     }
     finished = maybeFinish(d, worldId, tid, e.by);
-    if (delta > 0) d.hub.emit(worldId, 'downtime-day', { accountId: r.account_id, taskId: tid, minutes: delta, link: parseJson(r.link, null), activityId: r.activity_id }, dmAnd(r.account_id));
+    if (delta > 0) d.hub.emit(worldId, 'downtime-day', { accountId: who, taskId: tid, minutes: delta, link: parseJson(r.link, null), activityId: r.activity_id, group: isGroup(r) }, dmAnd(who));
     return { row: taskRow(db, worldId, tid), finished, logId };
   });
 }
@@ -391,7 +428,8 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
       if (seen.has(p.taskId)) throw new HttpError(400, 'Each task once per pick');
       seen.add(p.taskId);
       const r = taskRow(db, worldId, p.taskId);
-      if (!r || r.account_id !== aid) throw new HttpError(404, 'Task not found');
+      if (!r || (r.account_id !== aid && !isGroup(r))) throw new HttpError(404, 'Task not found');
+      if (isGroup(r) && r.status === 'paused') throw new HttpError(409, `The DM paused ${r.name}`);
       if (!['active', 'proposed', 'paused'].includes(r.status)) throw new HttpError(409, `${r.name} is ${r.status}`);
       if (!Number.isInteger(p.days) || p.days < 1 || p.days > round.days) throw new HttpError(400, `days must be from 1 to ${round.days}`);
       used += p.days * r.per_day_min;
@@ -407,7 +445,9 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
     }
     for (const { r, days } of rows) {
       if (r.status === 'paused') { run(db, "UPDATE downtime_tasks SET status = 'active' WHERE id = ?", r.id); writeLog(db, worldId, { accountId: aid, taskId: r.id, taskName: r.name, kind: 'resume', roundId: round.id, by }); }
-      const out = addWork(d, worldId, r.id, days * r.per_day_min, { kind: 'work', by, roundId: round.id, note: note || `${days} downtime day${days === 1 ? '' : 's'}` });
+      // Working on a group task joins it.
+      if (isGroup(r) && !membersOf(r).includes(aid)) setMember(db, worldId, r.id, aid, true, by);
+      const out = addWork(d, worldId, r.id, days * r.per_day_min, { kind: 'work', by, roundId: round.id, worker: aid, note: note || `${days} downtime day${days === 1 ? '' : 's'}` });
       if (out.finished) finished.push(out.row);
     }
     return { finished };

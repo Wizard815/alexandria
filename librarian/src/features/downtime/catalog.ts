@@ -30,6 +30,8 @@ export interface Activity {
   reward: Reward;
   link: Link | null;
   tags: string[];
+  /** A group activity: the party works on one shared task and its progress is everyone's together. */
+  group: boolean;
 }
 export interface Link { kind: string; ref?: string }
 
@@ -87,6 +89,7 @@ export function checkActivity(raw: any, id: string): Activity {
     days: raw.days === undefined || raw.days === null || raw.days === '' ? null : whole(raw.days, 'days', 1, MAX_DAYS),
     hoursPerDay: raw.hoursPerDay === undefined || raw.hoursPerDay === null ? 8 : whole(raw.hoursPerDay, 'hoursPerDay', 1, 24),
     repeatable: raw.repeatable === true,
+    group: raw.group === true || raw.scope === 'group',
     reward: checkReward(raw.reward),
     link,
     tags,

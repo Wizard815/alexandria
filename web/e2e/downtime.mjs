@@ -3,7 +3,8 @@
 // gets the popup on her phone, asks the helper for suggestions, picks research
 // and a daily vigil, and sends; the DM sees her answer, picks for Anselm,
 // adds a day to Tomas, closes the round, finishes and rewards a task, and
-// reads the log; Jess sees her tasks on her sheet. Screenshots go to SHOTS.
+// reads the log; Jess sees her tasks on her sheet and joins the party's group
+// stronghold from her Downtime page. Screenshots go to SHOTS.
 // Run from web/: npm run build && node e2e/downtime.mjs   (DOWNTIME_PORT, default 19822)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -128,6 +129,20 @@ try {
   await pl.waitForTimeout(200);
   await shot(pl, '7-player-sheet-module');
   note('player: Downtime module on her sheet');
+
+  // 7. Group and personal are apart: Jess's Downtime page has her own tasks and the party's group tasks; she joins the stronghold.
+  await pl.goto(`${W}/downtime`);
+  const grp = pl.getByTestId('downtime-group');
+  await grp.getByText('Build a stronghold').waitFor({ timeout: 8000 });
+  check(!(await pl.getByTestId('downtime-personal').getByText('Build a stronghold').count()), 'the stronghold is not on her personal list');
+  await grp.getByRole('button', { name: 'Join' }).click();
+  await grp.getByRole('button', { name: 'Leave' }).waitFor({ timeout: 8000 });
+  const jt = await api((await login('jess', 'player pass 123')).token, 'GET', '/downtime/tasks?scope=group');
+  check(jt.tasks.some((t) => t.name === 'Build a stronghold' && t.members.length === 2), `Jess joined Tomas on the stronghold: ${JSON.stringify(jt.tasks.map((t) => [t.name, t.members.length]))}`);
+  check(!JSON.stringify(jt).includes('smugglers') && !JSON.stringify(jt).includes('lordship'), 'the group task still hides the DM\'s note and surprise reward');
+  await grp.scrollIntoViewIfNeeded();
+  await shot(pl, '8-player-group-tasks');
+  note('player: personal and group tasks apart, joined the party stronghold');
 } catch (e) {
   problems.push(`stopped: ${e.message.split('\n').slice(0, 3).join(' ')}`);
   if (process.env.FAIL_SHOTS) for (const [i, p] of pages.entries()) await p.screenshot({ path: path.join(process.env.FAIL_SHOTS, `fail-${i}.png`) }).catch(() => {});

@@ -24,8 +24,8 @@ import { DEFAULT_TIER_DAYS, MAX_DAYS, TIERS, TIER_LABEL, checkActivity, checkPre
 import './codex.ts';
 import { linkHandlers } from './hooks.ts';
 import {
-  SCHEMA, activities, activity, addWork, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
-  saveActivity, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
+  PARTY, SCHEMA, activities, activity, addWork, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
+  isGroup, saveActivity, setMember, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
 } from './store.ts';
 import { decideTier, rankActivities } from './suggest.ts';
 
@@ -60,9 +60,17 @@ function routes(d: Deps) {
   const S = (res: Response) => settings(res);
   const viewer = (res: Response) => ({ accountId: me(res), dm: isDM(res) });
   const players = (w: string) => memberIds(db, w, ['player']);
-  const changed = (w: string, aid: string | null) => hub.emit(w, 'downtime', { accountId: aid }, aid ? dmAnd(aid) : everyone);
+  /** Names by account id; a group task's owner is the party. */
+  const nameMap = (w: string): Record<string, string> => ({ ...names(db, w), [PARTY]: 'The party' });
+  const changed = (w: string, aid: string | null) => hub.emit(w, 'downtime', { accountId: aid }, aid && aid !== PARTY ? dmAnd(aid) : everyone);
   const roundChanged = (w: string, rid: string, status: string) => hub.emit(w, 'downtime-round', { id: rid, status }, everyone);
-  const out = (res: Response, row: any) => taskOut(db, S(res), row, isDM(res));
+  const out = (res: Response, row: any) => {
+    const t = taskOut(db, S(res), row, isDM(res));
+    if (t.scope !== 'group') return t;
+    // A group task names who joined and what each put in.
+    const nm = nameMap(W(res));
+    return { ...t, memberNames: t.members.map((m) => nm[m] ?? ''), contributions: t.contributions.map((c) => ({ ...c, name: nm[c.accountId] ?? '' })) };
+  };
   const need = (res: Response) => { if (!isOn(S(res))) throw new HttpError(403, 'DownTime is off in this world: the DM turns it on under House rules'); };
   const guestNo = (res: Response) => { if (ctx(res).viewer.role === 'guest') throw new HttpError(403, 'Guests have no downtime'); };
   /** Whose tasks: a player always their own; the DM names one (or null for everyone). */
@@ -73,7 +81,7 @@ function routes(d: Deps) {
     const s = S(res);
     const dm = isDM(res);
     const list: ActivityRow[] = activities(db, W(res)).filter((a) => dm || a.status === 'ok' || (a.status === 'proposed' && a.createdBy === me(res)));
-    if (aid) for (const h of linkHandlers()) for (const a of h.activities?.(db, W(res), aid) ?? []) list.push({ ...a, source: 'premade', status: 'ok', createdBy: null, changed: false });
+    if (aid && aid !== PARTY) for (const h of linkHandlers()) for (const a of h.activities?.(db, W(res), aid) ?? []) list.push({ ...a, source: 'premade', status: 'ok', createdBy: null, changed: false });
     return list.map((a) => ({ ...a, daysNeeded: daysFor(s, a) }));
   }
   function findActivity(res: Response, aid: string | null, ref: unknown): ActivityRow {
@@ -90,7 +98,7 @@ function routes(d: Deps) {
     const byId = taskRow(db, w, ref);
     if (byId) return mustTask(db, w, ref, viewer(res));
     const aid = whose(res, player);
-    const rows = listTasks(db, w, { accountId: aid ?? undefined, open: true }).filter((x) => x.name.toLowerCase() === ref.trim().toLowerCase());
+    const rows = listTasks(db, w, { accountId: aid ?? undefined, open: true, withGroup: true }).filter((x) => x.name.toLowerCase() === ref.trim().toLowerCase());
     if (rows.length === 1) return rows[0];
     if (rows.length > 1) throw new HttpError(409, `More than one task is called ${ref.slice(0, 60)}: use its id or name the player`);
     throw new HttpError(404, 'Task not found');
@@ -101,13 +109,16 @@ function routes(d: Deps) {
     const w = W(res);
     const s = S(res);
     const dm = isDM(res);
-    const aid = dm ? findPlayer(d, w, b.player ?? b.accountId) : me(res);
+    // A group task: the party's, shared. The DM may start one for the whole party (no player); a player starts it and joins.
+    const who = b.player ?? b.accountId;
+    const wantGroup = b.group === true || b.scope === 'group';
+    const aid = dm ? (wantGroup && (who === undefined || who === null || who === '' || who === PARTY) ? PARTY : findPlayer(d, w, who)) : me(res);
     let act: Activity;
     let status: 'active' | 'proposed' = 'active';
     if (b.activity && typeof b.activity === 'object') {
       const mode = featureSetting<string>(s, 'downtimePlayerNew');
       if (!dm && mode === 'off') throw new HttpError(403, 'Only the DM makes new activities in this world');
-      const raw = { ...b.activity };
+      const raw = { ...b.activity, ...(wantGroup ? { group: true } : {}) };
       if (!tierOf(raw.tier) && !dm) {
         const dec = await decideTier(d, String(raw.name ?? ''), String(raw.summary ?? ''), tierDays(s), dayHours(s));
         Object.assign(raw, { tier: dec.tier, days: raw.days ?? dec.days, hoursPerDay: raw.hoursPerDay ?? dec.hoursPerDay });
@@ -119,9 +130,14 @@ function routes(d: Deps) {
     } else {
       act = findActivity(res, aid, b.activityId ?? b.activity);
       if ((act as ActivityRow).status === 'proposed') status = 'proposed';
+      // A group activity the party already has going: join it rather than start a second one.
+      if ((act.group || wantGroup) && !act.repeatable) {
+        const have = listTasks(db, w, { accountId: PARTY, open: true }).find((x) => x.activity_id === act.id && x.status !== 'done');
+        if (have) return aid === PARTY ? have : setMember(db, w, have.id, aid, true, me(res));
+      }
     }
     const reward = dm && b.reward !== undefined ? checkReward(b.reward) : undefined;
-    const row = startTask(db, w, { activity: act, accountId: aid, status, reward, dmNote: dm ? b.dmNote : undefined, by: me(res), note: typeof b.note === 'string' ? b.note : undefined });
+    const row = startTask(db, w, { activity: act, accountId: aid, group: wantGroup || act.group, status, reward, dmNote: dm ? b.dmNote : undefined, by: me(res), note: typeof b.note === 'string' ? b.note : undefined });
     audit(d, w, me(res), 'downtime.start', `${aid} ${act.name}`);
     return row;
   }
@@ -132,7 +148,7 @@ function routes(d: Deps) {
     const w = W(res);
     const s = S(res);
     const dm = isDM(res);
-    const nm = names(db, w);
+    const nm = nameMap(w);
     const base = {
       on: isOn(s), dayHours: dayHours(s), playerNew: featureSetting<string>(s, 'downtimePlayerNew'), advanceClock: featureSetting<boolean>(s, 'downtimeAdvanceClock'),
       tiers: TIERS.map((t) => ({ id: t, label: TIER_LABEL[t], days: tierDays(s)[t] })), now: clock.getClock(db, w).label,
@@ -140,7 +156,7 @@ function routes(d: Deps) {
     if (ctx(res).viewer.role === 'guest') return res.json({ ...base, round: null, tasks: [] });
     const round = openRound(db, w);
     const aid = dm ? (req.query.player ? findPlayer(d, w, req.query.player) : null) : me(res);
-    const tasks = listTasks(db, w, { accountId: aid ?? undefined, open: req.query.all !== '1' }).map((x) => ({ ...out(res, x), player: nm[x.account_id] ?? '' }));
+    const tasks = listTasks(db, w, { accountId: aid ?? undefined, withGroup: true, open: req.query.all !== '1' }).map((x) => ({ ...out(res, x), player: nm[x.account_id] ?? '' }));
     res.json({
       ...base,
       round: round ? roundOut(db, w, round, viewer(res), nm, players(w)) : null,
@@ -178,10 +194,11 @@ function routes(d: Deps) {
   r.get('/tasks', (req, res) => {
     guestNo(res);
     const w = W(res);
-    const nm = names(db, w);
+    const nm = nameMap(w);
     const aid = whose(res, req.query.player);
     const st = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
-    res.json({ tasks: listTasks(db, w, { accountId: aid ?? undefined, status: st, open: !st && req.query.all !== '1' }).map((x) => ({ ...out(res, x), player: nm[x.account_id] ?? '' })) });
+    const scope = req.query.scope === 'group' || req.query.scope === 'personal' ? req.query.scope : undefined;
+    res.json({ tasks: listTasks(db, w, { accountId: aid ?? undefined, withGroup: true, scope, status: st, open: !st && req.query.all !== '1' }).map((x) => ({ ...out(res, x), player: nm[x.account_id] ?? '' })) });
   });
 
   r.post('/tasks', requirePlayerOrDM, async (req, res) => {
@@ -198,6 +215,7 @@ function routes(d: Deps) {
     const t = findTask(res, String(req.params.id), b.player);
     let row: any;
     if (!isDM(res)) {
+      if (isGroup(t)) throw new HttpError(403, 'A group task is the whole party\'s: leave it, or ask the DM to pause it');
       if (b.status !== 'paused' && b.status !== 'active') throw new HttpError(403, 'Players can pause or go back to their own tasks; the DM changes the rest');
       row = setStatus(d, w, t.id, b.status, me(res));
     } else {
@@ -227,7 +245,10 @@ function routes(d: Deps) {
     const t = findTask(res, String(req.params.id), req.body?.player);
     const m = amount(req.body, t.per_day_min);
     if (m < 0) throw new HttpError(400, 'Work is positive; take time away with /time');
-    const p = addWork(d, w, t.id, m, { kind: 'work', by: me(res), note: typeof req.body?.note === 'string' ? req.body.note : '' });
+    // On a group task, a named player is the one who did the work (and joins it); else it counts for the party.
+    const worker = isGroup(t) && req.body?.worker ? findPlayer(d, w, req.body.worker) : undefined;
+    if (worker) setMember(db, w, t.id, worker, true, me(res));
+    const p = addWork(d, w, t.id, m, { kind: 'work', by: me(res), worker, note: typeof req.body?.note === 'string' ? req.body.note : '' });
     afterFinish(w, p.row);
     changed(w, t.account_id);
     res.json(out(res, p.row));
@@ -237,10 +258,25 @@ function routes(d: Deps) {
   r.delete('/tasks/:id', requirePlayerOrDM, (req, res) => {
     need(res);
     const t = findTask(res, String(req.params.id), req.query.player);
+    if (!isDM(res) && isGroup(t)) throw new HttpError(403, 'A group task is the whole party\'s: leave it instead, and the DM can remove it');
     const row = setStatus(d, W(res), t.id, 'removed', me(res), typeof req.query.note === 'string' ? req.query.note : '');
     changed(W(res), row.account_id);
     res.json(out(res, row));
   });
+
+  /** Join or leave a group task: a player for themselves, the DM for a named player. Work already done stays in it. */
+  for (const verb of ['join', 'leave'] as const) {
+    r.post(`/tasks/:id/${verb}`, requirePlayerOrDM, (req, res) => {
+      need(res);
+      const w = W(res);
+      const t = findTask(res, String(req.params.id));
+      if (!isGroup(t)) throw new HttpError(409, `${t.name} is a personal task, not a group one`);
+      const aid = isDM(res) ? findPlayer(d, w, req.body?.player) : me(res);
+      const row = setMember(db, w, t.id, aid, verb === 'join', me(res));
+      changed(w, PARTY);
+      res.json(out(res, row));
+    });
+  }
 
   /** Give a finished task's reward: coin to the purse, an item to the inventory, a line in table chat. */
   r.post('/tasks/:id/reward', requireDM, (req, res) => {
@@ -255,15 +291,17 @@ function routes(d: Deps) {
 
   function giveReward(w: string, t: any, by: string, note: string) {
     const rw = checkReward(parseJson(t.reward, {}));
-    const nm = names(db, w)[t.account_id] ?? 'someone';
+    const nm = nameMap(w)[t.account_id] ?? 'someone';
     tx(db, () => {
       if (rw.cp) run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, id('led_'), w, t.account_id, rw.cp, `Downtime: ${t.name}`.slice(0, 200), by, now());
       if (rw.item) run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, NULL, ?, '', NULL, NULL, ?, ?, 'approved')`, id('itm_'), w, t.account_id, rw.item, rw.qty, `From downtime: ${t.name}`.slice(0, 300), now(), by);
       run(db, 'UPDATE downtime_tasks SET reward_given_at = ?, updated_at = ? WHERE id = ?', now(), now(), t.id);
       writeLog(db, w, { accountId: t.account_id, taskId: t.id, taskName: t.name, kind: 'reward', by, note: [rw.text, rw.cp && `${rw.cp / 100} gp`, rw.item && `${rw.qty} × ${rw.item}`, note].filter(Boolean).join(' · ') });
     });
-    if (rw.cp) hub.emit(w, 'coin', { owner: t.account_id }, dmAnd(t.account_id));
-    if (rw.item) hub.emit(w, 'item', { owner: t.account_id }, dmAnd(t.account_id));
+    // A group task's reward goes to the party pouch and stash (owner 'party'), which every player sees.
+    const aud = t.account_id === PARTY ? everyone : dmAnd(t.account_id);
+    if (rw.cp) hub.emit(w, 'coin', { owner: t.account_id }, aud);
+    if (rw.item) hub.emit(w, 'item', { owner: t.account_id }, aud);
     try { postChat(d, w, 'table', by, 'dm', `🏁 ${nm} finished **${t.name}**${hasReward(rw) ? `: ${[rw.text, rw.cp && `${rw.cp / 100} gp`, rw.item && `${rw.qty > 1 ? `${rw.qty} × ` : ''}${rw.item}`].filter(Boolean).join(', ')}` : ''}`); } catch { /* no session running: the log has it */ }
     changed(w, t.account_id);
     return taskRow(db, w, t.id);
@@ -274,7 +312,7 @@ function routes(d: Deps) {
     if (!row || row.status !== 'done' || row.reward_given_at) return;
     const rw = checkReward(parseJson(row.reward, {}));
     if (hasReward(rw) && featureSetting<boolean>(worldSettings(db, w), 'downtimeAutoReward') === true) giveReward(w, row, row.created_by ?? me0(w), 'given at once');
-    hub.emit(w, 'downtime-done', { accountId: row.account_id, taskId: row.id, name: row.name }, dmAnd(row.account_id));
+    hub.emit(w, 'downtime-done', { accountId: row.account_id, taskId: row.id, name: row.name, group: isGroup(row) }, isGroup(row) ? everyone : dmAnd(row.account_id));
   }
   const me0 = (w: string) => one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' LIMIT 1", w)?.account_id ?? null;
 
@@ -283,11 +321,11 @@ function routes(d: Deps) {
   r.get('/log', (req, res) => {
     guestNo(res);
     const w = W(res);
-    const nm = names(db, w);
+    const nm = nameMap(w);
     const aid = whose(res, req.query.player);
     const where = ['world_id = ?'];
     const args: unknown[] = [w];
-    if (aid) { where.push('account_id = ?'); args.push(aid); }
+    if (aid) { where.push("(account_id = ? OR task_id IN (SELECT id FROM downtime_tasks WHERE world_id = ? AND scope = 'group'))"); args.push(aid, w); }
     if (typeof req.query.task === 'string' && req.query.task) { where.push('task_id = ?'); args.push(req.query.task); }
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
     const rows = all<any>(db, `SELECT * FROM downtime_log WHERE ${where.join(' AND ')} ORDER BY at DESC, rowid DESC LIMIT ?`, ...args, limit);
@@ -303,7 +341,7 @@ function routes(d: Deps) {
 
   // ---- rounds: the Downtime button ----
 
-  const roundView = (res: Response, round: any) => roundOut(db, W(res), round, viewer(res), names(db, W(res)), players(W(res)));
+  const roundView = (res: Response, round: any) => roundOut(db, W(res), round, viewer(res), nameMap(W(res)), players(W(res)));
 
   r.get('/rounds/current', (_req, res) => {
     if (ctx(res).viewer.role === 'guest') return res.json({ round: null });
@@ -359,7 +397,7 @@ function routes(d: Deps) {
         if (!ref.activityId && !ref.activity) throw new HttpError(400, 'Each pick needs a taskId, an activityId or a new activity');
         // Starting an activity already on this character's list just works on it.
         const act = ref.activityId ? findActivity(res, aid, ref.activityId) : null;
-        const have = act ? listTasks(db, w, { accountId: aid, open: true }).find((x) => x.activity_id === act.id) : null;
+        const have = act ? listTasks(db, w, { accountId: act.group ? PARTY : aid, open: true }).find((x) => x.activity_id === act.id && x.status !== 'done') : null;
         if (have) tid = have.id;
         else { const row = await start(res, isDM(res) ? ref : { activityId: ref.activityId, activity: ref.activity }); made.push(row); tid = row.id; }
       }
@@ -415,7 +453,7 @@ function routes(d: Deps) {
     need(res);
     const w = W(res);
     const aid = isDM(res) ? findPlayer(d, w, req.body?.player) : me(res);
-    const mine = listTasks(db, w, { accountId: aid, open: true });
+    const mine = listTasks(db, w, { accountId: aid, open: true, withGroup: true });
     const busy = new Set(mine.map((x) => x.activity_id));
     const options = offer(res, aid).filter((a) => a.status === 'ok' && (a.repeatable || !busy.has(a.id)));
     const ch = one<any>(db, "SELECT m.character_name, c.class, c.level FROM members m LEFT JOIN spells_chars c ON c.world_id = m.world_id AND c.account_id = m.account_id WHERE m.world_id = ? AND m.account_id = ?", w, aid);
@@ -456,7 +494,7 @@ const feature: Feature = {
   houseRules: ['downtime'],
   mcpTools: [
     {
-      name: 'downtime', description: "DownTime (downtime activities): each character's unfinished tasks with progress, tier, time left and reward, and the open Downtime round with who has picked. The DM sees everyone (or one player); a player sees their own.",
+      name: 'downtime', description: "DownTime (downtime activities): each character's personal tasks and the party's shared group tasks (scope personal|group, members, each one's share) with progress, tier, time left and reward, and the open Downtime round with who has picked. The DM sees everyone (or one player); a player sees their own.",
       props: { player: P('DM: one player (name or id)'), all: { type: 'boolean', description: 'Include finished and removed tasks' } },
       call: (a) => ({ method: 'GET', path: `/downtime?${[a.player && `player=${enc(a.player)}`, a.all && 'all=1'].filter(Boolean).join('&')}` }),
     },
@@ -478,8 +516,8 @@ const feature: Feature = {
     {
       name: 'downtime_start', playerOnly: true,
       description: 'Start one of your own downtime tasks: an activity by id or name, or a new activity { name, summary } (its tier is decided for you; the DM may need to approve it).',
-      props: { activityId: P('Activity id or name'), activity: { type: 'object', description: '{ name, summary } for a new activity' } },
-      call: (a) => ({ method: 'POST', path: '/downtime/tasks', body: { activityId: a.activityId, activity: a.activity } }),
+      props: { activityId: P('Activity id or name'), activity: { type: 'object', description: '{ name, summary } for a new activity' }, group: { type: 'boolean', description: 'A group activity the whole party shares (you join it)' } },
+      call: (a) => ({ method: 'POST', path: '/downtime/tasks', body: { activityId: a.activityId, activity: a.activity, group: a.group } }),
     },
     {
       name: 'downtime_pick', playerOnly: true,
@@ -489,9 +527,8 @@ const feature: Feature = {
     },
     {
       name: 'downtime_assign', write: true, dmOnly: true,
-      description: 'Give a player a downtime task: an activity (id or name) or a new one { name, summary, tier (common|uncommon|rare|very-rare|legendary), days?, hoursPerDay? }, with an optional reward { text, gp, item, qty, hidden } and a private DM note.',
-      props: { player: P('Player name or id'), activityId: P('Activity id or name'), activity: { type: 'object' }, reward: { type: 'object' }, dmNote: P('Only the DM sees it'), save: { type: 'boolean', description: 'Also add a new activity to the world\'s list' } },
-      required: ['player'],
+      description: 'Give a player (or, with group: true, the whole party) a downtime task: an activity (id or name) or a new one { name, summary, tier (common|uncommon|rare|very-rare|legendary), days?, hoursPerDay? }, with an optional reward { text, gp, item, qty, hidden } and a private DM note.',
+      props: { player: P('Player name or id (leave out with group: true for the whole party)'), group: { type: 'boolean', description: 'A group task: the party shares its progress and the reward goes to the party pouch' }, activityId: P('Activity id or name'), activity: { type: 'object' }, reward: { type: 'object' }, dmNote: P('Only the DM sees it'), save: { type: 'boolean', description: 'Also add a new activity to the world\'s list' } },
       call: (a) => ({ method: 'POST', path: '/downtime/tasks', body: a }),
     },
     {
@@ -504,9 +541,9 @@ const feature: Feature = {
     {
       name: 'downtime_work', write: true, dmOnly: true,
       description: 'Log downtime work done outside a Downtime round (e.g. "Mira spent 3 days crafting"). Finishes the task when its time is done.',
-      props: { task: P('Task id or name'), player: P('Whose task'), days: { type: 'number' }, hours: { type: 'number' }, note: P('Note') },
+      props: { task: P('Task id or name'), player: P('Whose task'), worker: P('On a group task: the player who did the work'), days: { type: 'number' }, hours: { type: 'number' }, note: P('Note') },
       required: ['task'],
-      call: (a) => ({ method: 'POST', path: `/downtime/tasks/${enc(a.task)}/work`, body: { player: a.player, days: a.days, hours: a.hours, note: a.note } }),
+      call: (a) => ({ method: 'POST', path: `/downtime/tasks/${enc(a.task)}/work`, body: { player: a.player, worker: a.worker, days: a.days, hours: a.hours, note: a.note } }),
     },
     {
       name: 'downtime_update', write: true, dmOnly: true,
