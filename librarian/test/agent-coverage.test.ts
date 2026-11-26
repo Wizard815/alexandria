@@ -279,6 +279,7 @@ const ARGS: Record<string, Maker> = {
   hide_map_mark: async () => ({ markId: await mark('A'), hidden: true }),
   delete_map_mark: async () => ({ markId: await mark('B') }),
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
+  change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   add_recall: async () => ({ personId: await person(), accountId: ID.jess, text: 'Jessamine knew him as a child.', success: true }),
   resolve_quick_event: async () => ({ id: await quickEvent('resolve') }),
   cancel_quick_event: async () => ({ id: await quickEvent('cancel') }),

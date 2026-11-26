@@ -12,6 +12,7 @@ import { featureSetting, type Viewer, type WorldSettings } from '../core/policy.
 import { HttpError, id, int, now, parseJson, str } from '../core/util.ts';
 import { applyDamage, applyHeal, gainTempHp, isDying, rollDeathSave, syncDeathTags, tickEffects, type Concentration, type DeathSaves, type Effect, type Fighter } from '../core/combatRules.ts';
 import { rollMonsterInitiative } from '../features/modules/search.ts';
+import { fromCombat, seedForCombat } from '../features/sheet/vitals.ts';
 import { ctx, isDM, me, memberIds, readerFor, settings } from './_shared.ts';
 
 export default function liveRoutes(d: Deps) {
@@ -168,6 +169,9 @@ export default function liveRoutes(d: Deps) {
       }
     }
     const x = { id: id('cb_'), name: nm, initiative: int(b.initiative, 'initiative', { min: -20, max: 60, optional: true }), hp: int(b.hp, 'hp', { min: -999, max: 99999, optional: true }), max_hp: int(b.maxHp, 'maxHp', { min: 0, max: 99999, optional: true }) };
+    // A player's character with no numbers given starts from the HP on their sheet (features/sheet).
+    const seed = acc && x.hp === null && x.max_hp === null && b.tempHp === undefined ? seedForCombat(db, c.world.id, acc) : null;
+    if (seed) { x.hp = seed.hp; x.max_hp = seed.maxHp; }
     // No initiative given for a monster: roll d20 plus Dexterity when its rules statblock is known (or `roll` asks for a plain d20).
     let rolled: { d20: number; dex: number | null; total: number } | undefined;
     if (x.initiative === null && !acc) {
@@ -179,7 +183,8 @@ export default function liveRoutes(d: Deps) {
     const sbPage = b.statblockPage ? str(b.statblockPage, 'statblockPage', { max: 80 }) : null;
     const eff = normEffects(b.effects, { ids: combatantIds(c.world.id), selfId: x.id, currentId: null, existing: [] });
     run(db, 'INSERT INTO combatants (id, world_id, name, account_id, is_pc, initiative, hp, max_hp, effects, hidden, ac, statblock_page, temp_hp, concentration, death_saves) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', x.id, c.world.id, x.name, acc, acc ? 1 : 0, x.initiative ?? 0, x.hp, x.max_hp ?? x.hp, JSON.stringify(eff), b.hidden ? 1 : 0, ac, sbPage,
-      b.tempHp !== undefined ? int(b.tempHp, 'tempHp', { min: 0, max: 99999 }) : 0, jsonOrNull(b.concentration === undefined ? null : concInput(b.concentration)), jsonOrNull(deathInput(b.deathSaves)));
+      b.tempHp !== undefined ? int(b.tempHp, 'tempHp', { min: 0, max: 99999 }) : seed?.tempHp ?? 0, jsonOrNull(b.concentration === undefined ? null : concInput(b.concentration)), jsonOrNull(deathInput(b.deathSaves)));
+    if (acc && !seed && (x.hp !== null || x.max_hp !== null) && fromCombat(db, c.world.id, acc, { hp: x.hp, maxHp: x.max_hp ?? x.hp, tempHp: b.tempHp !== undefined ? Number(b.tempHp) : 0 }, me(res), 'Joined combat')) d.hub.emit(c.world.id, 'sheet', { accountId: acc }, dmAnd(acc));
     pushCombat(res);
     res.status(201).json({ id: x.id, initiative: x.initiative ?? 0, ...(rolled ? { rolled } : {}) });
   });
@@ -253,6 +258,11 @@ export default function liveRoutes(d: Deps) {
       b.hidden !== undefined ? (b.hidden ? 1 : 0) : x.hidden,
       b.ac !== undefined ? int(b.ac, 'ac', { min: 0, max: 99 }) : x.ac ?? null,
       f.tempHp, jsonOrNull(f.concentration), jsonOrNull(f.deathSaves), x.id);
+    // A player's HP, max HP and temporary HP go to their sheet too, and into its log.
+    if (isPc) {
+      const maxHp = b.maxHp !== undefined ? int(b.maxHp, 'maxHp', { min: 0, max: 99999 }) : x.max_hp;
+      if (fromCombat(db, c.world.id, x.account_id, { hp, maxHp, tempHp: f.tempHp }, me(res), notes.length ? `Combat: ${notes.join('; ')}`.slice(0, 200) : 'Combat tracker')) d.hub.emit(c.world.id, 'sheet', { accountId: x.account_id }, dmAnd(x.account_id));
+    }
     const removed = fell && featureSetting<boolean>(settings(res), 'combatRemoveDefeated') === true;
     if (removed) run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', x.id, c.world.id);
     pushCombat(res);
