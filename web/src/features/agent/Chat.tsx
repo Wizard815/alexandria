@@ -14,7 +14,7 @@ import { buzz } from '../dmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
 import { AutoSwitch, ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
 import { PREFILL_EVENT, takePrefill } from './prefill.ts';
-import { ChatNav, rememberView, rememberedView, type ChatView, type TreeTools } from './ChatTree.tsx';
+import { ChatNav, rememberView, rememberedView, type ChatNote, type ChatView, type TreeTools } from './ChatTree.tsx';
 import './agent.css';
 
 export { linkCitations } from './ChatParts.tsx';
@@ -296,9 +296,14 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   const move = (id: string, folder: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { folder }); refreshList(); });
   const renameFolder = (from: string, to: string) => run(async () => { await w.call('POST', '/agent/chats/folders/rename', { from, to, ...(mode ? { mode } : {}) }); refreshList(); });
   const rename = (id: string, title: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { title }); setRenaming(null); refreshList(); });
-  const remove = () => run(async () => {
+  // Throwaway chats: tossing deletes the chat and keeps a note of what it made, which later chats are handed.
+  const [notes, setNotes] = useState<ChatNote[]>([]);
+  const loadNotes = useCallback(() => { if (!template) w.call<{ notes: ChatNote[] }>('GET', `/agent/notes${mode ? `?mode=${mode}` : ''}`).then((r) => setNotes(r.notes ?? [])).catch(() => {}); }, [w, mode, template]);
+  useEffect(() => { loadNotes(); }, [loadNotes]);
+  const forget = (id: string) => run(async () => { await w.call('DELETE', `/agent/notes/${id}`); loadNotes(); });
+  const remove = (toss = false) => run(async () => {
     if (!chat) return;
-    await w.call('DELETE', `/agent/chats/${chat.id}`);
+    if (toss) { await w.call('POST', `/agent/chats/${chat.id}/toss`, {}); loadNotes(); } else await w.call('DELETE', `/agent/chats/${chat.id}`);
     setConfirmDel(false);
     const rest = [...list, ...tplList].filter((c) => c.id !== chat.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     if (rest[0]) await open(rest[0].id); else { remember(key, ''); setChat(null); setLive(null); }
@@ -366,8 +371,8 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   const working = !!chat?.busy;
   const focusInput = () => (box.current ?? document.querySelector<HTMLTextAreaElement>('[data-ag-input]'))?.focus();
   const addText = (t: string) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); focusInput(); };
-  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh(), titleOf: (id: string) => [...list, ...tplList].find((c) => c.id === id)?.title ?? '' };
-  const tree: TreeTools = { view, setView, inSession, templates: tplList, templateNames: tplNames, freshIn: (f) => void fresh(f), move: (id, f) => void move(id, f), renameFolder: (a, b) => void renameFolder(a, b) };
+  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), toss: () => void remove(true), fresh: () => void fresh(), titleOf: (id: string) => [...list, ...tplList].find((c) => c.id === id)?.title ?? '' };
+  const tree: TreeTools = { view, setView, inSession, templates: tplList, templateNames: tplNames, freshIn: (f) => void fresh(f), move: (id, f) => void move(id, f), renameFolder: (a, b) => void renameFolder(a, b), notes, forget: (id) => void forget(id) };
   // One template's chats are few and short-lived: the plain dropdown is enough there.
   const nav = (ph?: boolean) => (template ? <ChatSwitcher phone={ph} s={switcher} /> : <ChatNav s={switcher} t={tree} phone={ph} recent={<ChatSwitcher phone={ph} s={switcher} />} />);
   const dmCards = harness === 'dm' && isDM;

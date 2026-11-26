@@ -22,7 +22,7 @@ import { think } from '../active/thoughts.ts';
 import { speakable } from './speakable.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
 import { tryChatCommand } from '../active/commands.ts';
-import { addMessage, actionView, chatFolder, chatView, newChat, ownChat, SCHEMA } from './store.ts';
+import { addMessage, actionView, chatFolder, chatNotes, chatView, newChat, ownChat, SCHEMA, tossChat } from './store.ts';
 import { researchNote } from '../templates/web.ts';
 import { getTemplate } from '../templates/store.ts';
 import { buildStatblock, mod, normalizeStatblock, rollInitiative, saveStatblockPage, statblockFromBody, type Statblock } from './statblock.ts';
@@ -111,6 +111,24 @@ function routes(d: import('../../app.ts').Deps) {
     }
     if (req.body?.folder !== undefined) run(d.db, 'UPDATE agent_chats SET folder = ? WHERE id = ?', chatFolder(req.body.folder), c.id);
     res.json(chatView(d.db, c.id));
+  });
+  // Throwaway chats: toss one (a note of what it made is kept for later chats), see the notes, forget one.
+  r.post('/chats/:id/toss', (req, res) => {
+    caller(req, res);
+    const c = ownChat(d.db, W(res), me(res), String(req.params.id));
+    if (!c) throw new HttpError(404, 'Chat not found');
+    res.json({ note: tossChat(d.db, c.id) });
+  });
+  r.get('/notes', (req, res) => {
+    const c = caller(req, res);
+    res.json({ notes: chatNotes(d.db, c.worldId, c.accountId, c.harness, req.query.mode === 'helper' ? 'helper' : '') });
+  });
+  r.delete('/notes/:nid', (req, res) => {
+    const c = caller(req, res);
+    const n = one<any>(d.db, 'SELECT id FROM agent_chat_notes WHERE id = ? AND world_id = ? AND account_id = ?', String(req.params.nid), c.worldId, c.accountId);
+    if (!n) throw new HttpError(404, 'Note not found');
+    run(d.db, 'DELETE FROM agent_chat_notes WHERE id = ?', n.id);
+    res.json({ ok: true });
   });
   r.delete('/chats/:id', (req, res) => {
     const c = ownChat(d.db, W(res), me(res), String(req.params.id));
