@@ -41,12 +41,31 @@ try {
   await card.getByRole('button', { name: 'Ask', exact: true }).click();
   await page.getByTestId('quick-handoff').waitFor({ timeout: 30000 }).catch(() => problems.push('a who question did not hand off'));
   await page.screenshot({ path: path.join(out, '2-quick-help-handoff.png') });
-  await page.getByTestId('quick-handoff').getByRole('button', { name: 'Ask the broker' }).click();
+  await page.getByTestId('quick-handoff').getByRole('button', { name: 'Talk to the broker instead' }).click();
   await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some((t) => t.value.includes('Who secretly runs the harbour?')), null, { timeout: 8000 })
     .catch(() => problems.push("the broker's box did not get the question"));
   check(await page.getByTestId('ask-broker').getAttribute('aria-selected') === 'true', 'the hand-off should switch to the broker');
   await page.screenshot({ path: path.join(out, '3-handed-to-broker.png') });
   note('a who question went to the broker, with the question in its box');
+
+  // ---- the same kind of question, sent to the broker in the background ----
+  await page.getByTestId('ask-helper').click();
+  await page.getByTestId('quick-help').getByLabel('Quick question').fill('Who rules the lighthouse?');
+  await page.getByTestId('quick-help').getByRole('button', { name: 'Ask', exact: true }).click();
+  await page.getByTestId('quick-broker').waitFor({ timeout: 30000 }).catch(() => problems.push('no background broker offer'));
+  await page.getByTestId('quick-broker').getByRole('button', { name: 'Ask the broker' }).click({ timeout: 10000 });
+  await page.getByTestId('quick-broker-pay').or(page.getByTestId('quick-broker-done')).first().waitFor({ timeout: 30000 }).catch(() => problems.push('the broker gave no price'));
+  await page.screenshot({ path: path.join(out, '5-broker-price.png') });
+  if (await page.getByTestId('quick-broker-pay').count()) await page.getByTestId('quick-broker-pay').click();
+  await page.getByTestId('quick-broker-done').waitFor({ timeout: 30000 }).catch(() => problems.push('the background question was not sent'));
+  await page.screenshot({ path: path.join(out, '6-broker-sent.png') });
+  note('a question went to the broker in the background');
+
+  // ---- the story so far ----
+  await page.getByTestId('quick-recap').click();
+  await page.getByTestId('quick-answer').waitFor({ timeout: 90000 }).catch(() => problems.push('"Story so far" gave no answer'));
+  await page.screenshot({ path: path.join(out, '7-story-so-far.png') });
+  note('Story so far answered');
 
   const phone = await signIn(browser, base, 'tom', 'player pass 123', { width: 390, height: 844 }, true);
   await phone.page.goto(`${W}/assistant`);
