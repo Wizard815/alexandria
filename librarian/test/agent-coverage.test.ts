@@ -332,6 +332,8 @@ const ARGS: Record<string, Maker> = {
   house_rule_record_act: async () => ({ mod: await coverageSystem(), action: 'note', values: { text: 'The tide turns at dusk' }, note: 'coverage' }),
   house_rule_prompt: async () => ({ mod: await coverageSystem(), prompt: 'day' }),
   house_rule_my_record: async () => ({ mod: await coverageSystem(), action: 'start', values: { what: 'Mend nets' } }),
+  house_rule_file: () => ({ mod: 'hero-points' }),
+  house_rule_guide: () => ({ part: 'data' }),
   house_rule_save: () => ({ mod: { kit: 1, id: 'coverage-points', name: 'Coverage points', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] } }),
 };
 
@@ -377,6 +379,7 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['add a pin on the map', ['add_map_mark']],
     ['give Jess a personal reroll for that speech', ['house_rule_grant']],
     ['write a house rule for hero points', ['house_rule_check', 'house_rule_save']],
+    ['make me a downtime mod for my table', ['house_rule_guide', 'house_rule_file', 'house_rule_check']],
     ['start a downtime day for the party', ['house_rule_prompt']],
     ['take two days off Jess\'s downtime task', ['house_rule_record_act', 'house_rule_records']],
   ] as const) {

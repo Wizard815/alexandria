@@ -55,6 +55,7 @@ import { applyGuides } from '../templates/guides.ts';
 import { webPrecheck } from '../templates/web.ts';
 import { setGuideNotes } from './store.ts';
 import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
+import { saveProblem } from '../mods/drafts.ts';
 import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
@@ -129,6 +130,14 @@ export function describeCall(tool: string, a: any): string {
     }
     case 'create_dm_template': return `Save the ${n(a.kind || 'guide')} template "${n(a.name)}"${Array.isArray(a.triggers) && a.triggers.length ? ` (used for: ${a.triggers.slice(0, 6).join(', ')})` : ''}`;
     case 'update_dm_template': return `Update the template "${n(a.id)}"${a.enabled === false ? ' (turn it off)' : a.enabled === true ? ' (turn it on)' : ''}`;
+    case 'house_rule_save': {
+      const m = a.mod && typeof a.mod === 'object' ? a.mod : null;
+      const many = Array.isArray(m?.mods) ? m.mods.length : 0;
+      return a.draft ? `Save the checked house rule ${n(String(a.draft).replace(/-[a-z0-9]{5}$/, ''))} (it starts off)` : many ? `Save ${many} house rules from the package ${n(m.name)} (they start off)` : `Save the house rule ${n(m?.name ?? m?.id)} (it starts off)`;
+    }
+    case 'house_rule_grant': return `${n(a.action ?? 'grant')} ${a.resource ? `${n(a.resource)} ` : ''}(${n(a.mod)}) for ${n(a.player)}${a.note ? `: ${n(a.note).slice(0, 80)}` : ''}`;
+    case 'house_rule_record_act': return `${n(a.mod)}: ${n(a.action)}${a.recordId ? ` on ${n(a.recordId)}` : ''}${a.player ? ` for ${n(a.player)}` : ''}${a.amount !== undefined ? ` (${n(a.amount)})` : ''}${a.values ? ` ${JSON.stringify(a.values).slice(0, 80)}` : ''}`;
+    case 'house_rule_prompt': return `Open ${n(a.prompt)} (${n(a.mod)}) for every player`;
     default: return describeMinerva(tool, a) ?? `Run ${tool} ${JSON.stringify(a ?? {}).slice(0, 200)}`;
   }
 }
@@ -650,6 +659,7 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
     if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
     // A web search that would not run (off, or a query with a DM-only or classified word) never becomes a card: nothing is sent.
+    if (name === 'house_rule_save') { const why = saveProblem(c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (name === 'web_research') { const why = webPrecheck(d, c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (tool.write && !auto(name)) {
       // The same change already waiting in this chat (a model that repeats itself, or a retry) is not a second card.

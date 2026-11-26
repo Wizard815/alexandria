@@ -552,3 +552,71 @@ test('Mods: a data system runs: seeds, record actions with who may, a DM prompt,
   await ok('DELETE', `${M()}/downtime-lite`, T.dm);
   assert.equal(all(db, "SELECT 1 FROM mod_records WHERE mod_id = 'downtime-lite'").length, 0, 'removing the rule removes its records');
 });
+
+test('Mods: the Mod studio guide covers every part, and every rule shipped or in the examples reads back as a file that checks', async () => {
+  const start = await ok('GET', `${M()}/guide`, T.dm);
+  assert.match(start.text, /house_rule_check/);
+  assert.match(start.text, /downtime-lite/);
+  for (const part of ['counters', 'data', 'presets', 'manifest']) {
+    const g = await ok('GET', `${M()}/guide?part=${part}`, T.dm);
+    assert.equal(g.part, part);
+    assert.ok(g.text.length > 400, part);
+  }
+  assert.match((await ok('GET', `${M()}/guide?part=presets`, T.dm)).text, /sheetRerolls: false/);
+  assert.equal((await call('GET', `${M()}/guide`, T.jess)).status, 403);
+  const ids = [...shippedMods().map((s) => s.mod.id), 'hero-points', 'downtime-lite'];
+  for (const id of ids) {
+    const f = await ok('GET', `${M()}/${id}/file`, T.dm);
+    const back = checkMod(f.file);
+    assert.deepEqual(back.errors, [], id);
+    const c = await ok('POST', `${M()}/check`, T.dm, { mod: f.file });
+    assert.equal(c.ok, true, id);
+    assert.ok(c.preview.length > 0, `${id} has a preview`);
+  }
+  assert.equal((await call('GET', `${M()}/nope/file`, T.dm)).status, 404);
+});
+
+test('Mods: the check preview tells the DM what a rule does in plain words', async () => {
+  const dl = (await ok('GET', `${M()}/downtime-lite/file`, T.dm)).file;
+  const p: string[] = (await ok('POST', `${M()}/check`, T.dm, { mod: { ...dl, id: 'studio-downtime' } })).preview;
+  const all = p.join('\n');
+  assert.match(all, /Keeps a list of Activities: .*starts with 5 ready-made/);
+  assert.match(all, /Keeps a list of Tasks \(each player has their own\)/);
+  assert.match(all, /The DM gets a Downtime button: every player is asked "How do you spend the day\?" with Keep working \/ Start something \/ Skip the day/);
+  assert.match(all, /Each A downtime day \(for players who did not skip\): \+1 done on each task; done when it reaches its goal/);
+  assert.match(all, /The DM can Add or take days: add or take done on a task/);
+  const hp = (await ok('GET', `${M()}/hero-points/file`, T.dm)).file;
+  const h: string[] = (await ok('POST', `${M()}/check`, T.dm, { mod: { ...hp, id: 'studio-hero' } })).preview;
+  assert.ok(h.some((l) => /^Each player has Hero point \(starts at 1, at most 3 \(option max\)\)/.test(l)), h.join('\n'));
+  assert.ok(h.some((l) => /^At the start of a session: Hero point \+1/.test(l)), h.join('\n'));
+  assert.ok(h.some((l) => l === 'Chat word /hero runs spend'), h.join('\n'));
+});
+
+test('Mods: a checked draft saves exactly the checked file; an unknown draft says to check again', async () => {
+  const hp = (await ok('GET', `${M()}/hero-points/file`, T.dm)).file;
+  const c = await ok('POST', `${M()}/check`, T.dm, { mod: { ...hp, id: 'draft-hero', name: 'Draft hero' } });
+  assert.match(c.draft, /^draft-hero-[a-z0-9]{1,5}$/);
+  const saved = await ok('POST', `${M()}/import`, T.dm, { draft: c.draft });
+  assert.equal(saved.id, 'draft-hero');
+  assert.equal(saved.enabled, false);
+  const bad = await call('POST', `${M()}/import`, T.dm, { draft: 'draft-hero-zzzzz' });
+  assert.equal(bad.status, 404);
+  assert.match(bad.body.error, /house_rule_check/);
+  assert.equal((await call('POST', `${M()}/import`, T.jess, { draft: c.draft })).status, 403);
+  await ok('DELETE', `${M()}/draft-hero`, T.dm);
+});
+
+test('Mods: chat text in a data system names real fields; {kind.field} is the record\'s own field and {name} the player', async () => {
+  const proj = (chat: string) => ({ kit: 2, id: 'studio-projects', name: 'Projects',
+    records: { project: { label: 'Project', owned: true, fields: { name: 'text', done: { type: 'int', default: 0 }, goal: 'int' } } },
+    recordActions: [{ id: 'start', label: 'Start', by: 'owner', record: 'project', do: 'create', ask: ['name', 'goal'], effect: { chat } }] });
+  assert.deepEqual(checkMod(proj('{name} starts {project.name} ({goal} days, {title})')).errors, []);
+  assert.match(checkMod(proj('{name} starts {bogus}')).errors.join('\n'), /\{bogus\} is not a field of project/);
+  assert.match(checkMod(proj('{name} starts {task.name}')).errors.join('\n'), /task is not a ref field of project/);
+  await ok('POST', `${M()}/import`, T.dm, { mod: proj('{name} starts {project.name} ({goal} days, {title})') });
+  await ok('PUT', `${M()}/studio-projects/enabled`, T.dm, { on: true });
+  await ok('POST', `${M()}/studio-projects/records/start`, T.jess, { values: { name: 'Iron sword', goal: 4 } });
+  const said = (await ok('GET', `${CH()}/chat/table`, T.dm)).messages.map((x: any) => x.body).join('\n');
+  assert.match(said, /Jessamine starts Iron sword \(4 days, Iron sword\)/);
+  await ok('DELETE', `${M()}/studio-projects`, T.dm);
+});
