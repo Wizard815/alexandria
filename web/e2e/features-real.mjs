@@ -4,6 +4,7 @@
 // player's helper never repeats another player's DM note. No browser.
 // Skipped unless FEATURES_REAL=1 (it calls paid models through OpenRouter; a run costs well under a cent). Run from web/:
 //   NODE_USE_ENV_PROXY=1 FEATURES_REAL=1 node e2e/features-real.mjs
+import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { root, startScript, tmpDir } from './lib.mjs';
@@ -46,8 +47,8 @@ try {
   await j('POST', `${P}/lights/scenes`, dm, { name: 'Candlelight', color: '#ff9933', brightness: 40 });
   await j('POST', `${P}/sheet/${tomId}/dm-notes`, dm, { kind: 'note', text: 'Your brother Edric is alive and hiding in Saltmarsh.' });
 
-  const ask = async (tok, text) => {
-    const chat = (await j('POST', `${P}/agent/chats`, tok, {})).x;
+  const ask = async (tok, text, mode) => {
+    const chat = (await j('POST', `${P}/agent/chats`, tok, mode ? { mode } : {})).x;
     const since = new Date().toISOString();
     await j('POST', `${P}/agent/chats/${chat.id}/messages`, tok, { text });
     let c;
@@ -58,7 +59,7 @@ try {
     }
     const used = db.prepare(`SELECT detail FROM audit WHERE action IN ('agent.read', 'agent.propose', 'agent.action') AND at >= ? ORDER BY rowid`).all(since).map((r) => String(r.detail).split(' ')[0]);
     const reply = c.messages.filter((m) => m.role === 'assistant').at(-1)?.text ?? '';
-    return { used: [...new Set([...used, ...c.actions.map((a) => a.tool)])], reply };
+    return { used: [...new Set([...used, ...c.actions.map((a) => a.tool)])], reply, actions: c.actions };
   };
 
   // The DM's assistant: one prompt per feature, and the tools that would serve it.
@@ -80,6 +81,51 @@ try {
     const hit = want.some((t) => r.used.includes(t));
     rows.push({ who: 'DM', feature, hit, used: r.used.join(', ') || '(none)' });
     if (!hit) problems.push(`DM, ${feature}: wanted ${want.join(' or ')}, used ${r.used.join(', ') || 'nothing'}`);
+  }
+
+  // Map vision: a dungeon map on the table screen with the fog on; "open the crypt" should look at the map, then uncover the
+  // crypt's box (left 60 to 92, top 10 to 43 on the 0 to 100 grid). And a text-only model is refused before any picture is sent.
+  {
+    const up = await fetch(`${base}${P}/files?name=dungeon.png&kind=map&title=Dungeon`, { method: 'POST', headers: { Authorization: `Bearer ${dm}`, 'Content-Type': 'image/png' }, body: fs.readFileSync(path.join(root, 'web/e2e/fixtures/dungeon-map.png')) });
+    const f = await up.json();
+    const pic = `lib:${f.id ?? f.file?.id}`;
+    await j('PUT', `${P}/fog/table`, dm, { mapId: 'world', pic });
+    await j('PUT', `${P}/fog/map/world/enabled`, dm, { pic, enabled: true });
+    const sees = (await j('GET', `${P}/fog/vision`, dm)).x;
+    rows.push({ who: 'DM', feature: 'Vision check', hit: sees.sees === 'yes', used: sees.why });
+    if (sees.sees !== 'yes') problems.push(`DM, vision check: ${sees.why}`);
+    const r = await ask(dm, 'Open the crypt for the players.');
+    const rv = r.actions.find((a) => a.tool === 'reveal_fog');
+    const a = rv?.args ?? {};
+    const cx = a.shape === 'rect' ? Number(a.x) + Number(a.w) / 2 : Number(a.x), cy = a.shape === 'rect' ? Number(a.y) + Number(a.h) / 2 : Number(a.y);
+    const inCrypt = !!rv && cx >= 60 && cx <= 92 && cy >= 10 && cy <= 43;
+    rows.push({ who: 'DM', feature: 'Map vision + fog', hit: r.used.includes('look_at_map') && inCrypt, used: `${r.used.join(', ')} ${rv ? JSON.stringify(a) : '(no reveal)'}` });
+    if (!(r.used.includes('look_at_map') && inCrypt)) problems.push(`DM, map vision: used ${r.used.join(', ')}, reveal ${JSON.stringify(a)}`);
+    // A text-only model on Map vision: refused, and nothing is sent.
+    await j('PUT', '/api/admin/models', admin, { jobs: { vision: job('tencent/hy-mt2-7b') } });
+    const blind = (await j('GET', `${P}/fog/vision`, dm)).x;
+    const refused = (await j('POST', `${P}/fog/look`, dm, {})).s === 409;
+    rows.push({ who: 'DM', feature: 'Blind model refused', hit: blind.sees === 'no' && refused, used: blind.why });
+    if (!(blind.sees === 'no' && refused)) problems.push(`DM, blind model: ${blind.sees} ${refused}`);
+    await j('PUT', '/api/admin/models', admin, { jobs: { vision: { enabled: false } } });
+  }
+
+  // The codex a player's helper reads: Fire Bolt known, Burning Hands ready, Scorching Ray needs Burning Hands too.
+  await j('PATCH', `${P}/settings`, dm, { spellCrafting: true, spellCraftApproval: 'dm' });
+  await j('POST', `${P}/spells/characters/${jessId}/known`, dm, { spell: 'Fire Bolt' });
+  await j('PUT', `${P}/spells/characters/${jessId}`, dm, { level: 3, abilities: { int: 14 } });
+  await j('POST', `${P}/spells/recipes`, dm, { result: 'Burning Hands', prereqs: ['Fire Bolt'] });
+  await j('POST', `${P}/spells/recipes`, dm, { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Burning Hands'], stats: { int: 13 } });
+  const HELPER_PROMPTS = [
+    ['Helper: codex', 'Which spells can I learn now, and what do I still need for Scorching Ray?', (s) => /burning hands/i.test(s) && /scorching ray/i.test(s)],
+    ['Helper: quests', 'What are my open quests and goals?', (s) => /keeper|new moon/i.test(s)],
+    ['Helper: to the broker', 'Who secretly controls the harbour council?', (s) => /broker/i.test(s)],
+  ];
+  for (const [feature, text, check] of HELPER_PROMPTS) {
+    const r = await ask(jess, text, 'helper');
+    const pass = check(r.reply);
+    rows.push({ who: 'Player', feature, hit: pass, used: r.reply.replace(/\s+/g, ' ').slice(0, 140) });
+    if (!pass) problems.push(`Player, ${feature}: ${r.reply.slice(0, 300)}`);
   }
 
   // A player's helper: their own sheet, and nothing of another player's.

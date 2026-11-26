@@ -73,7 +73,7 @@ export default function mcpServerRoutes(d: Deps) {
     if (!m) return rpcError(req.body?.id, -32001, 'This key no longer has a world', 401);
     const canWrite = auth.access === 'write' && m.role === 'dm';
     const ws = { ...DEFAULT_SETTINGS, ...parseJson(one<{ settings: string }>(d.db, 'SELECT settings FROM worlds WHERE id = ?', auth.keyWorldId)?.settings ?? '{}', {}) };
-    const tools = toolsFor(canWrite).filter((t) => (!t.playerOnly || m.role === 'player') && (!t.dmOnly || m.role === 'dm') && (m.role !== 'player' || !t.playerWhen || t.playerWhen(ws)));
+    const tools = toolsFor(canWrite).filter((t) => (!t.playerOnly || m.role === 'player') && (!t.dmOnly || m.role === 'dm') && (m.role !== 'player' || !t.playerWhen || t.playerWhen(ws)) && !t.selfAction);
 
     const msg = req.body;
     if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return rpcError(msg?.id, -32600, 'Invalid request', 400);

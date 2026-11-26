@@ -15,6 +15,7 @@ import { everyone } from '../../core/events.ts';
 import { compact, readFog, withoutLastStroke, type FogOp, type FogState } from '../../core/fog.ts';
 import { HttpError, now, str } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
+import { lookAtMap, visionCheck } from './vision.ts';
 
 const schema = `
 CREATE TABLE IF NOT EXISTS fog_layers (
@@ -149,6 +150,15 @@ const feature: Feature = {
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 
+    // ---- map vision: where the rooms of a map picture are (DM only: a picture can show what the fog still hides) ----
+    r.get('/vision', requireDM, async (_req, res) => res.json(await visionCheck(d)));
+    r.post('/look', requireDM, async (req, res) => {
+      const w = W(res);
+      const pic = req.body?.pic ? picKey(req.body.pic) : tableOf(d, w).pic;
+      if (!pic || pic === 'none') throw new HttpError(400, "Say which map picture (pic), or show one on the table screen first");
+      res.json({ pic, ...(await lookAtMap(d, w, pic, typeof req.body?.question === 'string' ? req.body.question : '')) });
+    });
+
     // Put a whole fog state back (a scene's saved fog, or an undo of one).
     r.put('/map/:mapId/state', requireDM, (req, res) => {
       const t = target(req, res);
@@ -169,6 +179,12 @@ const feature: Feature = {
       props: {}, call: () => ({ method: 'GET', path: '/fog/table' }),
     },
     {
+      name: 'look_at_map', dmOnly: true,
+      description: "DM: have the map vision model look at a map picture and list its rooms and areas with boxes (x, y, w, h from 0 to 100, the grid reveal_fog uses). Use it before reveal_fog when the DM names a room (\"open the crypt\"). Leave pic out for the picture on the table screen. Says plainly when the attached model cannot see pictures.",
+      props: { pic: { type: 'string', description: 'The map picture (from get_table_display); default the one on the table screen' }, question: { type: 'string', description: 'Something to look for, e.g. where is the crypt' } },
+      call: (a) => ({ method: 'POST', path: '/fog/look', body: { pic: a.pic, question: a.question } }),
+    },
+    {
       name: 'get_fog', dmOnly: true,
       description: "DM: the fog of war on one map picture: whether it is on and the areas uncovered or covered so far (x, y, r, w, h from 0 to 1). Leave mapId and pic out for what the table screen shows (see get_table_display).",
       props: { mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (from get_table_display; default 'none')" } },
@@ -183,7 +199,7 @@ const feature: Feature = {
     },
     {
       name: 'reveal_fog', write: true,
-      description: "DM: uncover (or cover again) part of a fogged map picture: a circle at x,y with radius r, a rectangle from x,y of size w by h, or all of it. Numbers are 0 to 100 across and down, the same grid as map marks, so you can uncover around a pin from list_map_marks. Fog must be on (set_fog).",
+      description: "DM: uncover (or cover again) part of a fogged map picture: a circle at x,y with radius r, a rectangle from x,y of size w by h, or all of it. Numbers are 0 to 100 across and down, the same grid as map marks, so you can uncover around a pin from list_map_marks or a room box from look_at_map (for a room, use shape rect with its x, y, w, h). Fog must be on (set_fog).",
       props: {
         mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (default 'none')" },
         shape: { type: 'string', enum: ['circle', 'rect', 'all'] },

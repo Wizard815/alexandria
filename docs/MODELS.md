@@ -17,6 +17,7 @@ a feature.
 | **voice** | Text to speech (Speak menu, narration) | `POST {base}/audio/speech` |
 | **extra** | Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
 | **rerank** | Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
+| **vision** (part of chat) | Map vision: reads a map picture and says where its rooms are, so the assistant uncovers fog in the right place (`look_at_map`, then `reveal_fog`). Not set: the DM assistant's model. Before a picture is sent, the provider's `/models` list is checked: Argos `capabilities.vision`, or an `image` input modality (OpenRouter). A model listed without image input is never sent a map, and the DM is told to attach one that can see (Hy4 Flash, Gemma 3, Qwen VL). | `POST {base}/chat/completions` with an `image_url` part |
 
 ### Providers
 

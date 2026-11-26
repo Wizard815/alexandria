@@ -282,6 +282,11 @@ const ARGS: Record<string, Maker> = {
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),
+  look_at_map: () => once('map-pic', async () => {
+    const r = await fetch(base + w('/files?name=dungeon.png&kind=map&title=Coverage%20dungeon'), { method: 'POST', headers: { Authorization: `Bearer ${T.dm}`, 'Content-Type': 'image/png' }, body: fs.readFileSync(path.join(import.meta.dirname, '../../web/e2e/fixtures/dungeon-map.png')) });
+    const f = await r.json() as any;
+    return `lib:${f.id ?? f.file?.id}`;
+  }).then((pic) => ({ pic, question: 'Where is the crypt?' })),
   reveal_fog: async () => { await once('fog-on', () => dm('PUT', '/fog/map/world/enabled', { pic: 'none', enabled: true })); return { shape: 'circle', x: 40, y: 50, r: 10 }; },
   set_fog: () => ({ enabled: true }),
   run_light_scene: () => once('light-scene', async () => (await dm('POST', '/lights/scenes', { name: 'Candlelight', color: '#ff9933', brightness: 40 })).name as string).then((scene) => ({ scene })),
@@ -363,6 +368,7 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['add a pin on the map', ['add_map_mark']],
     ['uncover the room around the shrine', ['reveal_fog']],
     ['set the lights to candlelight', ['run_light_scene']],
+    ['open the crypt for the players', ['look_at_map', 'reveal_fog']],
   ] as const) {
     const picked = selectTools(text, toolsFor(true).map((t) => t.name));
     for (const n of tools) assert.ok(picked.includes(n), `"${text}" offers ${n}: got ${picked.join(', ')}`);
@@ -483,6 +489,8 @@ test('Coverage: a player key over MCP lists and runs read tools only', async () 
   const listed = (await rpc('tools/list')).result.tools.map((t: any) => t.name);
   const writes = new Set(toolsFor(true).filter((t) => t.write).map((t) => t.name));
   assert.deepEqual(listed.filter((n: string) => writes.has(n)), []);
+  // A player's own action the in-app helper may take (selfAction) is not on a read-only key.
+  for (const t of allTools().filter((x) => x.selfAction)) assert.ok(!listed.includes(t.name), `${t.name} is not on a player's read key`);
   for (const n of ['save_page', 'add_coin', 'next_turn', 'play_music', 'speak', 'start_recording', 'decide_approval', 'show_on_stage']) {
     const r = await rpc('tools/call', { name: n, arguments: { path: 'x', markdown: 'y', owner: 'me', amountCp: 5, text: 'x', kind: 'text', id: 'x', action: 'approve' } });
     assert.ok(r.error || r.result?.isError, `${n} is refused for a player key`);
@@ -528,4 +536,31 @@ test('Coverage: a player helper reads their own sheet only, and never what is hi
   // No model request for Jessamine carried Tomas's note; none for the DM carried her diary.
   for (const s of model.seen.filter((x) => x.who === 'player')) assert.ok(!s.body.includes('TOMONLY_NOTE'), "a player's request carried another player's DM note");
   for (const s of model.seen.filter((x) => x.who === 'dm')) assert.ok(!s.body.includes('JESSPRIVATE_DIARY'), "the DM's request carried a player's private module");
+});
+
+test('Coverage: a player helper reads their codex, sees what a spell still needs, and asks to learn a ready one', async () => {
+  await dm('PATCH', '/settings', { spellCrafting: true, spellCraftApproval: 'dm' });
+  await dm('POST', `/spells/characters/${ID.jess}/known`, { spell: 'Fire Bolt' });
+  await dm('PUT', `/spells/characters/${ID.jess}`, { level: 3, abilities: { int: 14 } });
+  const ready = await dm('POST', '/spells/recipes', { result: 'Burning Hands', prereqs: ['Fire Bolt'], dmNotes: 'DMSECRET_RECIPE the flames answer to the drowned king' });
+  await dm('POST', '/spells/recipes', { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Burning Hands'], stats: { int: 13 } });
+
+  const codex = await drive('jess', 'my_spell_codex', {});
+  assert.match(codex.result, /Fire Bolt/);
+  assert.match(codex.result, /Burning Hands/);
+  assert.match(codex.result, /Scorching Ray/, 'the next recipe and what it needs');
+  assert.ok(!codex.result.includes('DMSECRET_RECIPE'), "the DM's recipe note is not in a player's codex");
+  // The message picks the codex tools for a player.
+  const playerTools = toolsFor(false).filter((t) => !t.dmOnly).map((t) => t.name);
+  for (const text of ['what spells can I learn next?', 'what do I need to learn Scorching Ray?', 'which spells do I know?']) assert.ok(selectTools(text, playerTools, undefined, false).includes('my_spell_codex'), text);
+  assert.ok(selectTools('what are my quests right now?', playerTools, undefined, false).includes('my_context'));
+  assert.ok(selectTools('who really runs the harbour council?', playerTools, undefined, false).includes('ask_broker_quote'), 'the broker quote is always at hand');
+
+  // Asking to learn the ready one files a request the DM decides; it is not a DM write.
+  const asked = await drive('jess', 'request_spell_learning', { recipeId: ready.id ?? ready.recipe?.id, note: 'Practised all week' });
+  assert.ok(!FAILED.test(asked.result), asked.result.slice(0, 200));
+  assert.equal(asked.actions.length, 0, 'no action card: it is the player\'s own request');
+  assert.ok(one<any>(deps.db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND status = 'pending'", W, ID.jess), 'a pending learn request for the DM');
+  // The DM's harness never gets it.
+  assert.ok(!toolsFor(true).some((t) => t.name === 'request_spell_learning'));
 });

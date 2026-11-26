@@ -750,6 +750,15 @@ const feature: Feature = {
       props: {},
       call: () => ({ method: 'GET', path: '/spells/codex' }),
     },
+    {
+      // A player's own request, like the Learn button: the DM approves it (or the world learns at once when set to auto). Not a
+      // DM write, so the player's helper may make it; the route only ever acts for the caller and checks the recipe is ready.
+      name: 'request_spell_learning', playerOnly: true, selfAction: true,
+      description: "Ask to learn a spell from a recipe the asking player is ready for (my_spell_codex lists them under ready, with the recipe id). The DM approves it, unless the world learns at once. Only when the player says they want to learn it.",
+      props: { recipeId: { type: 'string', description: 'The recipe id from my_spell_codex' }, note: { type: 'string', description: 'A note for the DM' } },
+      required: ['recipeId'],
+      call: (a) => ({ method: 'POST', path: '/spells/learn', body: { recipeId: a.recipeId, note: a.note } }),
+    },
   ],
 };
 export default feature;

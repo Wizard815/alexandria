@@ -29,12 +29,16 @@ import { classifiedMatch } from './levels.ts';
 import { run, type DB } from './db.ts';
 import { recordCall } from './modelcalls.ts';
 
-export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible';
+export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible' | 'vision';
 /** Jobs that answer in text. */
-export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible';
+export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible' | 'vision';
 export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
-/** Parts of the chat job that may have a model of their own: the DM's assistant, what players ask, the story bible. Unset: the chat model. */
-export const CHAT_PARTS: Job[] = ['dm', 'player', 'bible'];
+/**
+ * Parts of the chat job that may have a model of their own: the DM's assistant, what players ask, the story bible,
+ * and map vision (a model that can see pictures, for reading maps: features/fog/vision.ts). Unset: the chat model
+ * (map vision: the DM assistant's model first).
+ */
+export const CHAT_PARTS: Job[] = ['dm', 'player', 'bible', 'vision'];
 export const ALL_JOBS: Job[] = [...JOBS, ...CHAT_PARTS];
 const isPart = (job: Job) => CHAT_PARTS.includes(job);
 const isText = (job: Job) => job === 'chat' || job === 'audit' || isPart(job);
@@ -196,7 +200,7 @@ let resolver: Resolver = envResolver;
 export function setJobResolver(r: Resolver | null) { resolver = r ?? envResolver; }
 /** What is set for exactly this job. */
 export function ownJobConfig(d: Deps, job: Job): JobConfig | null { return resolver(d, job) ?? (resolver === envResolver ? null : envResolver(d, job)); }
-export function jobConfig(d: Deps, job: Job): JobConfig | null { return ownJobConfig(d, job) ?? (isPart(job) ? ownJobConfig(d, 'chat') : null); }
+export function jobConfig(d: Deps, job: Job): JobConfig | null { return ownJobConfig(d, job) ?? (job === 'vision' ? ownJobConfig(d, 'dm') : null) ?? (isPart(job) ? ownJobConfig(d, 'chat') : null); }
 /** Every job that has settings of its own: the six, and the parts of chat that were given another model. */
 export const activeJobs = (d: Deps): Job[] => [...JOBS, ...CHAT_PARTS.filter((j) => ownJobConfig(d, j))];
 export const hasJob = (d: Deps, job: Job) => !!jobConfig(d, job);
@@ -472,6 +476,8 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
+  /** Pictures sent with a user message, as data: URLs (only to a model that can see them; see features/fog/vision.ts). */
+  images?: string[];
 }
 export interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
 export interface ChatTool { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }
@@ -540,7 +546,8 @@ function buildBody(job: Job, c: JobConfig, req: ChatRequest, stream: boolean, l:
     const i = messages.findIndex((m) => m.role === 'system');
     messages = i >= 0 ? messages.map((m, j) => (j === i ? { ...m, content: `${m.content ?? ''}\n\n${JSON_HINT}` } : m)) : [{ role: 'system', content: JSON_HINT }, ...messages];
   }
-  body.messages = messages;
+  // A message with pictures goes as OpenAI-style content parts.
+  body.messages = messages.map(({ images, ...m }) => (images?.length ? { ...m, content: [{ type: 'text', text: m.content ?? '' }, ...images.map((url) => ({ type: 'image_url', image_url: { url } }))] } : m));
   const noTemp = opt(c, 'noTemperature') === true || l.noTemp;
   if (!noTemp) body.temperature = req.temperature ?? (job === 'audit' ? 0 : 0.4);
   const budget = tokenBudget(c, req);

@@ -6,7 +6,7 @@ import { randomInt } from 'node:crypto';
 
 export const MAX_TOOLS = 16;
 /** Offered to the player harness for every message. */
-export const CORE_TOOLS = ['search_library', 'read_page'];
+export const CORE_TOOLS = ['search_library', 'read_page', 'ask_broker_quote'];
 /** Offered to the DM harness for every message: the tools of a DM's working day. `more_tools` is the harness's own meta tool. */
 export const DM_CORE_TOOLS = ['search_library', 'read_page', 'save_page', 'context_for', 'who_is', 'memory_log', 'status_update', 'get_combat', 'lookup_rule', 'more_tools'];
 
@@ -36,7 +36,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(ally|rival|neutral|attitude|let the (whole )?party (see|know)|make \w+( \w+)? (an? )?(ally|rival)|has been met|mark .* as met)\b/i, tools: ['update_person', 'list_people', 'add_person'] },
   { re: /\b(journal draft|draft (my|a) journal|write up (my|the) (session|journal)|(summari[sz]e|write) (the|my) (session|night) for my (journal|notes))\b/i, tools: ['my_journal_draft', 'my_memory_log', 'my_context'] },
   { re: /\b(catch me up|previously|what happened (last|in the last|so far)|recap (of )?(the )?(last|previous))\b/i, tools: ['my_recap', 'list_session_log', 'search_transcript'] },
-  { re: /\b(fog( of war)?|uncover|reveal (the |a |an )?(room|area|map|part|corridor|hall)|cover (it|that|the \w+) (up|again)|table (screen|display)|which map)\b/i, tools: ['reveal_fog', 'get_fog', 'set_fog', 'get_table_display', 'list_map_marks'] },
+  { re: /\b(fog( of war)?|uncover|reveal (the |a |an )?(room|area|map|part|corridor|hall)|cover (it|that|the \w+) (up|again)|table (screen|display)|which map|(open|uncover|reveal|show) the (\w+ ){0,2}(room|crypt|hall|chamber|cave|vault|cellar|tower|courtyard|throne room|dungeon)|where (is|are) the \w+ on the map|look at the map)\b/i, tools: ['look_at_map', 'reveal_fog', 'get_fog', 'set_fog', 'get_table_display', 'list_map_marks'] },
   { re: /\b(lights?|lamps?|lighting|leds?|wled|hue|dim the|brighten)\b/i, tools: ['run_light_scene', 'list_light_scenes', 'lights_off', 'activate_scene'] },
   { re: /\b(activate|run|trigger|switch to|go to|start|cue) (the |a |my )?([\w' -]{1,30} )?(scene|preset)\b|\b(saved|my) scenes?\b|\bset the (whole )?room\b|\bone[- ]button\b/i, tools: ['activate_scene', 'list_scenes'] },
   { re: /\b(play|mood|tense|ambience|ambient|sound|sounds|music|scene|layer|soundtrack|sound ?board|sound effects?|sfx|thunder|rain|creak|hush|eerie|spooky|creepy|ominous|haunting|battle music)\b/i, tools: ['get_sound_now', 'play_music', 'play_ambience', 'send_scene', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes'] },
@@ -45,6 +45,8 @@ const CATEGORIES: Category[] = [
   { re: /\b(initiative|end (the )?(fight|combat|battle|encounter)|flee|fled|flees|run away|remove|removed|kill(ed)?|dead|dies|died|defeated|slain)\b/i, tools: ['set_initiative', 'remove_combatant', 'set_combat', 'damage_combatant', 'add_combatant', 'next_turn'] },
   { re: /\b(concentrat\w*|temp(orary)? (hp|hit points)|death sav\w*|saving throws? (at|on) 0|stabili[sz]e\w*|unconscious|dying|nat(ural)? (20|1)|crit(ical)?)\b/i, tools: ['give_temp_hp', 'set_concentration', 'concentration_save', 'death_save', 'set_combatant_state', 'damage_combatant', 'heal_combatant', 'get_combat'] },
   { re: /\b(my (hp|health|hit points|sheet|conditions?|mana|re-?rolls?|inspiration)|how (hurt|healthy) am i|(hp|health|hit points|mana|re-?rolls?|inspiration) (do )?i (have|got)|(have|got) i (got )?left|(am i|i am|i'm) (hurt|wounded|poisoned|prone|stunned|low)|what (conditions|goals) (do|did) i|(goals?|notes?) (has|have|did) the dm|the dm (gave|give|has given|set|wrote|put)|on my sheet|from the dm)\b/i, tools: ['read_sheet', 'sheet_log', 'my_spell_codex'] },
+  { re: /\b(spells? (do |did )?i (know|have|learn\w*)|my (spells?|codex|spell ?book|recipes?)|(can|could) i learn|learn (a |the |next )?\w* ?spells?|what (do|would) i need (for|to learn)|requirements? for|how (do|can) i learn|ready to learn)\b/i, tools: ['my_spell_codex', 'request_spell_learning', 'read_spell', 'list_spells'] },
+  { re: /\b(quests?|my (goals?|objectives?|missions?|tasks?)|what (am i|are we) (doing|after|supposed to)|open (threads|leads)|loose ends|what'?s next for (me|us))\b/i, tools: ['my_context', 'read_sheet', 'my_recap', 'list_session_log', 'my_goal_update'] },
   { re: /\b(party (status|health|hp|mana)|(player|character|their|his|her)'?s? (hp|health|hit points|mana|sheet|goals?|notes?)|how (hurt|healthy) is|sheets?|re-?rolls?|inspiration|mana|hp (log|history)|who (healed|hurt|damaged))\b/i, tools: ['party_status', 'read_sheet', 'change_player_hp', 'change_player_mana', 'give_reroll', 'add_sheet_note', 'update_sheet_note', 'sheet_log'] },
   { re: /\b(stat ?blocks?|stats? for|cr \d|challenge rating)\b/i, tools: ['make_statblock', 'lookup_term', 'read_term', 'add_combatant'] },
   { re: /\b(combat|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|ogres?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?|takes \d+)\b/i, tools: ['add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_initiative', 'set_conditions', 'remove_combatant', 'set_combat'] },
