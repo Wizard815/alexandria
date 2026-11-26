@@ -143,3 +143,9 @@ span.tb-ellipsis, a.tb-ellipsis { display: inline-block; max-width: 100%; vertic
 .tb-card textarea { padding: 6px 9px; resize: vertical; }
 .tb-card input:focus, .tb-card textarea:focus, .tb-card select:focus { border-color: var(--accent); outline: none; }
 .tb-card input::placeholder, .tb-card textarea::placeholder { color: var(--faint); }
+
+/* Coming up: add an event, with when it happens (days, weeks, months, a date, or no date yet). */
+.tb-add-event { display: flex; flex-direction: column; gap: 6px; }
+.tb-add-event > .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tb-add-event > .row > button { margin-left: auto; }
+.tb-someday-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px; }
