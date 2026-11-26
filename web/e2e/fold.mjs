@@ -252,6 +252,17 @@ for (const vp of [{ width: 700, height: 850 }, { width: 390, height: 844 }, { wi
   await d.page.getByTestId('nav-side').getByRole('radio', { name: /Top/ }).click();
   await sleep(200);
   check(where(await box(d.page, '.dmx-rail'), 700, 850) === 'top', 'DM world menu: Top did not move the rail');
+  // The phone assistant follows the same choice: tabs on top, and no Ask tab beside the Ask pane.
+  await d.page.goto(`${base}/w/saltreach/dm/phone`);
+  await d.page.getByTestId('dmphone').waitFor();
+  const tb = await box(d.page, '.dmp-tabs');
+  check(tb && tb.y < 120 && tb.width >= 600, `phone assistant: tabs are not on top (${JSON.stringify(tb)})`);
+  check(!(await d.page.getByRole('tab', { name: /^Ask/ }).count()), 'phone assistant: an Ask tab beside the Ask pane');
+  await d.page.getByRole('tab', { name: /^Remote/ }).click();
+  await d.page.getByRole('radio', { name: /Right/ }).click();
+  await sleep(200);
+  const tr = await box(d.page, '.dmp-tabs');
+  check(tr && tr.x + tr.width >= 699 && tr.height > 400, `phone assistant: Right did not move the tabs (${JSON.stringify(tr)})`);
   await d.ctx.close();
   note('picked from More and from the DM world menu');
 }

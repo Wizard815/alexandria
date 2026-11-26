@@ -11,6 +11,7 @@ import RemoteTab from './RemoteTab.tsx';
 import QueueTab from './QueueTab.tsx';
 import AskTab from './AskTab.tsx';
 import NotesTab from './NotesTab.tsx';
+import { useNavSide } from '../../lib/navSide.tsx';
 import { buzz, lsGet, lsSet, useKeyboardInset, useShape, useUndo } from './hooks.ts';
 import { ACTIONS_CHANGED } from '../agent/Chat.tsx';
 import { SpokenNotice } from '../agent/aloud.tsx';
@@ -25,6 +26,7 @@ const LABELS: Record<Tab, string> = { now: 'Now', remote: 'Remote', queue: 'Inbo
 export default function PhonePage() {
   const { w, info, connected } = useWorld();
   const shape = useShape();
+  useNavSide();
   const key = `alx.dmphone.tab.${info.id}`;
   const [tab, setTab] = useState<Tab>(() => { const t = lsGet(key); return (TABS.some((x) => x[0] === t) ? t : 'now') as Tab; });
   const [seen, setSeen] = useState<Set<Tab>>(() => new Set<Tab>(['now', 'ask']));
@@ -104,7 +106,8 @@ export default function PhonePage() {
             ))}
           </div>
           <nav className="dmp-tabs" role="tablist" aria-label="Phone assistant">
-            {TABS.map(([k, label, icon]) => (
+            {/* Two panes: Ask is always on screen, so it needs no tab. */}
+            {TABS.filter(([k]) => !(shape.wide && k === 'ask')).map(([k, label, icon]) => (
               <button key={k} type="button" role="tab" aria-selected={tab === k} className="dmp-tab" onClick={() => pick(k)} aria-label={badge(k) ? `${label}, ${badge(k)} waiting` : label}>
                 <i className={`fa-solid ${icon}`} aria-hidden="true" />{label}
                 {badge(k) > 0 && <span className="dmp-badge" aria-hidden="true">{badge(k)}</span>}

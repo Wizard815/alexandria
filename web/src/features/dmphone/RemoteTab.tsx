@@ -10,6 +10,7 @@ import { InstallHint } from '../../lib/install.tsx';
 import { buzz, useFlash } from './hooks.ts';
 import { useScenes } from '../scenes/useScenes.ts';
 import { OutcomeView } from '../scenes/ScenePanel.tsx';
+import { NavSidePicker } from '../../lib/navSide.tsx';
 
 const safe = <T,>(p: Promise<T>, d: T): Promise<T> => p.catch(() => d);
 
@@ -146,6 +147,8 @@ export default function RemoteTab() {
         <h3>This phone</h3>
         <button type="button" className={`b${tableSound ? ' on' : ''}`} aria-pressed={tableSound} onClick={() => { const s = loadSpeakers(); saveSpeakers({ ...s, tableOn: !tableSound }); setTableSound(!tableSound); }}>{tableSound ? 'Table sound plays on this phone' : 'Table sound stays off this phone'}</button>
         <span className="tiny">Pads and music play where the desktop is. Turn this on only if this phone is the table speaker.</span>
+        <span className="sub">Where the tabs sit</span>
+        <NavSidePicker />
       </section>
       <InstallHint />
     </>

@@ -101,7 +101,7 @@ const queueCount = (page) => page.evaluate(() => { const t = [...document.queryS
 const approvalCard = (page) => page.getByRole('group', { name: 'Waiting for your approval' }).first();
 
 async function askTour(page, label, wide) {
-  await tab(page, 'Ask').click();
+  if (!wide) await tab(page, 'Ask').click(); // two panes: Ask is always on screen, with no tab
   await box(page).waitFor({ timeout: 8000 });
 
   // Start from a chat of our own, so its title (the first message) is known below.
@@ -160,7 +160,7 @@ async function askTour(page, label, wide) {
   await card.waitFor({ timeout: 20000 }).catch(() => problems.push(`${label}: no second approval card`));
   await tab(page, 'Inbox').click();
   await page.locator('[aria-label="The assistant wants to"] [role=group]').first().getByRole('button', { name: 'Approve' }).click();
-  await tab(page, 'Ask').click();
+  if (!wide) await tab(page, 'Ask').click();
   await card.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push(`${label}: the chat card stayed after approving in the Queue`));
   check(((await dm('GET', '/agent/actions')).actions ?? []).length === 0, `${label}: approving in the Queue left a pending action`);
   note(`${label}: approval from the Queue cleared the chat card`);
@@ -171,7 +171,7 @@ async function askTour(page, label, wide) {
   await page.getByRole('button', { name: /Ask the assistant about this/ }).click();
   const chip = page.getByRole('button', { name: /^Do not send / });
   await chip.waitFor({ timeout: 5000 }).catch(() => problems.push(`${label}: the combatant was not attached in Ask`));
-  await tab(page, 'Ask').click();
+  if (!wide) await tab(page, 'Ask').click();
   await sendText(page, 'How hurt is this one?');
   await replied(page, /You said: "How hurt is this one/, `${label} with a combatant attached`);
   check((await chip.count()) === 1, `${label}: the attached combatant should stay until dropped`);
@@ -217,7 +217,7 @@ async function askTour(page, label, wide) {
   await page.getByRole('button', { name: 'Zap check', exact: true }).waitFor({ timeout: 5000 }).catch(() => problems.push(`${label}: the new quick prompt did not appear`));
   await page.reload();
   await page.getByTestId('dmphone').waitFor({ timeout: 10000 });
-  await tab(page, 'Ask').click();
+  if (!wide) await tab(page, 'Ask').click();
   await page.getByRole('button', { name: 'Zap check', exact: true }).click();
   await replied(page, /You said: "Zap check please/, `${label} edited quick prompt`);
   note(`${label}: quick prompt added, remembered and sent`);
