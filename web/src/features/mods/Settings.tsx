@@ -71,6 +71,9 @@ const IDEAS: [string, string][] = [
   ['Lingering injuries', 'Lingering injuries: when a character drops to 0 HP they gain an injury point. A long rest removes one. At 3 they have disadvantage on Strength and Dexterity checks.'],
   ['Critical fumbles', 'Critical fumbles: on a natural 1 on an attack the DM may describe a mishap. Players can spend a fumble token (DM-given) to turn it into a plain miss.'],
   ['Session journal XP', 'Journal bonus: the DM gives a journal token to each player who writes a session recap. Spend one for advantage on any check.'],
+  ['Downtime', 'Downtime: ready-made activities by tier (common 1 day up to legendary 3 months), players can add their own. When a day passes I press Downtime and each player keeps working, starts something or skips. I can add or take days and set a reward; a task is done when its days are in.'],
+  ['Crafting projects', 'Crafting projects: a player starts a project with a name and the gold it costs; each long rest adds 1 day of work, and it is done after the days the item needs. I can drop a project or add days.'],
+  ['Spell points', 'Spell points instead of spell slots, using the standard variant table, called "Spell points" on the sheet.'],
 ];
 
 /** Make a rule with the assistant, or add a file someone shared, plus where whole systems come from. */
@@ -80,7 +83,7 @@ export function MakeHouseRule() {
   const { toastNode, toast } = useToast();
   const [idea, setIdea] = useState('');
   if (!isDM) return null;
-  const ask = () => askAssistant(`Make a house rule for my table: ${idea.trim()}\nWrite it as a house rule file, check it with house_rule_check until it has no errors, show it to me, and save it with house_rule_save once I agree.`);
+  const ask = () => askAssistant(`Make a house rule for my table: ${idea.trim()}\nRead house_rule_guide first and look at a close example with house_rule_file. Write it as a house rule file, check it with house_rule_check until it has no errors, tell me what it does from the check's preview, and save it with house_rule_save once I agree.`);
   return (
     <div className="stack">
       <section className="card stack">
@@ -214,7 +217,7 @@ function ImportBox({ onDone }: { onDone: (t: string) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [text, setText] = useState('');
-  const [check, setCheck] = useState<{ ok: boolean; errors: string[]; notes?: string[]; mod?: any; mods?: any[]; package?: { name: string; author: string } | null } | null>(null);
+  const [check, setCheck] = useState<{ ok: boolean; errors: string[]; notes?: string[]; preview?: string[] | { id: string; lines: string[] }[]; mod?: any; mods?: any[]; package?: { name: string; author: string } | null } | null>(null);
   const parse = () => { try { return JSON.parse(text); } catch { return text; } };
   const run = () => act.run(async () => setCheck(await w.call<any>('POST', '/mods/check', { mod: parse() })));
   const save = () => act.run(async () => {
@@ -239,7 +242,14 @@ function ImportBox({ onDone }: { onDone: (t: string) => void }) {
       {check?.ok && (
         <div className="small">
           Looks good{check.package?.name ? <>: package <strong>{check.package.name}</strong>{check.package.author ? ` by ${check.package.author}` : ''}</> : ''}
-          <ul className="small" style={{ margin: '4px 0' }}>{(check.mods ?? [check.mod]).map((m: any) => <li key={m.id}><strong>{m.name}</strong> <span className="tiny muted">v{m.version}{m.summary ? ` · ${m.summary}` : ''}</span></li>)}</ul>
+          <ul className="small" style={{ margin: '4px 0' }}>{(check.mods ?? [check.mod]).map((m: any, i: number) => {
+            const lines = Array.isArray(check.preview) ? (typeof check.preview[0] === 'string' ? (i === 0 ? check.preview as string[] : []) : ((check.preview as { id: string; lines: string[] }[]).find((p) => p.id === m.id)?.lines ?? [])) : [];
+            return (
+              <li key={m.id}><strong>{m.name}</strong> <span className="tiny muted">v{m.version}{m.summary ? ` · ${m.summary}` : ''}</span>
+                {lines.length ? <details><summary className="tiny">What it does</summary><ul className="tiny">{lines.map((l) => <li key={l}>{l}</li>)}</ul></details> : null}
+              </li>
+            );
+          })}</ul>
           {check.notes?.length ? <ul className="tiny">{check.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
         </div>
       )}

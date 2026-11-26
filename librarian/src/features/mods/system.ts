@@ -240,6 +240,20 @@ export function checkSystem(o: any, ctx: Ctx): System {
     sys.views.push({ id: typeof v.id === 'string' && SLUG.test(v.id) ? v.id : `view-${i + 1}`, title: text(v.title, `${at}.title`, 40, true), record: kid, place, columns: columns.length ? columns : k ? [k.title] : [], where: k ? values(kid, v.where, `${at}.where`) : {}, actions, groupByPlayer: v.groupByPlayer === true });
   });
 
+  // ---- chat text: every {placeholder} must name something the record has
+  const placeholders = (tpl: string | undefined, kid: string, at: string) => {
+    const k = kindOf(kid);
+    if (!tpl || !k) return;
+    for (const [, a, b] of tpl.matchAll(/\{([a-zA-Z][a-zA-Z0-9-]*)(?:\.([a-zA-Z][a-zA-Z0-9-]*))?\}/g)) {
+      if (!b) { if (!['name', 'player', 'title', 'note', ...BUILTIN_FIELDS].includes(a) && !k.fields[a]) err(`${at}: {${a}} is not a field of ${kid} (use {name} for the player's character, {${kid}.field} or {field} for its own fields)`); continue; }
+      const target = a === kid && k.fields[a]?.type !== 'ref' ? k : k.fields[a]?.type === 'ref' ? kindOf(k.fields[a].ref!) : undefined;
+      if (!target) err(`${at}: {${a}.${b}}: ${a} is not a ref field of ${kid} (write {${kid}.${b}} for its own field)`);
+      else if (!target.fields[b] && !BUILTIN_FIELDS.includes(b)) err(`${at}: {${a}.${b}}: ${b} is not a field of ${target.id}`);
+    }
+  };
+  sys.recordActions.forEach((ra, i) => { placeholders(ra.effect?.chat, ra.record, `recordActions[${i}].effect.chat`); placeholders(ra.effect?.dmnote, ra.record, `recordActions[${i}].effect.dmnote`); });
+  sys.timers.forEach((t, i) => placeholders(t.done.chat, t.record, `timers[${i}].done.chat`));
+
   return sys;
 }
 

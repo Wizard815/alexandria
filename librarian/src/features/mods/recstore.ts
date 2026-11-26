@@ -210,10 +210,20 @@ function save(db: DB, worldId: string, m: Installed, rec: Rec, data: Record<stri
   run(db, 'UPDATE mod_records SET data = ?, updated_at = ? WHERE world_id = ? AND mod_id = ? AND id = ?', JSON.stringify(data), now(), worldId, m.mod.id, rec.id);
 }
 
-/** "{name} finished {activity.name}": {name} is the record's player, {field} its fields, {ref.field} a field of the record a ref points at. */
+/**
+ * "{name} finished {activity.name}": {name} and {player} are the record's player (their character), {title} the
+ * field that names the record, {field} its fields, {ref.field} a field of the record a ref points at, and
+ * {kind.field} (the record's own kind) its own field, so a field called name is {project.name}.
+ */
 export function fill(db: DB, worldId: string, m: Installed, template: string, rec: Rec, names: (accountId: string | null) => string): string {
+  const own = (f: string) => rec[f] === undefined || rec[f] === null ? '' : String(rec[f]);
   return template.replace(/\{([a-zA-Z][a-zA-Z0-9-]*)(?:\.([a-zA-Z][a-zA-Z0-9-]*))?\}/g, (whole, a: string, b?: string) => {
-    if (!b) return a === 'name' || a === 'player' ? names(rec.player) : rec[a] === undefined || rec[a] === null ? '' : String(rec[a]);
+    if (b && a === rec.kind && typeof rec[a] !== 'string') return own(b);
+    if (!b) {
+      if (a === 'name' || a === 'player') return names(rec.player);
+      if (a === 'title') { const t = m.mod.system.records.find((k) => k.id === rec.kind)?.title; return t ? own(t) : ''; }
+      return own(a);
+    }
     const ref = rec[a];
     if (typeof ref !== 'string') return '';
     try { const r = getRecord(db, worldId, m, ref); return r[b] === undefined || r[b] === null ? '' : String(r[b]); } catch { return ''; }

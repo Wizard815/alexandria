@@ -13,24 +13,30 @@ for the format.
 | `mana-system.alxmod.json` | MANA spell system | Wizard's MANA rules; needs the MANA engine |
 | `spell-crafting.alxmod.json` | Spell crafting (Codex) | Learning spells by combining known ones (spells feature) |
 
-`examples/` holds rules that are not built in (the server does not read it).
-Paste one under **World → House rules → Make or add one** to try it.
+`examples/` holds rules that are not built in. The assistant reads them as
+patterns when it makes a rule for you (`house_rule_file`), and you can paste
+one under **House rules → Make or add one** to try it:
+
+| File | Shows |
+| --- | --- |
+| `examples/hero-points.alxmod.json` | A small counters rule: give, spend, a session-start trigger, a chat word |
+| `examples/downtime-lite.alxmod.json` | A whole data system: activities by tier (common 1 day to legendary 90), each player's tasks, a Downtime day popup, a timer to the goal, DM and sheet views |
 
 ## A file is a rule or a package
 
-A rule file holds one rule (`{ "kit": 1, "id": ..., "name": ..., ... }`). A
+A rule file holds one rule (`{ "kit": 2, "id": ..., "name": ..., ... }`). A
 package holds several, and is what **Export** in Alexandria gives you:
 
 ```json
 {
   "type": "alexandria-house-rules",
-  "kit": 1,
+  "kit": 2,
   "name": "Saltreach table rules",
   "author": "Wizard",
   "summary": "Inspiration as rerolls, Hero points",
   "exported": "2026-11-26T15:00:00.000Z",
   "alexandria": "0.1.0-alpha.1",
-  "mods": [ { "kit": 1, "id": "inspiration-rerolls", "...": "..." } ]
+  "mods": [ { "kit": 2, "id": "inspiration-rerolls", "...": "..." } ]
 }
 ```
 

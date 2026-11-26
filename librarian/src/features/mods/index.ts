@@ -13,7 +13,9 @@ import { DEFAULT_SETTINGS, settingsFor, type Role } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, names } from '../../routes/_shared.ts';
 import { addTermSource, enabledIds as gameModuleIds } from '../modules/store.ts';
-import { targetInfo } from './catalog.ts';
+import { shippedMods, targetInfo } from './catalog.ts';
+import { exampleFiles, guideText, previewMod } from './guide.ts';
+import { keepDraft, takeDraft } from './drafts.ts';
 import { satisfies } from './semver.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
 import { SCHEMA as RECORDS_SCHEMA, answerPrompt, closePrompt, listRecords, openPrompt, openRounds, readRecordLog, recordAct, runTimers, type Rec, type Said } from './recstore.ts';
@@ -198,6 +200,24 @@ function routes(d: Deps) {
     res.json({ rules: enabledMods(db, W(res)).flatMap((m) => m.mod.rules.map((x) => ({ mod: m.mod.id, name: m.mod.name, ...x }))) });
   });
 
+  // ---- the Mod studio: what the assistant reads to write a rule ----
+
+  const exampleIds = () => [...new Set([...exampleFiles().keys(), ...shippedMods().map((s) => s.mod.id)])];
+  r.get('/guide', requireDM, (req, res) => {
+    const part = typeof req.query.part === 'string' ? req.query.part : undefined;
+    res.json({ part: part ?? 'start', text: guideText(part, DEFAULT_SETTINGS as any, exampleIds()) });
+  });
+
+  // A rule as a file, to read, copy or change: the world's own and built-in rules, or an example from mods/examples.
+  r.get('/:id/file', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    const have = listMods(db, W(res)).find((m) => m.mod.id === id);
+    if (have) { res.json({ id, source: have.source, enabled: have.enabled, file: toFile(have.mod), note: have.source === 'shipped' ? 'This rule comes with Alexandria: to change it, save a copy under a new id and name.' : 'Keep the id and raise the version to replace it.' }); return; }
+    const ex = exampleFiles().get(id);
+    if (ex) { res.json({ id, source: 'example', enabled: false, file: ex, note: 'An example to copy: give yours its own id if you change it.' }); return; }
+    throw new HttpError(404, `No house rule or example ${id.slice(0, 40)}; examples: ${exampleIds().join(', ')}`);
+  });
+
   // ---- the DM: check, import, export, turn on and off, options, remove ----
 
   r.post('/check', requireDM, (req, res) => {
@@ -222,11 +242,13 @@ function routes(d: Deps) {
       const taken = have.find((m) => m.mod.id === mod.id);
       if (taken) notes.push(taken.source === 'shipped' ? `${at}the id ${mod.id} belongs to a rule that comes with Alexandria: pick another id` : `${at}saving replaces the world's rule ${mod.id} (counters of kept resources stay)`);
     }
-    res.json({ ok: true, errors: [], notes, mod: toFile(mods[0]), mods: mods.map(toFile), package: info });
+    res.json({ ok: true, errors: [], notes, draft: keepDraft(W(res), mods), preview: mods.length === 1 ? previewMod(mods[0]) : mods.map((m) => ({ id: m.id, lines: previewMod(m) })), mod: toFile(mods[0]), mods: mods.map(toFile), package: info });
   });
 
   r.post('/import', requireDM, (req, res) => {
-    const { mods, errors } = unpack(req.body?.mod);
+    const draft = typeof req.body?.draft === 'string' && req.body.mod === undefined ? takeDraft(W(res), req.body.draft) : null;
+    if (typeof req.body?.draft === 'string' && req.body.mod === undefined && !draft) throw new HttpError(404, `No checked draft ${req.body.draft.slice(0, 60)} (drafts last an hour): check the file again with house_rule_check`);
+    const { mods, errors } = draft ? { mods: draft, errors: [] as string[] } : unpack(req.body?.mod);
     if (!mods.length) throw new HttpError(400, `This house rule has problems: ${errors.join('; ')}`);
     const shipped = mods.filter((m) => listMods(db, W(res)).some((x) => x.mod.id === m.id && x.source === 'shipped'));
     if (shipped.length) throw new HttpError(409, `${shipped.map((m) => m.id).join(', ')} ${shipped.length > 1 ? 'are ids' : 'is the id'} of a house rule that comes with Alexandria; give yours another id`);
@@ -388,6 +410,8 @@ addTermSource((db, worldId) => enabledMods(db, worldId).filter((m) => m.mod.rule
 
 const enc = encodeURIComponent;
 
+
+
 /**
  * Worlds that used the player sheet's re-roll switch before it became the inspiration house rule: the rule is turned
  * on with their cap, and the counts move over (kind "party" is the rule's "everyone"). Runs on every start; does
@@ -482,16 +506,28 @@ const feature: Feature = {
       call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/act`, body: { action: a.action, rollId: a.rollId, atTable: a.atTable, note: a.note } }),
     },
     {
+      name: 'house_rule_guide', dmOnly: true,
+      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings) and manifest (targets, requires, conflicts) give every field.',
+      props: { part: { type: 'string', enum: ['start', 'counters', 'data', 'presets', 'manifest'], description: 'Which part (default start)' } },
+      call: (a) => ({ method: 'GET', path: `/mods/guide${a.part ? `?part=${enc(a.part)}` : ''}` }),
+    },
+    {
+      name: 'house_rule_file', dmOnly: true,
+      description: "A house rule as its file: one of the world's rules (to change it), one that comes with Alexandria, or an example to copy (hero-points, downtime-lite). Read a close one before writing a new rule.",
+      props: { mod: { type: 'string', description: 'The rule or example id' } }, required: ['mod'],
+      call: (a) => ({ method: 'GET', path: `/mods/${enc(a.mod)}/file` }),
+    },
+    {
       name: 'house_rule_check', dmOnly: true,
-      description: 'Check a draft house rule (mod file JSON, see the House rules guide) without saving it. Returns plain errors to fix, notes and the cleaned file. Use it until ok is true, then show the DM and save with house_rule_save.',
+      description: 'Check a draft house rule (mod file JSON, see house_rule_guide) without saving it. Returns plain errors to fix, notes, a preview (what the rule does, in plain words, to tell the DM), the cleaned file and a draft id. Use it until ok is true, then tell the DM the preview and save with house_rule_save { draft } once they agree.',
       props: { mod: { type: 'object', description: 'The mod file, or a package of several' } }, required: ['mod'],
       call: (a) => ({ method: 'POST', path: '/mods/check', body: { mod: a.mod } }),
     },
     {
       name: 'house_rule_save', write: true, dmOnly: true,
-      description: "Save a checked house rule to the world (it starts off; the DM turns it on under World → House rules). Saving a rule with an existing id replaces it and keeps its counters. Takes one rule or a package (several).",
-      props: { mod: { type: 'object', description: 'The mod file, or a package of several' } }, required: ['mod'],
-      call: (a) => ({ method: 'POST', path: '/mods/import', body: { mod: a.mod } }),
+      description: "Save a checked house rule to the world (it starts off; the DM turns it on under House rules → Rules). Pass draft, the id house_rule_check gave, so exactly the checked file is saved; or the whole mod. Saving a rule with an existing id replaces it and keeps its counters. One rule or a package (several).",
+      props: { draft: { type: 'string', description: 'The draft id from house_rule_check (preferred)' }, mod: { type: 'object', description: 'The mod file, or a package of several, when there is no draft' } },
+      call: (a) => ({ method: 'POST', path: '/mods/import', body: a.draft ? { draft: a.draft } : { mod: a.mod } }),
     },
   ],
 };
