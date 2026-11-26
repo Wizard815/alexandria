@@ -374,7 +374,10 @@ function routes(d: Deps) {
 
   /** The spell a cast names, the level to cast it at, and that the caster may use it. */
   function castTarget(res: Response, aid: string, ref: unknown, level: unknown, toLearn = false) {
-    const s = toLearn ? catalog(db, W(res), publicSrd(S(res))).find((x) => x.id === String(ref ?? '')) ?? null : spellById(db, W(res), String(ref ?? ''));
+    // By id, or by name (the assistant often has only the name).
+    const key = String(ref ?? '');
+    const byName = (list: WorldSpell[]) => list.find((x) => x.id === key) ?? list.find((x) => x.name.toLowerCase() === key.trim().toLowerCase()) ?? null;
+    const s = toLearn ? byName(catalog(db, W(res), publicSrd(S(res)))) : spellById(db, W(res), key) ?? findSpell(db, W(res), key);
     if (!s) throw new HttpError(404, 'Spell not found');
     if (toLearn && !isDM(res) && s.kind !== 'srd' && !s.public && !recipes(db, W(res)).some((x) => x.resultId === s.id && !x.draft && x.visibility === 'visible')) throw new HttpError(404, 'Spell not found');
     if (!toLearn && !isDM(res) && !knownIds(db, W(res), aid).has(s.id)) throw new HttpError(s.public ? 403 : 404, s.public ? 'You do not know this spell' : 'Spell not found');
@@ -892,6 +895,17 @@ function routes(d: Deps) {
   };
 
   /** Everything about studying a spell for a character: the recipe, what is missing, the points, days and gold. */
+  /** A spell's school as its teacher: the known spells of the same school or of one of its lines. */
+  function schoolPath(res: Response, sp: WorldSpell, known: Set<string>) {
+    const lof = linesOfSpells(db, W(res));
+    const lineNames = new Map(lines(db, W(res)).map((l) => [l.id, l.name]));
+    const mine = new Set(lof.get(sp.id) ?? []);
+    const sch = sp.school || 'Others';
+    const kin = [...known].filter((k) => k !== sp.id).map((k) => spellById(db, W(res), k)).filter((k): k is WorldSpell => !!k && ((k.school || 'Others') === sch || (lof.get(k.id) ?? []).some((l) => mine.has(l))));
+    const ln = [...mine].map((l) => lineNames.get(l) ?? l);
+    return { id: `school:${sch}`, levels: kin.map((k) => k.level), text: `${sch} spells${ln.length ? ` or ${ln.join(' or ')} spells` : ''}` };
+  }
+
   function studyPlan(res: Response, aid: string, sp: WorldSpell, o: { recipeId?: unknown; source?: unknown; lab?: unknown; research?: boolean }) {
     const rules = R(res);
     if (!rules.engine) throw new HttpError(409, 'The spell rules are off in this world');
@@ -902,27 +916,30 @@ function routes(d: Deps) {
     const known = knownIds(db, W(res), aid);
     const c = character(db, W(res), aid);
     const all_ = recipes(db, W(res)).filter((x) => x.resultId === sp.id && !x.draft && (dm || x.visibility === 'visible'));
-    const rc = o.recipeId ? all_.find((x) => x.id === String(o.recipeId)) ?? null : [...all_].sort((a, b) => b.prereqs.filter((p) => known.has(p)).length - a.prereqs.filter((p) => known.has(p)).length)[0] ?? null;
-    if (o.recipeId && !rc) throw new HttpError(404, 'Recipe not found');
+    const bySchool = typeof o.recipeId === 'string' && o.recipeId.startsWith('school:');
+    const rc = o.recipeId && !bySchool ? all_.find((x) => x.id === String(o.recipeId)) ?? null : bySchool ? null : [...all_].sort((a, b) => b.prereqs.filter((p) => known.has(p)).length - a.prereqs.filter((p) => known.has(p)).length)[0] ?? null;
+    if (o.recipeId && !bySchool && !rc) throw new HttpError(404, 'Recipe not found');
+    // No recipe: its school teaches it (spellSchoolPaths, on by default). The tier gate then counts the known spells of the
+    // same school or of a line it is in, the way the Spell Tree app does.
+    const school = !rc && featureSetting<boolean>(S(res), 'spellSchoolPaths') !== false ? schoolPath(res, sp, known) : null;
     const missing: string[] = [];
     let arcanaDC: number | null = null;
     if (known.has(sp.id)) missing.push('already known');
-    if (!rc) missing.push('no recipe teaches this spell yet (ask the DM)');
+    if (!rc && !school) missing.push('no recipe teaches this spell yet (ask the DM)');
     const own = sp.manaOverride ?? sp.manaCost ?? null;
     const cx = complexity(sp.level, rules.costs, own);
     const spellLines = linesOfSpells(db, W(res)).get(sp.id) ?? [];
     const hybrid = isHybrid(spellLines);
     const needed = studyPoints(cx, { hybrid, extraSpells: rc ? extraRecipeSpells(rc.prereqs.length, sp.level, e) : 0 }, e);
     const coin = studyCoin(cx, source, e);
-    if (rc) {
-      const el = eligibility(db, W(res), rc, c, known, nameOf(res), { on: false, now: null });
-      for (const m of el.missing) missing.push(missingText(m));
+    if (rc || school) {
+      if (rc) { const el = eligibility(db, W(res), rc, c, known, nameOf(res), { on: false, now: null }); for (const m of el.missing) missing.push(missingText(m)); }
       const kr = knownRows(db, W(res), aid);
       const lof = linesOfSpells(db, W(res));
       const mastery = lineMastery(kr.map((k) => ({ id: k.spellId, how: k.how })), (x) => lof.get(x) ?? [], e);
       const max = poolMax(c, rules) ?? 0;
       const gates = learnGates({
-        spellLevel: sp.level, castCost: castCost(sp, sp.level, rules), knownRecipeLevels: rc.prereqs.filter((p) => known.has(p)).map((p) => spellById(db, W(res), p)?.level ?? 0),
+        spellLevel: sp.level, castCost: castCost(sp, sp.level, rules), knownRecipeLevels: rc ? rc.prereqs.filter((p) => known.has(p)).map((p) => spellById(db, W(res), p)?.level ?? 0) : school!.levels,
         highest: maxCastLevel(c, rules) ?? 9, casterLevel: c.level ?? 0, abilityScore: castingScore(c), poolMax: max, source, research: o.research === true, arcanaPassed: false,
         hybridMastery: hybrid ? Object.fromEntries(spellLines.map((l) => [l, mastery[l] ?? 0])) : undefined,
       }, e);
@@ -935,7 +952,7 @@ function routes(d: Deps) {
     const per = dailyProgress(source, lab, e);
     const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e))]));
     const bonus = (() => { const sc = castingScore(c); return (sc === null ? 0 : Math.floor((sc - 10) / 2)) + proficiency(c.level); })();
-    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : null, source, lab, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
+    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : school ? { id: school.id, prereqs: [school.text] } : null, source, lab, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
   }
 
   const studyOut = (res: Response, x: Study) => ({ ...x, name: nameOf(res)(x.spellId), perDay: dailyProgress(x.source, x.lab, R(res).engine!), daysLeft: studyDays(x.needed, x.banked, dailyProgress(x.source, x.lab, R(res).engine!)) });
@@ -1110,13 +1127,19 @@ function routes(d: Deps) {
       const how = kr.get(sp.id);
       if (how) status = how === 'gift' || how === 'dm' ? 'gift' : 'known';
       else if (st.has(sp.id)) status = st.get(sp.id)!.status === 'stopped' ? 'stopped' : 'studying';
-      else if (!made.length) status = 'dark';
+      else if (!made.length && rules.engine && featureSetting<boolean>(S(res), 'spellSchoolPaths') !== false) {
+        // Taught by its school. Out of reach (dark) when it is over a level beyond what they cast, or nothing they know leads there.
+        const p = studyPlan(res, aid, sp, {});
+        missing = p.missing;
+        const far = sp.level > (maxCastLevel(character(db, W(res), aid), rules) ?? 9) + 1 || (sp.level > 0 && schoolPath(res, sp, known).levels.length === 0);
+        status = p.canStart ? 'learn' : far ? 'dark' : 'locked';
+      } else if (!made.length) status = 'dark';
       else if (!seen.length) status = dm ? 'hidden' : 'dark';
       else if (rules.engine) { const p = studyPlan(res, aid, sp, {}); missing = p.missing; status = p.canStart ? 'learn' : 'locked'; }
       else status = seen.some((x) => x.prereqs.every((p) => known.has(p))) ? 'learn' : 'locked';
       const ln = (lof.get(sp.id) ?? []).map((l) => lineNames.get(l) ?? l);
       const x = st.get(sp.id);
-      return { id: sp.id, name: sp.name, level: sp.level, school: sp.school || 'Others', lines: ln, hybrid: ln.length >= 2, status, missing, from: status === 'hidden' ? [] : (seen[0]?.prereqs ?? []).map(nameOf(res)), ...(x ? { study: { id: x.id, banked: x.banked, needed: x.needed } } : {}) };
+      return { id: sp.id, name: sp.name, level: sp.level, school: sp.school || 'Others', lines: ln, hybrid: ln.length >= 2, status, missing, from: status === 'hidden' ? [] : made.length ? (seen[0]?.prereqs ?? []).map(nameOf(res)) : rules.engine && featureSetting<boolean>(S(res), 'spellSchoolPaths') !== false && status !== 'known' && status !== 'gift' ? [schoolPath(res, sp, known).text] : [], ...(x ? { study: { id: x.id, banked: x.banked, needed: x.needed } } : {}) };
     });
     const counts = Object.fromEntries(['known', 'gift', 'studying', 'stopped', 'learn', 'locked', 'hidden', 'dark'].map((k) => [k, out.filter((x) => x.status === k).length]));
     // ?compact=1 (the assistant): a flat, filtered list instead of the whole tree.
@@ -1242,6 +1265,7 @@ const feature: Feature = {
     spellCraftHidden: { type: 'enum', values: ['mystery', 'hide'], default: 'mystery' },
     spellPlayerStats: { type: 'boolean', default: true },
     spellsPublicSrd: { type: 'boolean', default: false },
+    spellSchoolPaths: { type: 'boolean', default: true },
   },
   worldMount: 'spells',
   worldRoutes: routes,
