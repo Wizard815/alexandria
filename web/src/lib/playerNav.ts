@@ -14,7 +14,7 @@ const CORE: NavItem[] = ([
 ] as [string, string, string][]).map(([to, label, icon]) => ({ to, label, icon }));
 
 /** Every page, core first and then the features' (the desktop top bar shows this list as is). */
-export const allLinks = (): NavItem[] => [...CORE, ...F.playerNav]; // a function: the search box (itself a feature) reads it, so the features may still be loading
+export const allLinks = (): NavItem[] => [...CORE, ...F.onlyOn(F.playerNav)]; // a function: the search box (itself a feature) reads it, so the features may still be loading
 
 export const GROUPS = ['At the table', 'My character', 'World', 'Settings & account'] as const;
 export const FALLBACK_GROUP = 'More';

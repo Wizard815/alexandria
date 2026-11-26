@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DB } from '../core/db.ts';
 import { registerSettings } from '../core/policy.ts';
 import type { Feature } from './types.ts';
-import { addHouseRules, setFeatureIds } from './mods/catalog.ts';
+import { addHouseRules, setFeatureIds, shippedMod } from './mods/catalog.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +32,9 @@ export const FEATURES: Feature[] = await load();
 for (const f of FEATURES) if (f.settings) registerSettings(f.id, f.settings);
 // House rules the features ship (spell points, spell crafting, ...), checked once; a bad one stops the start like a bad feature.
 for (const f of FEATURES) if (f.houseRules?.length) addHouseRules(f.id, f.houseRules);
+// A feature that is a server mod claims its rule file too.
+for (const f of FEATURES) if (f.serverMod && !f.houseRules?.includes(f.serverMod)) addHouseRules(f.id, [f.serverMod]);
+for (const f of FEATURES) if (f.serverMod && shippedMod(f.serverMod)?.mod.scope !== 'server') throw new Error(`features/${f.id}: serverMod ${f.serverMod} must be a rule file with "scope": "server"`);
 // The parts of Alexandria a house rule can be built for (targets.builtFor).
 setFeatureIds(FEATURES.map((f) => f.id));
 
@@ -43,5 +46,5 @@ export function applyFeatureSchemas(db: DB) {
   }
 }
 
-export const featureMcpTools = () => FEATURES.flatMap((f) => f.mcpTools ?? []);
+export const featureMcpTools = () => FEATURES.flatMap((f) => (f.mcpTools ?? []).map((t) => (f.serverMod ? { ...t, serverMod: f.serverMod } : t)));
 export const featureDataDirs = () => [...new Set(FEATURES.flatMap((f) => f.dataDirs ?? []))];

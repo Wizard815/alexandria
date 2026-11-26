@@ -1,6 +1,7 @@
 // A player's front page: next game night with RSVP, who's here now, and
 // what changed (replies to my requests, new messages).
 import * as F from '../../features/registry.ts';
+import { useServerMods } from '../../lib/servermods.ts';
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
@@ -13,6 +14,7 @@ interface CalSession { id: string; title: string; starts_at: string; ends_at: st
 const RSVP: [string, string][] = [['yes', 'Going'], ['maybe', 'Maybe'], ['no', "Can't"]];
 
 export default function PlayerHome() {
+  const mods = useServerMods();
   const { w, me, info, members } = useWorld();
   const base = `/w/${info.slug}`;
   const self = members.find((m) => m.id === me);
@@ -37,7 +39,7 @@ export default function PlayerHome() {
         <p className="muted">{info.name}</p>
       </header>
       <ErrorBox error={act.error ?? cal.error ?? live.error} />
-      {F.playerHome.length > 0 && <div className="stack">{F.playerHome.map((C, i) => <C key={i} />)}</div>}
+      {F.onlyOn(F.playerHome, mods).length > 0 && <div className="stack">{F.onlyOn(F.playerHome, mods).map((C, i) => <C key={i} />)}</div>}
 
       <div className="cols">
         <div className="col-2 stack loose">

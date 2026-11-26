@@ -6,6 +6,7 @@ import { when } from '../../lib/format.ts';
 import { type ApprovalSettings, extra } from '../broker/shared.tsx';
 import { CopyButton } from '../../lib/copy.tsx';
 import * as F from '../../features/registry.ts';
+import { useServerMods } from '../../lib/servermods.ts';
 
 type K = keyof WorldSettings | keyof ApprovalSettings;
 type Row =
@@ -64,6 +65,7 @@ export default function DMSettings() {
 }
 
 function SettingsForm() {
+  const mods = useServerMods();
   const { w, info, reloadInfo } = useWorld();
   const [group, setGroup] = useState('coin');
   const act = useAction();
@@ -79,9 +81,9 @@ function SettingsForm() {
   // Typing looks through every setting in every section.
   const found = needle ? GROUPS.flatMap(([id, title, list]) => list.filter((r) => `${title} ${r.label} ${r.help}`.toLowerCase().includes(needle)).map((r) => ({ id, title, r }))) : [];
   const rows = needle ? found.map((f) => f.r) : GROUPS.find((g) => g[0] === group)?.[2] ?? [];
-  const sections: [string, string][] = [...GROUPS.map(([k, label]) => [k, label] as [string, string]), ...F.settingsSections.map((f) => [f.id, f.title] as [string, string]), ['invites', 'Invite players'], ['audit', 'Audit log']];
+  const sections: [string, string][] = [...GROUPS.map(([k, label]) => [k, label] as [string, string]), ...F.onlyOn(F.settingsSections, mods).map((f) => [f.id, f.title] as [string, string]), ['invites', 'Invite players'], ['audit', 'Audit log']];
   const shownSections = needle ? sections.filter(([k, t]) => t.toLowerCase().includes(needle) || found.some((f) => f.id === k)) : sections;
-  const FeatureSection = needle ? undefined : F.settingsSections.find((f) => f.id === group)?.component;
+  const FeatureSection = needle ? undefined : F.onlyOn(F.settingsSections, mods).find((f) => f.id === group)?.component;
 
   return (
     <div className="set-shell">

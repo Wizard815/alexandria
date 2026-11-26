@@ -132,11 +132,12 @@ function annotate(db: DB, worldId: string, list: Installed[]): Installed[] {
 /** Every house rule this world could turn on: shipped ones, then its imports. */
 export function listMods(db: DB, worldId: string): Installed[] {
   const rows = new Map(all<any>(db, 'SELECT * FROM mods WHERE world_id = ?', worldId).map((r) => [r.id, r]));
-  const out = shippedMods().map((s) => build(s.mod, 'shipped', rows.get(s.mod.id), s.feature));
+  // Server rules are the admin's (Admin → Mods), not a world's.
+  const out = shippedMods().filter((s) => s.mod.scope !== 'server').map((s) => build(s.mod, 'shipped', rows.get(s.mod.id), s.feature));
   for (const r of rows.values()) {
     if (r.source !== 'imported') continue;
     const { mod } = checkMod(r.json);
-    if (mod) out.push(build(mod, 'imported', r));
+    if (mod && mod.scope !== 'server') out.push(build(mod, 'imported', r));
   }
   return annotate(db, worldId, out);
 }
@@ -274,6 +275,7 @@ export function importMod(db: DB, worldId: string, raw: unknown, by: string | nu
   const { mod, errors } = checkMod(raw);
   if (!mod) throw new HttpError(400, `This house rule has problems: ${errors.join('; ')}`);
   if (shippedMod(mod.id)) throw new HttpError(409, `${mod.id} is the id of a house rule that comes with Alexandria; give yours another id`);
+  if (mod.scope === 'server') throw new HttpError(400, `${mod.name} is a server rule: the server admin adds it to the mods/ folder, and turns it on under Admin → Mods`);
   const cur = one<any>(db, 'SELECT * FROM mods WHERE world_id = ? AND id = ?', worldId, mod.id);
   const n = all<any>(db, "SELECT 1 FROM mods WHERE world_id = ? AND source = 'imported'", worldId).length;
   if (!cur && n >= MAX_OWN) throw new HttpError(409, `A world holds at most ${MAX_OWN} imported house rules`);

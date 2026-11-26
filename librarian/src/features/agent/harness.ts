@@ -57,6 +57,7 @@ import { setGuideNotes } from './store.ts';
 import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
 import { saveProblem } from '../mods/drafts.ts';
 import { ruleHints } from '../mods/assist.ts';
+import { serverModOn } from '../mods/server.ts';
 import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
@@ -776,7 +777,8 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     audit(d, c.worldId, c.accountId, 'agent.timing', `chat ${input.chatId} ${c.harness}: total ${T.totalMs}ms, first text ${T.firstTokenMs ?? '-'}ms, model ${T.modelMs}ms, tools ${T.toolMs}ms (${T.toolCalls}), prep ${T.prepMs}ms, gateway ${T.gatewayMs}ms, rounds ${T.rounds}, snippets ${T.snippets}, tools offered ${T.toolsOffered}${T.fast ? ', no model' : ''}`);
   };
   try {
-    let tools = await harnessTools(c.harness);
+    // Tools of a feature that is a server mod the admin turned off are left out.
+    let tools = (await harnessTools(c.harness)).filter((t) => !t.serverMod || serverModOn(d.db, t.serverMod));
     const opts = agentOptions(d);
     if (c.harness === 'dm') {
       if (!opts.bible) tools = tools.filter((t) => t.name !== 'story_bible' && t.name !== 'related_pages');
