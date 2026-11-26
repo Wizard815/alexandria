@@ -725,6 +725,8 @@ const PLAYER_ROUTES = [
   'POST /libshare/seen',
   'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel', 'POST /shop/shops/:sid/haggle',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
+  // House rules: a player spends their own counters (the server checks who may run each action).
+  'POST /mods/:id/act',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
 const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/)/;

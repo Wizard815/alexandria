@@ -27,7 +27,11 @@ export interface WebFeature {
   overlay?: ComponentType;
   /** Shown in the top bar next to the world name (e.g. the world date). */
   topbar?: ComponentType;
+  /** Extra buttons under a session chat message (e.g. Reroll on a roll, from house rules). */
+  chatActions?: ComponentType<{ message: ChatActionMessage; channel: 'table' | 'party' }>[];
 }
+/** What a chat action sees of a message. */
+export interface ChatActionMessage { id: string; authorId: string; kind: 'text' | 'roll'; roll: { total: number; expr: string } | null }
 
 const mods = import.meta.glob<{ default: WebFeature }>('./*/index.tsx', { eager: true });
 export const FEATURES: WebFeature[] = Object.keys(mods).sort().map((k) => mods[k].default).filter(Boolean);
@@ -44,3 +48,4 @@ export const dmHome = flat((f) => f.dmHome);
 export const playerHome = flat((f) => f.playerHome);
 export const overlays = flat((f) => f.overlay);
 export const topbars = flat((f) => f.topbar);
+export const chatActions = flat((f) => f.chatActions);

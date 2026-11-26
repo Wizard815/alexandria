@@ -317,6 +317,8 @@ const ARGS: Record<string, Maker> = {
   give_shop_deal: async () => ({ shop: await shopId(), player: ID.jess, pct: 10, days: 2 }),
   present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
   set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
+  house_rule_grant: async () => { await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true }); return { mod: 'inspiration-rerolls', player: ID.jess, resource: 'personal', note: 'Stayed in character' }; },
+  house_rule_save: () => ({ mod: { kit: 1, id: 'coverage-points', name: 'Coverage points', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] } }),
 };
 
 /** Values from a tool's own schema for any tool without an entry in ARGS. */
@@ -351,6 +353,8 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['publish the session log', ['publish_session_log']],
     ['approve the coin request', ['decide_approval']],
     ['add a pin on the map', ['add_map_mark']],
+    ['give Jess a personal reroll for that speech', ['house_rule_grant']],
+    ['write a house rule for hero points', ['house_rule_check', 'house_rule_save']],
   ] as const) {
     const picked = selectTools(text, toolsFor(true).map((t) => t.name));
     for (const n of tools) assert.ok(picked.includes(n), `"${text}" offers ${n}: got ${picked.join(', ')}`);
