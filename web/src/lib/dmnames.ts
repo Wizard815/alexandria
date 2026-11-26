@@ -18,6 +18,7 @@ export const DM_GROUPS: { id: DMGroupId; label: string; icon: string }[] = [
 export const DM_NAMES: Record<string, DMName> = {
   '': { group: 'run', label: 'Table', icon: 'fa-table-cells-large', desc: 'Everything live in the world, at a glance.' },
   combat: { group: 'run', label: 'Combat', icon: 'fa-khanda', desc: 'Initiative, conditions and monster health.' },
+  downtime: { group: 'run', label: 'Downtime', icon: 'fa-hourglass-half', desc: 'Downtime activities: press Downtime when days pass, track tasks from common to legendary, give rewards.' },
   quick: { group: 'run', label: 'Quick events', icon: 'fa-bolt', desc: 'Timed prompts on the players’ screens.' },
   scenes: { group: 'run', label: 'Scenes', icon: 'fa-clapperboard', desc: 'One button sets the TV, sound, lights and map.' },
   stage: { group: 'run', label: 'Stage', icon: 'fa-image', desc: 'Prepare cards, then show them to the table.' },
