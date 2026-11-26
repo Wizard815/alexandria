@@ -5,10 +5,16 @@ import { legendkeeperApi, legendkeeperMcp } from './connectors/legendkeeper.ts';
 import { kankaApi, kankaMcp } from './connectors/kanka.ts';
 import { gitRepo, markdownFolder, mcpFiles } from './connectors/markdown.ts';
 import { genericApi } from './connectors/api.ts';
+import { worldAnvilApi } from './connectors/worldanvil.ts';
+import { obsidianPublish, obsidianRest, obsidianRestWrite, obsidianSync, obsidianSyncWrite } from './connectors/obsidian.ts';
+import { notionApi } from './connectors/notion.ts';
+import { notionWrite } from './connectors/notion-write.ts';
+import { obsidianPortal } from './connectors/obsidianportal.ts';
 import { pushSource } from './connectors/push.ts';
 import { lkMcpWrite, lkRestWrite } from './connectors/legendkeeper-write.ts';
 import { markdownWrite } from './connectors/markdown-write.ts';
 import { kankaMcpWrite, kankaRestWrite } from './connectors/kanka-write.ts';
+import { waWrite } from './connectors/worldanvil-write.ts';
 import { DEFAULT_LIMITS, rateFields } from './ratelimit.ts';
 import { mcpClient, type McpClient } from '../core/mcp.ts';
 
@@ -18,8 +24,12 @@ legendkeeperApi.write = lkRestWrite;
 markdownFolder.write = markdownWrite;
 kankaApi.write = kankaRestWrite;
 kankaMcp.write = kankaMcpWrite;
+worldAnvilApi.write = waWrite;
+obsidianSync.write = obsidianSyncWrite;
+obsidianRest.write = obsidianRestWrite;
+notionApi.write = notionWrite;
 
-export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, markdownFolder, gitRepo, mcpFiles, genericApi, pushSource];
+export const CONNECTORS: Connector[] = [legendkeeperMcp, legendkeeperApi, kankaApi, kankaMcp, worldAnvilApi, notionApi, markdownFolder, obsidianSync, obsidianRest, obsidianPublish, obsidianPortal, gitRepo, mcpFiles, genericApi, pushSource];
 
 /**
  * Which settings belong to the connection (the account: tokens, URLs of the
@@ -33,6 +43,10 @@ const CONNECTION_FIELDS: Record<string, string[] | 'all-but-source'> = {
   'legendkeeper-mcp': ['transport', 'url', 'token', 'server'],
   'legendkeeper-api': ['apiKey'],
   'kanka-api': ['token', 'apiUrl'],
+  'worldanvil-api': ['token', 'appKey', 'apiUrl'],
+  'obsidian-rest': ['url', 'apiKey'],
+  'notion-api': ['token'],
+  'obsidian-portal': ['accessToken', 'accessSecret', 'consumerKey', 'consumerSecret'],
   'kanka-mcp': ['transport', 'server', 'url', 'token', 'appUrl', 'trustPostVisibility'],
   'mcp-files': ['transport', 'server', 'url', 'token', 'preset', 'listTool', 'listArgs', 'readTool', 'readArg'],
   api: 'all-but-source',

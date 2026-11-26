@@ -8,7 +8,8 @@
     "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/index.ts",
     "check": "tsc --noEmit -p .",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test test/*.test.ts",
-    "build": "tsc -p . --noEmit false"
+    "build": "tsc -p . --noEmit false",
+    "op-login": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/obsidian-portal-login.ts"
   },
   "dependencies": {
     "express": "^5.0.0",
