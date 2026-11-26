@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
@@ -9,10 +9,12 @@ import { OfflineBanner } from '../ui/index.tsx';
 import './dmmenu.css';
 import { MoreSheet } from './MoreSheet.tsx';
 import * as F from '../features/registry.ts';
+import { loadServerMods, useServerMods } from '../lib/servermods.ts';
 
 export function PlayerLayout() {
   const { info, isDM, connected, w } = useWorld();
-  const { me, signOut } = useAuth();
+  const { me, signOut, client } = useAuth();
+  const mods = useServerMods(useMemo(() => loadServerMods(client), [client]));
   const [menu, setMenu] = useState(false);
   const [pinned, setPinned] = useState<string[] | null>(() => loadPinned(info.slug));
   const loc = useLocation();
@@ -39,7 +41,7 @@ export function PlayerLayout() {
     <div className="t-fantasy player">
       <header className="topbar">
         <Link to={base} className="brand">{info.name}</Link>
-        {F.topbars.map((C, i) => <C key={i} />)}
+        {F.onlyOn(F.topbars, mods).map((C, i) => <C key={i} />)}
         <span className="phone-only"><span className={`live-dot${connected ? '' : ' off'}`} title={connected ? 'Live updates on' : 'Reconnecting'} role="img" aria-label={connected ? 'Live updates on' : 'Reconnecting'} /></span>
         <nav className="pl-areas desktop-only" aria-label="Areas">
           {areas.map((a) => <Link key={a.g} to={`${base}/${a.list[0].to}`} className={`pl-area${a.g === area ? ' on' : ''}`} aria-current={a.g === area || undefined} title={a.list.map((l) => l.label).join(' · ')}>{a.g}</Link>)}
@@ -71,7 +73,7 @@ export function PlayerLayout() {
           onPins={update} onClose={() => setMenu(false)} onSignOut={() => void signOut()} />
       )}
       <QuickPrompt />
-      {F.overlays.map((C, i) => <C key={i} />)}
+      {F.onlyOn(F.overlays, mods).map((C, i) => <C key={i} />)}
     </div>
   );
 }

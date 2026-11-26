@@ -64,3 +64,8 @@ A rule that switches on a feature's settings (spell points, MANA, spell
 crafting) is claimed by that feature by id in its `houseRules`, so it shows
 the feature it belongs to. A rule that needs new code is built as a feature:
 see "For developers" in [docs/MODS.md](../docs/MODS.md).
+
+A file with `"scope": "server"` is a **server rule**: it switches a whole
+feature on or off for the server (a content source, an admin page) and is
+turned on under Admin → Mods, not in a world's House rules. See "Server
+rules" in [docs/MODS.md](../docs/MODS.md).

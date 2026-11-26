@@ -6,7 +6,7 @@ import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { MakeHouseRule, RulesList } from './Settings.tsx';
-import { houseRuleTabs } from '../registry.ts';
+import { houseRuleTabs, onlyOn } from '../registry.ts';
 import { DMSystemTab, ViewsFor } from './System.tsx';
 import { Chip, useHouseRules, type HouseRule, type LogLine } from './shared.tsx';
 
@@ -20,7 +20,7 @@ export function DMHouseRules() {
   const [tab, setTab] = useState<Tab | null>(null);
   const on = list.filter((r) => r.enabled).length;
   const extra: { key: string; title: string; render: () => ReactNode }[] = [
-    ...houseRuleTabs.filter((t) => list.some((r) => r.id === t.mod && r.enabled)).map((t) => ({ key: `x:${t.mod}:${t.title}`, title: t.title, render: () => { const C = t.component; return <C />; } })),
+    ...onlyOn(houseRuleTabs).filter((t) => list.some((r) => r.id === t.mod && r.enabled)).map((t) => ({ key: `x:${t.mod}:${t.title}`, title: t.title, render: () => { const C = t.component; return <C />; } })),
     // A data system's own tab: its prompt buttons and the views it puts on the DM's page.
     ...list.filter((r) => r.enabled && r.system && (r.system.views.some((v) => v.place === 'dm') || r.system.prompts.length)).map((r) => ({
       key: `x:sys:${r.id}`, title: r.system!.views.find((v) => v.place === 'dm')?.title ?? r.name, render: () => <DMSystemTab rule={r} />,

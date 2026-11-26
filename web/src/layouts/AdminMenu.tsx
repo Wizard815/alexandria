@@ -5,6 +5,8 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
 import './dmmenu.css';
 import { ADMIN_GROUPS, ADMIN_NAMES, type AdminGroupId } from '../lib/adminnames.ts';
+import { loadServerModsAdmin, serverModsOn, useServerMods } from '../lib/servermods.ts';
+import { useAuth } from '../lib/auth.tsx';
 
 export interface AdminEntry { to: string; label: string; icon: string; desc: string; group: AdminGroupId | 'top' }
 const OPEN_KEY = 'alx.admin.menu.open';
@@ -14,10 +16,10 @@ function read<T>(key: string, fallback: T): T {
 }
 function write(key: string, value: unknown) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* the choice lasts for this page only */ } }
 
-/** Every page in the menu, in menu order. A page a feature adds without a name here lands under Server. */
-export function adminEntries(): AdminEntry[] {
+/** Every page in the menu, in menu order. A page a feature adds without a name or group lands under Server; a server mod's page shows while its rule is on. */
+export function adminEntries(on = serverModsOn()): AdminEntry[] {
   const out: AdminEntry[] = Object.entries(ADMIN_NAMES).map(([to, n]) => ({ to, ...n }));
-  for (const n of F.adminNav) if (!(n.to in ADMIN_NAMES)) out.push({ to: n.to, label: n.label, icon: 'fa-circle', desc: '', group: 'server' });
+  for (const n of F.onlyOn(F.adminNav, on)) if (!(n.to in ADMIN_NAMES)) out.push({ to: n.to, label: n.label, icon: n.icon ?? 'fa-circle', desc: n.desc ?? '', group: n.group ?? 'server' });
   return out;
 }
 
@@ -27,7 +29,9 @@ export const matches = (e: AdminEntry, q: string): boolean => {
 };
 
 export function AdminMenu({ onNavigate }: { onNavigate: () => void }) {
-  const entries = useMemo(adminEntries, []);
+  const { client } = useAuth();
+  const on = useServerMods(useMemo(() => loadServerModsAdmin(client), [client]));
+  const entries = useMemo(() => adminEntries(on), [on]);
   const byTo = useMemo(() => new Map(entries.map((e) => [e.to, e])), [entries]);
   const loc = useLocation();
   const nav = useNavigate();

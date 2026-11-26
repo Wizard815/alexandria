@@ -96,6 +96,11 @@ export interface ModFile {
   /** Kit 2: how the assistant works with the rule: words that bring it up, guidance for the DM's assistant and the
    *  player helper (each sees only its own), and other tools to offer with it (a feature's, such as the Codex's). */
   assistant: Assistant | null;
+  /** Kit 2: 'world' (a table's rule, turned on per world by its DM) or 'server' (a whole feature for the server, such
+   *  as a content source, turned on by the server admin; only from the mods/ folder). */
+  scope: 'world' | 'server';
+  /** A server rule that is on until the admin turns it off (a feature that was always there before it became a mod). */
+  onByDefault: boolean;
 }
 export interface Assistant { words: string[]; dm: string; player: string; tools: string[] }
 
@@ -153,7 +158,7 @@ export function checkMod(raw: unknown): Checked {
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
     options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
     requires: { settings: [], mods: {} },
-    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null,
+    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null, scope: 'world', onByDefault: false,
   };
 
   // ---- options
@@ -366,7 +371,19 @@ export function checkMod(raw: unknown): Checked {
     for (const ra of mod.system.recordActions) if (taken.has(ra.id)) err(`recordActions: "${ra.id}" is also the id of an action; give it another`);
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
+  // ---- kit 2 scope: a server rule switches a feature for the whole server, so it has no per-world parts
+  if (o.scope !== undefined && o.scope !== 'world' && o.scope !== 'server') err('scope must be world or server');
+  if (o.scope === 'server') {
+    mod.scope = 'server';
+    for (const k of ['options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'presets', 'records', 'recordActions', 'timers', 'prompts', 'views']) {
+      if (o[k] !== undefined) err(`${k}: a server rule turns a feature on or off for the whole server; ${k} belongs to a world rule`);
+    }
+    if (o.requires?.settings?.length) err('requires.settings: a server rule cannot need world settings');
+    if (o.onByDefault !== undefined && typeof o.onByDefault !== 'boolean') err('onByDefault must be true or false');
+    mod.onByDefault = o.onByDefault === true;
+  } else if (o.onByDefault !== undefined) err('onByDefault is only for a server rule ("scope": "server")');
+
+  const known = new Set(['scope', 'onByDefault', 'kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
   if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
@@ -376,8 +393,8 @@ export function checkMod(raw: unknown): Checked {
 
 /** A checked rule back in the shape of a file (what is saved, exported and shown to the assistant). */
 export function toFile(mod: ModFile): Record<string, unknown> {
-  const { system, assistant, ...rest0 } = mod;
-  const rest = assistant ? { ...rest0, assistant } : rest0;
+  const { system, assistant, scope, onByDefault, ...rest0 } = mod;
+  const rest = { ...rest0, ...(assistant ? { assistant } : {}), ...(scope === 'server' ? { scope, onByDefault } : {}) };
   if (!system.records.length) return rest;
   return {
     ...rest,

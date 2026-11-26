@@ -1,5 +1,6 @@
 // The DM's table: live blocks for the session at a glance.
 import * as F from '../../features/registry.ts';
+import { useServerMods } from '../../lib/servermods.ts';
 import { useState } from 'react';
 import { PageHead, ErrorBox, Empty, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -14,6 +15,7 @@ const BLOCKS: [string, string][] = [
 ];
 
 export default function DMTable() {
+  const mods = useServerMods();
   const { w, info, nameOf, me } = useWorld();
   const key = `alx.dm.table.${info.id}`;
   const [shown, setShown] = useState<string[]>(() => lsGet(key, BLOCKS.map((b) => b[0])));
@@ -69,7 +71,7 @@ export default function DMTable() {
       )}
       <ErrorBox error={live.error || act.error} />
       {quiet.length > 0 && <p className="small muted row" data-testid="quiet">All quiet: {quiet.map(([k, v]) => <DMLink key={k} to={v[1]} className="chip">{v[2]}</DMLink>)}</p>}
-      {F.dmHome.length > 0 && <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>{F.dmHome.map((C, i) => <C key={i} />)}</div>}
+      {F.onlyOn(F.dmHome, mods).length > 0 && <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>{F.onlyOn(F.dmHome, mods).map((C, i) => <C key={i} />)}</div>}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {shown.includes('library') && lib.length > 0 && (
           <section className="card" aria-labelledby="b-lib">
