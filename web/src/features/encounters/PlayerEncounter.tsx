@@ -50,6 +50,7 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
   const { w, info } = useWorld();
   const act = useAction();
   const [roll, setRoll] = useState('');
+  const [crit, setCrit] = useState<'' | 'high' | 'low'>('');
   const logEnd = useRef<HTMLDivElement>(null);
   const open = e.status === 'open';
   const money = (cp: number) => coins(cp, info.settings.coins);
@@ -110,14 +111,19 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
             )}
             {g.kind === 'dice' && <div className="row"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void choose({ play: true })}><i className="fa-solid fa-dice" aria-hidden="true" /> Roll</button></div>}
             {g.kind === 'check' && (
-              <form className="stack tight" data-testid="enc-roll" onSubmit={(ev) => { ev.preventDefault(); if (roll !== '' && roll !== '-') void choose({ play: true, total: Number(roll) }); }}>
+              <form className="stack tight" data-testid="enc-roll" onSubmit={(ev) => { ev.preventDefault(); const t = roll !== '' && roll !== '-' ? Number(roll) : undefined; if (t !== undefined || crit) void choose({ play: true, total: t, crit: crit || undefined }); }}>
                 <span className="small"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Roll a d20{g.skill ? ` for ${g.skill}` : ''}, add your bonus, and enter the total.</span>
                 <div className="row" style={{ alignItems: 'flex-end' }}>
                   <label className="field" style={{ width: 120 }}><span className="label">Your total</span>
                     <input inputMode="numeric" value={roll} placeholder="e.g. 14" aria-label="Your total" autoFocus onChange={(ev) => setRoll(ev.target.value.replace(/[^\d-]/g, '').replace(/(?!^)-/g, '').slice(0, 3))} />
                   </label>
-                  <button type="submit" className="btn primary" disabled={act.busy || roll === '' || roll === '-'}>Send roll</button>
+                  <button type="submit" className="btn primary" disabled={act.busy || ((roll === '' || roll === '-') && !crit)}>Send roll</button>
                   {e.kind !== 'event' && <button type="button" className="btn" disabled={act.busy} onClick={() => void choose({ play: true })}>Roll for me</button>}
+                </div>
+                <div className="row enc-crit" role="group" aria-label="Natural 20 or 1">
+                  <button type="button" className={`btn small${crit === 'high' ? ' on' : ''}`} aria-pressed={crit === 'high'} onClick={() => setCrit(crit === 'high' ? '' : 'high')}><i className="fa-solid fa-star" aria-hidden="true" /> Natural 20</button>
+                  <button type="button" className={`btn small${crit === 'low' ? ' on' : ''}`} aria-pressed={crit === 'low'} onClick={() => setCrit(crit === 'low' ? '' : 'low')}><i className="fa-solid fa-skull" aria-hidden="true" /> Natural 1</button>
+                  {crit && <span className="tiny faint">{crit === 'high' ? 'Passes whatever the total.' : 'Fails whatever the total.'}</span>}
                 </div>
               </form>
             )}

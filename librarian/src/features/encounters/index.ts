@@ -438,10 +438,10 @@ function routes(d: Deps) {
       if (!n.game) throw new HttpError(400, 'There is no game to play here');
       const g = n.game;
       if (g.stakeCp > 0 && spendable(db, w, e.account_id) < g.stakeCp) throw new HttpError(409, `You need ${money(g.stakeCp)} to play`);
-      if (g.kind === 'check' && kindOf(e.kind) === 'event' && (b.total === undefined || b.total === null || b.total === '')) throw new HttpError(400, `Roll${g.skill ? ` ${g.skill}` : ''} and send your total`);
-      const result = play(g, { pick: b.pick, roll: b.roll, modifier: b.modifier, total: b.total });
-      say('game', `${result.text} ${g.kind === 'check' ? (result.won ? 'Success!' : 'Not enough.') : result.won ? 'You win!' : 'You lose.'}`);
-      if (g.kind === 'check' && result.dc !== undefined) say('secret', `DC ${result.dc}${g.dcMax ? ` (picked from ${g.dc}–${g.dcMax})` : ''}: ${result.won ? 'passed' : 'failed'}.`);
+      if (g.kind === 'check' && kindOf(e.kind) === 'event' && (b.total === undefined || b.total === null || b.total === '') && b.crit !== 'high' && b.crit !== 'low') throw new HttpError(400, `Roll${g.skill ? ` ${g.skill}` : ''} and send your total`);
+      const result = play(g, { pick: b.pick, roll: b.roll, modifier: b.modifier, total: b.total, crit: b.crit });
+      say('game', result.crit ? result.text : `${result.text} ${g.kind === 'check' ? (result.won ? 'Success!' : 'Not enough.') : result.won ? 'You win!' : 'You lose.'}`);
+      if (g.kind === 'check' && result.dc !== undefined) say('secret', `DC ${result.dc}${g.dcMax ? ` (picked from ${g.dc}–${g.dcMax})` : ''}: ${result.crit ? `natural ${result.crit === 'high' ? 20 : 1}, ` : ''}${result.won ? 'passed' : 'failed'}.`);
       tx(db, () => {
         if (result.won) {
           if (g.winCp > 0) { const cp = credit(g.winCp, `Won at ${GAME_LABEL[g.kind].toLowerCase()} with ${e.npc_name}`); if (cp) say('gain', `You win ${money(cp)}.`); else say('note', `${e.npc_name} is out of coin to pay you.`); }

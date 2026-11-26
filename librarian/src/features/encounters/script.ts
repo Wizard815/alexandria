@@ -191,7 +191,7 @@ export const quickScript = (line: string, answers: string[]): Script => parseScr
 
 // ---------------- the games ----------------
 
-export interface GameResult { won: boolean; text: string; roll?: number; total?: number; dc?: number }
+export interface GameResult { won: boolean; text: string; roll?: number; total?: number; dc?: number; crit?: 'high' | 'low' }
 
 const FACES = ['heads', 'tails'];
 const SHELLS = ['left', 'middle', 'right'];
@@ -202,9 +202,10 @@ const d = (n: number) => randomInt(1, n + 1);
  * says. pick: coin 0/1, shells 0/1/2. check: total (the player's roll with
  * their bonuses, from real dice), or roll (1-20) and modifier; the app rolls
  * when neither is given. The DC is picked from its range here. Dice ties go to
- * the NPC.
+ * the NPC. crit: 'high' (a natural 20) or 'low' (a natural 1) passes or fails a
+ * check whatever the total.
  */
-export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?: unknown; total?: unknown }, rnd: (n: number) => number = d): GameResult {
+export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?: unknown; total?: unknown; crit?: unknown }, rnd: (n: number) => number = d): GameResult {
   switch (g.kind) {
     case 'coin': {
       const pick = whole(input.pick, 'pick', 0, 1, -1);
@@ -225,6 +226,12 @@ export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?
     }
     case 'check': {
       const dc = pickDc(g, rnd);
+      // The player says they rolled a natural 20 (high) or a natural 1 (low): it passes or fails whatever the total.
+      if (input.crit === 'high' || input.crit === 'low') {
+        const hi = input.crit === 'high';
+        const t = input.total === undefined || input.total === null || input.total === '' ? undefined : whole(input.total, 'total', -10, 60, 0);
+        return { won: hi, dc, crit: input.crit, ...(t !== undefined ? { total: t } : {}), text: `Natural ${hi ? '20' : '1'}${g.skill ? ` on ${g.skill}` : ''}${t !== undefined ? ` (${t})` : ''}! ${hi ? 'A critical success.' : 'A critical failure.'}` };
+      }
       if (input.total !== undefined && input.total !== null && input.total !== '') {
         const total = whole(input.total, 'total', -10, 60, 0);
         return { won: total >= dc, total, dc, text: `You rolled ${total}${g.skill ? ` for ${g.skill}` : ''}.` };

@@ -182,6 +182,10 @@ test('TestStoryEvents_DcRangeParsesAndPicks', () => {
   assert.equal(play(g, { total: 12 }, () => 3).won, true);
   assert.equal(play(g, { total: 11 }, () => 3).won, false);
   assert.equal(play(g, { total: 11 }, () => 3).dc, 12);
+  // A natural 20 passes and a natural 1 fails, whatever the total (or with none).
+  assert.equal(play(g, { crit: 'high' }, () => 5).won, true);
+  assert.equal(play(g, { crit: 'low', total: 40 }, () => 1).won, false);
+  assert.match(play(g, { crit: 'high', total: 7 }, () => 5).text, /Natural 20 on Athletics \(7\)/);
   // Every built-in event check has a range.
   for (const ev of EVENT_STARTERS) for (const n of ev.script.nodes) if (n.game?.kind === 'check') assert.ok(n.game.dcMax && n.game.dcMax > n.game.dc!, `${ev.id} ${n.id}`);
 });
@@ -200,6 +204,16 @@ test('TestStoryEvents_CheckNeedsTheTypedTotal', async () => {
   const dmView = await ok('GET', `${P()}/${e.id}`, T.dm);
   assert.ok(dmView.log.some((l: any) => l.who === 'secret' && /DC 1[0-4] \(picked from 10–14\)/.test(l.text)));
   await ok('POST', `${P()}/${e.id}/end`, T.dm, {});
+  // A natural 1 with no total fails the chase; the DM sees it was a natural 1.
+  await send({ accountIds: [ID.jess], templateId: 'builtin:ev-pickpocket' });
+  const c = await openFor('jess');
+  await choose(c.id, 'jess', { option: 0 });
+  const r1 = await choose(c.id, 'jess', { play: true, crit: 'low' });
+  assert.equal(r1.status, 200, JSON.stringify(r1.body));
+  assert.match(r1.body.text, /vanish into the alleys/);
+  const dm1 = await ok('GET', `${P()}/${c.id}`, T.dm);
+  assert.ok(dm1.log.some((l: any) => l.who === 'secret' && /natural 1, failed/.test(l.text)));
+  await ok('POST', `${P()}/${c.id}/end`, T.dm, {});
 });
 
 test('TestStoryEvents_TimedStep', async () => {

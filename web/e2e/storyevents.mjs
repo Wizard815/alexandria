@@ -72,6 +72,9 @@ try {
   await player.page.getByTestId('enc-roll').waitFor();
   check(await player.page.getByText('Roll a d20 for Athletics', { exact: false }).isVisible(), 'the roll prompt does not name the skill');
   check(!(await player.page.getByRole('button', { name: 'Roll for me' }).count()), 'a story event check offers Roll for me');
+  check(await player.page.getByRole('button', { name: 'Natural 20' }).isVisible(), 'no Natural 20 toggle');
+  await player.page.getByRole('button', { name: 'Natural 1' }).click();
+  await player.page.getByRole('button', { name: 'Natural 1' }).click(); // and off again
   await player.page.getByLabel('Your total').fill('30');
   await player.page.getByRole('button', { name: 'Send roll' }).click();
   await player.page.getByText('You rolled 30 for Athletics', { exact: false }).first().waitFor();
