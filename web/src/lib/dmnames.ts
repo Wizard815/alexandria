@@ -63,6 +63,7 @@ export const DM_NAMES: Record<string, DMName> = {
   phone: { group: 'setup', label: 'Phone', icon: 'fa-mobile-screen', desc: 'Your pocket remote and assistant.' },
   settings: { group: 'setup', label: 'Settings', icon: 'fa-gear', desc: 'Visibility, invites and options for this world.' },
   foundry: { group: 'setup', label: 'Foundry VTT', icon: 'fa-chess-rook', desc: 'Keep a Foundry world in step: maps, tokens, fog, HP and conditions.' },
+  owlbear: { group: 'setup', label: 'Owlbear Rodeo', icon: 'fa-chess-board', desc: 'Play online on an Owlbear Rodeo table with your maps and fog of war.' },
   connect: { group: 'setup', label: 'Connect AI', icon: 'fa-plug', desc: 'Make a key to link an AI app to this world.' },
 };
 
