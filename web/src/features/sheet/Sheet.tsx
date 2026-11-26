@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, Modal, useAction, useToast } from '../../ui/index.tsx';
+import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { CAN_BE_PRIVATE, CONDITIONS, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -18,6 +19,9 @@ export default function Sheet({ account }: { account: string }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [asking, setAsking] = useState<Subject | null>(null);
+  const [adding1, setAdding1] = useState<Partial<Person> | null>(null);
+  const canAsk = useCanAsk();
   const act = useAction();
   const { toast, toastNode } = useToast();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -56,12 +60,16 @@ export default function Sheet({ account }: { account: string }) {
   });
   const mana = (body: Record<string, unknown>) => act.run(async () => { await w.call('POST', `/sheet/${account}/mana`, body); await sheet.reload(); });
   const firstContacts = mods.find((m) => m.type === 'contacts');
-  const addContact = (name: string, kind: 'ally' | 'enemy', personId?: string) => {
-    if (!firstContacts) return toast('Add a People module first');
-    const entries = firstContacts.data?.entries ?? [];
-    if (entries.some((e: any) => e.name.toLowerCase() === name.toLowerCase())) return toast(`${name} is already on your list`);
-    update(firstContacts.id, { data: { entries: [...entries, { id: uid(), name, kind, note: '', ...(personId ? { personId } : {}) }] } }, 0);
-    toast(`${name} added as ${kind === 'ally' ? 'an ally' : 'an enemy'}`);
+  /** From Recently: add someone to the first People module (made if there is none). */
+  const saveContact = (p: Omit<Person, 'id'>) => {
+    const entry = { ...p, id: uid() };
+    if (!firstContacts) { persist([...mods, { id: `contacts-${uid()}`, type: 'contacts', title: 'People', wide: false, private: false, collapsed: false, data: { entries: [entry] } }], 0); }
+    else {
+      const entries: Person[] = firstContacts.data?.entries ?? [];
+      if (entries.some((e) => e.name.toLowerCase() === p.name.toLowerCase())) return toast(`${p.name} is already on your list`);
+      update(firstContacts.id, { data: { entries: [...entries, entry] } }, 0);
+    }
+    toast(`${p.name} added`);
   };
   const manaOn = (info.settings as any).spellMana === true;
 
@@ -78,6 +86,7 @@ export default function Sheet({ account }: { account: string }) {
         </span>
       </div>
       <ErrorBox error={act.error} />
+      <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
       {showLog && <section className="card sht-mod"><h3 style={{ margin: 0, fontSize: 15 }}>HP and mana changes</h3><ChangeLog account={own ? me : account} /></section>}
       <div className="sht-grid">
         {mods.map((m, i) => (
@@ -100,7 +109,8 @@ export default function Sheet({ account }: { account: string }) {
               m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} /> : <p className="tiny muted">Mana is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
-              : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? addContact : undefined} />
+              : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? (x) => setAdding1(x) : undefined} onAsk={own && canAsk ? setAsking : undefined} />
+              : m.type === 'contacts' ? <PeopleMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries) => update(m.id, { data: { entries } }, 0)} onAsk={own && canAsk ? setAsking : undefined} />
               : <Editable m={m} readOnly={!own} onData={(data, wait) => update(m.id, { data }, wait)} />
             )}
           </section>
@@ -112,6 +122,8 @@ export default function Sheet({ account }: { account: string }) {
               <button key={k.type} type="button" className="btn" onClick={() => add(k.type)} data-testid={`add-${k.type}`}><strong><i className={`fa-solid ${k.icon}`} aria-hidden="true" /> {k.label}</strong><span className="tiny muted">{k.desc}</span></button>
             ))}</div></section>
         : <button type="button" className="btn" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>)}
+      {asking && <AskModal subject={asking} onClose={() => setAsking(null)} />}
+      {adding1 && <PersonModal person={adding1} onClose={() => setAdding1(null)} onSave={(p) => { saveContact(p); setAdding1(null); }} />}
       {!mods.length && <Empty>This sheet has no modules. {own ? 'Tap Arrange to add some.' : ''}</Empty>}
       {toastNode}
     </div>
@@ -218,28 +230,26 @@ function Inventory({ account, own }: { account: string; own: boolean }) {
 
 // ---- recently seen people and places ----
 
-function RecentMod({ account, onAdd }: { account: string; onAdd?: (name: string, kind: 'ally' | 'enemy', personId?: string) => void }) {
+function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Partial<Person>) => void; onAsk?: (s: Subject) => void }) {
   const { w } = useWorld();
   const rec = useLoad<any>(() => w.call('GET', `/sheet/${account}/recent`), [w, account], ['sessionlog', 'person']);
   if (rec.loading && !rec.data) return <Loading />;
-  const people = rec.data?.people ?? [], places = rec.data?.places ?? [];
-  if (!people.length && !places.length) return <span className="tiny muted">Names show up here after the DM publishes a session summary.</span>;
-  const part = (title: string, list: any[], person: boolean): ReactNode => list.length > 0 && (
+  const people = rec.data?.people ?? [], places = rec.data?.places ?? [], factions = rec.data?.factions ?? [];
+  if (!people.length && !places.length && !factions.length) return <span className="tiny muted">Names show up here after the DM publishes a session summary.</span>;
+  const part = (title: string, icon: string, list: any[], what: Subject['what']): ReactNode => list.length > 0 && (
     <div className="stack tight">
-      <span className="tiny faint">{title}</span>
+      <span className="tiny faint"><i className={`fa-solid ${icon}`} aria-hidden="true" /> {title}</span>
       <ul className="sht-list">{list.map((x: any) => (
         <li key={x.name}>
-          <span className="grow small" title={`Session ${x.session}: ${x.sessionTitle}`}>{x.pageId ? <Link to={`../library/${x.pageId}`}>{x.name}</Link> : x.name}</span>
-          <span className="tiny faint">#{x.session}</span>
-          {person && onAdd && <>
-            <button type="button" className="btn small ghost" title="Add as an ally" aria-label={`Add ${x.name} as an ally`} onClick={() => onAdd(x.name, 'ally', x.personId)}><i className="fa-solid fa-handshake" aria-hidden="true" /></button>
-            <button type="button" className="btn small ghost" title="Add as an enemy" aria-label={`Add ${x.name} as an enemy`} onClick={() => onAdd(x.name, 'enemy', x.personId)}><i className="fa-solid fa-skull" aria-hidden="true" /></button>
-          </>}
+          <span className="grow small" title={`Session ${x.session}: ${x.sessionTitle}`}>{x.pageId ? <Link to={`../library?page=${encodeURIComponent(x.pageId)}`}>{x.name}</Link> : x.name}</span>
+          <span className="tiny faint" title={x.sessionTitle}>#{x.session}</span>
+          {onAsk && <button type="button" className="btn small ghost" title="Ask the broker" aria-label={`Ask the broker about ${x.name}`} onClick={() => onAsk({ name: x.name, what, pageId: x.pageId })}><i className="fa-solid fa-comment-dots" aria-hidden="true" /></button>}
+          {what === 'person' && onAdd && <button type="button" className="btn small ghost" title="Add to my people" aria-label={`Add ${x.name} to my people`} onClick={() => onAdd({ name: x.name, kind: 'ally', note: '', pageId: x.pageId, personId: x.personId })}><i className="fa-solid fa-user-plus" aria-hidden="true" /></button>}
         </li>
       ))}</ul>
     </div>
   );
-  return <div className="stack tight">{part('People', people, true)}{part('Places', places, false)}</div>;
+  return <div className="stack tight">{part('People', 'fa-user', people, 'person')}{part('Places', 'fa-location-dot', places, 'place')}{part('Factions', 'fa-flag', factions, 'faction')}</div>;
 }
 
 // ---- the modules a player fills in ----
@@ -248,56 +258,11 @@ function Editable({ m, readOnly, onData }: { m: Module; readOnly: boolean; onDat
   const entries: any[] = m.data?.entries ?? [];
   const setEntries = (next: any[], wait = 0) => onData({ entries: next }, wait);
   const [draft, setDraft] = useState('');
-  const [kind, setKind] = useState<'ally' | 'enemy' | 'neutral'>('ally');
-  const [edit, setEdit] = useState<any | null>(null);
 
   if (m.type === 'notes' || m.type === 'text') {
     return readOnly
       ? <p className="small" style={{ whiteSpace: 'pre-line', margin: 0 }}>{m.data?.text || <span className="faint">Empty</span>}</p>
       : <textarea aria-label={m.title} value={m.data?.text ?? ''} maxLength={10_000} placeholder={m.type === 'notes' ? 'Names, clues, the innkeeper’s riddle…' : ''} onChange={(e) => onData({ text: e.target.value })} />;
-  }
-
-  if (m.type === 'contacts') {
-    const groups: [string, string, string][] = [['ally', 'Allies', 'green'], ['enemy', 'Enemies', 'red'], ['neutral', 'Others', '']];
-    const addOne = () => { const n = draft.trim(); if (!n) return; setEntries([...entries, { id: uid(), name: n, kind, note: '' }]); setDraft(''); };
-    return (
-      <div className="stack tight">
-        {!entries.length && <span className="tiny muted">Nobody yet.</span>}
-        {groups.map(([k, label, color]) => {
-          const list = entries.filter((e) => e.kind === k);
-          return list.length > 0 && (
-            <div key={k} className="stack tight">
-              <span className="tiny faint">{label}</span>
-              <ul className="sht-list">{list.map((e) => (
-                <li key={e.id}>
-                  <span className={`chip ${color}`} aria-hidden="true">{k === 'ally' ? '♥' : k === 'enemy' ? '⚔' : '•'}</span>
-                  <span className="grow small"><strong>{e.name}</strong>{e.note && <span className="muted"> · {e.note}</span>}</span>
-                  {!readOnly && <button type="button" className="btn small ghost" aria-label={`Edit ${e.name}`} onClick={() => setEdit(e)}>✎</button>}
-                </li>
-              ))}</ul>
-            </div>
-          );
-        })}
-        {!readOnly && (
-          <div className="row" style={{ gap: 4 }}>
-            <input className="sht-in" style={{ flex: 1 }} placeholder="Name" aria-label="Name" value={draft} maxLength={80} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} />
-            <select className="sht-in" aria-label="Ally or enemy" value={kind} onChange={(e) => setKind(e.target.value as any)}><option value="ally">Ally</option><option value="enemy">Enemy</option><option value="neutral">Other</option></select>
-            <button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button>
-          </div>
-        )}
-        {edit && (
-          <Modal title={`Edit ${edit.name}`} onClose={() => setEdit(null)}>
-            <label className="field"><span className="label">Name</span><input value={edit.name} maxLength={80} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
-            <label className="field"><span className="label">Who they are to you</span><select value={edit.kind} onChange={(e) => setEdit({ ...edit, kind: e.target.value })}><option value="ally">Ally</option><option value="enemy">Enemy</option><option value="neutral">Other</option></select></label>
-            <label className="field"><span className="label">Note</span><input value={edit.note} maxLength={300} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
-            <div className="row between">
-              <button type="button" className="btn danger" onClick={() => { setEntries(entries.filter((x) => x.id !== edit.id)); setEdit(null); }}>Remove</button>
-              <button type="button" className="btn primary" disabled={!edit.name.trim()} onClick={() => { setEntries(entries.map((x) => (x.id === edit.id ? { ...edit, name: edit.name.trim() } : x))); setEdit(null); }}>Save</button>
-            </div>
-          </Modal>
-        )}
-      </div>
-    );
   }
 
   if (m.type === 'counters') {

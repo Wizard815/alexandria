@@ -3,7 +3,7 @@
 // the DM sends ("knowledge of X for 50 gp") that wait here until paid,
 // declined, or run out at the end of a session.
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Field, Tabs, useAction, useToast } from '../../ui/index.tsx';
@@ -77,7 +77,9 @@ export default function PlayerBroker() {
 
 function AskCard({ cfg, opts, onAsked }: { cfg: BrokerConfig; opts: PayOptions | null; onAsked: () => Promise<void> }) {
   const { w, info } = useWorld();
-  const [question, setQuestion] = useState('');
+  // A question handed over from elsewhere (the sheet's "Ask the broker"): ?ask=… fills the box, nothing is sent.
+  const [params] = useSearchParams();
+  const [question, setQuestion] = useState(() => (params.get('ask') ?? '').slice(0, 500));
   const [length, setLength] = useState(cfg.lengths[0]?.id ?? 'short');
   const [quote, setQuote] = useState<Quote | null>(null);
   const [free, setFree] = useState<{ question: string; answer: string; sources: { id: string | null; title: string }[] } | null>(null);

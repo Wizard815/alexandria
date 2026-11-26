@@ -84,10 +84,28 @@ try {
 
   // 4. An enemy, a private note, a counter module.
   const people = pl.getByTestId('mod-contacts');
-  await people.getByLabel('Name', { exact: true }).fill('Captain Vex');
-  await people.getByLabel('Ally or enemy').selectOption('enemy');
-  await people.getByRole('button', { name: 'Add' }).click();
+  await people.getByTestId('person-add').click();
+  const dlg = pl.locator('.modal[role=dialog]');
+  await dlg.getByLabel('Name', { exact: true }).fill('Captain Vex');
+  await dlg.getByRole('radio', { name: /Enemy/ }).click();
+  await dlg.getByLabel('Search pages to link').fill('Saltmarsh');
+  const hit = dlg.locator('ul button').first();
+  const linked = await hit.waitFor({ timeout: 4000 }).then(() => true, () => false);
+  if (linked) await hit.click();
+  await dlg.getByRole('button', { name: 'Save' }).click();
   await people.getByText('Captain Vex').waitFor();
+  if (linked) check(await people.getByRole('link', { name: /Captain Vex/ }).count() === 1, 'the person links to their library page');
+  // Ask the broker about them: the question can be rewritten, and lands in the broker's box.
+  await people.getByRole('button', { name: 'Ask the broker about Captain Vex' }).click();
+  await dlg.getByLabel('Your question').fill('Who pays Captain Vex?');
+  await dlg.getByTestId('ask-go').click();
+  await pl.waitForURL(/\/broker\?ask=/, { timeout: 8000 });
+  const box = pl.getByLabel('What do you want to know?');
+  await box.waitFor({ timeout: 8000 });
+  check((await box.inputValue()) === 'Who pays Captain Vex?', `the broker box has the question: ${await box.inputValue()}`);
+  await pl.goto(`${W}/sheet`);
+  await closeQuick(pl);
+  await pl.getByTestId('sheet').waitFor();
   await pl.getByTestId('mod-notes').getByRole('textbox').fill('ZQX-PRIVATE-PLAN steal the crown');
   await pl.getByTestId('sheet-edit').click();
   await pl.getByTestId('mod-notes').getByRole('button', { name: 'Private' }).click();
@@ -124,6 +142,11 @@ try {
   await dm.getByTestId('sheet').waitFor({ timeout: 8000 });
   check(!(await dm.content()).includes('ZQX-PRIVATE-PLAN'), 'the private note never reaches the DM');
   await dm.getByText('Captain Vex').waitFor();
+  // A secret goal for this player only.
+  await dm.getByLabel('Text for the player').fill('Find out who lights the lamp');
+  await dm.getByTestId('dm-note-add').click();
+  await pl.getByTestId('from-dm').getByText('Find out who lights the lamp').waitFor({ timeout: 8000 });
+  note('player: sees the DM goal live');
   await dm.getByRole('button', { name: 'Log' }).click();
   const log = dm.getByTestId('sheet-log');
   await log.getByText('Overloaded a wand').waitFor({ timeout: 8000 });

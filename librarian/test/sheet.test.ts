@@ -177,3 +177,32 @@ test('Sheet_Recent: people and places named in published summaries, only what th
   const asDm = await ok('GET', `${SH()}/${ID.jess}/recent`, T.dm);
   assert.deepEqual(asDm.places.map((p: any) => p.name), ['Bramblegate']);
 });
+
+test('Sheet_DmNotes: the DM leaves notes and goals for one player; only that player and the DM see them; the player ticks goals', async () => {
+  const made = await ok('POST', `${SH()}/${ID.jess}/dm-notes`, T.dm, { kind: 'goal', text: 'Find out who lights the lamp' });
+  await ok('POST', `${SH()}/${ID.jess}/dm-notes`, T.dm, { text: 'You dream of a drowned bell.' });
+  const gid = made.fromDm.find((x: any) => x.kind === 'goal').id;
+  const mine = await ok('GET', `${SH()}/me`, T.jess);
+  assert.equal(mine.fromDm.length, 2);
+  assert.equal((await ok('GET', `${SH()}/me`, T.tom)).fromDm.length, 0, 'other players never see them');
+  assert.equal((await call('POST', `${SH()}/${ID.tom}/dm-notes`, T.jess, { text: 'x' })).status, 403, 'players cannot write them');
+  assert.equal((await call('PATCH', `${SH()}/${ID.jess}/dm-notes/${gid}`, T.jess, { text: 'changed' })).status, 403, 'nor change the words');
+  const ticked = await ok('PATCH', `${SH()}/${ID.jess}/dm-notes/${gid}`, T.jess, { done: true });
+  assert.equal(ticked.fromDm.find((x: any) => x.id === gid).done, true);
+  const nid = mine.fromDm.find((x: any) => x.kind === 'note').id;
+  assert.equal((await call('PATCH', `${SH()}/${ID.jess}/dm-notes/${nid}`, T.jess, { done: true })).status, 400, 'a note is not a goal');
+  assert.equal((await call('PATCH', `${SH()}/${ID.jess}/dm-notes/${gid}`, T.tom, { done: false })).status, 404);
+  await ok('DELETE', `${SH()}/${ID.jess}/dm-notes/${nid}`, T.dm);
+  assert.equal((await ok('GET', `${SH()}/${ID.jess}`, T.dm)).fromDm.length, 1);
+});
+
+test('Sheet_ContactsLinks: a person on the sheet can link a library page; recently lists factions too', async () => {
+  const m = cleanModules([{ type: 'contacts', data: { entries: [{ name: 'Mira', kind: 'ally', pageId: 'pg_abc123', personId: 'ppl_x' }, { name: 'Bad', kind: 'enemy', pageId: '../../etc' }] } }]);
+  assert.equal(m[0].data.entries[0].pageId, 'pg_abc123');
+  assert.equal(m[0].data.entries[1].pageId, undefined, 'only ids are kept');
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Factions/Harbour Guild', visibility: 'party', markdown: '# Harbour Guild\nDock workers.\n' });
+  run(deps.db, `INSERT INTO sessionlog_entries (id, world_id, number, title, summary, session_at, world_from_minutes, world_to_minutes, published_at) VALUES ('sle_2', ?, 2, 'Session 2', ?, ?, 0, 0, ?)`, W, '## Recap\n- The Harbour Guild hired us.\n## People met\n- **Bramblegate**\n', new Date().toISOString(), new Date().toISOString());
+  const rec = await ok('GET', `${SH()}/me/recent`, T.jess);
+  assert.deepEqual(rec.factions.map((f: any) => f.name), ['Harbour Guild']);
+  assert.equal(rec.factions[0].session, 2);
+});

@@ -11,9 +11,9 @@ widen, rename, fold or remove modules. Nothing on it replaces the paper sheet.
 | Health | HP, max HP, temporary HP and conditions; Damage / Heal / Temp buttons | the player and the DM |
 | Mana | the mana pool from the Codex (only when the world uses mana); Spend / Restore with a reason | the player (within the pool) and the DM |
 | Inventory | the player's pack, read from Inventory | in Inventory |
-| People | allies, enemies and others, each with a note | the player |
+| People I know | allies, enemies and others, each with a note and optionally their library page (LegendKeeper/Kanka imports included); filter by relation; ask the broker about them | the player |
 | Quick notes, Text | free notes | the player |
-| Recently | people and places named in the last 3 published session summaries | automatic |
+| Recently | people, places and factions named in the last 3 published session summaries; add a person to your people, or ask the broker | automatic |
 | Counters | inspiration, hit dice, arrows… with an optional maximum | the player |
 | Checklist | goals and errands | the player |
 
@@ -25,6 +25,17 @@ inventory and Recently are always visible to the DM.
 party knows (People), a library page the player can open that is a place or a
 character (by its kind, tags or folder, e.g. `Locations/Bramblegate`), or a
 bold name under *People met*. A tap adds a person as an ally or an enemy.
+
+## From the DM
+
+The DM can leave one player secret **notes** and **goals** (Player sheets, that player's tab). They show at the top of that
+player's sheet and nowhere else; the player can tick a goal done, only the DM can change or delete them.
+
+## Asking the broker
+
+The speech-bubble button on a person, place or faction opens a question with ready-made ideas (who they work for, what
+shops a town has, who leads a faction). The player can rewrite it; *Ask the broker* opens the Broker page with the
+question filled in, and the broker names its price as usual before anything is spent.
 
 ## Health and the combat tracker
 
@@ -57,5 +68,6 @@ account id or character name):
 - `GET /:aid/recent`: recently seen people and places, as that player sees them.
 - `GET /log[?account=]`: HP and mana changes, newest first.
 - `GET /party` (DM): every player's health and mana.
+- `POST /:aid/dm-notes { kind: note|goal, text }` (DM), `PATCH /:aid/dm-notes/:id` (DM: text/kind/done; the player: done on a goal), `DELETE /:aid/dm-notes/:id` (DM).
 
 Assistant tools: `party_status` (read) and `change_player_hp` (a write the DM approves).
