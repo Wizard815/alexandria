@@ -11,6 +11,7 @@ export interface Sheet {
   accountId: string; name: string; player: string; mine: boolean;
   hp: number | null; maxHp: number | null; tempHp: number; conditions: string[];
   mana: Mana; modules: Module[];
+  fromDm?: { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string }[];
 }
 export interface PartyRow { accountId: string; name: string; player: string; hp: number | null; maxHp: number | null; tempHp: number; conditions: string[]; mana: Mana; inCombat: boolean; deathSaves: { successes: number; failures: number; stable: boolean; dead: boolean } | null }
 export interface LogLine { id: string; accountId: string; kind: string; before: number | null; after: number | null; amount: number | null; note: string; source: string; by: string | null; at: string }
@@ -20,9 +21,9 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'vitals', label: 'Health', desc: 'HP, temporary HP and conditions', icon: 'fa-heart-pulse' },
   { type: 'mana', label: 'Mana', desc: 'Your mana pool, when the world uses it', icon: 'fa-droplet' },
   { type: 'inventory', label: 'Inventory', desc: 'What you carry, from your pack', icon: 'fa-sack-dollar' },
-  { type: 'contacts', label: 'People', desc: 'Allies, enemies and everyone in between', icon: 'fa-user-group' },
+  { type: 'contacts', label: 'People', desc: 'Allies, enemies and everyone in between, linked to their pages', icon: 'fa-user-group' },
   { type: 'notes', label: 'Quick notes', desc: 'Jot things down during play', icon: 'fa-pen' },
-  { type: 'recent', label: 'Recently', desc: 'People and places from the latest session summaries', icon: 'fa-clock-rotate-left' },
+  { type: 'recent', label: 'Recently', desc: 'People, places and factions from the latest session summaries; ask the broker about them', icon: 'fa-clock-rotate-left' },
   { type: 'text', label: 'Text', desc: 'Any notes with your own title', icon: 'fa-align-left' },
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
@@ -116,6 +117,17 @@ export const CSS = `
 .sht-add button { text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; min-height: 0; height: auto; }
 .sht-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .sht-day { display: block; margin-top: 6px; }
+.sht-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); align-self: flex-start; }
+.sht-seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer; min-height: 26px; }
+.sht-seg button.on { background: var(--accent-bg); color: var(--accent-strong); }
+.sht-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sht-people li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--line); }
+.sht-people li.rel-ok { border-left-color: var(--ok); } .sht-people li.rel-bad { border-left-color: var(--danger); }
+.sht-av { flex: 0 0 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--bg); border: 1px solid var(--line); }
+.rel-ok .sht-av { color: var(--ok-text); border-color: var(--ok); } .rel-bad .sht-av { color: var(--danger-text); border-color: var(--danger); }
+.sht-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sht-pnote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sht-dm { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 .sht-status { display: flex; gap: 8px; overflow-x: auto; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); scrollbar-width: thin; }
 .sht-pc { flex: 0 0 auto; min-width: 150px; max-width: 220px; display: flex; flex-direction: column; gap: 3px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; color: inherit; text-decoration: none; background: var(--panel-2); }
 .sht-pc:hover, .sht-pc:focus-visible { border-color: var(--accent); }

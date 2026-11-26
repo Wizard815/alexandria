@@ -15,7 +15,7 @@ import { combatViewFor } from '../../core/combatView.ts';
 import { all, one, run, tx } from '../../core/db.ts';
 import { dmAnd } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
-import { HttpError, now, parseJson } from '../../core/util.ts';
+import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { manaRules } from '../spells/index.ts';
 import { poolMax, poolNow } from '../spells/mana.ts';
@@ -99,7 +99,49 @@ function routes(d: Deps) {
     const aid = who(res, req.params.aid);
     const w = W(res);
     const own = aid === me(res);
-    res.json({ accountId: aid, ...nameOf(w, aid), mine: own, ...vitalsOf(db, w, aid), mana: manaOf(res, aid), modules: shownTo(modulesOf(w, aid), own) });
+    res.json({ accountId: aid, ...nameOf(w, aid), mine: own, ...vitalsOf(db, w, aid), mana: manaOf(res, aid), modules: shownTo(modulesOf(w, aid), own), fromDm: dmNotes(w, aid) });
+  });
+
+  // ---- notes and goals the DM sets for one player: only that player and the DM see them ----
+  const dmNotes = (w: string, aid: string) => all<any>(db, 'SELECT * FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? ORDER BY kind DESC, done, created_at', w, aid)
+    .map((x) => ({ id: x.id, kind: x.kind, text: x.text, done: !!x.done, createdAt: x.created_at, updatedAt: x.updated_at }));
+  const noteText = (v: unknown) => {
+    const t = String(v ?? '').trim();
+    if (!t || t.length > 2000) throw new HttpError(400, 'text must be 1 to 2000 characters');
+    return t;
+  };
+  const noteKind = (v: unknown): 'note' | 'goal' => {
+    if (v !== 'note' && v !== 'goal') throw new HttpError(400, 'kind must be note or goal');
+    return v;
+  };
+  r.post('/:aid/dm-notes', requireDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    if (aid === me(res)) throw new HttpError(400, 'Pick a player');
+    const w = W(res);
+    const nid = id('sdn_');
+    run(db, 'INSERT INTO sheet_dm_notes (id, world_id, account_id, kind, text, done, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)', nid, w, aid, noteKind(req.body?.kind ?? 'note'), noteText(req.body?.text), now(), now());
+    changed(w, aid);
+    res.status(201).json({ fromDm: dmNotes(w, aid) });
+  });
+  // The DM edits anything; the player may only tick a goal done or not.
+  r.patch('/:aid/dm-notes/:nid', requirePlayerOrDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    const w = W(res);
+    const x = one<any>(db, 'SELECT * FROM sheet_dm_notes WHERE id = ? AND world_id = ? AND account_id = ?', String(req.params.nid), w, aid);
+    if (!x) throw new HttpError(404, 'Note not found');
+    const b = req.body ?? {};
+    if (!isDM(res) && (b.text !== undefined || b.kind !== undefined)) throw new HttpError(403, 'Only the DM changes what it says');
+    if (!isDM(res) && x.kind !== 'goal') throw new HttpError(400, 'Only goals can be ticked');
+    run(db, 'UPDATE sheet_dm_notes SET kind = ?, text = ?, done = ?, updated_at = ? WHERE id = ?',
+      b.kind !== undefined ? noteKind(b.kind) : x.kind, b.text !== undefined ? noteText(b.text) : x.text, b.done !== undefined ? (b.done ? 1 : 0) : x.done, now(), x.id);
+    changed(w, aid);
+    res.json({ fromDm: dmNotes(w, aid) });
+  });
+  r.delete('/:aid/dm-notes/:nid', requireDM, (req, res) => {
+    const aid = who(res, req.params.aid);
+    if (!run(db, 'DELETE FROM sheet_dm_notes WHERE id = ? AND world_id = ? AND account_id = ?', String(req.params.nid), W(res), aid)) throw new HttpError(404, 'Note not found');
+    changed(W(res), aid);
+    res.json({ fromDm: dmNotes(W(res), aid) });
   });
 
   r.get('/:aid/recent', (req, res) => {
@@ -215,6 +257,17 @@ const feature: Feature = {
       at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sheet_log_world ON sheet_log (world_id, account_id, at);
+    CREATE TABLE IF NOT EXISTS sheet_dm_notes (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('note', 'goal')),
+      text TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS sheet_dm_notes_player ON sheet_dm_notes (world_id, account_id);
   `,
   worldMount: 'sheet',
   worldRoutes: routes,

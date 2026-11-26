@@ -21,7 +21,7 @@ export const DEFAULT_MODULES: Module[] = [
   { id: 'vitals', type: 'vitals', title: TITLES.vitals, wide: false, private: false, collapsed: false },
   { id: 'mana', type: 'mana', title: TITLES.mana, wide: false, private: false, collapsed: false },
   { id: 'inventory', type: 'inventory', title: TITLES.inventory, wide: false, private: false, collapsed: false },
-  { id: 'contacts', type: 'contacts', title: 'Allies & enemies', wide: false, private: false, collapsed: false, data: { entries: [] } },
+  { id: 'contacts', type: 'contacts', title: 'People I know', wide: false, private: false, collapsed: false, data: { entries: [] } },
   { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },
   { id: 'recent', type: 'recent', title: TITLES.recent, wide: false, private: false, collapsed: false },
 ];
@@ -56,7 +56,9 @@ function cleanData(type: ModuleType, data: any, at: string): any {
         if (!['ally', 'enemy', 'neutral'].includes(kind)) throw new HttpError(400, `${at}.entries[${i}].kind must be ally, enemy or neutral`);
         const name = txt(e?.name, `${at}.entries[${i}].name`, 80).trim();
         if (!name) throw new HttpError(400, `${at}.entries[${i}] needs a name`);
-        return { id: eid(e?.id, i), name, kind, note: txt(e?.note, `${at}.entries[${i}].note`, 300), ...(typeof e?.personId === 'string' && e.personId.length <= 60 ? { personId: e.personId } : {}) };
+        const link = (v: unknown) => (typeof v === 'string' && /^[\w-]{1,60}$/.test(v) ? v : undefined);
+        const pageId = link(e?.pageId), personId = link(e?.personId);
+        return { id: eid(e?.id, i), name, kind, note: txt(e?.note, `${at}.entries[${i}].note`, 300), ...(personId ? { personId } : {}), ...(pageId ? { pageId } : {}) };
       }),
     };
     case 'counters': return {
