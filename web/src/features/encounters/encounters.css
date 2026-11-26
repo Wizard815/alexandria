@@ -20,21 +20,67 @@
 .enc-h { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin: 4px 0 0; }
 .enc-pick { text-align: left; cursor: pointer; }
 .enc-pick.on { border-color: var(--accent); }
-.enc-node { background: var(--panel-2); }
-.enc-gamebox { padding: 8px 10px; border-left: 3px solid var(--accent); }
-.enc-opt-edit { padding: 8px 0; border-top: 1px dashed var(--line); }
-.enc-fx { padding-left: 16px; align-items: flex-end; }
 .enc-watch .enc-log { max-height: 260px; }
 .enc-draft summary { cursor: pointer; }
 .enc-countdown { position: relative; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); overflow: hidden; display: flex; align-items: center; }
 .enc-countdown-bar { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 35%, transparent); transition: width 0.25s linear; }
 .enc-countdown.urgent .enc-countdown-bar { background: color-mix(in srgb, var(--danger, #d0584a) 45%, transparent); }
 .enc-countdown-text { position: relative; padding: 0 10px; font-size: 14px; font-weight: 600; }
-.enc-timer-edit { align-items: flex-end; }
 .enc-star { padding: 4px 6px; color: var(--faint, inherit); }
 .enc-star.on { color: var(--accent); }
-.enc-preview { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
-.enc-preview li { overflow-wrap: anywhere; }
 /* On a wider screen the popup sits in the middle; on a phone it is a bottom sheet (phone.css). */
 @media (min-width: 761px) { .modal-back:has(> .modal.enc) { align-items: center; padding-block: 24px; } .modal.enc { max-height: calc(100dvh - 48px); overflow-y: auto; } }
 .enc-crit { gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---- blocks (Blocks.tsx): steps as cards, answers / checks / timers as blocks ---- */
+.blk-flow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; counter-reset: none; }
+.blk-step { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; scroll-margin: 12px; }
+.blk-step:target, .blk-step:focus-within { border-color: var(--accent); }
+.blk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.blk-num { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--accent-bg); color: var(--accent-strong); border: 1px solid var(--accent); }
+.blk-timer { margin-left: auto; }
+.blk-text { margin: 0; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+textarea.blk-text { width: 100%; resize: vertical; }
+.blk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); border-left-width: 3px; min-width: 0; }
+.blk.edit { flex-direction: column; align-items: stretch; }
+.blk-answer { border-left-color: var(--accent); }
+.blk-check { border-left-color: var(--teal); }
+.blk.blk-timer { border-left-color: var(--danger, #d0584a); margin-left: 0; }
+.blk-label { font-weight: 600; overflow-wrap: anywhere; }
+.blk-answer .blk-label { flex: 1 1 140px; }
+.blk-outcomes { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.blk-ok { color: var(--ok-text); font-weight: 700; }
+.blk-bad { color: var(--danger-text); font-weight: 700; }
+.blk-goto { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--accent-strong); cursor: pointer; white-space: nowrap; }
+.blk-goto.end { color: var(--muted); cursor: default; }
+.blk-note { cursor: pointer; background: transparent; max-width: 100%; white-space: normal; text-align: left; }
+.blk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.blk-row > .field { margin: 0; }
+.blk-ico { color: var(--muted); width: 16px; text-align: center; }
+.blk-row .blk-grow, .blk-fx .blk-grow { flex: 1 1 160px; min-width: 0; width: auto; }
+.blk-row .blk-grow2 { flex: 2 1 220px; min-width: 0; width: auto; }
+.blk-row .blk-pick, .blk-pick { flex: 0 1 190px; width: auto; min-width: 0; }
+.blk-row .blk-num-in { width: 56px; text-align: center; }
+.blk-head .blk-id { width: 160px; max-width: 50%; font-weight: 600; }
+.blk-x { margin-left: auto; }
+.blk-head .blk-x { margin-left: auto; }
+.blk-fx { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding-left: 22px; }
+.blk-fx .field { margin: 0; }
+.blk-fx .blk-coin { width: 120px; }
+.blk-fx .blk-qty { width: 64px; }
+.blk-add { display: flex; flex-wrap: wrap; gap: 6px; }
+.blk-addfx { align-self: flex-start; margin-left: 16px; }
+.blk-newstep { list-style: none; }
+.blk-header { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.blk-title { font-size: 18px; font-weight: 600; }
+.blk-places summary { cursor: pointer; padding: 4px 0; }
+.blk-places[open] { flex-basis: 100%; }
+.blk-wander { margin-left: auto; align-items: center; gap: 8px; }
+@media (max-width: 560px) {
+  .blk-row .blk-pick { flex: 1 1 100%; }
+  .blk-fx { padding-left: 0; }
+  .blk-wander { margin-left: 0; }
+}
+/* The Tweak screen needs room for the blocks. */
+.modal:has(.enc-editor) { width: min(820px, 100%); }
+.blk.edit { flex-wrap: nowrap; }

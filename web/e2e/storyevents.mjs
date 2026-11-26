@@ -102,8 +102,26 @@ try {
   await page.getByTestId('story-random').click();
   await page.getByTestId('story-preview').waitFor();
   check(await page.getByRole('heading', { name: 'Undervalued gem' }).isVisible(), 'random from favourites did not pick the starred one');
+  // The preview is step cards; the gem's first step has answers as blocks.
+  check(await page.getByTestId('flow-step').count() >= 3, 'the preview does not show the steps as cards');
   await page.getByTestId('story-tweak-btn').click();
   await page.getByTestId('story-tweak').waitFor();
+  // Build with blocks: a new answer that makes a new step, a check with its two outcome steps, a timer.
+  const steps0 = await page.getByTestId('blk-step').count();
+  const top = page.getByTestId('blk-step').first();
+  await top.getByRole('button', { name: '+ Answer' }).click();
+  const ans = top.getByTestId('blk-answer').last();
+  await ans.getByLabel('Answer', { exact: true }).fill('Haggle for it');
+  await ans.getByLabel('Goes to').selectOption('__new__');
+  check(await page.getByTestId('blk-step').count() === steps0 + 1, 'a new step from the answer picker was not made');
+  const last = page.locator('[data-testid=blk-step][data-step=step]');
+  await last.getByLabel('What happens').fill('The stallholder squints at you.');
+  await last.getByRole('button', { name: '+ Check' }).click();
+  check(await page.getByTestId('blk-step').count() === steps0 + 3, 'a check did not bring its pass and fail steps');
+  await last.getByLabel('Skill').fill('Persuasion');
+  await last.getByRole('button', { name: '+ Timer' }).click();
+  await last.getByTestId('blk-timer').waitFor();
+  await page.screenshot({ path: path.join(tmpDir('story'), 'blocks.png') }).catch(() => {});
   await page.getByTestId('story-tweak').getByRole('button', { name: 'Back to the preview' }).click();
   await page.getByTestId('story-preview').getByRole('button', { name: 'Close' }).click();
   await page.getByTestId('story-from-any').click();
