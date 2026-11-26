@@ -7,6 +7,7 @@ import { useWorld } from '../../lib/world.tsx';
 import { Empty, PageHead, Tabs } from '../../ui/index.tsx';
 import Sheet from './Sheet.tsx';
 import PartyStatusBar from './StatusBar.tsx';
+import { SheetSettings } from './rerolls.tsx';
 import { CSS, ChangeLog } from './shared.tsx';
 
 function PlayerSheetPage() {
@@ -48,5 +49,6 @@ const feature: WebFeature = {
   playerNav: [{ to: 'sheet', label: 'Sheet', icon: 'fa-id-card' }],
   dmNav: [{ to: 'sheets' }],
   dmBand: Band,
+  settings: { title: 'Player sheets', component: SheetSettings },
 };
 export default feature;

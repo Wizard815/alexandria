@@ -8,6 +8,7 @@ import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '../../ui/index.tsx';
 import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { ConditionChip, useConditions } from './conditions.tsx';
+import { RerollMod } from './rerolls.tsx';
 import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -16,11 +17,14 @@ const EVENTS = ['sheet', 'spells-char', 'combat', 'settings'];
 /** Sheets saved before "From the DM" became a module get it after Health and Mana. */
 const withDm = (list: Module[]): Module[] => (list.some((m) => m.type === 'dm') ? list
   : [...list.slice(0, 2), { id: 'dm', type: 'dm', title: 'From the DM', wide: false, private: false, collapsed: false }, ...list.slice(2)]);
+/** With the re-roll house rule on, every sheet has the Re-rolls module (after Health). */
+const withRerolls = (list: Module[], on: boolean): Module[] => (!on || list.some((m) => m.type === 'rerolls') ? list
+  : [...list.slice(0, 1), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(1)]);
 
 /** `page`: the player's own page, where the character's name is the page title. */
 export default function Sheet({ account, page = false }: { account: string; page?: boolean }) {
   const { w, info, isDM, me } = useWorld();
-  const sheet = useLoad<SheetT>(() => w.call('GET', `/sheet/${account}`), [w, account], EVENTS);
+  const sheet = useLoad<SheetT>(() => w.call('GET', `/sheet/${account}`), [w, account, (info.settings as any).sheetRerolls], EVENTS);
   const [mods, setMods] = useState<Module[] | null>(null);
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -35,7 +39,9 @@ export default function Sheet({ account, page = false }: { account: string; page
 
   // Local copy of the modules: edits show at once and save a moment later. The owner's copy is the truth once loaded
   // (a reload racing a save must not bring back an older layout); the DM's follows the server.
-  useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(withDm(sheet.data.modules)); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(withRerolls(withDm(sheet.data.modules), sheet.data.rerolls?.on === true)); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The DM turns re-rolls on while the sheet is open: the module shows up.
+  useEffect(() => { if (mods && sheet.data?.rerolls?.on && !mods.some((m) => m.type === 'rerolls')) setMods(withRerolls(mods, true)); }, [sheet.data, mods]);
   // A note or goal the DM adds while the player has the sheet open: say so.
   const dmIds = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -110,31 +116,34 @@ export default function Sheet({ account, page = false }: { account: string; page
               {editing
                 ? <input className="sht-in" aria-label="Module title" value={m.title} maxLength={60} onChange={(e) => update(m.id, { title: e.target.value })} style={{ flex: 1 }} />
                 : <h3><i className={`fa-solid ${KINDS.find((k) => k.type === m.type)?.icon}`} aria-hidden="true" />{m.title}{m.private && <i className="fa-solid fa-lock faint" title="Only you see this" aria-label="Private" />}</h3>}
-              <span className="row" style={{ gap: 2 }}>
-                {editing ? <>
-                  <button type="button" className="btn small ghost" aria-label={`Move ${m.title} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
-                  <button type="button" className="btn small ghost" aria-label={`Move ${m.title} down`} disabled={i === mods.length - 1} onClick={() => move(i, 1)}>↓</button>
-                  <button type="button" className={`btn small ghost${m.wide ? ' on' : ''}`} aria-pressed={m.wide} title="Wide" onClick={() => update(m.id, { wide: !m.wide }, 0)}><i className="fa-solid fa-left-right" aria-hidden="true" /><span className="sr-only">Wide</span></button>
-                  {CAN_BE_PRIVATE.includes(m.type) && <button type="button" className={`btn small ghost${m.private ? ' on' : ''}`} aria-pressed={m.private} title="Only me (hidden from the DM too)" onClick={() => update(m.id, { private: !m.private }, 0)}><i className="fa-solid fa-lock" aria-hidden="true" /><span className="sr-only">Private</span></button>}
-                  {m.type !== 'dm' && <button type="button" className="btn small ghost" aria-label={`Remove ${m.title}`} onClick={() => remove(m)}>✕</button>}
-                </> : <button type="button" className="btn small ghost" aria-expanded={!m.collapsed} aria-label={m.collapsed ? `Show ${m.title}` : `Fold ${m.title}`} onClick={() => update(m.id, { collapsed: !m.collapsed }, 0)}>{m.collapsed ? '▸' : '▾'}</button>}
-              </span>
+              {!editing && <button type="button" className="btn small ghost" aria-expanded={!m.collapsed} aria-label={m.collapsed ? `Show ${m.title}` : `Fold ${m.title}`} onClick={() => update(m.id, { collapsed: !m.collapsed }, 0)}>{m.collapsed ? '▸' : '▾'}</button>}
             </div>
-            {!m.collapsed && (
+            {/* Arrange: bodies fold away and every control is a full-size touch target, so it works on a phone. */}
+            {editing && (
+              <div className="sht-ctl">
+                <button type="button" className="btn" aria-label={`Move ${m.title} up`} disabled={i === 0} onClick={() => move(i, -1)}><i className="fa-solid fa-arrow-up" aria-hidden="true" /></button>
+                <button type="button" className="btn" aria-label={`Move ${m.title} down`} disabled={i === mods.length - 1} onClick={() => move(i, 1)}><i className="fa-solid fa-arrow-down" aria-hidden="true" /></button>
+                <button type="button" className={`btn${m.wide ? ' on' : ''}`} aria-pressed={m.wide} onClick={() => update(m.id, { wide: !m.wide }, 0)}><i className="fa-solid fa-left-right" aria-hidden="true" /> Wide</button>
+                {CAN_BE_PRIVATE.includes(m.type) && <button type="button" className={`btn${m.private ? ' on' : ''}`} aria-pressed={m.private} title="Only me (hidden from the DM too)" onClick={() => update(m.id, { private: !m.private }, 0)}><i className="fa-solid fa-lock" aria-hidden="true" /> Private</button>}
+                {m.type !== 'dm' && !(m.type === 'rerolls' && s.rerolls?.on) && <button type="button" className="btn danger" aria-label={`Remove ${m.title}`} onClick={() => remove(m)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>}
+              </div>
+            )}
+            {!editing && !m.collapsed && (
               m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
+              : m.type === 'rerolls' ? <RerollMod account={own ? 'me' : account} r={s.rerolls ?? { on: false }} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} /> : <p className="tiny muted">Mana is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
               : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? (x) => setAdding1(x) : undefined} onAsk={own && canAsk ? setAsking : undefined} />
               : m.type === 'contacts' ? <PeopleMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries) => update(m.id, { data: { entries } }, 0)} onAsk={own && canAsk ? setAsking : undefined} />
-              : <Editable m={m} readOnly={!own} arranging={editing} onData={(data, wait) => update(m.id, { data }, wait)} />
+              : <Editable m={m} readOnly={!own} onData={(data, wait) => update(m.id, { data }, wait)} />
             )}
           </section>
         ))}
       </div>
       {own && editing && (adding
         ? <section className="card sht-mod"><div className="card-head"><h3>Add a module</h3><button type="button" className="btn small ghost" onClick={() => setAdding(false)}>Cancel</button></div>
-            <div className="sht-add">{KINDS.filter((k) => !SINGLE.includes(k.type) || !mods.some((m) => m.type === k.type)).map((k) => (
+            <div className="sht-add">{KINDS.filter((k) => k.type !== 'dm' && k.type !== 'rerolls' && (!SINGLE.includes(k.type) || !mods.some((m) => m.type === k.type))).map((k) => (
               <button key={k.type} type="button" className="btn" onClick={() => add(k.type)} data-testid={`add-${k.type}`}><strong><i className={`fa-solid ${k.icon}`} aria-hidden="true" /> {k.label}</strong><span className="tiny muted">{k.desc}</span></button>
             ))}</div></section>
         : <button type="button" className="btn" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>)}
@@ -271,10 +280,11 @@ function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Par
 
 // ---- the modules a player fills in ----
 
-function Editable({ m, readOnly, arranging, onData }: { m: Module; readOnly: boolean; arranging: boolean; onData: (data: any, wait?: number) => void }) {
+function Editable({ m, readOnly, onData }: { m: Module; readOnly: boolean; onData: (data: any, wait?: number) => void }) {
   const entries: any[] = m.data?.entries ?? [];
   const setEntries = (next: any[], wait = 0) => onData({ entries: next }, wait);
   const [draft, setDraft] = useState('');
+  const [tweak, setTweak] = useState(false);
 
   if (m.type === 'notes' || m.type === 'text') {
     return readOnly
@@ -294,11 +304,12 @@ function Editable({ m, readOnly, arranging, onData }: { m: Module; readOnly: boo
             {!readOnly && <button type="button" className="btn small ghost" aria-label={`${e.label} minus one`} onClick={() => bump(e, -1)}>−</button>}
             <strong style={{ fontVariantNumeric: 'tabular-nums', minWidth: 28, textAlign: 'center' }}>{e.value}{e.max !== null && <span className="muted tiny">/{e.max}</span>}</strong>
             {!readOnly && <button type="button" className="btn small ghost" aria-label={`${e.label} plus one`} onClick={() => bump(e, 1)}>＋</button>}
-            {!readOnly && arranging && <button type="button" className="btn small ghost" aria-label={`Set a maximum for ${e.label}`} onClick={() => { const v = window.prompt(`Maximum for ${e.label} (empty for none)`, e.max === null ? '' : String(e.max)); if (v === null) return; const n = v.trim() === '' ? null : Math.max(0, parseInt(v, 10) || 0); setEntries(entries.map((x) => (x.id === e.id ? { ...x, max: n, value: n !== null ? Math.min(x.value, n) : x.value } : x))); }}>max</button>}
-            {!readOnly && arranging && <button type="button" className="btn small ghost" aria-label={`Remove ${e.label}`} onClick={() => setEntries(entries.filter((x) => x.id !== e.id))}>✕</button>}
+            {!readOnly && tweak && <button type="button" className="btn small ghost" aria-label={`Set a maximum for ${e.label}`} onClick={() => { const v = window.prompt(`Maximum for ${e.label} (empty for none)`, e.max === null ? '' : String(e.max)); if (v === null) return; const n = v.trim() === '' ? null : Math.max(0, parseInt(v, 10) || 0); setEntries(entries.map((x) => (x.id === e.id ? { ...x, max: n, value: n !== null ? Math.min(x.value, n) : x.value } : x))); }}>max</button>}
+            {!readOnly && tweak && <button type="button" className="btn small ghost" aria-label={`Remove ${e.label}`} onClick={() => setEntries(entries.filter((x) => x.id !== e.id))}>✕</button>}
           </li>
         ))}</ul>
-        {!readOnly && (arranging || !entries.length) && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder="Inspiration, hit dice, arrows…" aria-label="New counter" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
+        {!readOnly && entries.length > 0 && <button type="button" className={`btn small ghost${tweak ? ' on' : ''}`} style={{ alignSelf: 'flex-end' }} aria-pressed={tweak} onClick={() => setTweak((v) => !v)}><i className="fa-solid fa-sliders" aria-hidden="true" /> {tweak ? 'Done' : 'Edit counters'}</button>}
+        {!readOnly && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder="Inspiration, hit dice, arrows…" aria-label="New counter" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
       </div>
     );
   }

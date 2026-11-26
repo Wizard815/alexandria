@@ -4,22 +4,23 @@ import { timeShort, dateLong } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, Loading } from '../../ui/index.tsx';
 
-export type ModuleType = 'vitals' | 'mana' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
+export type ModuleType = 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 export interface Mana { on: boolean; now?: number | null; max?: number | null }
 export interface Sheet {
   accountId: string; name: string; player: string; mine: boolean;
   hp: number | null; maxHp: number | null; tempHp: number; conditions: string[];
-  mana: Mana; modules: Module[];
+  mana: Mana; modules: Module[]; rerolls?: import('./rerolls.tsx').Rerolls;
   fromDm?: { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string; updatedAt: string }[];
 }
-export interface PartyRow { accountId: string; name: string; player: string; hp: number | null; maxHp: number | null; tempHp: number; conditions: string[]; mana: Mana; inCombat: boolean; deathSaves: { successes: number; failures: number; stable: boolean; dead: boolean } | null }
+export interface PartyRow { accountId: string; name: string; player: string; hp: number | null; maxHp: number | null; tempHp: number; conditions: string[]; mana: Mana; rerolls?: import('./rerolls.tsx').Rerolls; inCombat: boolean; deathSaves: { successes: number; failures: number; stable: boolean; dead: boolean } | null }
 export interface LogLine { id: string; accountId: string; kind: string; before: number | null; after: number | null; amount: number | null; note: string; source: string; by: string | null; at: string }
 
 /** The kinds of module a player can add, with what each is for. */
 export const KINDS: { type: ModuleType; label: string; desc: string; icon: string }[] = [
   { type: 'vitals', label: 'Health', desc: 'HP, temporary HP and conditions', icon: 'fa-heart-pulse' },
   { type: 'mana', label: 'Mana', desc: 'Your mana pool, when the world uses it', icon: 'fa-droplet' },
+  { type: 'rerolls', label: 'Re-rolls', desc: 'Re-roll tokens the DM gives for good role play (house rule)', icon: 'fa-dice' },
   { type: 'inventory', label: 'Inventory', desc: 'What you carry, from your pack', icon: 'fa-sack-dollar' },
   { type: 'dm', label: 'From the DM', desc: 'Secret notes and goals the DM leaves for you', icon: 'fa-scroll' },
   { type: 'contacts', label: 'People', desc: 'Allies, enemies and everyone in between, linked to their pages', icon: 'fa-user-group' },
@@ -29,7 +30,7 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
 ];
-export const SINGLE: ModuleType[] = ['vitals', 'mana', 'inventory', 'dm', 'recent'];
+export const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
 export const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 export const CONDITIONS = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Concentrating', 'Blessed', 'Hasted'];
 
@@ -55,7 +56,7 @@ export function ManaMeter({ mana, small = false }: { mana: Mana; small?: boolean
   return <div className={`sht-bar mana${small ? ' small' : ''}`} role="meter" aria-label={`Mana ${now} of ${mana.max}`} aria-valuemin={0} aria-valuemax={mana.max} aria-valuenow={now}><span className="fill" style={{ width: `${pct(now, mana.max)}%` }} /></div>;
 }
 
-const KIND_LABEL: Record<string, string> = { hp: 'HP', temp: 'Temp HP', max: 'Max HP', conditions: 'Conditions', mana: 'Mana' };
+const KIND_LABEL: Record<string, string> = { hp: 'HP', temp: 'Temp HP', max: 'Max HP', conditions: 'Conditions', mana: 'Mana', reroll: 'Re-roll' };
 const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'DM', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
 
 /** Every HP and mana change, newest first. `account` null: the whole party (DM). */
@@ -109,6 +110,13 @@ export const CSS = `
 .sht-num { width: 68px; min-height: 34px; text-align: center; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--text); font: inherit; }
 .sht-tiny-num { width: 56px; min-height: 30px; text-align: center; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--text); font: inherit; }
 .sht-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sht-ctl { display: flex; flex-wrap: wrap; gap: 6px; }
+.sht-ctl .btn { min-height: 40px; min-width: 44px; }
+.sht-ctl .btn.danger { margin-left: auto; }
+.sht-rr { align-items: center; }
+.sht-tokens { display: inline-flex; gap: 3px; }
+.sht-tokens span { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--accent); }
+.sht-tokens span.on { background: var(--accent); }
 .sht-cond { position: relative; }
 .sht-cond .sht-cond-name { padding: 0; text-decoration: underline dotted; text-underline-offset: 3px; }
 .sht-tip { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: 260px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 12px; line-height: 1.4; box-shadow: 0 6px 20px rgb(0 0 0 / 35%); white-space: normal; }

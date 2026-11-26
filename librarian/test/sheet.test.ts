@@ -206,3 +206,23 @@ test('Sheet_ContactsLinks: a person on the sheet can link a library page; recent
   assert.deepEqual(rec.factions.map((f: any) => f.name), ['Harbour Guild']);
   assert.equal(rec.factions[0].session, 2);
 });
+
+test('Sheet_Rerolls: the house rule is off until the DM turns it on; the DM gives re-rolls, the player spends them, all logged', async () => {
+  assert.equal((await ok('GET', `${SH()}/me`, T.jess)).rerolls.on, false);
+  assert.equal((await call('POST', `${SH()}/${ID.jess}/rerolls`, T.dm, { kind: 'personal', delta: 1 })).status, 409, 'off by default');
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { sheetRerolls: true, sheetRerollCap: 2 });
+  await ok('POST', `${SH()}/${ID.jess}/rerolls`, T.dm, { kind: 'dm', delta: 1, note: 'Great speech to the harbour guild' });
+  const two = await ok('POST', `${SH()}/${ID.jess}/rerolls`, T.dm, { kind: 'dm', delta: 5 });
+  assert.equal(two.now, 2, 'never above the cap');
+  assert.equal((await call('POST', `${SH()}/${ID.jess}/rerolls`, T.jess, { kind: 'dm', delta: 1 })).status, 403, 'players do not give themselves re-rolls');
+  assert.equal((await call('POST', `${SH()}/${ID.jess}/rerolls`, T.tom, { kind: 'dm', delta: -1 })).status, 404, 'nor spend someone else\'s');
+  assert.equal((await call('POST', `${SH()}/me/rerolls`, T.jess, { kind: 'party', delta: -1 })).status, 409, 'none to spend');
+  const used = await ok('POST', `${SH()}/me/rerolls`, T.jess, { kind: 'dm', delta: -1 });
+  assert.equal(used.now, 1);
+  const party = await ok('GET', `${SH()}/party`, T.dm);
+  assert.equal(party.players.find((p: any) => p.accountId === ID.jess).rerolls.dm, 1);
+  const log = (await ok('GET', `${SH()}/log?account=${ID.jess}`, T.dm)).log.filter((x: any) => x.kind === 'reroll');
+  assert.equal(log.length, 3);
+  assert.match(log[2].note, /DM re-roll given · Great speech/);
+  assert.match(log[0].note, /DM re-roll used/);
+});
