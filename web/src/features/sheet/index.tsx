@@ -13,8 +13,7 @@ function PlayerSheetPage() {
   return (
     <div className="page">
       <style>{CSS}</style>
-      <PageHead title="Sheet" lead="Your quick sheet next to the paper one. Tap Arrange to add, move or hide modules." />
-      <Sheet account="me" />
+      <Sheet account="me" page />
     </div>
   );
 }

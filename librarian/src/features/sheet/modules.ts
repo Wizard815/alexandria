@@ -1,25 +1,27 @@
 // The sheet is a list of modules the player arranges: built-in ones that show
 // live data (health, mana, inventory, recently seen people and places) and
 // ones the player fills in (people they know as allies or enemies, quick
-// notes, free text, counters, checklists). A module the player marks private
+// notes, free text, counters, checklists). "From the DM" holds the DM's secret
+// notes and goals for this player; it can be moved but not removed. A module the player marks private
 // is hidden from everyone else, the DM included.
 import { HttpError } from '../../core/util.ts';
 
-export const TYPES = ['vitals', 'mana', 'inventory', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
+export const TYPES = ['vitals', 'mana', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
 export type ModuleType = (typeof TYPES)[number];
 /** Modules that show the player's own live data once; the DM always sees them. */
-const SINGLE: ModuleType[] = ['vitals', 'mana', 'inventory', 'recent'];
+const SINGLE: ModuleType[] = ['vitals', 'mana', 'inventory', 'dm', 'recent'];
 const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 const MAX_MODULES = 24;
 const MAX_JSON = 64_000;
 
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 
-const TITLES: Record<ModuleType, string> = { vitals: 'Health', mana: 'Mana', inventory: 'Inventory', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
+const TITLES: Record<ModuleType, string> = { vitals: 'Health', mana: 'Mana', inventory: 'Inventory', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
 
 export const DEFAULT_MODULES: Module[] = [
   { id: 'vitals', type: 'vitals', title: TITLES.vitals, wide: false, private: false, collapsed: false },
   { id: 'mana', type: 'mana', title: TITLES.mana, wide: false, private: false, collapsed: false },
+  { id: 'dm', type: 'dm', title: TITLES.dm, wide: false, private: false, collapsed: false },
   { id: 'inventory', type: 'inventory', title: TITLES.inventory, wide: false, private: false, collapsed: false },
   { id: 'contacts', type: 'contacts', title: 'People I know', wide: false, private: false, collapsed: false, data: { entries: [] } },
   { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },

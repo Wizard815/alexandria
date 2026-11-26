@@ -129,7 +129,7 @@ try {
   await dm.goto(`${W}/dm`);
   const bar = dm.getByTestId('party-status');
   await bar.waitFor({ timeout: 10000 });
-  const chip = bar.getByRole('link', { name: /Jessamine/ });
+  const chip = bar.getByRole('button', { name: /Jessamine/ });
   await chip.getByText('19/24').waitFor({ timeout: 8000 });
   check((await chip.getAttribute('title'))?.includes('Poisoned'), 'the status bar names the condition');
   await shot(dm, 'dm-status-bar');
@@ -138,7 +138,15 @@ try {
   await vit.getByRole('button', { name: 'Heal', exact: true }).click();
   await chip.getByText('22/24').waitFor({ timeout: 8000 });
   note('DM: status bar follows the player live (22/24)');
+  // The DM deals damage from the status bar's quick panel; the player's sheet follows.
   await chip.click();
+  const quick = dm.getByTestId('quick-sheet');
+  await quick.getByLabel('Amount', { exact: true }).fill('2');
+  await quick.getByRole('button', { name: 'Damage', exact: true }).click();
+  await chip.getByText('20/24').waitFor({ timeout: 8000 });
+  await vit.getByTestId('hp').getByText('20').waitFor({ timeout: 8000 });
+  note('DM: damage from the status bar reaches the player (20/24)');
+  await quick.getByRole('link', { name: 'Open the whole sheet' }).click();
   await dm.getByTestId('sheet').waitFor({ timeout: 8000 });
   check(!(await dm.content()).includes('ZQX-PRIVATE-PLAN'), 'the private note never reaches the DM');
   await dm.getByText('Captain Vex').waitFor();

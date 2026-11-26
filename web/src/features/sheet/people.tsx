@@ -3,7 +3,7 @@
 // and the rest import into the library), "Ask the broker" about a person,
 // place or faction with a question the player can rewrite, and the notes and
 // goals the DM leaves for one player.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { isOff } from '../../lib/playerNav.ts';
@@ -33,8 +33,10 @@ export function useCanAsk() {
 export function PeopleMod({ entries, readOnly, onChange, onAsk }: { entries: Person[]; readOnly: boolean; onChange: (next: Person[]) => void; onAsk?: (s: Subject) => void }) {
   const [filter, setFilter] = useState<'all' | Relation>('all');
   const [edit, setEdit] = useState<Partial<Person> | null>(null);
+  const [q, setQ] = useState('');
   const count = (k: Relation) => entries.filter((e) => e.kind === k).length;
-  const shown = entries.filter((e) => filter === 'all' || e.kind === filter)
+  const needle = q.trim().toLowerCase();
+  const shown = entries.filter((e) => (filter === 'all' || e.kind === filter) && (!needle || `${e.name} ${e.note}`.toLowerCase().includes(needle)))
     .sort((a, b) => (['ally', 'enemy', 'neutral'].indexOf(a.kind) - ['ally', 'enemy', 'neutral'].indexOf(b.kind)) || a.name.localeCompare(b.name));
   return (
     <div className="stack tight">
@@ -45,8 +47,10 @@ export function PeopleMod({ entries, readOnly, onChange, onAsk }: { entries: Per
           ))}
         </div>
       )}
+      {entries.length > 6 && <input className="sht-in" type="search" placeholder={`Find among ${entries.length} people`} aria-label="Find a person" value={q} onChange={(e) => setQ(e.target.value)} />}
+      {needle && !shown.length && <span className="tiny muted">Nobody matches.</span>}
       {!entries.length && <span className="tiny muted">Nobody yet. Add the people your character knows, or add them from Recently.</span>}
-      <ul className="sht-people">
+      <ul className={`sht-people${shown.length > 5 ? ' sht-scroll' : ''}`}>
         {shown.map((p) => (
           <li key={p.id} className={`rel-${REL[p.kind].tone}`}>
             <span className="sht-av" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
@@ -132,31 +136,35 @@ export function AskModal({ subject, onClose }: { subject: Subject; onClose: () =
 
 // ---- from the DM ----
 
-export interface DmNote { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string }
+export interface DmNote { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string; updatedAt: string }
 
 /** Notes and goals the DM set for this player. Only that player and the DM see them; the player ticks goals. */
+/** The body of the "From the DM" module. Notes the player has not seen yet carry a New tag. */
 export function FromDm({ account, notes, dm, onChanged }: { account: string; notes: DmNote[]; dm: boolean; onChanged: () => void }) {
-  const { w } = useWorld();
+  const { w, info } = useWorld();
+  const slug = info.slug;
   const act = useAction();
   const [text, setText] = useState('');
   const [kind, setKind] = useState<'note' | 'goal'>('goal');
   const [editing, setEditing] = useState<DmNote | null>(null);
-  if (!dm && !notes.length) return null;
+  const seenKey = `sht-dm-seen:${slug ?? ''}:${account}`;
+  const [seenAt] = useState(() => { try { return localStorage.getItem(seenKey) ?? ''; } catch { return ''; } });
+  useEffect(() => { if (!dm) try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* private mode */ } }, [dm, seenKey, notes]);
+  const isNew = (n: DmNote) => !dm && !!seenAt && n.updatedAt > seenAt && !n.done;
   const call = (m: string, p: string, b?: unknown) => act.run(async () => { await w.call(m, `/sheet/${account}/dm-notes${p}`, b); onChanged(); });
   const goals = notes.filter((n) => n.kind === 'goal'), plain = notes.filter((n) => n.kind === 'note');
+  const tag = (n: DmNote) => isNew(n) && <span className="chip gold" style={{ fontSize: 11 }}>New</span>;
   return (
-    <section className="card sht-mod sht-dm" data-testid="from-dm" aria-labelledby="from-dm-h">
-      <div className="card-head">
-        <h3 id="from-dm-h"><i className="fa-solid fa-scroll" aria-hidden="true" />From the DM</h3>
-        <span className="tiny faint"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> {dm ? 'Only this player sees these' : 'Only you can see these'}</span>
-      </div>
+    <div className="stack tight" data-testid="from-dm">
+      <span className="tiny faint"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> {dm ? 'Only this player sees these.' : 'Only you see these. The DM can add more at any time.'}</span>
       <ErrorBox error={act.error} />
+      {!dm && !notes.length && <span className="tiny muted">Nothing yet. Secret notes and goals from the DM show up here.</span>}
       {goals.length > 0 && <div className="stack tight">
         <span className="tiny faint">Goals</span>
         <ul className="sht-list">{goals.map((g) => (
           <li key={g.id}>
             <input type="checkbox" checked={g.done} aria-label={g.text} onChange={() => void call('PATCH', `/${g.id}`, { done: !g.done })} />
-            <span className="grow small" style={g.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{g.text}</span>
+            <span className="grow small" style={g.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{g.text}</span>{tag(g)}
             {dm && <><button type="button" className="btn small ghost" aria-label="Edit" onClick={() => setEditing(g)}><i className="fa-solid fa-pen" aria-hidden="true" /></button><button type="button" className="btn small ghost" aria-label="Delete" onClick={() => void call('DELETE', `/${g.id}`)}>✕</button></>}
           </li>
         ))}</ul>
@@ -165,7 +173,7 @@ export function FromDm({ account, notes, dm, onChanged }: { account: string; not
         <span className="tiny faint">Notes</span>
         <ul className="sht-list">{plain.map((n) => (
           <li key={n.id} style={{ alignItems: 'flex-start' }}>
-            <span className="grow small" style={{ whiteSpace: 'pre-line' }}>{n.text}</span>
+            <span className="grow small" style={{ whiteSpace: 'pre-line' }}>{n.text}</span>{tag(n)}
             {dm && <><button type="button" className="btn small ghost" aria-label="Edit" onClick={() => setEditing(n)}><i className="fa-solid fa-pen" aria-hidden="true" /></button><button type="button" className="btn small ghost" aria-label="Delete" onClick={() => void call('DELETE', `/${n.id}`)}>✕</button></>}
           </li>
         ))}</ul>
@@ -190,6 +198,6 @@ export function FromDm({ account, notes, dm, onChanged }: { account: string; not
           </div>
         </Modal>
       )}
-    </section>
+    </div>
   );
 }
