@@ -245,7 +245,9 @@ async function askAll(n, lv, pool, hi, P, SP, t, who, short = false) {
     const used = db.prepare(`SELECT detail FROM audit WHERE action IN ('agent.read', 'agent.propose', 'agent.action') AND at >= ? ORDER BY rowid`).all(since).map((r) => String(r.detail).split(' ')[0]);
     return { reply: c?.messages?.filter((m) => m.role === 'assistant').at(-1)?.text ?? '', used: [...new Set([...used, ...(c?.actions ?? []).map((a) => a.tool)])] };
   };
-  const has = (txt, num) => new RegExp(`(^|[^0-9])${num}([^0-9]|$)`).test(txt);
+  // A number as digits, or as a word ("Six mana"): the model may write either.
+  const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+  const has = (txt, num) => new RegExp(`(^|[^0-9])${num}([^0-9]|$)`).test(txt) || (WORDS[num] !== undefined && new RegExp(`\\b${WORDS[num]}\\b`, 'i').test(txt));
   const grade = (q, r, good, why) => { asked.push({ session: n, who, q, reply: r.reply, tools: r.used, ok: good, why }); console.log(`  [${n} ${who}] ${good ? 'ok ' : 'BAD'} ${q}\n      tools: ${r.used.join(', ') || 'none'}\n      ${r.reply.replace(/\s+/g, ' ').slice(0, 260)}`); if (!good) fail(`assistant (${n}, ${who}): "${q}": ${why}`); };
 
   let r = await ask("What's my mana pool, and what's the highest level of spell I can cast?");

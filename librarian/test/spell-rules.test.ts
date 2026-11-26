@@ -429,6 +429,18 @@ test('SpellRules: studying a spell: the plan, days, DM approval, the final check
   assert.ok(!('schools' in flat));
   const named = await ok('GET', `${SP()}/tree?compact=1&q=hypnotic`, T.jess);
   assert.deepEqual(named.spells.map((s: any) => [s.name, s.status]), [['Hypnotic Pattern', 'studying']]);
+  // A school only teaches spells on the character's class list (spellClassLists): a wizard can't study Eldritch Blast.
+  const cls0 = (await ok('GET', `${SP()}/characters/me`, T.jess)).class ?? '';
+  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: 'Wizard' });
+  const open = async () => (await ok('GET', `${SP()}/tree?compact=1&status=learn&limit=500`, T.jess)).spells.map((s: any) => s.name);
+  let names = await open();
+  assert.ok((names.includes('Mage Hand') || names.includes('Ray of Frost')) && !names.includes('Eldritch Blast') && !names.includes('Sacred Flame'), names.join(', '));
+  assert.match((await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:eldritch-blast' })).missing.join(' '), /not on the Wizard spell list/);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellClassLists: false });
+  names = await open();
+  assert.ok(names.includes('Eldritch Blast'), 'the setting off: every school spell is open');
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellClassLists: true });
+  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: cls0 });
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false, spellCraftApproval: 'dm' });
 });
 

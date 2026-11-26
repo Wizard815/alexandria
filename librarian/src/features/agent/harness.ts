@@ -387,7 +387,7 @@ const WANTS_SPELLS = /\b(spells?|mana|cast(ing)?|cantrips?|learn(ing)?|stud(y|yi
  * Small models answer from this block far more reliably than they call the tools.
  */
 async function spellContext(d: Deps, c: Caller, text: string): Promise<string> {
-  const [me, tree] = await Promise.all([get(d, c, '/spells/characters/me'), get(d, c, '/spells/tree?compact=1&status=learn,locked,studying,stopped,known,gift&limit=100')]);
+  const [me, tree] = await Promise.all([get(d, c, '/spells/characters/me'), get(d, c, '/spells/tree?compact=1&status=learn,locked,studying,stopped,known,gift&limit=500')]);
   if (!me) return '';
   const L: string[] = [];
   const m = me.mana;
@@ -397,7 +397,12 @@ async function spellContext(d: Deps, c: Caller, text: string): Promise<string> {
   if (tree?.engine) {
     const by = (st: string[]) => (tree.spells ?? []).filter((x: any) => st.includes(x.status));
     const open = by(['learn']);
-    L.push(open.length ? `They can START studying now (${open.length}): ${open.map((x: any) => `${x.name} (${lv(x.level)})`).join(', ').slice(0, 1500)}.` : 'They can start studying no spell right now.');
+    // The highest levels first: those are what a player asks about, and a long list is cut.
+    const openList = [...open].sort((a: any, b: any) => b.level - a.level || a.name.localeCompare(b.name)).map((x: any) => `${x.name} (${lv(x.level)})`);
+    let shown = '';
+    let n = 0;
+    for (const x of openList) { if (shown.length + x.length > 2000) break; shown += (n++ ? ', ' : '') + x; }
+    L.push(open.length ? `They can START studying now (${open.length}): ${shown}${n < open.length ? `, and ${open.length - n} more (my_spell_tree lists them)` : ''}.` : 'They can start studying no spell right now.');
     const st = by(['studying', 'stopped']);
     if (st.length) L.push(`Studying: ${st.map((x: any) => `${x.name} (${x.study ? `${x.study.banked}/${x.study.needed} points` : ''}${x.status === 'stopped' ? ', paused' : ''})`).join(', ')}.`);
     L.push('Study: each 8-hour downtime day earns 1 point alone, 2 with a text, 3 with a mentor (+1 in a lab); a final check (d20 + casting modifier + proficiency) when the points are in. Spells not listed as "can start" are locked or out of reach: do not offer them.');

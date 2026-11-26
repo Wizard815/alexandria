@@ -896,6 +896,13 @@ function routes(d: Deps) {
 
   /** Everything about studying a spell for a character: the recipe, what is missing, the points, days and gold. */
   /** A spell's school as its teacher: the known spells of the same school or of one of its lines. */
+  /** Whether a spell is on the class list of a character's class text ("Wizard", "Wizard 6 / Paladin 4"). No class, or a spell with no list, passes. */
+  function onClassList(sp: WorldSpell, cls: string) {
+    const lists = (sp.classes ?? []).map((x) => String(x).toLowerCase());
+    const text = String(cls ?? '').toLowerCase();
+    return !text.trim() || !lists.length || lists.some((x) => new RegExp(`\\b${x.replace(/[^a-z ]/g, '')}\\b`).test(text));
+  }
+
   function schoolPath(res: Response, sp: WorldSpell, known: Set<string>) {
     const lof = linesOfSpells(db, W(res));
     const lineNames = new Map(lines(db, W(res)).map((l) => [l.id, l.name]));
@@ -926,6 +933,8 @@ function routes(d: Deps) {
     let arcanaDC: number | null = null;
     if (known.has(sp.id)) missing.push('already known');
     if (!rc && !school) missing.push('no recipe teaches this spell yet (ask the DM)');
+    // A school only teaches the spells on the character's class list (spellClassLists, on by default); a recipe or the DM opens the rest.
+    if (school && !onClassList(sp, c.class) && featureSetting<boolean>(S(res), 'spellClassLists') !== false) missing.push(`not on the ${c.class} spell list (a recipe or the DM can open it)`);
     const own = sp.manaOverride ?? sp.manaCost ?? null;
     const cx = complexity(sp.level, rules.costs, own);
     const spellLines = linesOfSpells(db, W(res)).get(sp.id) ?? [];
@@ -1131,7 +1140,8 @@ function routes(d: Deps) {
         // Taught by its school. Out of reach (dark) when it is over a level beyond what they cast, or nothing they know leads there.
         const p = studyPlan(res, aid, sp, {});
         missing = p.missing;
-        const far = sp.level > (maxCastLevel(character(db, W(res), aid), rules) ?? 9) + 1 || (sp.level > 0 && schoolPath(res, sp, known).levels.length === 0);
+        const ch = character(db, W(res), aid);
+        const far = sp.level > (maxCastLevel(ch, rules) ?? 9) + 1 || (sp.level > 0 && schoolPath(res, sp, known).levels.length === 0) || (!onClassList(sp, ch.class) && featureSetting<boolean>(S(res), 'spellClassLists') !== false);
         status = p.canStart ? 'learn' : far ? 'dark' : 'locked';
       } else if (!made.length) status = 'dark';
       else if (!seen.length) status = dm ? 'hidden' : 'dark';
@@ -1147,7 +1157,7 @@ function routes(d: Deps) {
       const want = String(req.query.status ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const school = String(req.query.school ?? '').trim().toLowerCase();
       const q = String(req.query.q ?? '').trim().toLowerCase();
-      const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 25));
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
       const hits = out.filter((x) => (!want.length || want.includes(x.status)) && (!school || x.school.toLowerCase() === school || x.lines.some((l) => l.toLowerCase() === school)) && (!q || x.name.toLowerCase().includes(q)))
         .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
       return res.json({ engine: !!rules.engine, counts, total: hits.length, spells: hits.slice(0, limit).map(({ hybrid: _h, ...x }) => (x.status === 'dark' && !dm ? { id: x.id, name: x.name, level: x.level, school: x.school, status: x.status } : x)) });
@@ -1266,6 +1276,7 @@ const feature: Feature = {
     spellPlayerStats: { type: 'boolean', default: true },
     spellsPublicSrd: { type: 'boolean', default: false },
     spellSchoolPaths: { type: 'boolean', default: true },
+    spellClassLists: { type: 'boolean', default: true },
   },
   worldMount: 'spells',
   worldRoutes: routes,
