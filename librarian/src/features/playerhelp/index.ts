@@ -4,18 +4,40 @@
 //
 //   GET /helper/journal-draft   a draft of this player's journal for a session, from the table transcript
 //   GET /helper/recap           what happened last session: the published log entries, newest first
+//
+// The quick helper (quick.ts) is the one part that uses a model: a small second one, the 'helper' job.
+//   GET  /helper/quick          is it on, and which model answers
+//   GET  /helper/quick/brief    what the small model is given for a task (?task=&q=; the DM: &account=)
+//   POST /helper/quick          { task: ask|rules|turn|sheet|suggest, question? } -> an answer or a handoff
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { all } from '../../core/db.ts';
 import { requirePlayerOrDM } from '../../core/auth.ts';
 import { HttpError } from '../../core/util.ts';
-import { ctx, isDM, me } from '../../routes/_shared.ts';
+import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
+import { featureSetting } from '../../core/policy.ts';
+import { QUICK_TASKS, askQuick, quickBrief, quickStatus, type QuickTask } from './quick.ts';
+
+const taskOf = (v: unknown): QuickTask => {
+  const t = typeof v === 'string' && v ? v : 'ask';
+  if (!(QUICK_TASKS as readonly string[]).includes(t)) throw new HttpError(400, `task must be one of ${QUICK_TASKS.join(', ')}`);
+  return t as QuickTask;
+};
+const questionOf = (v: unknown): string => {
+  const q = typeof v === 'string' ? v.trim() : '';
+  if (q.length > 2000) throw new HttpError(400, 'question must be at most 2000 characters');
+  return q;
+};
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim()}…` : s);
 
 const feature: Feature = {
   id: 'playerhelp',
+  settings: {
+    // The players' quick helper (a small second model). Off: players only have the table helper and the broker.
+    quickHelper: { type: 'boolean', default: true },
+  },
   worldMount: 'helper',
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
@@ -44,6 +66,36 @@ const feature: Feature = {
       const w = ctx(res).world.id;
       const rows = all<any>(d.db, 'SELECT number, title, summary, session_at FROM sessionlog_entries WHERE world_id = ? AND unpublished_at IS NULL ORDER BY number DESC LIMIT 3', w);
       res.json({ entries: rows.map((x) => ({ number: x.number, title: x.title, summary: x.summary, at: x.session_at })) });
+    });
+
+    const quickOn = (res: any) => featureSetting<boolean>(settings(res), 'quickHelper') !== false;
+    r.get('/quick', (_req, res) => {
+      const st = quickStatus(d);
+      res.json({ on: quickOn(res), ...st });
+    });
+
+    r.get('/quick/brief', async (req, res) => {
+      const c = ctx(res);
+      let aid = me(res);
+      if (isDM(res)) {
+        aid = typeof req.query.account === 'string' ? req.query.account : '';
+        if (!memberIds(d.db, c.world.id, ['player']).includes(aid)) throw new HttpError(400, 'Pick a player (account)');
+      }
+      const task = taskOf(req.query.task);
+      const b = await quickBrief(d, c.world.id, aid, settings(res), task, questionOf(req.query.q));
+      res.json({ task, chars: b.chars, sections: b.sections, lore: b.lore });
+    });
+
+    r.post('/quick', async (req, res) => {
+      if (isDM(res)) throw new HttpError(403, 'The quick helper is for players');
+      if (!quickOn(res)) throw new HttpError(403, 'The DM has turned the quick helper off');
+      const c = ctx(res);
+      try {
+        res.json(await askQuick(d, { worldId: c.world.id, worldName: c.world.name, accountId: me(res), settings: settings(res), task: taskOf(req.body?.task), question: questionOf(req.body?.question) }));
+      } catch (e: any) {
+        if (e?.status === 429) throw new HttpError(429, e.message);
+        throw e;
+      }
     });
     return r;
   },
