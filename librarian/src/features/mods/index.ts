@@ -262,9 +262,32 @@ addTermSource((db, worldId) => enabledMods(db, worldId).filter((m) => m.mod.rule
 
 const enc = encodeURIComponent;
 
+/**
+ * Worlds that used the player sheet's re-roll switch before it became the inspiration house rule: the rule is turned
+ * on with their cap, and the counts move over (kind "party" is the rule's "everyone"). Runs on every start; does
+ * nothing once a world has a row for the rule.
+ */
+export function migrateSheetRerolls(db: DB) {
+  const hasOld = !!one<any>(db, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sheet_rerolls'");
+  for (const w of all<any>(db, 'SELECT id, settings FROM worlds')) {
+    if (one(db, "SELECT 1 FROM mods WHERE world_id = ? AND id = 'inspiration-rerolls'", w.id)) continue;
+    const s = parseJson<any>(w.settings, {});
+    const counts = hasOld ? all<any>(db, 'SELECT account_id, kind, count FROM sheet_rerolls WHERE world_id = ?', w.id) : [];
+    if (s.sheetRerolls !== true && !counts.length) continue;
+    const cap = Number.isInteger(s.sheetRerollCap) ? Math.min(9, Math.max(1, s.sheetRerollCap)) : 3;
+    run(db, `INSERT INTO mods (world_id, id, source, json, enabled, options, saved, updated_at, updated_by) VALUES (?, 'inspiration-rerolls', 'shipped', NULL, ?, ?, ?, ?, NULL)`,
+      w.id, s.sheetRerolls === true ? 1 : 0, JSON.stringify({ cap }), JSON.stringify(s.sheetRerolls === true ? { sheetRerolls: false, sheetRerollCap: 3 } : {}), now());
+    for (const c of counts) {
+      const res = c.kind === 'party' ? 'everyone' : c.kind;
+      run(db, 'INSERT OR IGNORE INTO mod_counts (world_id, mod_id, account_id, resource, value) VALUES (?, ?, ?, ?, ?)', w.id, 'inspiration-rerolls', c.account_id, res, c.count);
+    }
+  }
+}
+
 const feature: Feature = {
   id: 'mods',
   schema: SCHEMA,
+  migrate: migrateSheetRerolls,
   worldMount: 'mods',
   worldRoutes: routes,
   mcpTools: [

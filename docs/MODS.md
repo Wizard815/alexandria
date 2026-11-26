@@ -18,7 +18,7 @@ There are two kinds, and both show up in the same place:
 
 | Rule | Group | What it does |
 | --- | --- | --- |
-| Inspiration as rerolls | | The DM rewards roleplay with a **personal** reroll (your own roll), an **everyone** reroll (any player's roll) or a **DM** reroll (the DM rolls again). Cap per type (default 1), keep-the-better option. |
+| Inspiration as rerolls | | The DM rewards roleplay with a **personal** reroll (your own roll), an **everyone** reroll (any player's roll) or a **DM** reroll (the DM rolls again). Cap per type (default 1), keep-the-better option. It switches on the player sheet's Re-rolls module and the DM status bar chips (`sheetRerolls`, `sheetRerollCap`), which read and write the same counters (the sheet calls "everyone" "party"). |
 | Spell points | magic | The standard spell points variant: a pool by caster level, costs 2/3/5/6/7/9/10/11/13 by spell level, highest spell level by character level, full refill on a long rest. |
 | Simple mana pool | magic | Alexandria's own mana numbers (4 per level plus the casting modifier). |
 | MANA spell system | magic | Wizard's MANA rules. Needs the MANA engine (`spellRulesOn`); until it is on this server the rule shows but cannot be turned on. |
