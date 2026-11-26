@@ -1,0 +1,27 @@
+{
+  "kit": 1,
+  "id": "spell-crafting",
+  "name": "Spell crafting (Codex)",
+  "version": "1.0.0",
+  "author": "Wizard",
+  "summary": "Characters learn new spells by combining spells they already know, from recipes in the Codex.",
+  "options": {
+    "approval": {
+      "type": "enum",
+      "values": ["dm", "auto"],
+      "default": "dm",
+      "label": "Who approves a crafted spell",
+      "help": "dm: the DM approves each one; auto: learned at once when the recipe fits."
+    }
+  },
+  "presets": {
+    "spellCrafting": true,
+    "spellCraftApproval": "$approval"
+  },
+  "rules": [
+    {
+      "term": "Spell crafting (house rule)",
+      "text": "A character can learn a new spell by combining spells they already know, following a recipe in the Codex."
+    }
+  ]
+}

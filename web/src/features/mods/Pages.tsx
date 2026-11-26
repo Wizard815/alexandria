@@ -2,16 +2,39 @@
 // and the change log), the player's card (my counters with Use buttons) and
 // the player's page (the rules in play and what I hold).
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
-import { Empty, ErrorBox, Loading, PageHead, useAction, useToast } from '../../ui/index.tsx';
+import { Empty, ErrorBox, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
+import { MakeHouseRule, RulesList } from './Settings.tsx';
 import { Chip, useHouseRules, type HouseRule, type LogLine } from './shared.tsx';
 
 const withCounters = (list: HouseRule[]) => list.filter((r) => r.enabled && r.resources.length);
 
+type Tab = 'play' | 'rules' | 'make';
+
+/** The DM's house rules hub: counters in play, every rule with its switch, and making or adding one. */
 export function DMHouseRules() {
-  const { w, nameOf, info } = useWorld();
+  const { list, rules } = useHouseRules();
+  const [tab, setTab] = useState<Tab | null>(null);
+  const shown: Tab = tab ?? (withCounters(list).length ? 'play' : 'rules');
+  const on = list.filter((r) => r.enabled).length;
+  return (
+    <div className="stack">
+      <PageHead title="House rules" lead="Your table’s own rules, from a reroll token to a whole spell system. Turn them on, reward players, or make your own." />
+      <Tabs<Tab> label="House rules" value={shown} onChange={setTab} items={[
+        ['play', 'In play'],
+        ['rules', rules.data ? `Rules (${on} on of ${list.length})` : 'Rules'],
+        ['make', 'Make or add one'],
+      ]} />
+      {shown === 'play' && <InPlay onRules={() => setTab('rules')} />}
+      {shown === 'rules' && <RulesList />}
+      {shown === 'make' && <MakeHouseRule />}
+    </div>
+  );
+}
+
+function InPlay({ onRules }: { onRules: () => void }) {
+  const { w, nameOf } = useWorld();
   const { list, players, counts } = useHouseRules();
   const act = useAction();
   const { toast, toastNode } = useToast();
@@ -26,10 +49,10 @@ export function DMHouseRules() {
   const actionOf = (modId: string, aid: string) => (aid.startsWith('trigger:') ? { longRest: 'long rest', shortRest: 'short rest', sessionStart: 'session start', sessionEnd: 'session end' }[aid.slice(8)] ?? aid.slice(8) : list.find((r) => r.id === modId)?.actions.find((x) => x.id === aid)?.label ?? aid);
   return (
     <div className="stack">
-      <PageHead title="House rules" lead="Grant and take back your house rules’ tokens and points. Every change is logged with its reason." />
+      <p className="small muted">Grant and take back tokens and points. Every change is logged with its reason. Systems like spell points have no counters here; they change the sheets and the Codex.</p>
       <ErrorBox error={counts.error ?? act.error} />
       {!counts.data ? <Loading /> : rules.length === 0 ? (
-        <Empty>No house rule with counters is on. Turn one on in <Link to={`/w/${info.slug}/dm/settings`}>World settings → House rules</Link>.</Empty>
+        <Empty>No house rule with counters is on. <button type="button" className="btn small" onClick={onRules}>See all rules</button></Empty>
       ) : (
         <>
           <label className="stack tight">

@@ -3,7 +3,8 @@
 // points (confirming the settings it changes), grants Jess a personal reroll
 // with a reason on the House rules page; Jess sees it on her home page, rolls
 // in session chat, presses Reroll under her roll and the server rerolls it;
-// the DM sees the change log. Screenshots go to SHOTS (default: none).
+// the DM sees the change log, every rule on the Rules tab, and adds a shared
+// package under Make or add one. Screenshots go to SHOTS (default: none).
 // Run from web/: npm run build && node e2e/houserules.mjs   (HOUSE_PORT, default 19812)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -94,6 +95,27 @@ try {
   await dm.getByText(/Reroll my roll by Jessamine/).first().waitFor({ timeout: 8000 });
   await shot(dm, '5-dm-house-rules-page');
   note('dm: the change log has the grant and the reroll');
+
+  // 5. The same page lists every rule (spell systems too) and adds a package someone shared.
+  await dm.getByRole('tab', { name: /^Rules/ }).click();
+  await dm.getByRole('switch', { name: 'Spell points on' }).waitFor({ timeout: 8000 });
+  check(await dm.getByRole('switch', { name: 'MANA spell system on' }).count() === 1, 'the Rules tab lists the MANA system');
+  await shot(dm, '6-dm-house-rules-all-rules');
+  const shared = await api(dmLogin.token, 'GET', '/mods/export');
+  check(shared.type === 'alexandria-house-rules' && shared.mods.some((m) => m.id === 'inspiration-rerolls'), 'export gives a package of the rules that are on');
+  const hero = JSON.parse(fs.readFileSync(path.join(root, 'mods/examples/hero-points.alxmod.json'), 'utf8'));
+  const pkg = { type: 'alexandria-house-rules', kit: 1, name: 'Table extras', author: 'Another DM', mods: [hero] };
+  await dm.getByRole('tab', { name: 'Make or add one' }).click();
+  await dm.getByRole('button', { name: 'Hero points' }).click();
+  check((await dm.getByLabel('Describe your house rule').inputValue()).startsWith('Hero points'), 'a starter idea fills the description');
+  await dm.getByLabel('House rule file').fill(JSON.stringify(pkg, null, 2));
+  await dm.getByRole('button', { name: 'Check' }).click();
+  await dm.getByText(/Looks good/).waitFor({ timeout: 8000 });
+  await shot(dm, '7-dm-make-or-add-a-rule');
+  await dm.getByRole('button', { name: 'Save to this world' }).click();
+  await dm.getByRole('tab', { name: /^Rules/ }).click();
+  await dm.getByRole('switch', { name: 'Hero points on' }).waitFor({ timeout: 8000 });
+  note('dm: rules tab lists every rule; a shared package was added');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {

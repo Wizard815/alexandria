@@ -2,15 +2,33 @@
 
 House rules are Alexandria's mods: your table's own rules, from a small one
 (inspiration as rerolls, hero points) up to a whole system (spell points, the
-MANA spell system, spell crafting). The DM turns them on under **World
-settings → House rules**. Nobody has to touch Alexandria's code.
+MANA spell system, spell crafting). The DM runs them from **World → House
+rules**, one page with three tabs:
+
+- **In play**: every player's counters (rerolls, hero points) with Grant and
+  Take back, and the log of every change with its reason.
+- **Rules**: every rule this world has, the spell systems included, with its
+  switch, options and Export.
+- **Make or add one**: describe a rule and the assistant writes it, open or
+  paste a file someone shared, and how to go further with code.
+
+The same list is also under **World settings → House rules**. Nobody has to
+touch Alexandria's code.
 
 There are two kinds, and both show up in the same place:
 
 | Kind | Who makes it | What it is |
 | --- | --- | --- |
 | **Rule file** | Any DM, by hand or with the assistant | A JSON file (`.alxmod.json`). It is data, never code, so it is safe to take one from a stranger. |
-| **System** | Developers | A feature (`librarian/src/features/<id>`, see [FEATURES.md](FEATURES.md)) that ships rule files in its `houseRules`. Usually a rule whose `presets` switch the feature's settings on, so the DM turns the whole system on with one switch. |
+| **System** | Developers | A feature (`librarian/src/features/<id>`, see [FEATURES.md](FEATURES.md)) that claims rule files in its `houseRules`. Usually a rule whose `presets` switch the feature's settings on, so the DM turns the whole system on with one switch. |
+
+Every rule that comes with Alexandria is a file in the repo's
+[`mods/`](../mods/README.md) folder. The server reads each `*.alxmod.json`
+there when it starts. Whoever runs a server can drop more files in (or set
+`ALX_MODS_DIR` to a folder of their own) and restart, and the rules show up in
+every world.
+
+![House rules, the Rules tab](screenshots/house-rules/6-dm-house-rules-all-rules.png)
 
 ![World settings, House rules](screenshots/house-rules/1-world-settings-house-rules.png)
 
@@ -53,6 +71,8 @@ simple mana pool or MANA off first. With no magic rule on, spells use slots.
 ![The DM's House rules page](screenshots/house-rules/5-dm-house-rules-page.png)
 
 ## The file
+
+A file holds one rule, or a **package** of several (see Sharing).
 
 ```json
 {
@@ -103,11 +123,15 @@ options. A world holds up to 50 of its own rules.
 
 ## Making one with the assistant
 
-Describe the rule in your own words ("my players get hero points: one per
+Under **House rules → Make or add one**, describe the rule (or pick a starter
+idea) and press **Ask the assistant**. Or describe the rule in the chat in your own words ("my players get hero points: one per
 session, spend one to add 1d6 to a roll"). The assistant writes the file,
 checks it with `house_rule_check` until it has no errors, shows it to you, and
-saves it with `house_rule_save` once you agree. It starts off; turn it on in
-World settings. You can also paste a file there and press **Check**.
+saves it with `house_rule_save` once you agree. It starts off; turn it on
+under Rules. You can also paste a file under **Add a house rule** and press
+**Check**.
+
+![Make or add one](screenshots/house-rules/7-dm-make-or-add-a-rule.png)
 
 Assistant tools: `house_rules` (what is on and how it works),
 `house_rule_counters`, `house_rule_grant` (DM: give a reroll for good
@@ -116,16 +140,39 @@ roleplay, with the reason), `house_rule_spend` (a player spends their own),
 
 ## Sharing
 
-Export a rule from World settings → House rules and send the file; the other
-DM pastes or opens it under **Add a house rule**. Saving a file whose id the
-world already has replaces it and keeps the counters of resources that still
-exist. The ids of rules that come with Alexandria are taken.
+**Export** gives a package: one `.alxmod.json` file with the rule (or, with
+**Export the rules that are on**, every rule that is on), who made it, when,
+and for which Alexandria:
+
+```json
+{
+  "type": "alexandria-house-rules",
+  "kit": 1,
+  "name": "Saltreach table rules",
+  "author": "Wizard",
+  "summary": "Inspiration as rerolls, Hero points",
+  "exported": "2026-11-26T15:00:00.000Z",
+  "alexandria": "0.1.0-alpha.1",
+  "mods": [ { "kit": 1, "id": "inspiration-rerolls", "...": "..." } ]
+}
+```
+
+The other DM opens or pastes it under **Make or add one → Add a house rule**.
+Check lists every rule in it; Save adds them all, each starting off. A package
+holds up to 25 rules (512 KB). A bare rule file works the same way. Saving a
+rule whose id the world already has replaces it and keeps the counters of
+resources that still exist. The ids of rules that come with Alexandria are
+taken, and a package with one of them is refused whole.
+
+To make a rule built in for everyone on a server, put the file (rule or
+package) in `mods/` instead.
 
 ## API
 
 Under `/api/worlds/:world/mods`: `GET /` (the DM gets every rule, a player
 only those on), `GET /rules`, `GET /counters`, `GET /log`, `POST /check`,
-`POST /import`, `GET /:id/export`, `PUT /:id/enabled { on }`,
+`POST /import` (a rule or a package), `GET /export?ids=a,b` (a package of
+those rules, or of every rule that is on), `GET /:id/export` (a package of one), `PUT /:id/enabled { on }`,
 `PUT /:id/options { options }`, `DELETE /:id` (DM only, except the reads), and
 `POST /:id/act { action, player?, resource?, note?, rollId?, channel?, atTable? }`.
 Live events: `mods` (rules changed), `mods-counts` (to the DM and the
@@ -133,7 +180,8 @@ player whose counters changed), `mods-note` (DM only).
 
 ## For developers: shipping a system as a house rule
 
-A feature adds `houseRules: [ /* rule files */ ]` to its `Feature`. The rule
+A feature adds `houseRules: ['spell-points', ...]` to its `Feature`: the ids
+of its rule files in `mods/` (an inline rule object works too). The rule
 usually holds only `presets` for the feature's own settings (and `options`
 the presets read), plus `requires` when it needs settings that may be
 missing. The spells feature ships spell points, the simple mana pool and spell

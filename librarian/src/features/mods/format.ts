@@ -312,3 +312,65 @@ export function commandActions(mod: ModFile): { word: string; arg: string | null
   }
   return out;
 }
+
+// ---- packages ------------------------------------------------------------
+//
+// What Export hands out and what Import takes: one `.alxmod.json` file that
+// holds one or more rules with who made it and for which Alexandria. A bare
+// rule file (no wrapper) is still accepted everywhere.
+
+export const PACKAGE_TYPE = 'alexandria-house-rules';
+export const MAX_PACKAGE = 25;
+export const MAX_PACKAGE_JSON = 512_000;
+
+export interface PackageInfo { name: string; author: string; summary: string; exported: string; alexandria: string }
+export interface ModPackage extends PackageInfo { type: typeof PACKAGE_TYPE; kit: number; mods: ModFile[] }
+
+/** Wrap rules as a package to share. */
+export function makePackage(mods: ModFile[], info: Partial<PackageInfo> & { alexandria: string }): ModPackage {
+  return {
+    type: PACKAGE_TYPE, kit: KIT_VERSION,
+    name: info.name ?? (mods.length === 1 ? mods[0].name : 'House rules'),
+    author: info.author ?? (mods.length === 1 ? mods[0].author : ''),
+    summary: info.summary ?? (mods.length === 1 ? mods[0].summary : mods.map((m) => m.name).join(', ')),
+    exported: info.exported ?? new Date().toISOString(),
+    alexandria: info.alexandria,
+    mods,
+  };
+}
+
+export interface Unpacked { mods: ModFile[]; errors: string[]; info: PackageInfo | null }
+
+/** Read a package or a bare rule file and check every rule in it. `mods` is empty when anything is wrong. */
+export function unpack(raw: unknown): Unpacked {
+  let o: any = raw;
+  if (typeof raw === 'string') {
+    if (raw.length > MAX_PACKAGE_JSON) return { mods: [], info: null, errors: [`The file is larger than ${MAX_PACKAGE_JSON / 1000} KB`] };
+    try { o = JSON.parse(raw); } catch (e: any) { return { mods: [], info: null, errors: [`The file is not valid JSON: ${e.message}`] }; }
+  }
+  const isPackage = o && typeof o === 'object' && !Array.isArray(o) && (o.type === PACKAGE_TYPE || Array.isArray(o.mods));
+  if (!isPackage) {
+    const { mod, errors } = checkMod(o);
+    return { mods: mod ? [mod] : [], info: null, errors };
+  }
+  try { if (JSON.stringify(o).length > MAX_PACKAGE_JSON) return { mods: [], info: null, errors: [`The file is larger than ${MAX_PACKAGE_JSON / 1000} KB`] }; } catch { return { mods: [], info: null, errors: ['The file is not valid JSON'] }; }
+  const errors: string[] = [];
+  if (typeof o.kit === 'number' && o.kit > KIT_VERSION) errors.push(`This package needs a newer Alexandria (house rules kit ${o.kit}; this one reads ${KIT_VERSION})`);
+  if (!Array.isArray(o.mods) || o.mods.length === 0) errors.push('A package holds its rules in "mods", a list with at least one rule');
+  else if (o.mods.length > MAX_PACKAGE) errors.push(`A package holds at most ${MAX_PACKAGE} rules`);
+  const mods: ModFile[] = [];
+  const seen = new Set<string>();
+  for (const [i, m] of (Array.isArray(o.mods) ? o.mods.slice(0, MAX_PACKAGE) : []).entries()) {
+    const c = checkMod(m);
+    const at = `mods[${i}]${c.mod ? ` (${c.mod.id})` : typeof m?.id === 'string' ? ` (${m.id})` : ''}`;
+    for (const e of c.errors) if (errors.length < 40) errors.push(`${at}: ${e}`);
+    if (c.mod) {
+      if (seen.has(c.mod.id)) errors.push(`${at}: the id ${c.mod.id} is in the package twice`);
+      seen.add(c.mod.id);
+      mods.push(c.mod);
+    }
+  }
+  const s = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const info: PackageInfo = { name: s(o.name, 80), author: s(o.author, 80), summary: s(o.summary, 400), exported: s(o.exported, 40), alexandria: s(o.alexandria, 40) };
+  return errors.length ? { mods: [], info, errors } : { mods, info, errors: [] };
+}

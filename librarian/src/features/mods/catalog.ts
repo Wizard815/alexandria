@@ -1,73 +1,64 @@
-// Every house rule that ships with Alexandria: the mod kit's own (inspiration
-// as rerolls, the MANA system switch) and the ones features declare in their
-// `houseRules` (the spells feature's spell points, simple mana pool and spell
-// crafting). Kept apart from index.ts so the feature registry can fill it
-// while it loads without an import cycle.
-import { checkMod, type ModFile } from './format.ts';
+// Every house rule that ships with Alexandria. They live as rule files in the
+// repo's `mods/` folder (or ALX_MODS_DIR): each `*.alxmod.json` there, a rule
+// or a package of rules, is a built-in rule. A feature claims the ones that
+// switch it on by id in its `houseRules` (the spells feature: spell points,
+// the simple mana pool and spell crafting) and may also declare a rule inline.
+// Kept apart from index.ts so the feature registry can fill it while it loads
+// without an import cycle.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { checkMod, unpack, type ModFile } from './format.ts';
 
-export interface Shipped { mod: ModFile; feature: string }
+export interface Shipped { mod: ModFile; feature: string; file?: string }
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+/** The folder of built-in rule files: the repo's mods/ (in the Docker image /app/mods). */
+export const MODS_DIR = path.resolve(process.env.ALX_MODS_DIR || path.join(here, '../../../../mods'));
+
 const shipped = new Map<string, Shipped>();
+const files = new Map<string, { mod: ModFile; file: string }>();
 
+/** Read every rule file in the folder. A broken file is skipped with a warning so one bad drop-in never stops the server. */
+export function loadModsDir(dir = MODS_DIR): { loaded: string[]; problems: string[] } {
+  const loaded: string[] = [];
+  const problems: string[] = [];
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.alxmod.json')).sort(); } catch { return { loaded, problems }; }
+  for (const name of names) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(dir, name), 'utf8'); } catch (e: any) { problems.push(`${name}: ${e.message}`); continue; }
+    const { mods, errors } = unpack(text);
+    if (!mods.length) { problems.push(`${name}: ${errors.join('; ')}`); continue; }
+    for (const mod of mods) {
+      if (files.has(mod.id) || shipped.has(mod.id)) { problems.push(`${name}: house rule ${mod.id} already exists`); continue; }
+      files.set(mod.id, { mod, file: name });
+      loaded.push(mod.id);
+    }
+  }
+  for (const p of problems) console.warn(`[house rules] ${p}`);
+  return { loaded, problems };
+}
+
+/** Register a feature's house rules: an id names a file in mods/, an object is a rule declared in code. */
 export function addHouseRules(feature: string, raws: unknown[]) {
   for (const raw of raws) {
+    if (typeof raw === 'string') {
+      const f = files.get(raw);
+      if (!f) throw new Error(`features/${feature}: house rule ${raw} is not in ${MODS_DIR}`);
+      files.delete(raw);
+      shipped.set(raw, { mod: f.mod, feature, file: f.file });
+      continue;
+    }
     const { mod, errors } = checkMod(raw);
     if (!mod) throw new Error(`features/${feature}: a house rule is not a valid mod: ${errors.join('; ')}`);
-    if (shipped.has(mod.id)) throw new Error(`features/${feature}: house rule ${mod.id} already exists`);
+    if (shipped.has(mod.id) || files.has(mod.id)) throw new Error(`features/${feature}: house rule ${mod.id} already exists`);
     shipped.set(mod.id, { mod, feature });
   }
 }
 
-export const shippedMods = (): Shipped[] => [...shipped.values()];
-export const shippedMod = (id: string): Shipped | undefined => shipped.get(id);
+/** Claimed rules first, then the folder's other rules (the mod kit's own and any drop-in). */
+export const shippedMods = (): Shipped[] => [...shipped.values(), ...[...files.values()].map((f) => ({ mod: f.mod, feature: 'mods', file: f.file }))];
+export const shippedMod = (id: string): Shipped | undefined => shipped.get(id) ?? (files.has(id) ? { mod: files.get(id)!.mod, feature: 'mods', file: files.get(id)!.file } : undefined);
 
-/** Wizard's house rule: the DM rewards roleplay with three kinds of reroll. */
-export const INSPIRATION_REROLLS = {
-  kit: 1,
-  id: 'inspiration-rerolls',
-  name: 'Inspiration as rerolls',
-  version: '1.0.0',
-  author: 'Wizard',
-  summary: 'The DM rewards good roleplay with rerolls: a personal reroll for your own roll, an everyone reroll for any player\'s roll, and a DM reroll that makes the DM roll again.',
-  options: {
-    cap: { type: 'int', default: 1, min: 1, max: 9, label: 'Most of each type a player can hold' },
-    keepBetter: { type: 'boolean', default: false, label: 'Keep the better of the two rolls', help: 'Off: the reroll stands, as with normal inspiration.' },
-  },
-  resources: [
-    { id: 'personal', label: 'Personal reroll', icon: 'fa-dice-d20', max: '$cap', start: 0 },
-    { id: 'everyone', label: 'Everyone reroll', icon: 'fa-people-group', max: '$cap', start: 0 },
-    { id: 'dm', label: 'DM reroll', icon: 'fa-dragon', max: '$cap', start: 0 },
-  ],
-  actions: [
-    { id: 'grant', label: 'Grant', by: 'dm', resource: '*', add: 1, askReason: true },
-    { id: 'take', label: 'Take back', by: 'dm', resource: '*', add: -1 },
-    { id: 'use-personal', label: 'Reroll my roll', by: 'owner', resource: 'personal', add: -1, effect: { reroll: { whose: 'own', keepBetter: '$keepBetter' } } },
-    { id: 'use-everyone', label: 'Reroll anyone\'s roll', by: 'owner', resource: 'everyone', add: -1, effect: { reroll: { whose: 'anyPlayer', keepBetter: '$keepBetter' } } },
-    { id: 'use-dm', label: 'Make the DM reroll', by: 'owner', resource: 'dm', add: -1, effect: { reroll: { whose: 'dm', keepBetter: '$keepBetter' } } },
-  ],
-  commands: [{ word: 'reroll', args: ['personal', 'everyone', 'dm'], action: 'use-$1' }],
-  // The player sheet's Re-rolls module and the DM status bar chips show these counters.
-  presets: { sheetRerolls: true, sheetRerollCap: '$cap' },
-  sheet: { title: 'Rerolls', resources: ['personal', 'everyone', 'dm'] },
-  dmBand: { chips: ['personal', 'everyone', 'dm'], actions: ['grant'] },
-  table: { title: 'Reward roleplay', actions: ['grant'] },
-  rules: [{
-    term: 'Inspiration (house rule)',
-    text: 'Inspiration comes as rerolls, given by the DM to reward roleplay. **Personal reroll**: reroll one of your own rolls. **Everyone reroll**: reroll any player\'s roll, yours or an ally\'s. **DM reroll**: make the DM reroll one of their rolls. The new roll stands unless the DM turned on "keep the better". In session chat, press Reroll on a roll or type `/reroll personal`, `/reroll everyone` or `/reroll dm`.',
-  }],
-};
-
-/** Wizard's MANA spell system (the spells feature's rules engine) as one switch. Needs the MANA engine (spellRulesOn). */
-export const MANA_SYSTEM = {
-  kit: 1,
-  id: 'mana-system',
-  name: 'MANA spell system',
-  version: '1.0.0',
-  author: 'Wizard',
-  group: 'magic',
-  summary: 'Spells cost mana from a pool by caster type, with study, spell lines, surge casting and dual casting. Replaces spell slots for every character.',
-  presets: { spellMana: true, spellRulesOn: true, spellManaName: 'Mana' },
-  requires: { settings: ['spellRulesOn'] },
-  rules: [{ term: 'MANA (house rule)', text: 'Spells are cast from a mana pool instead of spell slots. Pools depend on caster type and level; new spells are learned by study. See the Codex for costs and your pool.' }],
-};
-
-addHouseRules('mods', [INSPIRATION_REROLLS, MANA_SYSTEM]);
+loadModsDir();

@@ -3,16 +3,39 @@
 // settings, and import / export of rule files (.alxmod.json).
 import { useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
+import { askAssistant } from '../agent/prefill.ts';
 import { ErrorBox, Loading, Switch, useAction, useToast } from '../../ui/index.tsx';
 import { GROUP_LABEL, useHouseRules, type HouseRule, type OptionSpec } from './shared.tsx';
 
 export default function HouseRulesSettings() {
-  const { isDM } = useWorld();
+  return (
+    <div className="stack">
+      <RulesList />
+      <MakeHouseRule />
+    </div>
+  );
+}
+
+/** Save a package (what the server's export gives) as a .alxmod.json file. */
+function saveFile(name: string, data: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = `${name}.alxmod.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Every rule this world has (systems by group, then table rules), each with its switch, options and export. */
+export function RulesList() {
+  const { isDM, w } = useWorld();
   const { rules, list } = useHouseRules();
   const { toastNode, toast } = useToast();
+  const act = useAction();
   if (rules.loading && !rules.data) return <Loading />;
   const groups = [...new Set(list.map((r) => r.group).filter(Boolean))] as string[];
   const loose = list.filter((r) => !r.group);
+  const done = (t: string) => { toast(t); void rules.reload(); };
+  const on = list.filter((r) => r.enabled);
+  const exportOn = () => act.run(async () => saveFile('house-rules', await w.call<any>('GET', '/mods/export')));
   return (
     <div className="stack">
       <p className="small muted">
@@ -24,14 +47,65 @@ export default function HouseRulesSettings() {
         <section key={g} className="card stack">
           <h3>{GROUP_LABEL[g] ?? g}</h3>
           <p className="tiny muted">Only one of these is on at a time. With none on, spells use slots as written.</p>
-          {list.filter((r) => r.group === g).map((r) => <RuleCard key={r.id} r={r} dm={isDM} onDone={(t) => { toast(t); void rules.reload(); }} />)}
+          {list.filter((r) => r.group === g).map((r) => <RuleCard key={r.id} r={r} dm={isDM} onDone={done} />)}
         </section>
       ))}
       <section className="card stack">
         <h3>Table rules</h3>
-        {loose.map((r) => <RuleCard key={r.id} r={r} dm={isDM} onDone={(t) => { toast(t); void rules.reload(); }} />)}
+        {loose.map((r) => <RuleCard key={r.id} r={r} dm={isDM} onDone={done} />)}
       </section>
-      {isDM && <ImportBox onDone={(t) => { toast(t); void rules.reload(); }} />}
+      {isDM && on.length > 0 && (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" className="btn small" disabled={act.busy} onClick={() => void exportOn()}>Export the {on.length} rule{on.length > 1 ? 's' : ''} that {on.length > 1 ? 'are' : 'is'} on</button>
+          <span className="tiny muted">One package file (.alxmod.json) another DM can add under Make or add one.</span>
+        </div>
+      )}
+      <ErrorBox error={act.error} />
+      {toastNode}
+    </div>
+  );
+}
+
+const IDEAS: [string, string][] = [
+  ['Hero points', 'Hero points: each player starts a session with 1 (most 3). Spend one to add 1d6 to a roll after seeing it.'],
+  ['Lingering injuries', 'Lingering injuries: when a character drops to 0 HP they gain an injury point. A long rest removes one. At 3 they have disadvantage on Strength and Dexterity checks.'],
+  ['Critical fumbles', 'Critical fumbles: on a natural 1 on an attack the DM may describe a mishap. Players can spend a fumble token (DM-given) to turn it into a plain miss.'],
+  ['Session journal XP', 'Journal bonus: the DM gives a journal token to each player who writes a session recap. Spend one for advantage on any check.'],
+];
+
+/** Make a rule with the assistant, or add a file someone shared, plus where whole systems come from. */
+export function MakeHouseRule() {
+  const { isDM } = useWorld();
+  const { rules } = useHouseRules();
+  const { toastNode, toast } = useToast();
+  const [idea, setIdea] = useState('');
+  if (!isDM) return null;
+  const ask = () => askAssistant(`Make a house rule for my table: ${idea.trim()}\nWrite it as a house rule file, check it with house_rule_check until it has no errors, show it to me, and save it with house_rule_save once I agree.`);
+  return (
+    <div className="stack">
+      <section className="card stack">
+        <h3>Make one with the assistant</h3>
+        <p className="tiny muted">Say the rule in your own words. The assistant writes the file, checks it, shows it to you and saves it when you agree. It starts off; turn it on under Rules.</p>
+        <textarea className="input" rows={3} aria-label="Describe your house rule" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="My players get hero points: one per session, spend one to add 1d6 to a roll." />
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          {IDEAS.map(([label, text]) => <button key={label} type="button" className="btn small" onClick={() => setIdea(text)}>{label}</button>)}
+          <button type="button" className="btn small primary" disabled={!idea.trim()} onClick={ask}>Ask the assistant</button>
+        </div>
+      </section>
+      <ImportBox onDone={(t) => { toast(t); void rules.reload(); }} />
+      <section className="card stack">
+        <h3>Bigger than a rule file</h3>
+        <p className="small">
+          A rule file can add counters, actions, rerolls, chat words, rest and session triggers, sheet cards, rule text and world settings.
+          A rule that needs new code, like a whole spell system, is built as an Alexandria feature: a folder under <code>librarian/src/features</code> (and
+          <code> web/src/features</code> for screens) that ships its switch as a house rule, the way spell points, MANA and spell crafting do. It then shows up under Rules like any other.
+          See <code>docs/MODS.md</code> and <code>docs/FEATURES.md</code>.
+        </p>
+        <p className="small">
+          The rules that come with Alexandria are files in the repo’s <code>mods/</code> folder. Whoever runs the server can drop more rule files or
+          packages there (or point <code>ALX_MODS_DIR</code> at a folder of their own) and restart: they show up here for every world.
+        </p>
+      </section>
       {toastNode}
     </div>
   );
@@ -53,13 +127,7 @@ function RuleCard({ r, dm, onDone }: { r: HouseRule; dm: boolean; onDone: (t: st
     await w.call('DELETE', `/mods/${r.id}`);
     onDone(`${r.name} removed`);
   });
-  const download = () => act.run(async () => {
-    const file = await w.call<any>('GET', `/mods/${r.id}/export`);
-    const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = `${r.id}.alxmod.json`; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
+  const download = () => act.run(async () => saveFile(r.id, await w.call<any>('GET', `/mods/${r.id}/export`)));
   return (
     <div className="stack tight" style={{ borderTop: '1px solid var(--line, #8883)', paddingTop: 8 }}>
       <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -126,15 +194,20 @@ function ImportBox({ onDone }: { onDone: (t: string) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [text, setText] = useState('');
-  const [check, setCheck] = useState<{ ok: boolean; errors: string[]; notes?: string[]; mod?: any } | null>(null);
+  const [check, setCheck] = useState<{ ok: boolean; errors: string[]; notes?: string[]; mod?: any; mods?: any[]; package?: { name: string; author: string } | null } | null>(null);
   const parse = () => { try { return JSON.parse(text); } catch { return text; } };
   const run = () => act.run(async () => setCheck(await w.call<any>('POST', '/mods/check', { mod: parse() })));
-  const save = () => act.run(async () => { await w.call('POST', '/mods/import', { mod: parse() }); setText(''); setCheck(null); onDone('House rule saved. Turn it on above.'); });
+  const save = () => act.run(async () => {
+    const n = check?.mods?.length ?? 1;
+    await w.call('POST', '/mods/import', { mod: parse() });
+    setText(''); setCheck(null);
+    onDone(n > 1 ? `${n} house rules saved. Turn them on under Rules.` : 'House rule saved. Turn it on under Rules.');
+  });
   const file = async (f: File | undefined) => { if (f) { setText(await f.text()); setCheck(null); } };
   return (
     <section className="card stack">
       <h3>Add a house rule</h3>
-      <p className="tiny muted">Paste a rule file (.alxmod.json) someone shared, or one the assistant wrote for you. It is checked first and starts off. The format is in docs/MODS.md.</p>
+      <p className="tiny muted">Open or paste a rule file or package (.alxmod.json) someone shared. It is checked first, and every rule in it starts off. The format is in docs/MODS.md.</p>
       <textarea className="input" rows={6} aria-label="House rule file" value={text} onChange={(e) => { setText(e.target.value); setCheck(null); }} placeholder='{ "kit": 1, "id": "hero-points", "name": "Hero points", ... }' style={{ fontFamily: 'monospace', fontSize: 12 }} />
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
         <label className="btn small">Open a file<input type="file" accept=".json,application/json" hidden onChange={(e) => void file(e.target.files?.[0])} /></label>
@@ -143,7 +216,13 @@ function ImportBox({ onDone }: { onDone: (t: string) => void }) {
       </div>
       <ErrorBox error={act.error} />
       {check && !check.ok && <ul className="small" role="alert">{check.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-      {check?.ok && <div className="small">Looks good: <strong>{check.mod?.name}</strong>{check.notes?.length ? <ul className="tiny">{check.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}</div>}
+      {check?.ok && (
+        <div className="small">
+          Looks good{check.package?.name ? <>: package <strong>{check.package.name}</strong>{check.package.author ? ` by ${check.package.author}` : ''}</> : ''}
+          <ul className="small" style={{ margin: '4px 0' }}>{(check.mods ?? [check.mod]).map((m: any) => <li key={m.id}><strong>{m.name}</strong> <span className="tiny muted">v{m.version}{m.summary ? ` · ${m.summary}` : ''}</span></li>)}</ul>
+          {check.notes?.length ? <ul className="tiny">{check.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
+        </div>
+      )}
     </section>
   );
 }
