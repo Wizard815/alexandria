@@ -62,6 +62,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Requests | `GET/POST /requests`, `POST /requests/:id/decide` (DM, can apply to the page) |
 | Messages | `GET/POST /messages`, `GET/POST /messages/:tid`, `POST /messages/:tid/members`, `POST /messages/:tid/keep` |
 | Quick events | `GET/POST /quick-events`, `POST /quick-events/:id/respond`, `/resolve`, `/cancel` |
+| Encounters | `/encounters/*`: an NPC talks to one player in their app; see [ENCOUNTERS.md](ENCOUNTERS.md) |
 | Calendar | `GET/POST /calendar`, `PATCH /calendar/:sid`, `PUT /calendar/:sid/rsvp`, `GET/POST /calendar/:sid/chat`, `POST /calendar/:sid/reschedule`, `POST /calendar/:sid/reschedule/:rid`; feed `GET /dav/worlds/:world/sessions.ics` |
 | Live session | `GET /live`, `PUT/DELETE /live/presence`, `GET/POST /live/ledger`, `GET/PUT /live/combat`, `POST /live/combat/next`, `POST/PATCH/DELETE /live/combatants/:id` |
 | Inventory | `GET /inventory?owner=me\|party\|<account>`, `POST /inventory`, `PATCH/DELETE /inventory/:id`; giving and pictures: see below |
@@ -251,7 +252,7 @@ shop's visible lines, the keeper's public card; a hidden shop is a 404.
 | GET | `/items/export` | DM | `?format=json\|csv` |
 | GET | `/shops` | player, DM | The list (players: open and closed shops only) |
 | GET | `/shops/:sid` | player, DM | One shop; the DM's has `keeper.secret`, `haggle`, `dmNotes`, hidden lines and line `dmNote`s |
-| POST | `/shops` | DM | `{name, kind, description?, keeper?, locationPageId?, markupPct?, haggle?, dmNotes?, status?, restock?: {rule: manual\|days, days}, sellPct?, stock?: [{itemId, qty? (null: unlimited), priceCp?, hidden?, dmNote?}]}` |
+| POST | `/shops` | DM | `{name, kind, description?, keeper?, locationPageId?, markupPct?, haggle?, dmNotes?, status?, restock?: {rule: manual\|days, days}, sellPct?, townId?, goldCp? (null: never runs out), barterPct? (0-90), stock?: [{itemId, qty? (null: unlimited), priceCp?, hidden?, dmNote?}]}` |
 | PATCH | `/shops/:sid` | DM | The fields to change |
 | POST | `/shops/:sid/status` | DM | `{status: hidden\|closed\|open}` |
 | DELETE | `/shops/:sid` | DM | 409 while purchases wait |
@@ -261,20 +262,40 @@ shop's visible lines, the keeper's public card; a hidden shop is a 404.
 | POST | `/shops/:sid/stage` | DM | `{show}`: the stock as a stage card (shown on the players' TV with `show: true`) |
 | POST | `/shops/:sid/keeper-page` | DM | Save the keeper as a DM-only NPC page and link it |
 | POST | `/keeper` | DM | `{shopId?, kind?, seed?, race?, gender?, savePage?}`: a keeper from the NPC generator (given to the shop when `shopId`) |
-| POST | `/generate` | DM | `{kind, size, level?, theme?, guide?, seed?, count?, name?, enrich?, save?, status?}` → `{draft}`, or with `save: true` also `{shop}` (hidden unless `status`) |
+| POST | `/generate` | DM | `{kind, size, townId? (takes its size), level?, theme?, guide?, seed?, count?, name?, enrich?, save?, status?}` → `{draft}`, or with `save: true` also `{shop}` (hidden unless `status`) |
 | GET | `/pay-options` | player, DM | Like the broker's: `self {cp, available}`, `party {cp, available, allowed, reason}` |
 | POST | `/shops/:sid/buy` | player, DM | `{stockId, qty?, from?: self\|party, to?: me\|party}` → 201, or 202 `{pending: true}` with `shopApproval`. 402 not enough coin, 409 sold out or closed, 404 hidden. |
 | POST | `/shops/:sid/sell` | player | `{itemId, qty?}` (an approved item of yours or the party's) → 202; 403 unless `shopSellBack` |
+| POST | `/shops/:sid/haggle` | player | `{stockId, pct}` → `{accepted, mood: agreed\|grudging\|refused\|insulted\|never, pct, counter, message, deal}`. 403 with `shopHaggle` off, 409 with a deal already on that line, 429 after a haggle on that line this game day |
+| GET | `/shops/:sid/memory` | DM | The keeper's memory: `{goldCp, barterPct, repEffect, players: [{accountId, name, rep, standing, repPct, spentCp, soldCp, purchases, hagglesWon, hagglesLost, note, lastAt}], deals: [...]}` |
+| PUT | `/shops/:sid/memory/:aid` | DM | `{rep? (-100..100), note?}` for one player |
+| POST | `/shops/:sid/deals` | DM | `{accountId, stockId? (blank: the whole shop), pct (1-90), days? (blank: until used), note?}` |
+| DELETE | `/shops/:sid/deals/:did` | DM | Cancel a deal |
+| POST | `/shops/:sid/present` | DM | `{to: [accountId] \| 'all', message?, open?}`: the shop pops up on those players' screens (live event `shop-present`). 409 for a hidden or closed shop unless `open: true`, which opens it |
+| GET | `/towns` | DM | Towns with `pricePct`, `prices` (in words), `size`, `description`, `dmNotes`, `shops` |
+| POST | `/towns` | DM | `{name, size?, pricePct? (-90..500), description?, dmNotes?, locationPageId?, shopIds?}` |
+| PATCH/DELETE | `/towns/:tid` | DM | Change a town (its shops' prices follow live); deleting leaves its shops at their own prices |
 | GET | `/orders` | player, DM | Players: their own; DM: all (`?status=pending`) |
 | POST | `/orders/:oid` | DM | `{action: approve\|reject, priceCp?}` (`priceCp`: a sale's total) |
 | POST | `/orders/:oid/cancel` | player | Take back your own pending purchase or sale |
 
+A player's `GET /shops/:sid` prices are their own: each line has
+`listPriceCp` (everyone's price), `priceCp` (theirs, after reputation and
+their best deal) and `dealPct`; the shop has `town` (`{name, description,
+prices}` in words), `haggles` and `you` (`{standing, repPct, deals}`).
+
 Live events: `shop` `{id}` (to players only for shops they can see or just
-lost), `shop-order` (DM and the buyer), `shop-items` (DM), and the usual
-`coin`, `item`, `item-removed`, `approval`. Settings: `shopApproval`,
-`shopPartyPay`, `shopSellBack`, `shopSellBackPct`. MCP: `search_items`,
-`list_shops`, `read_shop`, `create_item`, `edit_item`, `generate_shop`,
-`create_shopkeeper`, `stock_shop`, `set_shop_status`.
+lost), `shop-order` (DM and the buyer), `shop-items`, `shop-towns` and
+`shop-haggle` (DM), `shop-present` `{shopId, shopName, keeper, role,
+message}` (only the players it was sent to), and the usual `coin`, `item`,
+`item-removed`, `approval`. Settings: `shopApproval`, `shopPartyPay`,
+`shopSellBack`, `shopSellBackPct`, `shopHaggle`, `shopRepEffect`. MCP:
+`search_items`, `list_shops`, `read_shop`, `create_item`, `edit_item`,
+`generate_shop`, `create_shopkeeper`, `stock_shop`, `set_shop_status`,
+`list_towns`, `set_town`, `shop_memory`, `give_shop_deal`, `present_shop`.
+
+From code (another feature), `presentShop(d, worldId, shopId, { to, open?,
+message? })` from `features/shop/index.ts` does what `/present` does.
 
 ## Library admin (`/api/admin`, admins only)
 

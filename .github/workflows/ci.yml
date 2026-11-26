@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Install ffmpeg (recording tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install
         run: |
           npm install --no-audit --no-fund
@@ -36,3 +38,4 @@ jobs:
           node e2e/sculpt.mjs
           node e2e/buttons.mjs
           node e2e/leaks.mjs
+          node e2e/thoughts.mjs

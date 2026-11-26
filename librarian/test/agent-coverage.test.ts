@@ -188,6 +188,7 @@ const minutes = async () => (await dm('GET', '/clock')).minutes as number;
 const person = () => once('person', async () => (await dm('POST', '/people', { name: 'Old Hennet', role: 'Lighthouse keeper', visibility: 'party' })).id as string);
 const combatant = (n: string) => once(`cb-${n}`, async () => (await dm('POST', '/live/combatants', { name: n, initiative: 10, hp: 20, maxHp: 20, ac: 12 })).id as string);
 const draft = () => once('draft', async () => (await dm('POST', '/sessionlog/drafts', { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), title: 'Session 1: Coverage' })).id as string);
+const encounter = (n: string) => once(`enc-${n}`, async () => (await dm('POST', '/encounters', { accountIds: [ID.tom], npcName: `Stranger ${n}`, line: 'Hello there.' }))[0].id as string);
 const quickEvent = (n: string) => once(`qe-${n}`, async () => (await dm('POST', '/quick-events', { kind: 'recall', title: `Recall ${n}`, prompt: 'What do you remember?', timerS: 60 })).id as string);
 const lorePage = (n: string) => once(`lore-${n}`, async () => (await dm('POST', '/worldlore/pages', { path: `Test/${n}`, title: n, markdown: `# ${n}\nA page for the test.\n`, level: 'party', by: 'the DM' })).id as string);
 const card = () => once('card', async () => (await dm('POST', '/stage/cards', { kind: 'text', title: 'Shown card', text: 'On the stage.', show: true })).id as string);
@@ -281,6 +282,9 @@ const ARGS: Record<string, Maker> = {
   add_recall: async () => ({ personId: await person(), accountId: ID.jess, text: 'Jessamine knew him as a child.', success: true }),
   resolve_quick_event: async () => ({ id: await quickEvent('resolve') }),
   cancel_quick_event: async () => ({ id: await quickEvent('cancel') }),
+  send_encounter: () => ({ accountIds: [ID.jess], templateId: 'builtin:coin' }),
+  encounter_say: async () => ({ id: await encounter('say'), text: 'Lovely weather.', answers: ['It is'] }),
+  end_encounter: async () => ({ id: await encounter('end') }),
   lore_read: async () => ({ id: await lorePage('Read') }),
   lore_write: () => ({ path: 'Test/Written', title: 'Written', markdown: '# Written\nBy the agent.', level: 'party' }),
   create_dm_template: () => ({ kind: 'guide', name: 'Coverage towns', triggers: ['town'], spec: { sections: ['Overview'] } }),
@@ -309,6 +313,10 @@ const ARGS: Record<string, Maker> = {
   set_shop_status: async () => ({ shop: await shopId(), status: 'open' }),
   create_shopkeeper: async () => ({ shop: await shopId(), save_page: true }),
   generate_shop: () => ({ kind: 'magic', size: 'town', level: 5, seed: 'cov' }),
+  shop_memory: async () => ({ shop: await shopId() }),
+  give_shop_deal: async () => ({ shop: await shopId(), player: ID.jess, pct: 10, days: 2 }),
+  present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
+  set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
 };
 
 /** Values from a tool's own schema for any tool without an entry in ARGS. */

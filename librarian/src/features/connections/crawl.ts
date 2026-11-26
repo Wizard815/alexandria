@@ -23,7 +23,7 @@ import { effectiveConfig } from '../../intake/connections.ts';
 import { runSync, stopSync } from '../../intake/sync.ts';
 import { budgetOf, depthCounts, getState, tieredOf } from '../../intake/tiers.ts';
 import { embeddingCoverage, pruneChunks, syncEmbeddings } from '../search/embeddings.ts';
-import { syncBible } from '../bible/extract.ts';
+import { startBulkBuild } from '../search/bulkbuild.ts';
 
 export const CRAWL_SCHEMA = `
 CREATE TABLE IF NOT EXISTS connections_crawls (
@@ -96,7 +96,11 @@ export function depthTotals(d: Deps, worldId: string): Progress['depth'] {
 }
 
 /** Start a crawl (the sources are listed, then embeddings) or a re-index (embeddings only, from scratch). Returns at once; the work runs in the background. */
-export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'reindex'; sourceIds?: string[]; by: string | null; full?: boolean }) {
+/**
+ * `index: false`: only the sources (no embeddings, no story bible): the caller indexes afterwards (Refresh world does, in one bulk pass).
+ * `done` resolves when the crawl has finished, however it ended.
+ */
+export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'reindex'; sourceIds?: string[]; by: string | null; full?: boolean; index?: boolean }): { id: string; done: Promise<void> } {
   if (!one(d.db, 'SELECT 1 FROM worlds WHERE id = ?', worldId)) throw new HttpError(404, 'World not found');
   if (active.has(worldId)) throw new HttpError(409, 'This world is already being crawled');
   const mode = opts.mode ?? 'crawl';
@@ -114,12 +118,14 @@ export function startCrawl(d: Deps, worldId: string, opts: { mode?: 'crawl' | 'r
   // A job the admin page lists, stops and (after a restart) starts again: the sources are synced again from where their state left off and
   // the embeddings carry on with the pages not yet read.
   const title = mode === 'reindex' ? 'Re-index (embeddings)' : 'Crawl (sources, then embeddings)';
-  void d.jobs.track({ kind: 'crawl', title, worldId, resume: { worldId, mode, sourceIds: opts.sourceIds, full: !!opts.full }, cancel: () => { stopCrawl(worldId); } },
-    (job) => work(d, worldId, cid, mode, sources, ctl, !!opts.full, job)).catch(() => {});
-  return { id: cid };
+  // A crawl inside another job (Refresh world) is that job's step: the outer job is the one a restart starts again.
+  const index = opts.index !== false;
+  const done = d.jobs.track({ kind: 'crawl', title, worldId, resume: index ? { worldId, mode, sourceIds: opts.sourceIds, full: !!opts.full } : undefined, cancel: () => { stopCrawl(worldId); } },
+    (job) => work(d, worldId, cid, mode, sources, ctl, !!opts.full, job, index)).then(() => {}, () => {});
+  return { id: cid, done };
 }
 
-async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'reindex', sources: any[], ctl: AbortController, full: boolean, job?: JobCtx) {
+async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'reindex', sources: any[], ctl: AbortController, full: boolean, job?: JobCtx, index = true) {
   const slot = active.get(worldId)!;
   const lines: string[] = [];
   const log = (m: string) => { lines.push(`${new Date().toISOString().slice(11, 19)} ${m}`); if (lines.length > 500) lines.splice(0, lines.length - 500); };
@@ -216,6 +222,9 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
       P.embedding.state = 'cancelled';
       status = 'stopped';
       log('Crawl cancelled. What was fetched is saved in the library.');
+    } else if (!index) {
+      log('Sources done. Indexing follows as its own step.');
+      status = sources.length && succeeded === 0 && P.errors > 0 ? 'error' : 'ok';
     } else {
       P.phase = 'embed';
       const cov = embeddingCoverage(d, worldId);
@@ -247,7 +256,8 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
         else { P.embedding.state = 'done'; log(`Embedded ${res.embedded} chunks from ${donePages.size} pages`); }
       }
       // The story bible reads new and changed pages too (in the background, with the chat model; nothing happens without one).
-      if (!ctl.signal.aborted && hasJob(d, 'chat')) { log('Reading the library into the story bible in the background'); void syncBible(d, { maxPages: 1_000_000, worldId }).catch(() => {}); }
+      // One bulk pass (several pages at once, as wide as the model allows), tracked as a job: not left to the slow background ticks.
+      if (!ctl.signal.aborted && hasJob(d, 'bible')) { log('Reading the library into the story bible in the background (Admin > Jobs shows how far it is)'); startBulkBuild(d, worldId, { bible: true }); }
       if (status === 'running') status = sources.length && succeeded === 0 && P.errors > 0 ? 'error' : 'ok';
     }
   } catch (err: any) {

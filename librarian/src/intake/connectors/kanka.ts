@@ -44,7 +44,7 @@ export function kankaBlocks(raw: unknown): Block[] {
     const label = opt && !/^\w+:/.test(opt) ? opt : '';
     return `[[@kanka:${id}${label ? '|' + label : ''}]]`;
   });
-  if (/<\/?(p|br|div|span|strong|em|ul|ol|li|h\d|a|table|blockquote)\b/i.test(s)) s = htmlToMarkdown(s);
+  if (/<\/?(p|br|div|span|strong|em|ul|ol|li|h\d|a|table|blockquote|img)\b/i.test(s)) s = htmlToMarkdown(s);
   else s = s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
   return fixRefs(markdownToBlocks(s));
 }
