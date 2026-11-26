@@ -8,6 +8,7 @@ widen, rename, fold or remove modules. Nothing on it replaces the paper sheet.
 
 | Module | What it shows | Who edits |
 |---|---|---|
+| Character | a character imported from D&D Beyond (unofficial): scores, AC, skills, spells, items | Import / Update |
 | Health | HP, max HP, temporary HP and conditions; Damage / Heal / Temp buttons | the player and the DM |
 | Mana | the mana pool from the Codex (only when the world uses mana); Spend / Restore with a reason | the player (within the pool) and the DM |
 | Inventory | the player's pack, read from Inventory | in Inventory |
@@ -25,6 +26,26 @@ inventory and Recently are always visible to the DM.
 party knows (People), a library page the player can open that is a place or a
 character (by its kind, tags or folder, e.g. `Locations/Bramblegate`), or a
 bold name under *People met*. A tap adds a person as an ally or an enemy.
+
+## Import from D&D Beyond (unofficial)
+
+**Import** on the sheet (the player on their own, the DM on any player's) reads a character from D&D Beyond.
+D&D Beyond has **no official API**: this reads the character data the D&D Beyond site uses for itself
+(`character-service.dndbeyond.com/character/v5/character/<id>`), so it can break or change without notice. The import
+screen and the Character module both say so.
+
+- Paste the character link (`https://www.dndbeyond.com/characters/12345678`). The character must be **public** on D&D
+  Beyond (Character Settings › Character Privacy › Public); a private one gets a message saying how to change that.
+- If the link stops working, **Paste the JSON**: open the character-service address above in a browser and paste the page.
+- **Read character** shows a preview first. The **Character** module (race, classes, ability scores and saves, AC as an
+  estimate from worn armour, speed, skills, languages, feats, spells, items and coin) is always written; the rest is
+  chosen: HP / max / temporary HP (logged with source *import*), conditions (added, not replaced), the character name,
+  class, level and ability scores for spells and mana (skipped for a player when the DM keeps them, `spellPlayerStats`),
+  items sent to **Inventory** (a player's wait for the DM's approval as usual; names already there are skipped) and, for
+  the DM only, known spells that match the world's spell list.
+- **Update** on the Character module imports the same character again; the module is replaced, never doubled.
+
+Nothing else on the sheet changes, and nothing is sent to D&D Beyond except the request for that character.
 
 ## From the DM
 
@@ -77,6 +98,7 @@ Under `/api/worlds/:world/sheet` (`:aid` is `me`, or for the DM any player's
 account id or character name):
 
 - `GET /:aid`: the sheet (vitals, mana, modules).
+- `POST /:aid/import/ddb { url | json, dryRun?, apply?: { health, conditions, name, stats, spells } }`: import from D&D Beyond (unofficial; `spells` is the DM's only).
 - `PUT /me/modules { modules }`: the player's own layout.
 - `POST /:aid/vitals { damage | heal | hp | maxHp | tempHp | setTempHp | conditions, note? }`.
 - `POST /:aid/mana { delta | set | full, note? }` (mana must be on).

@@ -3,20 +3,22 @@
 // ones the player fills in (people they know as allies or enemies, quick
 // notes, free text, counters, checklists). "From the DM" holds the DM's secret
 // notes and goals for this player; it can be moved but not removed. A module the player marks private
-// is hidden from everyone else, the DM included.
+// is hidden from everyone else, the DM included. "Character" is the summary of
+// a character imported from D&D Beyond (see ddb.ts).
 import { HttpError } from '../../core/util.ts';
+import { cleanCharacter } from './ddb.ts';
 
-export const TYPES = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
+export const TYPES = ['character', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
 export type ModuleType = (typeof TYPES)[number];
 /** Modules that show the player's own live data once; the DM always sees them. */
-const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
+const SINGLE: ModuleType[] = ['character', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
 const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 const MAX_MODULES = 24;
-const MAX_JSON = 64_000;
+const MAX_JSON = 128_000;
 
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 
-const TITLES: Record<ModuleType, string> = { vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
+const TITLES: Record<ModuleType, string> = { character: 'Character', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
 
 // Most used at the top: health and mana side by side, then what a player
 // reaches for during play, then what they read between scenes.
@@ -54,6 +56,7 @@ const eid = (v: unknown, i: number) => (typeof v === 'string' && /^[\w-]{1,40}$/
 function cleanData(type: ModuleType, data: any, at: string): any {
   const d = data && typeof data === 'object' ? data : {};
   switch (type) {
+    case 'character': return cleanCharacter(d);
     case 'notes': case 'text': return { text: txt(d.text, `${at}.text`, 10_000) };
     case 'contacts': return {
       entries: list(d.entries, `${at}.entries`, 100).map((e: any, i: number) => {

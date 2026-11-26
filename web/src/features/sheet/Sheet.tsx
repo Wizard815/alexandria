@@ -9,6 +9,7 @@ import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '
 import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { ConditionChip, useConditions } from './conditions.tsx';
 import { RerollMod } from './rerolls.tsx';
+import { CharacterMod, ImportModal } from './ddb.tsx';
 import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -56,7 +57,7 @@ const withRerolls = (list: Module[], on: boolean): Module[] => {
   return [...list.slice(0, at), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(at)];
 };
 /** The default order, most used first; "Sort like the default" puts a player's own modules in it (their data stays). */
-const RANK: ModuleType[] = ['vitals', 'mana', 'rerolls', 'counters', 'dm', 'notes', 'list', 'inventory', 'contacts', 'text', 'recent'];
+const RANK: ModuleType[] = ['character', 'vitals', 'mana', 'rerolls', 'counters', 'dm', 'notes', 'list', 'inventory', 'contacts', 'text', 'recent'];
 const byRank = (list: Module[]) => [...list].sort((a, b) => RANK.indexOf(a.type) - RANK.indexOf(b.type));
 
 /** `page`: the player's own page, where the character's name is the page title. */
@@ -69,6 +70,7 @@ export default function Sheet({ account, page = false }: { account: string; page
   const [showLog, setShowLog] = useState(false);
   const [asking, setAsking] = useState<Subject | null>(null);
   const [adding1, setAdding1] = useState<Partial<Person> | null>(null);
+  const [importing, setImporting] = useState<{ url: string } | null>(null);
   const canAsk = useCanAsk();
   const act = useAction();
   const { toast, toastNode } = useToast();
@@ -137,6 +139,7 @@ export default function Sheet({ account, page = false }: { account: string; page
   const buttons = (
     <span className="row" style={{ gap: 6 }}>
       <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)} title={isDM ? 'Every HP and mana change for this player' : 'Every change to your HP and mana (the DM sees these too)'}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
+      {(own || isDM) && <button type="button" className="btn small" onClick={() => setImporting({ url: '' })} title="Import a character from D&D Beyond (unofficial: it can break without notice)" data-testid="sheet-import"><i className="fa-solid fa-file-import" aria-hidden="true" /> Import</button>}
       {own && <button type="button" className={`btn small${editing ? ' on' : ''}`} data-testid="sheet-edit" onClick={() => { setEditing((v) => !v); setAdding(false); }}>{editing ? 'Done' : 'Arrange'}</button>}
     </span>
   );
@@ -160,7 +163,9 @@ export default function Sheet({ account, page = false }: { account: string; page
               </div>
             )}
             {!editing && !m.collapsed && (
-              m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
+              m.type === 'character' ? (m.data?.name ? <CharacterMod c={m.data} onUpdate={own || isDM ? () => setImporting({ url: m.data.url ?? '' }) : undefined} />
+                : <span className="tiny muted">{own ? <button type="button" className="btn small" onClick={() => setImporting({ url: '' })}>Import from D&amp;D Beyond</button> : 'No character imported yet.'}</span>)
+              : m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'rerolls' ? <RerollMod account={own ? 'me' : account} r={s.rerolls ?? { on: false }} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} name={pool} /> : <p className="tiny muted">{pool} is off in this world.</p>)
@@ -195,6 +200,8 @@ export default function Sheet({ account, page = false }: { account: string; page
             <button type="button" className="btn grow" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>
             <button type="button" className="btn" onClick={() => persist(byRank(mods), 0)} title="Health and mana first, then what you use most">Sort like the default</button>
           </div>)}
+      {importing && <ImportModal account={account} own={own} dm={isDM} url={importing.url} onClose={() => setImporting(null)}
+        onDone={(msg) => { setImporting(null); setMods(null); void sheet.reload(); toast(msg); }} />}
       {asking && <AskModal subject={asking} onClose={() => setAsking(null)} />}
       {adding1 && <PersonModal person={adding1} onClose={() => setAdding1(null)} onSave={(p) => { saveContact(p); setAdding1(null); }} />}
       {!mods.length && <Empty>This sheet has no modules. {own ? 'Tap Arrange to add some.' : ''}</Empty>}

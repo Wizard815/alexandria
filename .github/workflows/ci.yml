@@ -40,3 +40,4 @@ jobs:
           node e2e/leaks.mjs
           node e2e/thoughts.mjs
           node e2e/sheet.mjs
+          node e2e/ddb.mjs
