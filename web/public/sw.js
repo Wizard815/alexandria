@@ -82,3 +82,36 @@ self.addEventListener('fetch', (e) => {
     try { return await net; } catch { return new Response('', { status: 504 }); }
   })());
 });
+
+// ---- notifications (web push from this server: librarian/src/features/notify) ----
+// The text arrives encrypted; the browser decrypts it before this runs.
+self.addEventListener('push', (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = {}; }
+  const title = String(m.title || 'Alexandria').slice(0, 80);
+  e.waitUntil(self.registration.showNotification(title, {
+    body: String(m.body || '').slice(0, 240),
+    tag: String(m.id || 'alexandria'),
+    icon: '/icons/icon-192.png',
+    badge: '/icons/maskable-192.png',
+    data: { path: typeof m.path === 'string' ? m.path : '' },
+  }));
+});
+
+// A tap opens the page the alert is about, in an open Alexandria window if there is one.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const p = String(e.notification.data?.path || '/');
+  const path = p.startsWith('/') && !p.startsWith('//') ? p : '/';
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of wins) {
+      if (new URL(c.url).origin === self.location.origin && 'focus' in c) {
+        await c.focus();
+        if ('navigate' in c) await c.navigate(path).catch(() => {});
+        return;
+      }
+    }
+    await self.clients.openWindow(path);
+  })());
+});

@@ -19,7 +19,7 @@ export function UpdateCard() {
   return (
     <section className="card" aria-labelledby="upd-h" data-testid="update-card">
       <h2 id="upd-h">Updates</h2>
-      <p className="small">This app: <strong>{app.version}</strong> ({PLATFORM_NAMES[app.platform] ?? app.platform}). {latest ? <>On this server: <strong>{latest.version ?? 'a build with no version'}</strong>.</> : 'This server has no build for it yet.'}</p>
+      <p className="small">This app: <strong>{app.version}</strong> ({PLATFORM_NAMES[app.platform] ?? app.platform}). {latest ? <>On this server: <strong>{latest.version ?? 'a build with no version'}</strong>.</> : b.data ? 'This server has no build for it yet.' : 'Checking this server…'}</p>
       <ErrorBox error={act.error ?? b.error} />
       {next ? (
         <div className="row">

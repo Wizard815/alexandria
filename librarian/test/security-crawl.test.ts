@@ -731,7 +731,7 @@ const PLAYER_ROUTES = [
   'POST /glance/link',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
-const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/|apps\/builds\/)/;
+const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password|notifications)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/|apps\/builds\/|push\/)/;
 
 test('TestSecurityAuth_PlayersCannotCallDmRoutes', async () => {
   const mine = new Set(PLAYER_ROUTES.map((x) => `${x.split(' ')[0]} /api/worlds/:world${x.split(' ')[1]}`));

@@ -110,6 +110,14 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
   opens the .dmg to drag into Applications. Before installing, the Android app compares the
   update's signing key with its own and, if they differ, tells the person to uninstall and
   reinstall instead of letting Android fail with "App not installed".
+- **Notifications** (`Notifications.kt`, `notify_os` in `src/lib.rs`): the alerts of the glance (your
+  turn, a quick event for you, game night within the hour, an answer to your request; for the DM,
+  a new request), filtered by what the person picked on This device. While the app runs, the page
+  sends each new one through `/app-link/notify#i=&t=&b=&p=`: Android posts it (a tap opens the
+  page), the desktop apps use the notification plugin. With the widget link in place, Android also
+  checks every 15 minutes when the app is closed (WorkManager), for the linked world. Android 13+
+  asks once for permission. Browsers and the iPhone home-screen app get web push from the server
+  instead (`librarian/src/features/notify`).
 - **Getting builds onto the server:** Admin, App builds. "Fetch the latest release" copies every
   platform's build from GitHub (the release workflow builds macOS on GitHub's own Macs, so no Mac
   is needed); "Upload a build" takes a file from any computer, for example a macOS build someone

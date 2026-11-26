@@ -22,6 +22,7 @@ import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { getClock } from '../clock/api.ts';
 import { character } from '../spells/store.ts';
 import { DEFAULT_POOL, poolMax, poolNow } from '../spells/mana.ts';
+import { kindsFor } from '../notify/store.ts';
 
 export const WIDGET_LABEL = 'Home-screen widget';
 /** Widget keys kept per account and world; making another revokes the oldest. */
@@ -30,6 +31,9 @@ export const WIDGET_KEYS_KEPT = 4;
 
 const safe = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
 const count = (d: Deps, sql: string, ...args: unknown[]): number => safe(() => one<{ n: number }>(d.db, sql, ...args)?.n ?? 0, 0);
+
+/** Something worth a notification: shown once per id, opens path when tapped. */
+export interface Alert { id: string; kind: 'turn' | 'quick' | 'night' | 'reply' | 'request'; title: string; body: string; path: string }
 
 interface QuickRow { id: string; kind: string; title: string; audience: string; closes_at: string | null; created_at: string }
 
@@ -118,6 +122,29 @@ export function glance(d: Deps, res: any) {
     replies: count(d, `SELECT COUNT(*) AS n FROM requests WHERE world_id = ? AND author_id = ? AND status <> 'open' AND decided_at > ?`, w, self, new Date(Date.now() - 3 * 864e5).toISOString()),
   };
 
+  // ---- alerts: what is worth a notification right now. Each has a stable id, so an app shows
+  // it once however often it asks (the Android background check, the page, web push). ----
+  const base = `/w/${c.world.slug}${dm ? '/dm' : ''}`;
+  const alerts: Alert[] = [];
+  if (combat.myTurn && cur) alerts.push({ id: `turn:${w}:${st.round}:${cur.id}`, kind: 'turn', title: 'Your turn', body: `Round ${st.round} in ${c.world.name}${mine ? `: ${mine.name}` : ''}`, path: `${base}/${dm ? 'combat' : 'live'}` });
+  for (const q of quick as any[]) {
+    if (!dm && !q.answered) alerts.push({ id: `quick:${q.id}`, kind: 'quick', title: q.title || 'Quick event', body: `${c.world.name}: your DM is asking you`, path: `/w/${c.world.slug}/` });
+  }
+  if (next && !next.happening) {
+    const mins = (Date.parse(next.startsAt) - Date.now()) / 60000;
+    if (mins > 0 && mins <= 60) alerts.push({ id: `night:${nextRow.id}`, kind: 'night', title: `${next.title} starts soon`, body: `${c.world.name}, in ${Math.max(1, Math.round(mins))} minutes${next.location ? ` at ${next.location}` : ''}`, path: `${base}/calendar` });
+  }
+  const since = new Date(Date.now() - 864e5).toISOString();
+  if (dm) {
+    for (const r of safe(() => all<any>(d.db, `SELECT id, title FROM requests WHERE world_id = ? AND status = 'open' AND created_at > ? ORDER BY created_at DESC LIMIT 5`, w, since), [])) {
+      alerts.push({ id: `request:${r.id}`, kind: 'request', title: 'New request', body: `${c.world.name}: ${r.title}`, path: `${base}/inbox?tab=requests` });
+    }
+  } else {
+    for (const r of safe(() => all<any>(d.db, `SELECT id, title, status FROM requests WHERE world_id = ? AND author_id = ? AND status <> 'open' AND decided_at > ? ORDER BY decided_at DESC LIMIT 5`, w, self, since), [])) {
+      alerts.push({ id: `reply:${r.id}`, kind: 'reply', title: r.status === 'accepted' ? 'Request accepted' : 'Request answered', body: `${c.world.name}: ${r.title}`, path: `/w/${c.world.slug}/` });
+    }
+  }
+
   return {
     world: { slug: c.world.slug, name: c.world.name },
     role: c.viewer.role,
@@ -129,6 +156,8 @@ export function glance(d: Deps, res: any) {
     next,
     quick,
     waiting,
+    // Only the kinds this person asked for (Notifications on This device).
+    alerts: ((k) => alerts.filter((a) => k[a.kind]).slice(0, 8))(kindsFor(d.db, self)),
     at: nowIso,
   };
 }

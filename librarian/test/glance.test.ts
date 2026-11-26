@@ -182,3 +182,34 @@ test('Glance_widgetLink: only from a signed-in session, and old widget keys reti
   assert.equal(listed.length, 4);
   assert.ok(listed.every((k: any) => k.label === 'Home-screen widget' && k.access === 'read'), 'listed, so it can be revoked like any key');
 });
+
+test('Glance_alerts: each person gets their own alerts, with stable ids', async () => {
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: true, round: 4, turn: 1 });
+  const ev = await ok('POST', `/api/worlds/${W}/quick-events`, T.dm, { kind: 'notice', title: 'A noise upstairs', prompt: 'Roll Perception', audience: [ID.kip], timerS: 60 });
+  const soon = new Date(Date.now() + 30 * 60000).toISOString();
+  deps.db.prepare(`INSERT INTO cal_sessions (id, world_id, title, starts_at, ends_at, location, status, updated_at) VALUES ('cs_alert', ?, 'Session 9', ?, ?, 'Kitchen', 'scheduled', ?)`).run(W, soon, new Date(Date.now() + 5 * 36e5).toISOString(), soon);
+  const ids = (g: any) => g.alerts.map((a: any) => a.kind);
+
+  const j = await ok('GET', G(), T.jess);
+  assert.ok(ids(j).includes('turn'), 'Jess: her turn');
+  assert.ok(!ids(j).includes('quick'), 'Jess was not asked');
+  assert.ok(ids(j).includes('night'), 'game night within the hour');
+  const turn = j.alerts.find((a: any) => a.kind === 'turn');
+  assert.equal(turn.path, `/w/${j.world.slug}/live`);
+  assert.equal((await ok('GET', G(), T.jess)).alerts.find((a: any) => a.kind === 'turn').id, turn.id, 'the same id each time');
+
+  const k = await ok('GET', G(), T.kip);
+  assert.ok(!ids(k).includes('turn'), 'not Kip\'s turn');
+  assert.ok(k.alerts.some((a: any) => a.id === `quick:${ev.id}`), 'Kip: the quick event for him');
+
+  const d = await ok('GET', G(), T.dm);
+  assert.ok(!ids(d).includes('quick') && !ids(d).includes('turn'));
+  assert.ok(d.alerts.find((a: any) => a.kind === 'night').path.includes('/dm/calendar'));
+  // A widget key reads the alerts too (the Android background check uses it).
+  const key = (await ok('POST', `${G()}/link`, T.jess)).key;
+  assert.ok((await ok('GET', G(), key)).alerts.some((a: any) => a.kind === 'turn'));
+
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: false });
+  await ok('POST', `/api/worlds/${W}/quick-events/${ev.id}/cancel`, T.dm).catch(() => {});
+  deps.db.prepare(`DELETE FROM cal_sessions WHERE id = 'cs_alert'`).run();
+});

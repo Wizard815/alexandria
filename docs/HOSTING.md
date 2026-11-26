@@ -93,6 +93,8 @@ Needs Node 22.13 or newer. Data goes to `librarian/data` unless
 | `ALX_MCP_STDIO` | Local MCP servers the librarian may start, as JSON: `{"kanka": {"command": ["uvx", "mcp-kanka"], "env": {"KANKA_TOKEN": "…", "KANKA_CAMPAIGN_ID": "…"}}}`. Only these commands can ever be started. |
 | `ALX_APPS_DIR` | Where this server keeps the app builds it offers signed-in people on This device (default: `<data>/apps`). Drop the release files in as they are named (`Alexandria-<version>-android.apk`, `...-windows-x64-setup.exe`, `...-macos-universal.dmg`, `...-linux-x64.tar.gz`); the apps offer an update when a newer version is here. |
 | `ALX_APPS_AUTO_FETCH` | `1` fetches the latest release's builds from GitHub 30 seconds after start and every 12 hours, replacing older builds of the same platform. Off by default; an admin can also fetch by hand (`POST /api/admin/apps/fetch`). |
+| `ALX_PUSH_CONTACT` | The contact web push services see for this server (`mailto:you@example.com` or an https address). Default: the project's GitHub page. |
+| `ALX_PUSH_HOSTS` | More push service hosts to accept, comma-separated (the browsers' own are built in). |
 | `ALX_APPS_MAX_MB` | The largest build an admin can upload in Admin, App builds (default 1536). A reverse proxy in front of the server needs to allow bodies that big too (nginx: `client_max_body_size 1536m;` for `/api/admin/apps/`). |
 | `ALX_APP_RELEASES_REPO` | The GitHub repository those builds come from (default `Wizard815/alexandria`). |
 | `ALX_APP_DOWNLOADS` | Where the public **Get the app** page (`/get-app`) sends people for the Android APK and the desktop installers (default: this project's GitHub releases page). Only an http(s) address is used. |

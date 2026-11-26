@@ -142,13 +142,59 @@ fn fragment_with(url: &Url, name: &str, ok: impl Fn(char) -> bool) -> Option<Str
         .filter(|v| !v.is_empty() && v.len() <= 200 && v.chars().all(ok))
 }
 
+/// Free text the page sent percent-encoded (a notification's title or body), decoded.
+fn fragment_text(url: &Url, name: &str) -> Option<String> {
+    let raw = url.fragment()?.split('&').filter_map(|kv| kv.split_once('=')).find(|(k, _)| *k == name)?.1;
+    if raw.is_empty() || raw.len() > 1500 {
+        return None;
+    }
+    let b = raw.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).ok()?, 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    Some(String::from_utf8_lossy(&out).into_owned())
+}
+
 /// A page of the saved server asks the app for something by going to `/app-link/<action>`.
 /// The navigation itself is always cancelled, and the page gets no other access to the app.
 /// - `widget#k=<widget key>&w=<world slug>`: link the home-screen widget (Android).
 /// - `widget-off`: unlink it.
 /// - `change-server`: back to the first-run screen, to type another address.
+/// - `notify#i=<id>&t=<title>&b=<body>&p=<path>`: a system notification (percent-encoded text).
 /// - `update#f=<file>&t=<ticket>&s=<sha256>`: download that build from the saved server
 ///   (`/api/apps/file/<file>?t=<ticket>`), check its SHA-256 and install it (see `update`).
+/// A system notification. Android: written to notify.json for the Kotlin side (Notifier.kt),
+/// which posts it and opens `path` when it is tapped. Desktop: the notification plugin.
+#[cfg(target_os = "android")]
+fn notify_os(app: &AppHandle, id: &str, title: &str, body: &str, path: Option<&str>) {
+    let Ok(dir) = app.path().app_config_dir() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    let tmp = dir.join("notify.json.tmp");
+    let v = serde_json::json!({ "id": id, "title": title, "body": body, "path": path });
+    if std::fs::write(&tmp, v.to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join("notify.json"));
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn notify_os(app: &AppHandle, _id: &str, title: &str, body: &str, _path: Option<&str>) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+#[cfg(target_os = "ios")]
+fn notify_os(_app: &AppHandle, _id: &str, _title: &str, _body: &str, _path: Option<&str>) {}
+
 fn app_link(app: &AppHandle, action: &str, url: &Url) {
     match action.trim_end_matches('/') {
         "update" => {
@@ -176,6 +222,17 @@ fn app_link(app: &AppHandle, action: &str, url: &Url) {
             }
             let body = serde_json::json!({ "server": server, "world": world, "key": key });
             let _ = std::fs::write(&path, body.to_string());
+        }
+        "notify" => {
+            // A notification the page asks for (src/features/apps/Notifier.tsx in web/): the
+            // page shows each alert once; the app only shows it, trimmed, with no markup.
+            let (Some(id), Some(title)) = (fragment_text(url, "i"), fragment_text(url, "t")) else {
+                return;
+            };
+            let clip = |s: String, n: usize| s.chars().filter(|c| !c.is_control()).take(n).collect::<String>();
+            let body = fragment_text(url, "b").map(|b| clip(b, 240)).unwrap_or_default();
+            let path = fragment_text(url, "p").filter(|p| p.starts_with("/w/") && !p.contains("..") && !p.contains("//"));
+            notify_os(app, &clip(id, 120), &clip(title, 80), &body, path.as_deref());
         }
         "widget-off" => forget_widget(app),
         "change-server" => {
@@ -468,6 +525,7 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()));
     builder
         .invoke_handler(tauri::generate_handler![get_server, set_server])

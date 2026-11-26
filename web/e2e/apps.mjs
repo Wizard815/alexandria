@@ -152,6 +152,7 @@ try {
     await page.goto(`${base}/w/${W.slug}/app`);
     const card = page.getByTestId('update-card');
     await card.waitFor({ timeout: 8000 });
+    await card.getByText('On this server').waitFor({ timeout: 8000 }).catch(() => {});
     const ct = (await card.textContent()) ?? '';
     check(/9\.0\.0/.test(ct) && /9\.1\.0/.test(ct), `the Updates card shows both versions (${ct.slice(0, 90)})`);
     const dl = page.getByTestId('downloads');
@@ -170,6 +171,36 @@ try {
     const got = Buffer.from(await r.arrayBuffer());
     check(r.status === 200 && got.equals(APK), 'its ticket downloads the APK with no sign-in header');
     check((await fetch(`${base}/api/apps/file/Alexandria-9.1.0-linux-x64.tar.gz?t=${encodeURIComponent(t)}`)).status >= 400, 'and only that file');
+    check(!errors.length, `no console errors (${errors.join(' | ')})`);
+    await ctx.close();
+  }
+
+  console.log('Notifications, in the Android app');
+  {
+    // The page counts as hidden (the app is in the background) once window.__hide is set.
+    const { ctx, page, errors } = await open(ANDROID, () => {
+      window.__TAURI_INTERNALS__ = {}; window.__ALEXANDRIA_APP__ = Object.freeze({ version: '9.1.0', platform: 'android', arch: 'aarch64' });
+      Object.defineProperty(document, 'hidden', { get: () => window.__hide === true });
+    });
+    await page.goto(`${base}/w/${W.slug}/app`);
+    const card = page.getByTestId('notifications');
+    await card.waitFor({ timeout: 8000 });
+    check(await card.getByTestId('notif-link').isVisible(), 'This device: notifications, with the background check');
+    const turnBox = card.locator('input[data-kind=turn]');
+    await turnBox.uncheck();
+    await page.waitForTimeout(800);
+    check((await api('GET', '/api/me/notifications', tokJess)).body.kinds.turn === false, 'unticking "Your turn" saves it for this person');
+    await turnBox.check();
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { window.__hide = true; });
+    const go = page.waitForURL(/\/app-link\/notify/, { timeout: 15000 });
+    await api('POST', `/api/worlds/${W.id}/quick-events`, tokDM, { kind: 'notice', title: 'Footsteps behind you', prompt: 'Roll Perception', audience: [jessId], timerS: 120 });
+    const got = await go.then(() => true, () => false);
+    check(got, 'in the background, a new quick event goes to the app as a notification');
+    if (got) {
+      const f = new URLSearchParams(new URL(page.url()).hash.slice(1));
+      check(f.get('t') === 'Footsteps behind you' && (f.get('p') ?? '').startsWith(`/w/${W.slug}`), `with its title and page (${f.get('t')}, ${f.get('p')})`);
+    }
     check(!errors.length, `no console errors (${errors.join(' | ')})`);
     await ctx.close();
   }

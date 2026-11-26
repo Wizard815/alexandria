@@ -52,6 +52,11 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | POST | `/api/me/password` | `{current, password}` |
 | GET/POST | `/api/keys` | `{scope: scribe\|admin, access: read\|write, label, worldId}` → key once, plus `mcp` settings |
 | DELETE | `/api/keys/:id` | Revoke |
+| GET/PUT | `/api/me/notifications` | A signed-in session: `{kinds: {turn, quick, night, reply, request}}` (which alerts this person gets, on all devices) and `push: {publicKey, devices}` (the VAPID key and the browsers with web push on) |
+| POST | `/api/push/subscriptions` | A signed-in session: `{endpoint, keys: {p256dh, auth}, label}` from `PushManager.subscribe`. Only the browsers' own push services are accepted (Google, Mozilla, Apple, Microsoft; `ALX_PUSH_HOSTS` adds more) |
+| POST | `/api/push/subscriptions/remove` | `{endpoint}`: this browser turns its notifications off |
+| DELETE | `/api/push/subscriptions/:id` | Remove one of your devices |
+| POST | `/api/push/test` | A test notification to each of your devices |
 | GET | `/api/apps` | Public: `{downloads, version, release, hosted}` for the Get the app page (`ALX_APP_DOWNLOADS`; `hosted` is how many app builds this server keeps) |
 | GET | `/api/apps/builds` | Signed in: `{builds: [{file, platform, arch, version, release, size, sha256, at}], latest: {android, windows, macos, linux}}`, the app builds in `ALX_APPS_DIR` |
 | POST | `/api/apps/builds/:file/ticket` | A signed-in session (not a key): `{url, ticket, file, sha256, size, version, expiresAt}`, a 15-minute download link for that one file |
@@ -187,6 +192,7 @@ One small read for the Android home-screen widgets and the player's "You" card.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/glance` | `{world, role, name, date, combat: {active, round, myTurn, turnName, me: {hp, maxHp, tempHp, conditions} \| null}, mana: {now, max} \| null, session: {live, title, since, recording, here}, next, quick, waiting, at}`. A player gets their own HP and mana, quick events meant for them (`answered`) and `waiting: {offers, replies}`; the DM gets every open quick event (`answers`/`of`) and `waiting: {requests, approvals, broker}`. `turnName` is never a hidden foe for players. |
+| GET | `/glance` alerts | The glance also has `alerts: [{id, kind, title, body, path}]`: what is worth a notification now (your turn, a quick event for you, game night within the hour, an answer to your request; for the DM, a new request), filtered by the person's choices. Each id is stable, so each app shows it once. |
 | POST | `/glance/link` | A player or the DM, signed in (not with a key; guests get 403). A widget key (`alx_wdg_…`, shown once) that opens only `GET /glance` of this world. Keeps the newest four per account and world. |
 
 ### Approvals (`/api/worlds/:world/approvals`)

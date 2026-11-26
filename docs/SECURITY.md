@@ -90,6 +90,13 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
   The Android app keeps the key in its own data folder, and the web app hands
   it over in a `#fragment`, which never reaches the server (`Glance_widgetKey` in
   `librarian/test/glance.test.ts`, `web/e2e/apps.mjs`).
+- Notifications: web push text is encrypted for the one browser (RFC 8291) and
+  signed with this server's VAPID key (kept in the database), so the push
+  service can't read it. A subscription is accepted only for the browsers'
+  own push services, so the server never posts to an address a page made up.
+  Alerts carry what the glance would show that person, nothing more. The
+  Android background check uses the widget's glance-only key (`Notify_*` in
+  `librarian/test/notify.test.ts`).
 - App downloads and updates come only from the server the app was set up with.
   The builds list needs a sign-in; a download needs a ticket that a signed-in
   session (not a key) asks for, which opens one file for 15 minutes and lives

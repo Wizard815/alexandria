@@ -7,6 +7,7 @@ import AdminApps from './AdminApps.tsx';
 import AppPage from './AppPage.tsx';
 import BackButton from './BackButton.tsx';
 import UpdateBanner from './UpdateBanner.tsx';
+import Notifier from './Notifier.tsx';
 import YouCard from './YouCard.tsx';
 import './apps.css';
 
@@ -20,6 +21,6 @@ const feature: WebFeature = {
   adminNav: [{ to: 'apps', label: 'App builds' }],
   playerHome: [YouCard],
   topbar: BackButton,
-  overlay: UpdateBanner,
+  overlay: () => <><UpdateBanner /><Notifier /></>,
 };
 export default feature;

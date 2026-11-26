@@ -23,6 +23,8 @@ tauri-plugin-global-shortcut = "2"
 # Updates from the person's own server (src/update.rs): a small HTTP client and the checksum.
 ureq = { version = "2", default-features = false, features = ["tls"] }
 sha2 = "0.10"
+# System notifications from the page (your turn, a quick event): src/lib.rs app_link "notify".
+tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"

@@ -8,6 +8,8 @@ import { changeServer, inAndroidApp, inApp, linkWidget, unlinkWidget } from '../
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { Downloads, UpdateCard } from './Downloads.tsx';
 
+import NotificationsCard from './NotificationsCard.tsx';
+
 export default function AppPage() {
   const { w, info, isDM } = useWorld();
   const act = useAction();
@@ -84,6 +86,7 @@ export default function AppPage() {
         </section>
       )}
 
+      <NotificationsCard isDM={isDM} linkPhone={android && info.role !== 'guest' ? () => void link() : undefined} />
       <UpdateCard />
       <Downloads />
 

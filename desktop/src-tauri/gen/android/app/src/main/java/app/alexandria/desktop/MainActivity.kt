@@ -17,6 +17,7 @@ import app.alexandria.desktop.widget.Glance
 
 class MainActivity : TauriActivity() {
   private val updater by lazy { AppUpdater(this) }
+  private var notifyWatch: android.os.FileObserver? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     // The app is dark: transparent bars with light icons, over the same colour as the web app's top and bottom bars
@@ -39,6 +40,8 @@ class MainActivity : TauriActivity() {
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     openFromWidget(intent)
     updater.start()
+    notifyWatch = Notifications.watch(this)
+    Notifications.schedule(this)
   }
 
   override fun onResume() {
@@ -48,6 +51,7 @@ class MainActivity : TauriActivity() {
 
   override fun onDestroy() {
     updater.stop()
+    notifyWatch?.stopWatching()
     super.onDestroy()
   }
 
@@ -61,6 +65,9 @@ class MainActivity : TauriActivity() {
   override fun onStop() {
     super.onStop()
     Glance.refreshAll(this)
+    // A widget link made while the app was open starts (or an unlink stops) the background check.
+    Notifications.schedule(this)
+    if (Glance.link(this) != null) Notifications.askOnce(this)
   }
 
   /**
@@ -72,7 +79,8 @@ class MainActivity : TauriActivity() {
     val path = intent?.getStringExtra(Glance.EXTRA_PATH) ?: return
     intent.removeExtra(Glance.EXTRA_PATH)
     if (path.isEmpty() || !path.startsWith("/w/") || path.contains("..") || path.contains("//")) return
-    val server = Glance.link(this)?.server ?: return
+    // The widget's server, or (for a notification, which needs no widget link) the saved one.
+    val server = Glance.link(this)?.server ?: savedServer() ?: return
     val main = Handler(Looper.getMainLooper())
     val attempt = object : Runnable {
       var tries = 0
@@ -86,6 +94,10 @@ class MainActivity : TauriActivity() {
     }
     main.post(attempt)
   }
+
+  private fun savedServer(): String? = try {
+    org.json.JSONObject(java.io.File(java.io.File(dataDir, packageName), "settings.json").readText()).optString("server").trimEnd('/').takeIf { it.startsWith("http") }
+  } catch (_: Exception) { null }
 
   private fun findWebView(v: View?): WebView? {
     if (v is WebView) return v
