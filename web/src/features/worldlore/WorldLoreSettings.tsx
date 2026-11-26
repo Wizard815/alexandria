@@ -52,7 +52,7 @@ export default function WorldLoreSettings() {
       <h3 style={{ margin: 0 }}>{cur.enabled ? 'Change the workspace' : 'Choose the workspace'}</h3>
       {!opts.data ? <Loading /> : (
         <>
-          <Field label="Where" help="A LegendKeeper folder or page, a Kanka note or journal, a Markdown folder, or the WorldLore folder of the library.">
+          <Field label="Where" help="A LegendKeeper folder or page, a Kanka note or journal, a World Anvil category, a Markdown folder, or the WorldLore folder of the library.">
             <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Workspace">
               <option value="">Pick one…</option>
               <option value={`library|-|${opts.data.library.root}`}>Library: {opts.data.library.root}/ folder</option>
