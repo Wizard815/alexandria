@@ -55,8 +55,9 @@
 .main.main-ws > .ws { flex: 1 1 auto; }
 .main.main-ws .feature-topbar { padding: 4px 12px 0; }
 
-/* On a phone the DM layout is one pane: the focused one, with no toolbar and no pane buttons. */
-@media (max-width: 760px) {
+/* On a phone the DM layout is one pane: the focused one, with no toolbar and no pane buttons.
+   A foldable opened up (near-square, 600px and wider) keeps the panes: see fold.css. */
+@media (max-width: 599.98px), (max-width: 760px) and (max-aspect-ratio: 2/3), (max-width: 760px) and (min-aspect-ratio: 3/2) {
   .ws-toolbar, .ws-divider, .ws-act { display: none; }
   .main.main-ws { height: auto; min-height: 100vh; overflow: visible; }
   .ws { height: auto; }

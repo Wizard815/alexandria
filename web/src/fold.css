@@ -87,6 +87,10 @@
   .dmx .page { padding: 14px 18px var(--dock-reserve); }
   .dmx .cols > .col-2 { flex: 2 1 340px; } .dmx .cols > .col-3 { flex: 3 1 440px; }
   .dmx .lib-tree { height: calc(100dvh - 260px); }
+  /* Workspace layouts (panes side by side) work here, unlike on a phone. */
+  .dmx-ws { display: inline-flex; }
+  .dmx .main.main-ws { height: calc(100dvh - 56px - var(--safe-top) - 53px); min-height: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx .main.main-ws { height: calc(100dvh - 56px - var(--safe-top) - 53px - 57px); }
   .set-shell { grid-template-columns: 180px minmax(0, 1fr); } .set-nav { position: sticky; top: 120px; } .set-list { flex-direction: column; } .set-link { min-height: 44px; }
 }
 

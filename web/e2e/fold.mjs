@@ -175,6 +175,17 @@ for (const f of FOLDS) {
       note(`${bad.length ? 'FAIL' : 'ok  '} dm /${r || '(table)'}${bad.length ? '  ' + bad.join('; ') : ''}`);
       await shot(page, `${f.name}-dm-${r || 'table'}`);
     }
+    // Workspace layouts: two pages side by side, picked from the strip like on a desktop.
+    check(await page.getByTestId('menu-workspace').isVisible(), `${f.name} DM: no Workspace in the strip`);
+    await page.goto(`${base}/w/saltreach/dm/ws?l=cols&p=combat,sound&s=50,50&f=0`);
+    await page.locator('.ws-pane').first().waitFor();
+    await sleep(800);
+    const panes = await page.locator('.ws-pane').evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 100).map((e) => Math.round(e.getBoundingClientRect().x)));
+    check(panes.length === 2 && panes[1] > panes[0] + 100, `${f.name} DM: the workspace is not two panes side by side (${JSON.stringify(panes)})`);
+    const wa = await page.evaluate(AUDIT);
+    check(wa.scrollW <= wa.vw, `${f.name} DM workspace: sideways scroll`);
+    await shot(page, `${f.name}-dm-workspace`);
+    note('dm workspace: two panes');
     await ctx.close();
   }
 }
