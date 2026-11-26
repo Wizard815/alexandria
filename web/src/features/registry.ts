@@ -5,6 +5,11 @@ import type { ComponentType, ReactNode } from 'react';
 import type { DMGroupId } from '../lib/dmnames.ts';
 
 export interface FeatureRoute { path: string; element: ReactNode }
+/** Where a block sits on the DM's Table: the band across the top (the world right now), the wide play column, the side
+ * column (what needs the DM), or the world row at the bottom. */
+export type TableZone = 'now' | 'main' | 'side' | 'world';
+/** A block on the DM's Table. The DM can hide any block; `order` sorts inside a zone (built-in blocks use 10, 20, 30…). */
+export interface TableBlock { id: string; label: string; zone: TableZone; order?: number; component: ComponentType }
 export interface WebFeature {
   id: string;
   /** Under /w/:world/dm/<path>. */
@@ -20,7 +25,9 @@ export interface WebFeature {
   adminNav?: { to: string; label: string }[];
   /** A section in the DM's World settings. */
   settings?: { title: string; component: ComponentType };
-  /** Cards on the DM's table page and the player's home page. */
+  /** Blocks on the DM's Table, each in a zone and hideable. */
+  dmTable?: TableBlock[];
+  /** Extra cards on the DM's Table (a notice or status card, not hideable) and the player's home page. */
   dmHome?: ComponentType[];
   playerHome?: ComponentType[];
   /** Shown on every DM and player page (e.g. the transcript island). */
@@ -40,6 +47,7 @@ export const dmNav = flat((f) => f.dmNav);
 export const playerNav = flat((f) => f.playerNav);
 export const adminNav = flat((f) => f.adminNav);
 export const settingsSections = flat((f) => (f.settings ? { id: f.id, ...f.settings } : undefined));
+export const dmTable = flat((f) => f.dmTable);
 export const dmHome = flat((f) => f.dmHome);
 export const playerHome = flat((f) => f.playerHome);
 export const overlays = flat((f) => f.overlay);
