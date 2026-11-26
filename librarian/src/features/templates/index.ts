@@ -18,11 +18,13 @@ import { hasJob, wouldBeRefused } from '../../core/ai.ts';
 import { run } from '../../core/db.ts';
 import { HttpError, now, oneOf, str } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
-import { cleanTemplate, KIND_LABEL, KINDS, templateText, type Kind, type TemplateInput } from './spec.ts';
+import { cleanTemplate, guideText, KIND_LABEL, KINDS, templateText, type Kind, type TemplateInput } from './spec.ts';
 import { createTemplate, deleteTemplate, getTemplate, listTemplates, SCHEMA, setWebConfig, templateVersions, updateTemplate, webConfig } from './store.ts';
 import { deriveGuide, draftTemplate } from './draft.ts';
 import { blockedQuery, blockedText, cleanQueries, webSearch } from './web.ts';
 import { generateShopWithTemplate } from './shop.ts';
+import { draftSpell } from './spell.ts';
+import { STARTER_TEMPLATES, starterTemplate } from './starters.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string | null, action: string, detail = '') =>
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -42,7 +44,18 @@ function routes(d: Deps) {
 
   r.get('/', (req, res) => {
     const kind = typeof req.query.kind === 'string' && (KINDS as readonly string[]).includes(req.query.kind) ? req.query.kind as Kind : undefined;
-    res.json({ templates: listTemplates(d.db, W(res), kind), kinds: KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), model: hasJob(d, 'chat') });
+    res.json({ templates: listTemplates(d.db, W(res), kind), kinds: KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), model: hasJob(d, 'chat'), starters: STARTER_TEMPLATES.filter((t) => !kind || t.kind === kind) });
+  });
+  // A built-in starter into this world, as a normal new template the DM can change.
+  r.post('/starters/:sid', (req, res) => {
+    const st = starterTemplate(String(req.params.sid));
+    if (!st) throw new HttpError(404, 'Starter not found');
+    const { id: _id, ...input } = st;
+    const t = cleanTemplate({ ...input, name: typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name : input.name });
+    refuseClassified(d, W(res), t);
+    const made = createTemplate(d.db, W(res), t, me(res));
+    audit(d, W(res), me(res), 'templates.create', `${made.kind} ${made.name} (from ${st.id})`);
+    res.status(201).json(made);
   });
 
   // ---- web research (before /:id) ----
@@ -124,6 +137,24 @@ function routes(d: Deps) {
     audit(d, W(res), me(res), 'templates.delete', `${cur.kind} ${cur.name}`);
     res.json({ ok: true });
   });
+  // A quick event drafted with this template's guide (nothing saved: the DM saves it on the Encounters page).
+  r.post('/:id/event', async (req, res) => {
+    const cur = found(res, String(req.params.id));
+    if (cur.kind !== 'event') throw new HttpError(400, 'Only a quick event template makes quick events');
+    const prompt = (typeof req.body?.prompt === 'string' ? req.body.prompt.trim().slice(0, 3000) : '') || (cur.spec as any).theme || cur.name;
+    const { draftEncounter } = await import('../encounters/draft.ts');
+    const { cleanPlaces } = await import('../encounters/script.ts');
+    const draft = await draftEncounter(d, prompt, ctx(res).world.name, { kind: 'event', guide: guideText(cur), places: cleanPlaces((cur.spec as any).places) });
+    res.json({ draft });
+  });
+  // A new spell drafted with this template (nothing saved: the DM saves it to the Codex).
+  r.post('/:id/spell', async (req, res) => {
+    const cur = found(res, String(req.params.id));
+    if (cur.kind !== 'spell') throw new HttpError(400, 'Only a spell template makes spells');
+    const prompt = str(req.body?.prompt, 'prompt', { max: 3000 }).trim();
+    if (!prompt) throw new HttpError(400, 'Describe the spell first');
+    res.json({ draft: await draftSpell(d, cur, prompt, ctx(res).world.name) });
+  });
   r.post('/:id/shop', async (req, res) => {
     const cur = found(res, String(req.params.id));
     if (cur.kind !== 'shop') throw new HttpError(400, 'Only a shop generation template makes shops');
@@ -141,7 +172,7 @@ const enc = encodeURIComponent;
 const tools: McpTool[] = [
   {
     name: 'list_dm_templates', dmOnly: true,
-    description: "DM: the DM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop and library page templates): id, kind, name, triggers, on or off, version.",
+    description: "DM: the DM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop, library page, quick event and spell templates): id, kind, name, triggers, on or off, version. Also the built-in starters (ids starter:...) the DM can copy in.",
     props: { kind: { type: 'string', enum: [...KINDS], description: 'Only this kind' } },
     call: (a) => ({ method: 'GET', path: `/templates${a?.kind ? `?kind=${enc(a.kind)}` : ''}` }),
   },
@@ -153,9 +184,9 @@ const tools: McpTool[] = [
   },
   {
     name: 'create_dm_template', write: true,
-    description: 'DM: save a new template or guide. kind guide: spec {task, instructions, steps: [{kind: library|neighbours|exemplars|web|instruction, text, query}], sections: [...], tone, folder, exemplars: [page ids]}; a web step query may use {reference} for the real-world place a request names. triggers: words in a request that call for it (town, village, city).',
+    description: 'DM: save a new template or guide. kind guide: spec {task, instructions, steps: [{kind: library|neighbours|exemplars|web|instruction, text, query}], sections: [...], tone, folder, exemplars: [page ids]}; a web step query may use {reference} for the real-world place a request names. kind event (quick events): spec {places: [town|city|village|market|tavern|road|woods|cave|dungeon|ruins|coast|mountains|swamp], theme, instructions, tone, choices: 2-4, checks: true|false, maxRewardCp, consequences}. kind spell: spec {minLevel, maxLevel, schools, classes, lines (spell line names), balance, mana, naming, instructions, higherLevels}. triggers: words in a request that call for it (town, village, city).',
     props: {
-      kind: { type: 'string', enum: [...KINDS], description: 'guide, generator, macro, assist, shop or library' },
+      kind: { type: 'string', enum: [...KINDS], description: 'guide, generator, macro, assist, shop, library, event or spell' },
       name: S('Short name, e.g. Towns'), description: S('One sentence: what it is for'),
       triggers: { type: 'array', items: { type: 'string' }, description: 'Words that call for it' },
       spec: { type: 'object', description: 'The kind-specific content (see the description)' },
@@ -170,6 +201,21 @@ const tools: McpTool[] = [
     props: { id: S('Template id or name'), name: S('New name'), description: S('New description'), triggers: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' }, spec: { type: 'object' } },
     required: ['id'],
     call: (a) => ({ method: 'PUT', path: `/templates/${enc(String(a.id ?? ''))}`, body: { name: a.name, description: a.description, triggers: a.triggers, enabled: a.enabled, spec: a.spec } }),
+  },
+  {
+    name: 'save_homebrew_spell', write: true,
+    description: "DM: save a new spell to the world's Codex as homebrew (DM-only until the DM makes it public). Follow the DM's spell template when one matches. Fields as in read_spell: name, level 0-9, school, classes, castingTime, ritual, range, components (\"V, S, M (a feather)\"), duration, concentration, damageTypes, saves, attack, text (Markdown, ending with higher levels). lines: spell line names it belongs to (noted for the DM).",
+    props: {
+      name: S('Spell name'), level: { type: 'integer', description: '0 for a cantrip, up to 9' }, school: S('e.g. Evocation'), classes: { type: 'array', items: { type: 'string' } },
+      castingTime: S('e.g. 1 action'), ritual: { type: 'boolean' }, range: S('e.g. 60 feet'), components: S('e.g. V, S, M (a pinch of soot)'), duration: S('e.g. Instantaneous'),
+      concentration: { type: 'boolean' }, damageTypes: { type: 'array', items: { type: 'string' } }, saves: { type: 'array', items: { type: 'string' } }, attack: { type: 'string', enum: ['', 'melee', 'ranged'] },
+      text: S('What the spell does, in Markdown'), lines: { type: 'array', items: { type: 'string' }, description: 'Spell lines (Fire, Frost ...)' }, dmNotes: S('Notes for the DM only'),
+    },
+    required: ['name', 'level', 'text'],
+    call: (a) => {
+      const notes = [typeof a.dmNotes === 'string' ? a.dmNotes : '', Array.isArray(a.lines) && a.lines.length ? `Spell lines: ${a.lines.map(String).join(', ')}` : ''].filter(Boolean).join('\n');
+      return { method: 'POST', path: '/spells/s', body: { name: a.name, level: a.level, school: a.school, classes: a.classes, castingTime: a.castingTime, ritual: a.ritual, range: a.range, components: a.components, duration: a.duration, concentration: a.concentration, damageTypes: a.damageTypes, saves: a.saves, attack: a.attack, text: a.text, source: 'Homebrew', ...(notes ? { dmNotes: notes } : {}) } };
+    },
   },
   {
     name: 'web_research', write: true,

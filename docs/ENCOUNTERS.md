@@ -34,9 +34,62 @@ While a talk is open the DM's card shows the log, what the player can pick
   next answer ends the talk unless you speak again.
 - **End the talk.**
 
+## Story events (quick events that happen to a player)
+
+Not every moment needs someone to talk to. A **story event** is something
+that happens to one player, a few, or everyone: a pickpocket grabs their
+purse, they spot an undervalued gem on a stall, a rope bridge creaks. They
+choose (chase the thief? keep the stranger's purse or hand it to the
+watch?) and you see every choice and what it led to. Story events run on
+the same engine as NPC encounters (steps, answers, skill checks, coin and
+items), so everything below about watching, speaking and the coin cap
+holds for them too.
+
+**Encounters → Story events.** Pick **where they are** (town, city,
+village, market, tavern, open road, woods, cave, dungeon, ruins, coast,
+mountains, swamp), pick who it happens to (or **Everyone**), then either
+**Random … event** or **Send** one from the list for that place. A random
+event picks among your own events tagged with that place; while you have
+none for it, among the built-in ones (★). Each player gets their own copy
+and makes their own choice. The Quick events page links here too (Quick
+events are the timed recall / save / vote prompts; story events are things
+that happen).
+
+Built-in story events: Pickpocket in the crowd (town, city, market),
+Undervalued gem (market, town, city, village), Purse in the mud (road,
+town, village), Rickety rope bridge (road, woods, mountains), Glowing
+mushrooms (woods, cave, swamp), Whispering echo (cave, dungeon, ruins),
+Pressure plate (dungeon, ruins), Spilled ale (tavern), Old beggar (city,
+town), Abandoned camp (road, woods, mountains), Roadside shrine (road,
+woods, mountains, ruins), Message in a bottle (coast), Sucking mud (swamp,
+woods). Every place has at least one.
+
+**Making your own**: Encounters → Saved → **Story events**: New story
+event, copy a built-in one, or **Draft a story event with the assistant**
+(pick the places, and optionally a quick event template from Templates &
+guides to follow). An event has a name, who or what it is about, a line on
+the scene, and the **places it fits**. The assistant can also save them
+for you (`save_encounter_template`, kind `event`).
+
+Answers in any encounter or event can now also:
+
+- **They pay** coin (buying the gem). The answer is refused with "You need
+  2 sp for that" when they cannot afford it.
+- **They lose** coin (a thief, a spill): up to what they have, never below
+  nothing.
+- **DM note**: a line only you see in the log (and in Minerva's session
+  notes), for the consequence: "Kept a stranger's stolen purse", "Took 1d4
+  piercing". The player never gets it.
+- **Item note**: an item can carry a line on its card ("Worth about 10 gp
+  to a jeweller") instead of "From <NPC>".
+
+Coin a player pays or loses hands that much back to the encounter's coin
+cap, like a lost stake, so catching a thief can give back what was stolen.
+An event never joins the People list.
+
 ## What the player sees
 
-A popup over any screen: who approaches, the talk so far, what the NPC says
+A popup over any screen ("Something happens" for a story event): who approaches, the talk so far, what the NPC says
 now, and the answers. **Later** folds it into a chip in the corner. A
 finished talk stays up until they close it, with a **Browse <shop>** button
 when the NPC showed them a shop (it opens the Shop page on that shop).
@@ -128,20 +181,21 @@ Guests get 403 everywhere.
 
 | | |
 |---|---|
-| `GET /config` | wandering, its wait, the cap, coin style; players also get `nextWanderAt` |
+| `GET /config` | wandering, its wait, the cap, coin style, the places; players also get `nextWanderAt` |
 | `GET /` | DM: the last 60 (`?status=open` for open ones); player: their own last 20 |
 | `GET /:id` | one encounter (a player only their own) |
-| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| script \| line + answers, npcName?, npcBlurb?, shopId?, addToPeople?}` |
+| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| place \| script \| line + answers, kind?, npcName?, npcBlurb?, shopId?, addToPeople?}`; `place` alone sends a random story event for it |
 | `POST /wander` | player: start a random encounter |
 | `POST /:id/choose` | player: `{option}`, or `{play: true, pick?, roll?, modifier?}` for the step's game |
 | `POST /:id/leave` | player: walk away |
 | `POST /:id/say` | DM: `{text, answers?}` |
 | `POST /:id/end` | DM |
-| `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | DM: saved encounters (`GET` also returns the starters) |
-| `POST /templates/draft` | DM: `{prompt}`: a draft from the chat model, not saved |
+| `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | DM: saved encounters and story events (`{kind: npc \| event, places}`); `GET ?kind=&place=` filters, and also returns the starters and the places |
+| `POST /templates/draft` | DM: `{prompt, kind?, places?, guide?}`: a draft from the chat model, not saved; `guide` is a quick event template id |
 
 Live event `encounter` `{id}` goes to the DM and that player; clients
 refetch.
 
-MCP tools: `list_encounters`, `list_encounter_templates` (DM),
-`send_encounter`, `encounter_say`, `end_encounter` (DM write key).
+MCP tools: `list_encounters`, `list_encounter_templates` (DM, with `kind`
+and `place`), `send_encounter` (with `place` for a random story event),
+`save_encounter_template`, `encounter_say`, `end_encounter` (DM write key).

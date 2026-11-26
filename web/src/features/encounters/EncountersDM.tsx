@@ -2,16 +2,18 @@
 // quick line with answers, a saved encounter or a built-in starter), watch
 // each talk live, speak as the NPC, end a talk; build and save encounters
 // with branching answers, gifts, a shop and small games; and the settings
-// (wandering, its wait, the coin cap per encounter).
+// (wandering, its wait, the coin cap per encounter). Story events (quick
+// events that happen to a player: a thief, a find, a hazard) run on the same
+// engine, tagged by place; the Story events tab sends one for a place.
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
-import { GAME_HELP, type Effect, type Encounter, type EncounterConfig, type GameKind, type Node, type Script, type Template } from './types.ts';
+import { GAME_HELP, type Effect, type Encounter, type EncounterConfig, type EncounterKind, type GameKind, type Node, type PlaceOpt, type Script, type Template } from './types.ts';
 import './encounters.css';
 
-type Tab = 'live' | 'library' | 'settings';
+type Tab = 'live' | 'events' | 'library' | 'settings';
 interface ShopLite { id: string; name: string; status: string }
 interface PersonLite { id: string; name: string; role: string; attitude: string }
 
@@ -20,13 +22,14 @@ export default function EncountersDM() {
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get('tab') as Tab) || 'live';
   const cfg = useLoad<EncounterConfig>(() => w.call('GET', '/encounters/config'), [w], ['settings']);
-  const tpl = useLoad<{ templates: Template[]; starters: Template[] }>(() => w.call('GET', '/encounters/templates/all'), [w]);
+  const tpl = useLoad<{ templates: Template[]; starters: Template[]; places: PlaceOpt[] }>(() => w.call('GET', '/encounters/templates/all'), [w]);
   const shops = useLoad<{ shops: ShopLite[] }>(() => w.call('GET', '/shop/shops'), [w], ['shop']);
   return (
     <div className="page enc-page">
-      <PageHead title="Encounters" lead="An NPC walks up to a player and the talk plays out in their app: answers, small gifts, a shop, a game of chance. Good for players you are not busy with." />
-      <Tabs label="Encounters" value={tab} onChange={(t) => setSp(t === 'live' ? {} : { tab: t })} items={[['live', 'Send & watch'], ['library', 'Saved encounters'], ['settings', 'Settings']]} />
+      <PageHead title="Encounters" lead="An NPC walks up to a player, or something happens to them, and it plays out in their app: answers, small gifts, a shop, a game of chance, a choice with a consequence. Good for players you are not busy with." />
+      <Tabs label="Encounters" value={tab} onChange={(t) => setSp(t === 'live' ? {} : { tab: t })} items={[['live', 'Send & watch'], ['events', 'Story events'], ['library', 'Saved'], ['settings', 'Settings']]} />
       {!cfg.data || !tpl.data ? <><ErrorBox error={cfg.error ?? tpl.error} /><Loading /></>
+        : tab === 'events' ? <StoryEvents data={tpl.data} cfg={cfg.data} />
         : tab === 'library' ? <Library data={tpl.data} shops={shops.data?.shops ?? []} reload={tpl.reload} />
         : tab === 'settings' ? <Settings cfg={cfg.data} reload={cfg.reload} />
         : <Live templates={[...tpl.data.templates, ...tpl.data.starters]} shops={shops.data?.shops ?? []} cfg={cfg.data} />}
@@ -115,7 +118,7 @@ function Send({ templates, shops, onSent }: { templates: Template[]; shops: Shop
         <>
           <Field label="Encounter">
             <select value={tid} onChange={(e) => setTid(e.target.value)}>
-              {templates.map((x) => <option key={x.id} value={x.id}>{x.builtin ? '★ ' : ''}{x.name}</option>)}
+              {templates.map((x) => <option key={x.id} value={x.id}>{x.builtin ? '★ ' : ''}{x.kind === 'event' ? '⚡ ' : ''}{x.name}</option>)}
             </select>
           </Field>
           {t && <span className="small muted">{t.npcName}: {t.npcBlurb || 'no description'} · {t.script.nodes.length} step{t.script.nodes.length === 1 ? '' : 's'}</span>}
@@ -166,14 +169,15 @@ function Watch({ e, cfg }: { e: Encounter; cfg: EncounterConfig }) {
       <div className="row between">
         <strong>{e.npc.name} <span className="muted">→ {e.player}</span></strong>
         <span className="row" style={{ gap: 6 }}>
+          {e.kind === 'event' && <span className="chip">Story event</span>}
           {e.source === 'wander' && <span className="chip teal">Wandered</span>}
-          <span className={`chip${open ? ' gold' : ''}`}>{open ? 'Talking' : e.status === 'done' ? 'Finished' : 'Ended'}</span>
+          <span className={`chip${open ? ' gold' : ''}`}>{open ? (e.kind === 'event' ? 'Happening' : 'Talking') : e.status === 'done' ? 'Finished' : 'Ended'}</span>
           <span className="tiny faint">{when(e.updatedAt)}</span>
         </span>
       </div>
       {e.templateName && <span className="tiny faint">{e.templateName}{e.paidCp ? ` · paid out ${coins(e.paidCp, cfg.coins)}` : ''}</span>}
       <div className="enc-log">
-        {e.log.map((l, i) => <div key={i} className={`enc-line ${l.who}`}>{(l.who === 'npc' || l.who === 'dm') && <span className="enc-who">{l.who === 'dm' ? `${e.npc.name} (you)` : e.npc.name}</span>}{l.who === 'you' && <span className="enc-who">{e.player}</span>}<span>{l.text}</span></div>)}
+        {e.log.map((l, i) => <div key={i} className={`enc-line ${l.who}`}>{(l.who === 'npc' || l.who === 'dm') && <span className="enc-who">{l.who === 'dm' ? `${e.npc.name} (you)` : e.npc.name}</span>}{l.who === 'you' && <span className="enc-who">{e.player}</span>}{l.who === 'secret' && <span className="enc-who">DM note</span>}<span>{l.text}</span></div>)}
       </div>
       {open && (
         <>
@@ -181,14 +185,14 @@ function Watch({ e, cfg }: { e: Encounter; cfg: EncounterConfig }) {
             Waiting on: {e.game ? `${e.game.label}${e.dc ? ` (DC ${e.dc})` : ''}` : ''}{e.game && e.options.length ? ' or ' : ''}{e.options.map((o) => `“${o.label}”`).join(', ')}
           </span>
           <details>
-            <summary className="small">Speak as {e.npc.name}</summary>
+            <summary className="small">{e.kind === 'event' ? 'Narrate what happens next' : `Speak as ${e.npc.name}`}</summary>
             <div className="stack tight" style={{ marginTop: 8 }}>
               <textarea rows={2} value={say} onChange={(ev) => setSay(ev.target.value)} placeholder="What they say now" maxLength={1000} />
               <textarea rows={2} value={answers} onChange={(ev) => setAnswers(ev.target.value)} placeholder={'Answers, one per line (empty: just “Farewell”)'} />
               <button type="button" className="btn small primary" disabled={act.busy || !say.trim()} onClick={() => void speak()}>Say it</button>
             </div>
           </details>
-          <div className="row"><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(() => w.call('POST', `${path}/end`))}>End the talk</button></div>
+          <div className="row"><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(() => w.call('POST', `${path}/end`))}>{e.kind === 'event' ? 'End the event' : 'End the talk'}</button></div>
         </>
       )}
       <ErrorBox error={act.error} />
@@ -196,57 +200,155 @@ function Watch({ e, cfg }: { e: Encounter; cfg: EncounterConfig }) {
   );
 }
 
-// ---------------- saved encounters ----------------
+// ---------------- story events ----------------
 
-const blank = (): Template => ({ id: '', name: 'New encounter', npcName: 'A stranger', npcBlurb: '', wander: false, builtin: false, script: { start: 'start', nodes: [{ id: 'start', text: 'Hello there.', options: [{ label: 'Hello', next: null, effects: [] }], game: null }] } });
-
-function Library({ data, shops, reload }: { data: { templates: Template[]; starters: Template[] }; shops: ShopLite[]; reload: () => Promise<void> }) {
-  const [sel, setSel] = useState<Template | null>(null);
-  const copy = (t: Template): Template => ({ ...structuredClone(t), id: '', builtin: false, name: t.builtin ? t.name : `${t.name} (copy)`, wander: false });
+/** Pick where the party is, pick who it happens to, send one (or a random one for that place); watch them play out. */
+function StoryEvents({ data, cfg }: { data: { templates: Template[]; starters: Template[]; places: PlaceOpt[] }; cfg: EncounterConfig }) {
+  const { w, members, info } = useWorld();
+  const players = members.filter((m) => m.role === 'player');
+  const act = useAction();
+  const { toast, toastNode } = useToast();
+  const [to, setTo] = useState<string[]>([]);
+  const [place, setPlace] = useState<string>(() => { try { return localStorage.getItem(`alx-story-place-${info.slug}`) ?? ''; } catch { return ''; } });
+  const list = useLoad<Encounter[]>(() => w.call('GET', '/encounters'), [w], ['encounter']);
+  const pick = (p: string) => { setPlace(p); try { localStorage.setItem(`alx-story-place-${info.slug}`, p); } catch { /* private mode */ } };
+  const all = [...data.templates, ...data.starters].filter((t) => t.kind === 'event');
+  const here = place ? all.filter((t) => t.places?.includes(place)) : all;
+  const ownHere = here.some((t) => !t.builtin);
+  const label = (p: string) => data.places.find((x) => x.id === p)?.label ?? p;
+  const toggle = (id: string) => setTo((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]));
+  const send = (templateId?: string) => act.run(async () => {
+    const made = await w.call<Encounter[]>('POST', '/encounters', templateId ? { accountIds: to, templateId } : { accountIds: to, place });
+    toast(`${made[0]?.templateName || 'Event'} sent to ${to.length === players.length && players.length > 1 ? 'everyone' : `${to.length} player${to.length === 1 ? '' : 's'}`}`);
+    void list.reload();
+  });
+  const live = (list.data ?? []).filter((e) => e.kind === 'event');
+  const open = live.filter((e) => e.status === 'open');
   return (
     <div className="cols">
-      <nav className="col-1 stack" aria-label="Saved encounters">
-        <button type="button" className="btn" onClick={() => setSel(blank())}>New encounter</button>
-        <DraftBox onDraft={(t) => setSel(t)} />
-        {data.templates.map((t) => (
+      <div className="col-1 stack">
+        <section className="card stack" aria-labelledby="story-h">
+          <h2 id="story-h">Make something happen</h2>
+          <span className="small muted">A quick moment for one player, a few, or everyone: a pickpocket, an undervalued gem, a rotten bridge. They choose; you see every choice and its consequence.</span>
+          <Field label="Where they are">
+            <div className="row wrap" role="group" aria-label="Place">
+              <button type="button" className={`btn small${!place ? ' on' : ''}`} aria-pressed={!place} onClick={() => pick('')}>Anywhere</button>
+              {data.places.map((p) => <button key={p.id} type="button" className={`btn small${place === p.id ? ' on' : ''}`} aria-pressed={place === p.id} onClick={() => pick(p.id)} data-testid={`story-place-${p.id}`}>{p.label}</button>)}
+            </div>
+          </Field>
+          <Field label="Happens to">
+            <div className="row wrap" role="group" aria-label="Players">
+              {players.length ? players.map((p) => (
+                <button key={p.id} type="button" className={`btn small${to.includes(p.id) ? ' on' : ''}`} aria-pressed={to.includes(p.id)} onClick={() => toggle(p.id)}>{p.character_name || p.display_name}</button>
+              )) : <span className="small muted">No players in this world yet.</span>}
+              {players.length > 1 && <button type="button" className="btn ghost small" onClick={() => setTo(to.length === players.length ? [] : players.map((p) => p.id))}>{to.length === players.length ? 'None' : 'Everyone'}</button>}
+            </div>
+          </Field>
+          <ErrorBox error={act.error} />
+          <button type="button" className="btn primary" disabled={act.busy || !to.length || !place || !here.length} onClick={() => void send()} data-testid="story-random">
+            <i className="fa-solid fa-dice" aria-hidden="true" /> Random {place ? label(place).toLowerCase() : ''} event
+          </button>
+          {!place && <span className="tiny faint">Pick a place for a random one, or send one from the list.</span>}
+          {place && ownHere && <span className="tiny faint">Random picks from your own {label(place).toLowerCase()} events.</span>}
+          {toastNode}
+        </section>
+        <section className="card stack" aria-label="Events for this place">
+          <h3 className="enc-h">{place ? `${label(place)} events` : 'All story events'}</h3>
+          {!here.length && <Empty>None for this place yet. Make one under Saved (or with the assistant), and tag it {place ? label(place) : 'with a place'}.</Empty>}
+          {here.map((t) => (
+            <div key={t.id} className="row between enc-pick" style={{ gap: 8 }} data-testid="story-event">
+              <span className="stack tight" style={{ minWidth: 0 }}>
+                <strong>{t.builtin ? '★ ' : ''}{t.name}</strong>
+                <span className="tiny faint">{(t.places ?? []).map(label).join(' · ') || 'Anywhere'}</span>
+              </span>
+              <button type="button" className="btn small" disabled={act.busy || !to.length} onClick={() => void send(t.id)}>Send</button>
+            </div>
+          ))}
+        </section>
+      </div>
+      <div className="col-2 stack loose">
+        <ErrorBox error={list.error} />
+        <h2 className="enc-h">Happening now</h2>
+        {!list.data ? <Loading /> : !open.length ? <Empty>Nothing is happening to anyone. Send an event from the left.</Empty> : open.map((e) => <Watch key={e.id} e={e} cfg={cfg} />)}
+        {live.length > open.length && <><h2 className="enc-h">Earlier</h2>{live.filter((e) => e.status !== 'open').slice(0, 15).map((e) => <Watch key={e.id} e={e} cfg={cfg} />)}</>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------- saved encounters ----------------
+
+const blank = (kind: EncounterKind = 'npc'): Template => kind === 'event'
+  ? { id: '', kind, places: [], name: 'New story event', npcName: 'Something happens', npcBlurb: '', wander: false, builtin: false, script: { start: 'start', nodes: [{ id: 'start', text: 'Something happens.', options: [{ label: 'Deal with it', next: null, effects: [] }, { label: 'Ignore it', next: null, effects: [] }], game: null }] } }
+  : { id: '', kind, places: [], name: 'New encounter', npcName: 'A stranger', npcBlurb: '', wander: false, builtin: false, script: { start: 'start', nodes: [{ id: 'start', text: 'Hello there.', options: [{ label: 'Hello', next: null, effects: [] }], game: null }] } };
+
+function Library({ data, shops, reload }: { data: { templates: Template[]; starters: Template[]; places: PlaceOpt[] }; shops: ShopLite[]; reload: () => Promise<void> }) {
+  const [sel, setSel] = useState<Template | null>(null);
+  const [kind, setKind] = useState<EncounterKind>('npc');
+  const copy = (t: Template): Template => ({ ...structuredClone(t), id: '', builtin: false, name: t.builtin ? t.name : `${t.name} (copy)`, wander: false });
+  const mine = data.templates.filter((t) => (t.kind ?? 'npc') === kind);
+  const starters = data.starters.filter((t) => (t.kind ?? 'npc') === kind);
+  return (
+    <div className="cols">
+      <nav className="col-1 stack" aria-label="Saved encounters and story events">
+        <Tabs label="Kind" value={kind} onChange={(k) => setKind(k)} items={[['npc', 'NPC encounters'], ['event', 'Story events']]} />
+        <button type="button" className="btn" onClick={() => setSel(blank(kind))}>{kind === 'event' ? 'New story event' : 'New encounter'}</button>
+        <DraftBox kind={kind} places={data.places} onDraft={(t) => setSel(t)} />
+        {mine.map((t) => (
           <button key={t.id} type="button" className={`card enc-pick${sel?.id === t.id ? ' on' : ''}`} onClick={() => setSel(structuredClone(t))}>
             <div className="row between"><strong>{t.name}</strong>{t.wander && <span className="chip teal">Wander</span>}</div>
-            <span className="small muted">{t.npcName}</span>
+            <span className="small muted">{kind === 'event' ? (t.places ?? []).map((p) => data.places.find((x) => x.id === p)?.label ?? p).join(' · ') || 'Anywhere' : t.npcName}</span>
           </button>
         ))}
         <h3 className="enc-h">Starters</h3>
-        <span className="tiny faint">Ready to send. Copy one to change it.{!data.templates.some((t) => t.wander) ? ' While none of yours is marked Wander, wandering players meet these.' : ''}</span>
-        {data.starters.map((t) => (
+        <span className="tiny faint">Ready to send. Copy one to change it.{kind === 'npc' && !data.templates.some((t) => t.wander) ? ' While none of yours is marked Wander, wandering players meet these.' : ''}</span>
+        {starters.map((t) => (
           <div key={t.id} className="card enc-pick">
             <strong>{t.name}</strong>
-            <span className="small muted">{t.npcName}</span>
+            <span className="small muted">{kind === 'event' ? (t.places ?? []).map((p) => data.places.find((x) => x.id === p)?.label ?? p).join(' · ') : t.npcName}</span>
             <button type="button" className="btn small ghost" onClick={() => setSel(copy(t))}>Copy and edit</button>
           </div>
         ))}
       </nav>
       <div className="col-2 stack loose">
-        {sel ? <Editor key={sel.id || `${sel.name}-${sel.script.nodes.length}-${sel.npcName}`} start={sel} shops={shops} onSaved={async (t) => { await reload(); setSel(t); }} onGone={async () => { await reload(); setSel(null); }} /> : <Empty>Pick an encounter to edit, or start a new one.</Empty>}
+        {sel ? <Editor key={sel.id || `${sel.name}-${sel.script.nodes.length}-${sel.npcName}`} start={sel} shops={shops} places={data.places} onSaved={async (t) => { await reload(); setSel(t); }} onGone={async () => { await reload(); setSel(null); }} /> : <Empty>Pick one to edit, or start a new one.</Empty>}
       </div>
     </div>
   );
 }
 
 /** Describe an encounter and the world's chat model drafts the steps; the DM edits and saves it. */
-function DraftBox({ onDraft }: { onDraft: (t: Template) => void }) {
+function DraftBox({ onDraft, kind = 'npc', places = [] }: { onDraft: (t: Template) => void; kind?: EncounterKind; places?: PlaceOpt[] }) {
   const { w } = useWorld();
   const act = useAction();
   const [prompt, setPrompt] = useState('');
   const [note, setNote] = useState<string | null>(null);
+  const [where, setWhere] = useState<string[]>([]);
+  const [guide, setGuide] = useState('');
+  const guides = useLoad<{ templates: { id: string; name: string; kind: string; enabled: boolean }[] }>(() => (kind === 'event' ? w.call('GET', '/templates', undefined, { kind: 'event' }) : Promise.resolve({ templates: [] })), [w, kind]);
   const go = () => act.run(async () => {
-    const r = await w.call<{ name: string; npcName: string; npcBlurb: string; script: Script; usedModel: boolean; note: string | null }>('POST', '/encounters/templates/draft', { prompt });
+    const r = await w.call<{ name: string; npcName: string; npcBlurb: string; script: Script; usedModel: boolean; note: string | null; kind?: EncounterKind; places?: string[] }>('POST', '/encounters/templates/draft', { prompt, kind, places: where, guide: guide || undefined });
     setNote(r.note);
-    onDraft({ id: '', name: r.name, npcName: r.npcName, npcBlurb: r.npcBlurb, script: r.script, wander: false, builtin: false });
+    onDraft({ id: '', kind: r.kind ?? kind, places: r.places ?? where, name: r.name, npcName: r.npcName, npcBlurb: r.npcBlurb, script: r.script, wander: false, builtin: false });
   });
   return (
     <details className="card enc-draft">
-      <summary><i className="fa-solid fa-wand-magic-sparkles" aria-hidden="true" /> Draft one with the assistant</summary>
+      <summary><i className="fa-solid fa-wand-magic-sparkles" aria-hidden="true" /> {kind === 'event' ? 'Draft a story event with the assistant' : 'Draft one with the assistant'}</summary>
       <div className="stack tight" style={{ marginTop: 8 }}>
-      <textarea className="input" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={3000} placeholder="A nervous fence behind the tannery offers a dice game; if they win, he tips them off about the guard rotation." style={{ padding: '8px 10px' }} />
+      <textarea className="input" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={3000} placeholder={kind === 'event' ? 'Someone steals their coin purse in the market. If they catch the thief, do they keep the extra coin or give it back?' : 'A nervous fence behind the tannery offers a dice game; if they win, he tips them off about the guard rotation.'} style={{ padding: '8px 10px' }} />
+      {kind === 'event' && <>
+        <div className="row wrap" role="group" aria-label="Places it fits">
+          {places.map((p) => <button key={p.id} type="button" className={`btn small${where.includes(p.id) ? ' on' : ''}`} aria-pressed={where.includes(p.id)} onClick={() => setWhere(where.includes(p.id) ? where.filter((x) => x !== p.id) : [...where, p.id])}>{p.label}</button>)}
+        </div>
+        {(guides.data?.templates ?? []).filter((g) => g.enabled).length > 0 && (
+          <label className="field"><span className="label">Follow a quick event template</span>
+            <select value={guide} onChange={(e) => setGuide(e.target.value)} data-testid="enc-draft-guide">
+              <option value="">None</option>
+              {guides.data!.templates.filter((g) => g.enabled).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </label>
+        )}
+      </>}
       <ErrorBox error={act.error} />
       {note && <span className="tiny faint">{note}</span>}
       <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} disabled={act.busy || !prompt.trim()} onClick={() => void go()}>{act.busy ? 'Drafting…' : 'Draft'}</button>
@@ -263,7 +365,7 @@ const slug = (s: string, taken: string[]) => {
   return id;
 };
 
-function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: ShopLite[]; onSaved: (t: Template) => void; onGone: () => void }) {
+function Editor({ start, shops, places = [], onSaved, onGone }: { start: Template; shops: ShopLite[]; places?: PlaceOpt[]; onSaved: (t: Template) => void; onGone: () => void }) {
   const { w, info } = useWorld();
   const act = useAction();
   const { toast, toastNode } = useToast();
@@ -279,22 +381,31 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
     setScript({ start: t.script.start === gone ? nodes[0]?.id ?? '' : t.script.start, nodes });
   };
   const save = () => act.run(async () => {
-    const body = { name: t.name, npcName: t.npcName, npcBlurb: t.npcBlurb, wander: t.wander, script: t.script };
+    const body = { kind: t.kind ?? 'npc', places: t.places ?? [], name: t.name, npcName: t.npcName, npcBlurb: t.npcBlurb, wander: t.wander, script: t.script };
     const saved = t.id ? await w.call<Template>('PUT', `/encounters/templates/all/${encodeURIComponent(t.id)}`, body) : await w.call<Template>('POST', '/encounters/templates/all', body);
     toast('Saved');
     onSaved(saved);
   });
   const del = () => act.run(async () => { await w.call('DELETE', `/encounters/templates/all/${encodeURIComponent(t.id)}`); onGone(); });
   const money = (cp: number) => coins(cp, info.settings.coins);
+  const ev = t.kind === 'event';
+  const tagged = t.places ?? [];
   return (
-    <section className="card stack loose" aria-label="Edit encounter">
+    <section className="card stack loose" aria-label={ev ? 'Edit story event' : 'Edit encounter'}>
       <div className="row wrap">
         <Field label="Name"><input value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} maxLength={120} /></Field>
-        <Field label="NPC"><input value={t.npcName} onChange={(e) => setT({ ...t, npcName: e.target.value })} maxLength={80} /></Field>
+        <Field label={ev ? 'Who or what it is about' : 'NPC'}><input value={t.npcName} onChange={(e) => setT({ ...t, npcName: e.target.value })} maxLength={80} placeholder={ev ? 'A pickpocket' : ''} /></Field>
       </div>
-      <Field label="Looks like"><input value={t.npcBlurb} onChange={(e) => setT({ ...t, npcBlurb: e.target.value })} maxLength={300} /></Field>
+      <Field label={ev ? 'The scene, in a line' : 'Looks like'}><input value={t.npcBlurb} onChange={(e) => setT({ ...t, npcBlurb: e.target.value })} maxLength={300} /></Field>
+      {ev && (
+        <Field label="Places it fits" help="The Story events tab offers it for these places; a random event for a place picks among them.">
+          <div className="row wrap" role="group" aria-label="Places it fits">
+            {places.map((p) => <button key={p.id} type="button" className={`btn small${tagged.includes(p.id) ? ' on' : ''}`} aria-pressed={tagged.includes(p.id)} onClick={() => setT({ ...t, places: tagged.includes(p.id) ? tagged.filter((x) => x !== p.id) : [...tagged, p.id] })}>{p.label}</button>)}
+          </div>
+        </Field>
+      )}
       <div className="row between">
-        <div className="stack tight"><strong style={{ fontWeight: 500 }}>Wandering players can meet this NPC</strong><span className="small muted">Only when wandering is on in Settings.</span></div>
+        <div className="stack tight"><strong style={{ fontWeight: 500 }}>{ev ? 'Wandering players can run into this' : 'Wandering players can meet this NPC'}</strong><span className="small muted">Only when wandering is on in Settings.</span></div>
         <Switch checked={t.wander} onChange={(v) => setT({ ...t, wander: v })} label="Wander" />
       </div>
       <Field label="Starts at">
@@ -314,7 +425,7 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
             </label>
             {t.script.nodes.length > 1 && <button type="button" className="btn ghost small" onClick={() => delNode(i)}>Remove step</button>}
           </div>
-          <Field label="NPC says"><textarea rows={2} value={n.text} onChange={(e) => setNode(i, { ...n, text: e.target.value })} maxLength={1000} /></Field>
+          <Field label={ev ? 'What happens' : 'NPC says'}><textarea rows={2} value={n.text} onChange={(e) => setNode(i, { ...n, text: e.target.value })} maxLength={1000} /></Field>
 
           <div className="row between">
             <span className="small">Game here</span>
@@ -355,9 +466,12 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
                 {o.effects.map((fx, k) => (
                   <div key={k} className="row wrap enc-fx">
                     {fx.kind === 'gold' && <CoinInput label="Gives coin" cp={fx.cp} money={money} onChange={(cp) => setFx(o.effects.map((x, m) => (m === k ? { kind: 'gold', cp } : x)))} />}
+                    {(fx.kind === 'pay' || fx.kind === 'lose') && <CoinInput label={fx.kind === 'pay' ? 'They pay' : 'They lose'} cp={fx.cp} money={money} onChange={(cp) => setFx(o.effects.map((x, m) => (m === k ? { kind: fx.kind, cp: Math.max(1, cp) } : x)))} />}
+                    {fx.kind === 'dmnote' && <label className="field" style={{ flex: '1 1 260px' }}><span className="label">Note for you (the player never sees it)</span><input value={fx.text} maxLength={300} placeholder="Kept the stolen purse; the thieves remember" onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { kind: 'dmnote', text: e.target.value } : x)))} /></label>}
                     {fx.kind === 'item' && <>
                       <label className="field" style={{ flex: '1 1 160px' }}><span className="label">Gives item</span><input value={fx.name} maxLength={120} onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { ...fx, name: e.target.value } : x)))} /></label>
                       <label className="field" style={{ width: 70 }}><span className="label">Qty</span><input inputMode="numeric" value={fx.qty} onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { ...fx, qty: Math.max(1, Math.min(20, Number(e.target.value.replace(/\D/g, '')) || 1)) } : x)))} /></label>
+                      <label className="field" style={{ flex: '1 1 200px' }}><span className="label">Note on the item (optional)</span><input value={fx.note ?? ''} maxLength={200} placeholder="Worth about 10 gp to a jeweller" onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { ...fx, note: e.target.value || undefined } : x)))} /></label>
                     </>}
                     {fx.kind === 'shop' && (
                       <label className="field" style={{ flex: '1 1 200px' }}><span className="label">Opens a shop</span>
@@ -375,6 +489,9 @@ function Editor({ start, shops, onSaved, onGone }: { start: Template; shops: Sho
                     <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'gold', cp: 10 }])}>+ Coin</button>
                     <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'item', name: '', qty: 1 }])}>+ Item</button>
                     <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'shop', shopId: '' }])}>+ Shop</button>
+                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'pay', cp: 10 }])}>+ They pay</button>
+                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'lose', cp: 10 }])}>+ They lose</button>
+                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'dmnote', text: '' }])}>+ DM note</button>
                   </div>
                 )}
               </div>

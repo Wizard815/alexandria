@@ -38,7 +38,7 @@ function Inner() {
   if (folded === e.id) {
     return (
       <button type="button" className="enc-chip" data-testid="enc-chip" onClick={() => setFolded(null)}>
-        <i className="fa-solid fa-comment-dots" aria-hidden="true" /> {e.npc.name} {e.status === 'open' ? 'is waiting' : 'said goodbye'}
+        <i className={`fa-solid ${e.kind === 'event' ? 'fa-bolt' : 'fa-comment-dots'}`} aria-hidden="true" /> {e.npc.name} {e.kind === 'event' ? (e.status === 'open' ? ': your move' : ': done') : e.status === 'open' ? 'is waiting' : 'said goodbye'}
       </button>
     );
   }
@@ -70,11 +70,11 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
     <div className="modal-back">
       <div className="modal enc" role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="encounter">
         <div className="row between">
-          <span className="tiny enc-kicker">{e.source === 'wander' ? 'Out and about' : 'Someone approaches'}</span>
+          <span className="tiny enc-kicker">{e.kind === 'event' ? 'Something happens' : e.source === 'wander' ? 'Out and about' : 'Someone approaches'}</span>
           {open ? <button type="button" className="btn ghost small" onClick={onFold}>Later</button> : <button type="button" className="btn ghost small" onClick={onClose} aria-label="Close">✕</button>}
         </div>
         <div className="enc-npc">
-          <span className="enc-avatar" aria-hidden="true">{e.npc.name.slice(0, 1).toUpperCase()}</span>
+          <span className="enc-avatar" aria-hidden="true">{e.kind === 'event' ? <i className="fa-solid fa-bolt" /> : e.npc.name.slice(0, 1).toUpperCase()}</span>
           <div className="stack tight">
             <h2 id={titleId} style={{ fontSize: 21 }}>{e.npc.name}</h2>
             {e.npc.blurb && <span className="small muted">{e.npc.blurb}</span>}

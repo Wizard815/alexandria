@@ -7,9 +7,39 @@ import { HttpError } from '../../core/util.ts';
 
 export type Effect =
   | { kind: 'gold'; cp: number }
-  | { kind: 'item'; name: string; qty: number }
+  /** note: a line on the item card ("Worth about 10 gp to a jeweller"); "From <NPC>" when empty. */
+  | { kind: 'item'; name: string; qty: number; note?: string }
   /** shopId '' means "the shop picked when the encounter is sent", else any open shop. */
-  | { kind: 'shop'; shopId: string };
+  | { kind: 'shop'; shopId: string }
+  /** The player pays (buying something): the option is refused when they cannot afford it. */
+  | { kind: 'pay'; cp: number }
+  /** The player loses coin (a thief, a spill): up to what they have, never below nothing. */
+  | { kind: 'lose'; cp: number }
+  /** A note only the DM sees (and Minerva's session notes): "kept the stranger's purse". */
+  | { kind: 'dmnote'; text: string };
+
+/** An NPC who walks up and talks, or a quick event: something that happens to the player. */
+export const KINDS = ['npc', 'event'] as const;
+export type EncounterKind = (typeof KINDS)[number];
+
+/** Where a quick event can happen. A template lists the places it fits; the DM picks a place to get one. */
+export const PLACES = ['town', 'city', 'village', 'market', 'tavern', 'road', 'woods', 'cave', 'dungeon', 'ruins', 'coast', 'mountains', 'swamp'] as const;
+export type Place = (typeof PLACES)[number];
+export const PLACE_LABEL: Record<Place, string> = {
+  town: 'Town', city: 'City', village: 'Village', market: 'Market', tavern: 'Tavern', road: 'Open road', woods: 'Woods', cave: 'Cave',
+  dungeon: 'Dungeon', ruins: 'Ruins', coast: 'Coast', mountains: 'Mountains', swamp: 'Swamp',
+};
+/** A list of places from a request or the database: known ones only, each once, in PLACES order. */
+export const cleanPlaces = (v: unknown): Place[] => {
+  const raw = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,\s]+/) : [];
+  const want = new Set(raw.map((x) => String(x).toLowerCase().trim()));
+  // "open road", "forest" and the like, as a DM or a model writes them.
+  if (want.has('forest') || want.has('wilderness')) want.add('woods');
+  if (want.has('open road') || want.has('open-road') || want.has('roads')) want.add('road');
+  if (want.has('caves')) want.add('cave');
+  if (want.has('dungeons')) want.add('dungeon');
+  return PLACES.filter((p) => want.has(p));
+};
 
 export interface Option { label: string; next: string | null; effects: Effect[] }
 
@@ -57,9 +87,14 @@ function parseEffect(v: any, at: string): Effect {
   if (!v || typeof v !== 'object') throw bad(`${at} must be an object`);
   switch (v.kind) {
     case 'gold': return { kind: 'gold', cp: whole(v.cp, `${at}.cp`, 1, LIMITS.cp, 0) || (() => { throw bad(`${at}.cp is required`); })() };
-    case 'item': return { kind: 'item', name: text(v.name, `${at}.name`, LIMITS.label), qty: whole(v.qty, `${at}.qty`, 1, LIMITS.qty, 1) };
+    case 'item': {
+      const note = text(v.note, `${at}.note`, 200, true);
+      return { kind: 'item', name: text(v.name, `${at}.name`, LIMITS.label), qty: whole(v.qty, `${at}.qty`, 1, LIMITS.qty, 1), ...(note ? { note } : {}) };
+    }
     case 'shop': return { kind: 'shop', shopId: text(v.shopId, `${at}.shopId`, 60, true) };
-    default: throw bad(`${at}.kind must be gold, item or shop`);
+    case 'pay': case 'lose': return { kind: v.kind, cp: whole(v.cp, `${at}.cp`, 1, LIMITS.cp, 0) || (() => { throw bad(`${at}.cp is required`); })() };
+    case 'dmnote': return { kind: 'dmnote', text: text(v.text, `${at}.text`, 300) };
+    default: throw bad(`${at}.kind must be gold, item, shop, pay, lose or dmnote`);
   }
 }
 
@@ -157,7 +192,7 @@ export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?
 
 // ---------------- built-in starters ----------------
 
-export interface Starter { id: string; name: string; npcName: string; npcBlurb: string; script: Script }
+export interface Starter { id: string; name: string; npcName: string; npcBlurb: string; script: Script; kind?: EncounterKind; places?: Place[] }
 
 /** Ready to send in any world. ids start with "builtin:" and cannot be edited (copy one to change it). */
 export const STARTERS: Starter[] = [

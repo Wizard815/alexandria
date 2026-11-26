@@ -1,16 +1,20 @@
 // What the librarian sends for NPC encounters (librarian/src/features/encounters).
 
-export type Effect = { kind: 'gold'; cp: number } | { kind: 'item'; name: string; qty: number } | { kind: 'shop'; shopId: string };
+export type Effect =
+  | { kind: 'gold'; cp: number } | { kind: 'item'; name: string; qty: number; note?: string } | { kind: 'shop'; shopId: string }
+  | { kind: 'pay'; cp: number } | { kind: 'lose'; cp: number } | { kind: 'dmnote'; text: string };
+export type EncounterKind = 'npc' | 'event';
+export interface PlaceOpt { id: string; label: string }
 export interface Option { label: string; next: string | null; effects: Effect[] }
 export type GameKind = 'coin' | 'shells' | 'dice' | 'check';
 export interface Game { kind: GameKind; stakeCp: number; winCp: number; dc: number | null; skill: string | null; win: string; lose: string }
 export interface Node { id: string; text: string; options: Option[]; game: Game | null }
 export interface Script { start: string; nodes: Node[] }
 
-export interface Line { who: 'npc' | 'you' | 'game' | 'gain' | 'loss' | 'dm' | 'note'; text: string; at: string }
+export interface Line { who: 'npc' | 'you' | 'game' | 'gain' | 'loss' | 'dm' | 'note' | 'secret'; text: string; at: string }
 
 export interface Encounter {
-  id: string; npc: { name: string; blurb: string }; status: 'open' | 'done' | 'cancelled'; source: 'dm' | 'wander';
+  id: string; kind?: EncounterKind; npc: { name: string; blurb: string }; status: 'open' | 'done' | 'cancelled'; source: 'dm' | 'wander';
   createdAt: string; updatedAt: string; log: Line[]; text: string | null; options: { label: string }[];
   game: { kind: GameKind; label: string; stakeCp: number; winCp: number; skill: string | null } | null;
   shop: { id: string; name: string } | null;
@@ -18,8 +22,8 @@ export interface Encounter {
   accountId?: string; player?: string; templateId?: string | null; templateName?: string; nodeId?: string; dc?: number | null; paidCp?: number; script?: Script;
 }
 
-export interface Template { id: string; name: string; npcName: string; npcBlurb: string; script: Script; wander: boolean; builtin: boolean }
-export interface EncounterConfig { wander: boolean; wanderMinutes: number; capCp: number; coins: 'gsc' | 'all' | 'gold'; games: Record<GameKind, string>; nextWanderAt?: string | null }
+export interface Template { id: string; kind?: EncounterKind; places?: string[]; name: string; npcName: string; npcBlurb: string; script: Script; wander: boolean; builtin: boolean }
+export interface EncounterConfig { wander: boolean; wanderMinutes: number; capCp: number; coins: 'gsc' | 'all' | 'gold'; games: Record<GameKind, string>; nextWanderAt?: string | null; places?: PlaceOpt[] }
 
 export const GAME_HELP: Record<GameKind, string> = {
   coin: 'Call heads or tails. Even odds.',

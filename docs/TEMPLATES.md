@@ -19,12 +19,40 @@ structure of the towns already written.
 | **Assist panel** | a workspace layout, its panes and a request for the assistant | **Open**: the workspace with those panes, the request waiting in the assistant's box |
 | **Shop generation** | shop type, a guide, typical stock, price notes | **Make a shop**: a draft from the shop generator following the guide (below); the assistant reads it for shop requests |
 | **Library page** | folder, title pattern, tags, sections, a page skeleton | **New page from this**: a DM-only page from the skeleton; the assistant reads it like a guide |
+| **Quick event** | places (town, road, cave…), theme, instructions, tone, choices a step, skill checks on or off, most coin an event gives, how consequences are noted | **Make a story event**: a draft to check and save as a story event ([ENCOUNTERS.md](ENCOUNTERS.md)); the assistant follows it for "make a quick event…" and saves with `save_encounter_template` |
+| **Spell** | lowest and highest level, schools, classes, spell lines, balance, mana note, naming, instructions, "say what happens at higher levels" | **Make a spell**: a draft in the Codex format to check and **Save to the Codex** (homebrew, DM only); the assistant follows it for "make a new spell…" and saves with `save_homebrew_spell` |
 
 Every template is per world, has a name and a short description, and is **on or
 off** (off: the assistant never uses it). Saving a change makes a new **version**;
 the last 50 are kept and any can be restored (a restore is a new version too).
 Turning a template on or off is not a new version. A template that repeats
 classified text is refused when it is saved: templates go into model requests.
+
+## Starters
+
+**Templates & guides → Starters**: a ready-made template of each kind:
+three quick event templates (town and city temptations, wilderness hazards
+and finds, underground moments), two spell templates (balanced homebrew
+spell, cantrip), library pages (session recap, magic item, monster,
+faction), guides (towns, dungeons), a tavern generator, an apothecary shop,
+a "recap last session" macro and a combat helper panel. **Use this
+starter** copies it into the world as a normal template (version 1) to
+change like any other.
+
+A spell template keeps spell lines as names (Fire, Frost…): a drafted spell
+lists the lines it fits beside it, and saving puts them in the spell's DM
+notes, so a world without spell lines loses nothing.
+
+## Template chats
+
+Open a saved template and use **Chat with the assistant about this
+template**: its own chats, kept apart from the main DnD chat (they show in
+the assistant's chat list under **Templates**, and all of them on the
+**Template chats** tab). In a template chat the template is always at
+hand: ask about the template itself ("add a step that…", "change this
+template so…") and the assistant gets its content to change it
+(`update_dm_template`); ask it to make something ("make one where…") and
+it follows the template as if you had named it.
 
 ## Making one with the assistant
 
@@ -126,7 +154,10 @@ All under `/api/worlds/:world/templates`:
 
 | Route | |
 |---|---|
-| `GET /?kind=` | the templates, the kinds, whether a chat model is set |
+| `GET /?kind=` | the templates, the kinds, whether a chat model is set, the built-in starters |
+| `POST /starters/:sid` | copy a starter (`starter:…`) into the world |
+| `POST /:id/event` `{prompt?}` | quick event template: a story event draft (nothing saved) |
+| `POST /:id/spell` `{prompt}` | spell template: a spell draft in the Codex format, and the spell lines it fits (nothing saved) |
 | `POST /` | create `{kind, name, description, triggers, enabled, spec}` |
 | `GET /:id` | one (by id or name), with its versions |
 | `PUT /:id` | change (a spec with some keys changes only those); a new version |
@@ -140,14 +171,16 @@ All under `/api/worlds/:world/templates`:
 | `POST /:id/shop` `{options?}` | a shop draft from the shop generator with this template's guide |
 
 MCP (DM only): `list_dm_templates`, `get_dm_template`, `create_dm_template`
-(write), `update_dm_template` (write), `web_research` (write).
+(write), `update_dm_template` (write), `web_research` (write),
+`save_homebrew_spell` (write).
 
 ## Code
 
 `librarian/src/features/templates/`: `spec.ts` (kinds and their specs),
 `store.ts` (tables, versions, web settings), `match.ts` (triggers), `draft.ts`
 (drafting and deriving), `guides.ts` (running a guide for the assistant),
-`web.ts` (query checks and providers), `shop.ts` (the shop adapter). The harness
+`web.ts` (query checks and providers), `shop.ts` (the shop adapter),
+`spell.ts` (spell drafts), `starters.ts` (the built-in starters). The harness
 calls `applyGuides` before the first model call (`features/agent/harness.ts`).
 The page is `web/src/features/templates/`. Tests: `librarian/test/templates.test.ts`
 and `web/e2e/templates.mjs`.
