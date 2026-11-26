@@ -86,6 +86,16 @@ Request bodies (`module` carries optional `id`, `name`, `version`, `license`,
 | `folder` | `{ "type": "folder", "files": [{ "path": "spells/Fireball.md", "text": "…" }], "module": { … } }` | What the browser's folder picker sends. |
 | `git` | `{ "type": "git", "url": "https://…", "ref": "main", "path": "rules/", "module": { … } }` | `git clone --depth 1` into a temporary folder under the data directory, read as a folder, then deleted. https and http only; private addresses are refused. |
 | `api` | `{ "type": "api", "url": "https://…", "itemsPath": "results", "paging": "page", "mapping": { … }, "module": { … } }` | See below. |
+| `open5e` | `{ "type": "open5e", "documents": ["tob", "deepm"], "kinds": ["monster", "spell"] }` | Books from Open5e. See below. |
+| `dnd5eapi` | `{ "type": "dnd5eapi", "edition": "2024", "kinds": ["spell"] }` | A fresh SRD copy. See below. |
+
+`POST …/modules/import` also takes `"feed": { "spells": true, "items": true }`
+(any source): after saving, the module's spells are imported into the Codex
+(so the spell list, study and the spell tree have them) and its items into
+the shop's item database. Same name and source is skipped, or updated with
+`"replace": true`. The answer then carries `fed: { spells, items }` counts.
+Monsters and conditions need no extra step: the encounter builder,
+initiative and rules cards read every enabled module.
 
 ### Markdown files (zip, folder, git)
 
@@ -124,6 +134,33 @@ paths separated by commas are joined), `kind`, `summary`, `aliases`, `id`,
 (with `nextPath`). `textFormat` is `markdown` (default), `html` or `text`.
 `token` and `authHeader` send a credential. A default kind for every record
 can be set with `kind`. `maxItems` (default 5000) bounds the import.
+
+### Open5e and the 5e SRD API (free, no key)
+
+World settings → Game module → Import → **Open5e** or **5e SRD API**.
+
+- `GET …/modules/sources` (DM) lists Open5e's books (`key`, name,
+  publisher, game system, licence) and the 5e SRD API editions. The same
+  list is the agent tool `list_content_books`; `import_content` imports
+  (a write the DM approves).
+- **open5e** reads `https://api.open5e.com/v2/` (or `base`): spells,
+  creatures, magic items, gear, conditions, feats, backgrounds and species
+  of the chosen books (at most 12 per module). Terms get the same `data`
+  and card layout as the built-in SRD, so player cards hide a monster's
+  numbers the same way. Each spell's source is its book; spells from the
+  SRD 5.2 book use `SRD 5.2.1`, so they are not added to the Codex twice.
+  Monsters keep Open5e's habitats in `data.environments`; the encounter
+  generator uses them for its environment filter (a creature tagged with
+  12 or more counts as "anywhere" and goes by type).
+- **dnd5eapi** builds the module the same way the built-ins are built
+  (`srd5e.ts`), from the database dnd5eapi.co serves
+  (`5e-bits/5e-srd-api`, `packages/5e-database/src`, or `base`): one file
+  per list instead of one API call per entry, since dnd5eapi.co limits how
+  fast a client may call it. Use it to pick up fixes made after this
+  release; the module id is `dnd5eapi-2014` / `dnd5eapi-2024`.
+- `kinds` narrows either import. A preview and the save after it share one
+  download (kept 15 minutes). The credit line names each book, its
+  publisher and licence (OGL 1.0a or CC-BY-4.0) and is shown in Credits.
 
 ## Looking things up
 

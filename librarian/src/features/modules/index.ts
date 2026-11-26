@@ -12,6 +12,9 @@ import { playerCard } from './hide.ts';
 import { summarize, preview } from './format.ts';
 import { readModule } from './importers.ts';
 import { findMatches } from './match.ts';
+import { feedModule, readFeed } from './feed.ts';
+import { DND5EAPI_BASE, open5eDocuments } from './sources.ts';
+import { OPEN5E_BASE, OPEN5E_ENDPOINTS } from './open5e.ts';
 import { searchRules, searchTerms } from './search.ts';
 import { SCHEMA, available, moduleDoc, removeImported, saveImported, setEnabled, worldModules } from './store.ts';
 
@@ -101,6 +104,18 @@ function routes(d: Deps) {
     throw new HttpError(404, 'Unknown card source');
   });
 
+  // ---- free content sources (DM): what can be pulled in one step ----
+  r.get('/sources', requireDM, async (req, res) => {
+    const kinds = [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))];
+    let open5e: any;
+    try { open5e = await open5eDocuments(d, { base: typeof req.query.open5e === 'string' ? req.query.open5e : undefined }); }
+    catch (e: any) { open5e = { base: OPEN5E_BASE, documents: [], error: String(e?.message ?? e).slice(0, 200) }; }
+    res.json({
+      open5e: { ...open5e, kinds, lists: OPEN5E_ENDPOINTS.map((e) => ({ kind: e.kind, label: e.label })) },
+      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
+    });
+  });
+
   // ---- import (DM): always preview, then save ----
   const raw = express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '16mb' });
   const body = (req: any): { b: any; zip?: Buffer } => {
@@ -128,7 +143,11 @@ function routes(d: Deps) {
     saveImported(d.db, W(res), m.module, m.source, b.replace === true, b.enable !== false);
     audit(d.db, W(res), me(res), 'modules.import', `${m.module.id} ${m.module.terms.length} terms`);
     d.hub.emit(W(res), 'modules', {}, () => true);
-    res.json({ ...preview(m.module, m.warnings), saved: true, modules: worldModules(d.db, W(res)).enabled });
+    // Optionally, spells into the Codex and items into the shop's item database, in the same step.
+    const feed = readFeed(b.feed);
+    const fed = feed ? feedModule(d, W(res), m.module.id, { ...feed, replace: feed.replace || b.replace === true }, me(res)) : null;
+    if (fed) audit(d.db, W(res), me(res), 'modules.feed', `${m.module.id}${fed.spells ? ` spells +${fed.spells.added} ~${fed.spells.replaced} =${fed.spells.skipped}` : ''}${fed.items ? ` items +${fed.items.added} ~${fed.items.updated} =${fed.items.skipped}` : ''}`);
+    res.json({ ...preview(m.module, m.warnings), saved: true, modules: worldModules(d.db, W(res)).enabled, ...(fed ? { fed } : {}) });
   });
 
   void moduleDoc;
@@ -154,6 +173,26 @@ const feature: Feature = {
       props: { term: { type: 'string', description: 'The name to look up' }, kind: { type: 'string', enum: ['spell', 'condition', 'monster', 'rule', 'item', 'action', 'class', 'other'] } },
       required: ['term'],
       call: (a) => ({ method: 'GET', path: `/modules/terms?q=${encodeURIComponent(a.term)}${a.kind ? `&kind=${encodeURIComponent(a.kind)}` : ''}&limit=10` }),
+    },
+    {
+      name: 'list_content_books', dmOnly: true,
+      description: "DM: the free books Alexandria can pull spells, monsters, magic items, gear, conditions, feats, backgrounds and species from: Open5e's books (Tome of Beasts 1-3, Creature Codex, Deep Magic, Vault of Magic, Tome of Heroes, Level Up A5e, Black Flag, the SRDs ...) with their keys, publisher and licence, and the 5e SRD API editions. Use the keys with import_content.",
+      props: {},
+      call: () => ({ method: 'GET', path: '/modules/sources' }),
+    },
+    {
+      name: 'import_content', write: true,
+      description: "DM: add a game module from Open5e books (source open5e, books = keys from list_content_books, e.g. tob, deepm, vom) or a fresh copy of the SRD from the 5e SRD API (source dnd5eapi, edition 2014 or 2024). Its monsters go straight into the encounter builder and initiative; its spells into the Codex and its items into the shop's item database unless told not to. Optionally only some kinds.",
+      props: {
+        source: { type: 'string', enum: ['open5e', 'dnd5eapi'] },
+        books: { type: 'array', items: { type: 'string' }, description: 'Open5e book keys (open5e only), at most 12' },
+        edition: { type: 'string', enum: ['2024', '2014'], description: 'dnd5eapi only' },
+        kinds: { type: 'array', items: { type: 'string', enum: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] }, description: 'Only these kinds (default: all)' },
+        addSpellsToCodex: { type: 'boolean', description: 'Default true' },
+        addItemsToShop: { type: 'boolean', description: 'Default true' },
+      },
+      required: ['source'],
+      call: (a) => ({ method: 'POST', path: '/modules/import', body: { type: a.source === 'dnd5eapi' ? 'dnd5eapi' : 'open5e', ...(a.source === 'dnd5eapi' ? { edition: a.edition === '2014' ? '2014' : '2024' } : { documents: Array.isArray(a.books) ? a.books : typeof a.books === 'string' ? String(a.books).split(/[\s,]+/).filter(Boolean) : [] }), ...(Array.isArray(a.kinds) && a.kinds.length ? { kinds: a.kinds } : {}), replace: true, feed: { spells: a.addSpellsToCodex !== false, items: a.addItemsToShop !== false } } }),
     },
     {
       name: 'read_term',
