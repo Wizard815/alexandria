@@ -63,3 +63,9 @@
 .ag-tree-head .ag-tree-title { font-size: 0.9em; margin-left: 4px; }
 .ag-tree-menu { padding: 4px; border: 1px solid var(--line); border-radius: 8px; }
 .ag-tree-menu > button, .ag-tree-menu > button.b { justify-content: flex-start; width: 100%; }
+
+/* The quick helper (a small second model) above the table helper's chat. */
+.quick-help { margin-bottom: 8px; }
+.quick-help input.grow { flex: 1; min-width: 0; width: auto; }
+.quick-answer, .quick-handoff { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.quick-link { min-height: 0; padding: 0 4px; text-decoration: underline; }

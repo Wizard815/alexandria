@@ -73,7 +73,8 @@ export function keywordLabels(d: Deps, worldId: string, question: string, topics
   if (intent !== 'fact') return make(topic ? 'real-world-allowed' : item ? 'item' : 'world', 0.9);
   if (item) return make('item', 0.8, `Names an item the asker can see (${item}).`);
   if (RULES_STRONG.test(question) && !named) return make('rules', 0.85, 'A game rules question.');
-  if (RULES_WEAK.test(question) && !named && searchRules(d.db, worldId, question, 1).length) return make('rules', 0.7, 'A game rules question.');
+  // "Who rules the lighthouse?" uses rules as a verb: not a rules question.
+  if (RULES_WEAK.test(question.replace(/\b(who|which \w+|that)\s+rules?\b/gi, '')) && !named && searchRules(d.db, worldId, question, 1).length) return make('rules', 0.7, 'A game rules question.');
   if (topic) return make('real-world-allowed', 0.8, `About an allowed topic (${topic}).`);
   return make('world', named ? 0.9 : 0.7);
 }

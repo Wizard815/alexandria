@@ -727,6 +727,10 @@ const PLAYER_ROUTES = [
   'POST /libshare/seen',
   'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel', 'POST /shop/shops/:sid/haggle',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
+  // The quick helper: a question to the small model (it reads only what this player may see and changes nothing).
+  'POST /helper/quick',
+  // Discord: a player gets their own one-time link code and unlinks their own Discord account.
+  'POST /discord/me/code', 'DELETE /discord/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
 const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/)/;
