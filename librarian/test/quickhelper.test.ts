@@ -162,7 +162,8 @@ test('TestQuickHelper_TurnOptionsSeeTheCombat', async () => {
   assert.match(r.answer, /Attack/);
   const u = userText(last());
   assert.match(u, /Combat is on, round 2/);
-  assert.match(u, /HP: 12 of 12 \(combat tracker\)/, 'their own HP from the tracker when there is no sheet');
+  // With the player sheet in, adding them to the tracker seeds their sheet; before it, the tracker line is used.
+  assert.match(u, /HP: 12 of 12( \(combat tracker\))?\./, 'their own HP from the sheet or the tracker');
   assert.match(u, /Question: What can I do on my turn\?/);
   await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: false });
 });
