@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { PageHead } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import Chat from './Chat.tsx';
+import QuickHelp, { type QuickHandoff } from './QuickHelp.tsx';
 import './agent.css';
 
 const KEY = 'alx-ask-mode';
@@ -18,6 +19,13 @@ export default function AskPage() {
   const brokerOn = (info?.settings as any)?.brokerEnabled !== false;
   const m = !brokerOn ? 'helper' : helperOn ? mode : 'broker';
   const pick = (v: 'broker' | 'helper') => { setMode(v); try { localStorage.setItem(KEY, v); } catch { /* private window */ } };
+  // The quick helper hands a question on: into the box of the table helper or the broker, to check and send.
+  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
+  const handoff = (h: QuickHandoff) => {
+    const to = h.to === 'broker' && brokerOn ? 'broker' : helperOn ? 'helper' : 'broker';
+    pick(to);
+    setPrefill((p) => ({ text: h.question, n: (p?.n ?? 0) + 1 }));
+  };
   return (
     <div className="page">
       <PageHead title="Ask" lead={m === 'helper' ? 'Your table helper: your character, your items, the rules and what the party learned tonight. Out of character; it cannot change anything.' : 'Ask about what your character knows: places, people, what happened and your items. It cannot change anything.'} />
@@ -27,10 +35,11 @@ export default function AskPage() {
           <button type="button" role="tab" aria-selected={m === 'helper'} className={`btn small${m === 'helper' ? ' on' : ''}`} onClick={() => pick('helper')} data-testid="ask-helper">Table helper</button>
         </div>
       )}
+      {m === 'helper' && <QuickHelp onHandoff={handoff} />}
       <div className="card ag-ask">
         {m === 'helper'
-          ? <Chat key="helper" harness="player" mode="helper" placeholder="What does Shield do? What's in my pack? What did we learn tonight?" />
-          : <Chat key="broker" harness="player" placeholder="What would you like to know?" />}
+          ? <Chat key="helper" harness="player" mode="helper" prefill={prefill} placeholder="What does Shield do? What's in my pack? What did we learn tonight?" />
+          : <Chat key="broker" harness="player" prefill={prefill} placeholder="What would you like to know?" />}
       </div>
     </div>
   );
