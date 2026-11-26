@@ -6,8 +6,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, Modal, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
-import { LogList, PickModal, TaskLine } from './Player.tsx';
-import { CSS, GroupChip, TierChip, splitScope, useDowntime, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
+import { EventCard, LogList, PickModal, TaskLine } from './Player.tsx';
+import { CSS, GroupChip, NO_OUTCOME, TierChip, splitScope, useDowntime, type EventDef, type Outcome, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
 
 const PARTY = 'party';
 const TIERS: [Tier, string][] = [['common', 'Common'], ['uncommon', 'Uncommon'], ['rare', 'Rare'], ['very-rare', 'Very rare'], ['legendary', 'Legendary']];
@@ -59,6 +59,12 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
             </div>
           ))}
         </>
+      )}
+      {(o.data.events ?? []).length > 0 && (
+        <div className="stack tight" data-testid="downtime-dm-events">
+          <strong className="small"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Events waiting for a roll</strong>
+          {o.data.events!.map((e) => <EventCard key={e.id} e={e} dm onDone={() => void o.reload()} />)}
+        </div>
       )}
       <ErrorBox error={act.error} />
       {forPlayer && r && <ForPlayer player={forPlayer} onClose={() => setForPlayer(null)} />}
@@ -284,7 +290,7 @@ export function Activities() {
   const td = tierDays ?? Object.fromEntries((o.data?.tiers ?? []).map((t) => [t.id, t.days]));
   const saveTiers = () => act.run(async () => { await w.call('PATCH', '/settings', { downtimeTierDays: td }); setTierDays(null); });
   const save = () => act.run(async () => {
-    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward };
+    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward, events: edit!.events ?? [], eventChance: edit!.eventChance ?? null };
     if (edit!.id) await w.call('PATCH', `/downtime/activities/${edit!.id}`, body); else await w.call('POST', '/downtime/activities', body);
     setEdit(null);
   });
@@ -311,7 +317,7 @@ export function Activities() {
               <h3 style={{ margin: '6px 0 0', fontSize: 14 }}><TierChip tier={t} label={label} /></h3>
               {rows.map((a) => (
                 <div key={a.id} className="row between" style={{ gap: 8, opacity: a.status === 'hidden' ? 0.5 : 1 }}>
-                  <span><strong>{a.name}</strong> {a.group && <GroupChip />} <span className="tiny muted">{a.daysNeeded}d{a.hoursPerDay < 8 ? ` × ${a.hoursPerDay}h` : ''}{a.repeatable ? ' · repeatable' : ''}{a.source === 'player' ? ' · a player\'s' : a.source === 'premade' ? '' : ' · yours'}{a.status === 'proposed' ? ' · waiting for you' : ''}</span></span>
+                  <span><strong>{a.name}</strong> {a.group && <GroupChip />} <span className="tiny muted">{a.events?.length ? `${a.events.length} event${a.events.length === 1 ? '' : 's'} · ` : ''}{a.daysNeeded}d{a.hoursPerDay < 8 ? ` × ${a.hoursPerDay}h` : ''}{a.repeatable ? ' · repeatable' : ''}{a.source === 'player' ? ' · a player\'s' : a.source === 'premade' ? '' : ' · yours'}{a.status === 'proposed' ? ' · waiting for you' : ''}</span></span>
                   <span className="row" style={{ gap: 4 }}>
                     {!a.link && <button type="button" className="btn small ghost" onClick={() => setEdit(a)}>Edit</button>}
                     {!a.link && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void hide(a)}>{a.status === 'hidden' ? 'Show' : a.id.startsWith('pre-') ? 'Hide' : 'Remove'}</button>}
@@ -335,6 +341,7 @@ export function Activities() {
               <label className="small"><input type="checkbox" checked={!!edit.group} onChange={(e) => setEdit({ ...edit, group: e.target.checked })} /> Group activity (the party shares it)</label>
             </div>
             <RewardFields r={asReward(edit.reward as any)} onChange={(r) => setEdit({ ...edit, reward: r })} />
+            <EventsEditor events={edit.events ?? []} chance={edit.eventChance ?? null} onChange={(events, eventChance) => setEdit({ ...edit, events, eventChance })} />
             <ErrorBox error={act.error} />
             <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button>
@@ -344,5 +351,43 @@ export function Activities() {
         </Modal>
       )}
     </div>
+  );
+}
+
+const blankEvent = (): EventDef => ({ title: '', text: '', check: '', dc: 12, success: { ...NO_OUTCOME }, failure: { ...NO_OUTCOME } });
+
+/** Random events on an activity: what happens, the check and DC, what success and failure do. */
+function EventsEditor({ events, chance, onChange }: { events: EventDef[]; chance: number | null; onChange: (e: EventDef[], chance: number | null) => void }) {
+  const set = (i: number, e: EventDef) => onChange(events.map((x, j) => (j === i ? e : x)), chance);
+  const out = (o: Outcome, f: (o: Outcome) => void, label: string, bad = false) => (
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span className="tiny" style={{ width: 56 }}>{label}</span>
+      <input className="input grow" value={o.text} maxLength={300} onChange={(ev) => f({ ...o, text: ev.target.value })} placeholder={bad ? 'Bitten and chased off' : 'You clear them out'} aria-label={`${label} text`} />
+      <label className="tiny">gp <input className="input" type="number" style={{ width: 64 }} value={o.cp / 100} onChange={(ev) => f({ ...o, cp: Math.round(Number(ev.target.value) * 100) || 0 })} aria-label={`${label} gp`} /></label>
+      <label className="tiny">days <input className="input" type="number" style={{ width: 56 }} value={o.days} onChange={(ev) => f({ ...o, days: Math.round(Number(ev.target.value)) || 0 })} aria-label={`${label} days`} /></label>
+      {bad && <label className="tiny">damage <input className="input" type="number" min={0} style={{ width: 56 }} value={o.damage} onChange={(ev) => f({ ...o, damage: Math.max(0, Math.round(Number(ev.target.value)) || 0) })} aria-label={`${label} damage`} /></label>}
+      {bad && <label className="tiny">exhaustion <input className="input" type="number" min={0} max={6} style={{ width: 48 }} value={o.exhaustion} onChange={(ev) => f({ ...o, exhaustion: Math.max(0, Math.min(6, Math.round(Number(ev.target.value)) || 0)) })} aria-label={`${label} exhaustion`} /></label>}
+      <input className="input" style={{ width: 120 }} value={o.item} maxLength={120} onChange={(ev) => f({ ...o, item: ev.target.value })} placeholder="Item" aria-label={`${label} item`} />
+    </div>
+  );
+  return (
+    <details className="stack tight" open={events.length > 0}>
+      <summary className="small"><strong>Random events</strong> ({events.length}) · things that can happen on a downtime day</summary>
+      <label className="small">Chance per day <input className="input" type="number" min={0} max={100} style={{ width: 64 }} value={chance ?? ''} placeholder="world" onChange={(ev) => onChange(events, ev.target.value === '' ? null : Math.max(0, Math.min(100, Number(ev.target.value) || 0)))} aria-label="Event chance per day" /> % <span className="tiny muted">(empty: the world's default)</span></label>
+      {events.map((e, i) => (
+        <div key={i} className="card stack tight" style={{ padding: 8 }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <input className="input grow" value={e.title} maxLength={80} onChange={(ev) => set(i, { ...e, title: ev.target.value })} placeholder="Rats in the cellar!" aria-label="Event title" />
+            <input className="input" style={{ width: 120 }} value={e.check} maxLength={40} onChange={(ev) => set(i, { ...e, check: ev.target.value })} placeholder="Check (Athletics)" aria-label="Check" />
+            <label className="small">DC <input className="input" type="number" min={1} max={40} style={{ width: 56 }} value={e.dc} onChange={(ev) => set(i, { ...e, dc: Math.max(1, Number(ev.target.value) || 12) })} /></label>
+            <button type="button" className="btn small ghost" onClick={() => onChange(events.filter((_, j) => j !== i), chance)} aria-label={`Remove ${e.title || 'event'}`}>✕</button>
+          </div>
+          <input className="input" value={e.text} maxLength={400} onChange={(ev) => set(i, { ...e, text: ev.target.value })} placeholder="A swarm of rats boils out of a broken barrel." aria-label="What happens" />
+          {out(e.success, (o) => set(i, { ...e, success: o }), e.check ? 'Success' : 'Result')}
+          {e.check && out(e.failure, (o) => set(i, { ...e, failure: o }), 'Failure', true)}
+        </div>
+      ))}
+      <button type="button" className="btn small" onClick={() => onChange([...events, blankEvent()], chance)}>＋ Event</button>
+    </details>
   );
 }

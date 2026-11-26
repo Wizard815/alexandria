@@ -7,8 +7,16 @@
   "summary": "Downtime activities from common to legendary. The DM presses Downtime when days pass and each player picks what to spend them on, skips, or makes a new activity. Progress, rewards and a log of what was done, when and for how long.",
   "alexandria": ">=0.1",
   "targets": {
-    "builtFor": ["clock"],
-    "worksWith": ["sheet", "table", "codex", "assistant", "inventory"]
+    "builtFor": [
+      "clock"
+    ],
+    "worksWith": [
+      "sheet",
+      "table",
+      "codex",
+      "assistant",
+      "inventory"
+    ]
   },
   "options": {
     "dayHours": {
@@ -41,6 +49,13 @@
       "default": false,
       "label": "Give rewards as soon as a task is done",
       "help": "Off: the DM presses Give reward."
+    },
+    "eventChance": {
+      "type": "int",
+      "label": "Chance of a random event per downtime day (percent, 0 turns them off)",
+      "default": 10,
+      "min": 0,
+      "max": 100
     }
   },
   "presets": {
@@ -62,6 +77,47 @@
         },
         "tags": [
           "money"
+        ],
+        "events": [
+          {
+            "id": "brawl",
+            "title": "A fight breaks out",
+            "text": "Two customers start swinging at each other.",
+            "check": "Athletics",
+            "dc": 12,
+            "success": {
+              "text": "You throw them out. The boss tips you.",
+              "gp": 2
+            },
+            "failure": {
+              "text": "A chair catches you on the way past.",
+              "damage": 2
+            }
+          },
+          {
+            "id": "thief",
+            "title": "Light fingers",
+            "text": "A pickpocket is working the room.",
+            "check": "Perception",
+            "dc": 13,
+            "success": {
+              "text": "You catch them. A small reward.",
+              "gp": 3
+            },
+            "failure": {
+              "text": "Your wages go missing.",
+              "gp": -1
+            }
+          },
+          {
+            "id": "generous",
+            "title": "A generous patron",
+            "text": "A traveller takes a liking to you.",
+            "success": {
+              "text": "They leave a tip.",
+              "gp": 2
+            }
+          }
         ]
       },
       {
@@ -75,6 +131,48 @@
         },
         "tags": [
           "social"
+        ],
+        "events": [
+          {
+            "id": "drinking-contest",
+            "title": "Drinking contest",
+            "text": "A dwarf slams a tankard down in front of you.",
+            "check": "Constitution",
+            "dc": 14,
+            "success": {
+              "text": "You win the pot and the crowd.",
+              "gp": 10
+            },
+            "failure": {
+              "text": "You wake up somewhere unfamiliar.",
+              "gp": -5,
+              "exhaustion": 1
+            }
+          },
+          {
+            "id": "rival",
+            "title": "An old rival",
+            "text": "Someone you crossed is at the bar.",
+            "check": "Persuasion",
+            "dc": 13,
+            "success": "You part on good terms.",
+            "failure": "They remember you, and not kindly (DM's choice)."
+          },
+          {
+            "id": "card-game",
+            "title": "A friendly card game",
+            "text": "There's a seat open at the table.",
+            "check": "Insight",
+            "dc": 12,
+            "success": {
+              "text": "You read the table and win.",
+              "gp": 6
+            },
+            "failure": {
+              "text": "You read it wrong.",
+              "gp": -4
+            }
+          }
         ]
       },
       {
@@ -85,6 +183,17 @@
         "repeatable": true,
         "tags": [
           "social"
+        ],
+        "events": [
+          {
+            "id": "vision",
+            "title": "A sign",
+            "text": "The candles gutter all at once.",
+            "check": "Religion",
+            "dc": 13,
+            "success": "A brief vision (DM's choice).",
+            "failure": "Just a draught."
+          }
         ]
       },
       {
@@ -98,6 +207,96 @@
         },
         "tags": [
           "craft"
+        ],
+        "events": [
+          {
+            "id": "wolves",
+            "title": "Wolves",
+            "text": "Grey shapes move between the trees.",
+            "check": "Survival",
+            "dc": 13,
+            "success": {
+              "text": "You slip away and find a rare root on the way.",
+              "item": "Rare root"
+            },
+            "failure": {
+              "text": "You run, dropping half of what you gathered.",
+              "damage": 4,
+              "days": -1
+            }
+          },
+          {
+            "id": "rare-herb",
+            "title": "A rare bloom",
+            "text": "A flower you've only read about.",
+            "check": "Nature",
+            "dc": 14,
+            "success": {
+              "item": "Moonpetal",
+              "text": "Worth a good price to an alchemist."
+            },
+            "failure": "You pick it wrong and it wilts."
+          }
+        ]
+      },
+      {
+        "id": "pre-cellar",
+        "name": "Clean out a cellar",
+        "tier": "common",
+        "summary": "Odd jobs: clear out a cellar, a stable or a storeroom for coin. Things live down there.",
+        "reward": {
+          "text": "Pay for the job",
+          "gp": 1
+        },
+        "tags": [
+          "money",
+          "work",
+          "chores"
+        ],
+        "events": [
+          {
+            "id": "rats",
+            "title": "Rats in the cellar!",
+            "text": "A swarm of rats boils out of a broken barrel.",
+            "check": "Athletics",
+            "dc": 12,
+            "success": {
+              "text": "You clear them out. The owner pays extra.",
+              "gp": 5
+            },
+            "failure": {
+              "text": "Bitten and chased up the stairs.",
+              "damage": 3,
+              "exhaustion": 1
+            },
+            "weight": 3
+          },
+          {
+            "id": "coin-cache",
+            "title": "A loose brick",
+            "text": "Behind a loose brick something glints.",
+            "check": "Investigation",
+            "dc": 13,
+            "success": {
+              "text": "An old purse someone hid long ago.",
+              "gp": 8
+            },
+            "failure": {
+              "text": "Just a dead spider and a lot of dust."
+            }
+          },
+          {
+            "id": "spoiled",
+            "title": "Spoiled stores",
+            "text": "The smell is unbearable down here.",
+            "check": "Constitution",
+            "dc": 11,
+            "success": "You hold your breath and finish the job.",
+            "failure": {
+              "text": "You lose a day being sick.",
+              "days": -1
+            }
+          }
         ]
       },
       {
@@ -121,6 +320,20 @@
         "tags": [
           "social",
           "lore"
+        ],
+        "events": [
+          {
+            "id": "followed",
+            "title": "Followed",
+            "text": "Someone has been asking about you too.",
+            "check": "Stealth",
+            "dc": 13,
+            "success": "You lose them, and learn who sent them (DM's choice).",
+            "failure": {
+              "text": "They corner you in an alley.",
+              "damage": 3
+            }
+          }
         ]
       },
       {
@@ -133,6 +346,35 @@
         },
         "tags": [
           "lore"
+        ],
+        "events": [
+          {
+            "id": "forbidden",
+            "title": "A forbidden shelf",
+            "text": "A locked case of books the librarian won't talk about.",
+            "check": "Sleight of Hand",
+            "dc": 15,
+            "success": {
+              "text": "Something you weren't meant to read (DM's choice).",
+              "days": 1
+            },
+            "failure": {
+              "text": "Caught. You are barred for a day.",
+              "days": -1
+            }
+          },
+          {
+            "id": "helpful-sage",
+            "title": "A helpful sage",
+            "text": "An old scholar notices what you're reading.",
+            "check": "Persuasion",
+            "dc": 12,
+            "success": {
+              "text": "They point you to the right book.",
+              "days": 1
+            },
+            "failure": "They lecture you for an hour."
+          }
         ]
       },
       {
@@ -156,6 +398,21 @@
         "days": 5,
         "tags": [
           "craft"
+        ],
+        "events": [
+          {
+            "id": "burn",
+            "title": "The forge flares",
+            "text": "A gust feeds the fire.",
+            "check": "Dexterity",
+            "dc": 12,
+            "success": "You pull back in time.",
+            "failure": {
+              "text": "A burn and a ruined piece.",
+              "damage": 2,
+              "days": -1
+            }
+          }
         ]
       },
       {
@@ -170,6 +427,39 @@
         "tags": [
           "money",
           "combat"
+        ],
+        "events": [
+          {
+            "id": "cheat",
+            "title": "A rigged fight",
+            "text": "Your opponent has something up their sleeve.",
+            "check": "Perception",
+            "dc": 14,
+            "success": {
+              "text": "You expose it and the crowd pays you.",
+              "gp": 15
+            },
+            "failure": {
+              "text": "A blade you didn't see.",
+              "damage": 6
+            }
+          },
+          {
+            "id": "champion",
+            "title": "The champion",
+            "text": "The house champion calls you out.",
+            "check": "Athletics",
+            "dc": 16,
+            "success": {
+              "text": "You win. Your name is called all night.",
+              "gp": 40
+            },
+            "failure": {
+              "text": "You are carried out.",
+              "damage": 8,
+              "exhaustion": 1
+            }
+          }
         ]
       },
       {
@@ -284,6 +574,29 @@
           "money",
           "business",
           "group"
+        ],
+        "events": [
+          {
+            "id": "inspector",
+            "title": "The tax collector",
+            "text": "An official with a ledger and a smile.",
+            "check": "Persuasion",
+            "dc": 14,
+            "success": "All in order.",
+            "failure": {
+              "text": "A fine.",
+              "gp": -10
+            }
+          },
+          {
+            "id": "rush",
+            "title": "A busy night",
+            "text": "A festival crowd pours in.",
+            "success": {
+              "text": "Takings are good.",
+              "gp": 12
+            }
+          }
         ]
       },
       {
@@ -331,12 +644,13 @@
           "group"
         ]
       }
-    ]
+    ],
+    "downtimeEventChance": "$eventChance"
   },
   "rules": [
     {
       "term": "Downtime (house rule)",
-      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
+      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing. **Random events** can happen on a downtime day (about 1 in 10 by default): a quick-time check with a bonus on a success and a cost on a failure. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
     }
   ]
 }

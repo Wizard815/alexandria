@@ -28,7 +28,7 @@ addDowntimeLink({
       out.push({
         id: `craft-${rc.id}`, name: `Craft ${sp.name}`, tier: tierForSpellLevel(lvl), days: null, hoursPerDay: 8, repeatable: false,
         summary: `Work out ${sp.name} (${lvl ? `level ${lvl}` : 'cantrip'}) from spells you know. When the time is done the Codex asks the DM to approve it.`,
-        reward: { ...NO_REWARD, text: `Learn ${sp.name}` }, link: { kind: 'spell-craft', ref: rc.id }, tags: ['magic', 'codex'], group: false,
+        reward: { ...NO_REWARD, text: `Learn ${sp.name}` }, link: { kind: 'spell-craft', ref: rc.id }, tags: ['magic', 'codex'], group: false, events: [], eventChance: null,
       });
       if (out.length >= 60) break;
     }

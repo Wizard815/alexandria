@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, useAction, useToast } from '../../ui/index.tsx';
-import { CSS, GroupChip, KIND_LABEL, Progress, TierChip, isOpen, rewardText, splitScope, useDowntime, type Activity, type LogLine, type Overview, type Ranked, type Task } from './shared.tsx';
+import { CSS, GroupChip, KIND_LABEL, Progress, TierChip, isOpen, outcomeText, rewardText, splitScope, useDowntime, type DtEvent, type Activity, type LogLine, type Overview, type Ranked, type Task } from './shared.tsx';
 
 const FOLD = 'alx.downtime.later';
 
@@ -21,7 +21,16 @@ function PopupInner() {
   const o = useDowntime();
   const [later, setLater] = useState<string | null>(() => { try { return sessionStorage.getItem(FOLD); } catch { return null; } });
   const r = o.data?.round;
-  if (!o.data || !r || r.mine) return null;
+  const pending = o.data?.events ?? [];
+  if (!o.data) return null;
+  // After the pick (or with no round open): an event that happened on those days waits for a roll.
+  if ((!r || r.mine) && pending.length) {
+    const key = `ev:${pending[0].id}`;
+    const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
+    if (later === key) return <button type="button" className="btn dt-chip" data-testid="downtime-event-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Downtime event: roll</button>;
+    return <EventModal events={pending} onClose={() => fold(key)} onDone={() => void o.reload()} />;
+  }
+  if (!r || r.mine) return null;
   const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
   if (later === r.id) {
     return <button type="button" className="btn dt-chip" data-testid="downtime-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> Downtime: pick your {r.days === 1 ? 'day' : `${r.days} days`}</button>;
@@ -132,6 +141,77 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
   );
 }
 
+/** Something happened during downtime: the event cards, one after another. */
+function EventModal({ events, onClose, onDone }: { events: DtEvent[]; onClose: () => void; onDone: () => void }) {
+  useEffect(() => {
+    const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  return (
+    <div className="modal-back">
+      <style>{CSS}</style>
+      <div className="modal stack" role="dialog" aria-modal="true" aria-labelledby="dt-ev" data-testid="downtime-event-popup" style={{ maxWidth: 520 }}>
+        <div className="row between"><h2 id="dt-ev" style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Something happens</h2><button type="button" className="btn ghost small" onClick={onClose}>Later</button></div>
+        <EventCard key={events[0].id} e={events[0]} onDone={onDone} />
+        {events.length > 1 && <span className="tiny muted">{events.length - 1} more after this one</span>}
+      </div>
+    </div>
+  );
+}
+
+/** One quick-time event: what happens, the check, the stakes, and the roll. */
+export function EventCard({ e, onDone, dm = false }: { e: DtEvent; onDone?: () => void; dm?: boolean }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const [bonus, setBonus] = useState('');
+  const [own, setOwn] = useState('');
+  const [done, setDone] = useState<DtEvent | null>(null);
+  const shown = done ?? e;
+  // The player sees the result first and moves on with Continue; the DM's list just updates.
+  const roll = (body: object) => act.run(async () => { setDone(await w.call<DtEvent>('POST', `/downtime/events/${e.id}/roll`, body)); if (dm) onDone?.(); });
+  const decide = (result: string) => act.run(async () => { setDone(await w.call<DtEvent>('POST', `/downtime/events/${e.id}/decide`, { result })); onDone?.(); });
+  return (
+    <div className={`dt-event ${shown.status}`} data-testid="downtime-event">
+      <span className="tiny muted">{e.player ? `${e.player} · ` : ''}During {e.task}</span>
+      <strong>{e.title}</strong>
+      {e.text && <span className="small">{e.text}</span>}
+      {e.check && <span className="small"><strong>{e.check}</strong> check, DC {e.dc}</span>}
+      <div className="dt-stakes">
+        {outcomeText(e.success) && <span><span style={{ color: '#3f9d5a' }}>{e.check ? 'Success' : 'What happens'}:</span> {outcomeText(e.success)}</span>}
+        {e.check && outcomeText(e.failure) && <span><span style={{ color: 'var(--danger, #c33)' }}>Failure:</span> {outcomeText(e.failure)}</span>}
+      </div>
+      {shown.status !== 'pending' ? (
+        <div className="row between" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <span className="small" data-testid="downtime-event-result"><strong style={{ color: shown.status === 'success' ? '#3f9d5a' : shown.status === 'failure' ? 'var(--danger, #c33)' : undefined }}>{shown.status === 'cancelled' ? 'Cancelled' : shown.status === 'success' ? 'Success' : 'Failure'}</strong>{shown.note ? <span className="muted"> · {shown.note.replace(/,? ?(success|failure)(: )?/, (_m: string, _r: string, more?: string) => (more ? ' → ' : ''))}</span> : null}</span>
+          {!dm && done && <button type="button" className="btn small primary" onClick={() => onDone?.()} data-testid="downtime-event-continue">Continue</button>}
+        </div>
+      ) : (
+        <>
+          {!dm && (e.check ? (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <label className="small">Your bonus <input className="input" type="number" min={-10} max={30} style={{ width: 64 }} value={bonus} onChange={(ev) => setBonus(ev.target.value)} aria-label={`Your ${e.check} bonus`} /></label>
+              <button type="button" className="btn primary" disabled={act.busy} onClick={() => void roll({ bonus: bonus === '' ? 0 : Number(bonus) })} data-testid="downtime-event-roll"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Roll</button>
+              <span className="tiny muted">or my own dice:</span>
+              <input className="input" type="number" min={-10} max={60} style={{ width: 64 }} value={own} onChange={(ev) => setOwn(ev.target.value)} aria-label="Total from my own dice" />
+              <button type="button" className="btn" disabled={act.busy || own === ''} onClick={() => void roll({ total: Number(own) })}>Use it</button>
+            </div>
+          ) : <button type="button" className="btn primary" disabled={act.busy} onClick={() => void roll({})}>OK</button>)}
+          {dm && (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn small" disabled={act.busy} onClick={() => void decide('success')}>Success</button>
+              {e.check && <button type="button" className="btn small" disabled={act.busy} onClick={() => void decide('failure')}>Failure</button>}
+              <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void decide('cancel')}>Cancel it</button>
+              <span className="tiny muted">or let the player roll</span>
+            </div>
+          )}
+        </>
+      )}
+      <ErrorBox error={act.error} />
+    </div>
+  );
+}
+
 /** Activities I can start, by tier, with the helper's three suggestions on top. */
 function StartList({ onPick, picked, player, scope: scope0 = 'all' }: { onPick: (a: Activity) => void; picked: string[]; player?: string; scope?: 'all' | 'personal' | 'group' }) {
   const { w } = useWorld();
@@ -147,7 +227,7 @@ function StartList({ onPick, picked, player, scope: scope0 = 'all' }: { onPick: 
   const card = (a: Activity, why?: string) => (
     <button key={a.id} type="button" className={`btn dt-act${picked.includes(`a:${a.id}`) ? ' on' : ''}`} aria-pressed={picked.includes(`a:${a.id}`)} onClick={() => onPick(a)}>
       <span className="row between" style={{ gap: 6 }}><strong>{a.name}</strong><span className="row" style={{ gap: 4 }}>{a.group && <GroupChip />}<TierChip tier={a.tier} label={a.tierLabel} /></span></span>
-      <span className="tiny muted">{a.daysNeeded} day{a.daysNeeded === 1 ? '' : 's'}{a.hoursPerDay < 8 ? `, ${a.hoursPerDay}h a day` : ''}{a.link?.kind === 'spell-craft' ? ' · Codex' : ''}{'text' in a.reward && (a.reward.text || a.reward.cp || a.reward.item) ? ` · ${rewardText(a.reward)}` : ''}</span>
+      <span className="tiny muted">{a.daysNeeded} day{a.daysNeeded === 1 ? '' : 's'}{a.hoursPerDay < 8 ? `, ${a.hoursPerDay}h a day` : ''}{a.link?.kind === 'spell-craft' ? ' · Codex' : ''}{a.events?.length ? ' · things can happen' : ''}{'text' in a.reward && (a.reward.text || a.reward.cp || a.reward.item) ? ` · ${rewardText(a.reward)}` : ''}</span>
       {why ? <span className="tiny">{why}</span> : <span className="tiny faint">{a.summary.slice(0, 110)}</span>}
     </button>
   );
@@ -258,6 +338,7 @@ export function PlayerDowntime() {
         <button type="button" className="btn primary" onClick={() => setPicking(true)}>{o.data.round.mine ? 'Change my pick' : 'Pick'}</button>
       </section>}
       {picking && o.data.round && <PickModal o={o.data} onClose={() => setPicking(false)} onDone={() => { setPicking(false); void o.reload(); }} />}
+      {(o.data.events ?? []).length > 0 && <section className="card stack tight" data-testid="downtime-events"><h2 style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Waiting for your roll</h2>{o.data.events!.map((e) => <EventCard key={e.id} e={e} onDone={() => void o.reload()} />)}</section>}
       {starting && <section className="card"><StartList picked={[]} onPick={(a) => void run(async () => { await w.call('POST', '/downtime/tasks', { activityId: a.id }); setStarting(false); }, `Started ${a.name}`)} /></section>}
       <ErrorBox error={act.error ?? tasks.error} />
       <section className="card" data-testid="downtime-personal">

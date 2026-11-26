@@ -27,6 +27,7 @@ import {
   PARTY, SCHEMA, activities, activity, addWork, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
   isGroup, saveActivity, setMember, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
 } from './store.ts';
+import { EVENTS_SCHEMA, announce, cancelPending, eventOut, eventRow, outcomeText, resolveEvent, rollForPick } from './events.ts';
 import { decideTier, rankActivities } from './suggest.ts';
 
 const enc = encodeURIComponent;
@@ -161,6 +162,7 @@ function routes(d: Deps) {
       ...base,
       round: round ? roundOut(db, w, round, viewer(res), nm, players(w)) : null,
       tasks,
+      events: all<any>(db, `SELECT * FROM downtime_events WHERE world_id = ? AND status = 'pending'${aid ? ' AND account_id = ?' : ''} ORDER BY created_at`, w, ...(aid ? [aid] : [])).map((x) => ({ ...eventOut(x), player: nm[x.account_id] ?? '' })),
       ...(dm ? { waitingRewards: listTasks(db, w, { status: 'done' }).filter((x) => !x.reward_given_at && hasReward(checkReward(parseJson(x.reward, {})))).length, proposals: tasks.filter((t) => t.status === 'proposed').length } : {}),
     });
   });
@@ -403,6 +405,7 @@ function routes(d: Deps) {
       }
       picks.push({ taskId: tid!, days });
     }
+    cancelPending(db, w, round.id, aid, me(res));
     let result;
     try { result = applyPick(d, w, round, aid, picks, skip, me(res), typeof b.note === 'string' ? b.note.slice(0, 300) : ''); } catch (e) {
       // A pick that does not fit leaves no new empty tasks behind.
@@ -410,9 +413,11 @@ function routes(d: Deps) {
       throw e;
     }
     for (const f of result.finished) afterFinish(w, f);
+    // Something may happen on those days: a quick-time event for the player to roll.
+    const events = skip ? [] : rollForPick(d, w, round.id, aid, picks);
     changed(w, aid);
     roundChanged(w, round.id, 'open');
-    res.json({ round: roundView(res, roundRow(db, w, round.id)), finished: result.finished.map((x) => out(res, x)) });
+    res.json({ round: roundView(res, roundRow(db, w, round.id)), finished: result.finished.map((x) => out(res, x)), events });
   });
 
   /** The DM closes the round. Players who did not answer are logged as missed. */
@@ -437,6 +442,7 @@ function routes(d: Deps) {
     if (!round || round.status !== 'open') throw new HttpError(404, 'No open downtime round');
     tx(db, () => {
       for (const p of all<any>(db, 'SELECT account_id FROM downtime_picks WHERE round_id = ?', round.id)) undoPick(d, w, round.id, p.account_id, me(res));
+      cancelPending(db, w, round.id, null, me(res));
       run(db, "UPDATE downtime_rounds SET status = 'cancelled', closed_at = ? WHERE id = ?", now(), round.id);
     });
     let clockBack = false;
@@ -444,6 +450,62 @@ function routes(d: Deps) {
     roundChanged(w, round.id, 'cancelled');
     changed(w, null);
     res.json({ ok: true, clockBack });
+  });
+
+  // ---- random events: quick-time checks on downtime days ----
+
+  r.get('/events', (req, res) => {
+    guestNo(res);
+    const w = W(res);
+    const nm = nameMap(w);
+    const aid = whose(res, req.query.player);
+    const st = typeof req.query.status === 'string' && ['pending', 'success', 'failure', 'cancelled'].includes(req.query.status) ? req.query.status : null;
+    const where = ['world_id = ?'];
+    const args: unknown[] = [w];
+    if (aid) { where.push('account_id = ?'); args.push(aid); }
+    if (st) { where.push('status = ?'); args.push(st); }
+    if (typeof req.query.round === 'string' && req.query.round) { where.push('round_id = ?'); args.push(req.query.round === 'current' ? openRound(db, w)?.id ?? '' : req.query.round); }
+    const rows = all<any>(db, `SELECT * FROM downtime_events WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ?`, ...args, Math.min(Math.max(Number(req.query.limit) || 50, 1), 200));
+    res.json({ events: rows.map((x) => ({ ...eventOut(x), player: nm[x.account_id] ?? '' })) });
+  });
+
+  function settle(res: Response, eid: string, how: { bonus?: number; total?: number; result?: 'success' | 'failure' }) {
+    const w = W(res);
+    const r = resolveEvent(d, w, eid, how, me(res));
+    announce(hub, w, r);
+    const nm = nameMap(w)[r.event.accountId] ?? 'Someone';
+    try { postChat(d, w, 'table', me(res), isDM(res) ? 'dm' : 'player', `🎲 ${nm}, during **${r.event.task}**: ${r.event.title}. ${r.event.note}`); } catch { /* no session running: the log has it */ }
+    return { ...r.event, outcomeText: outcomeText(r.outcome) };
+  }
+
+  /** Roll a pending event: { bonus } for d20 + bonus on the server, or { total } typed from the player's own dice. */
+  r.post('/events/:id/roll', requirePlayerOrDM, (req, res) => {
+    need(res);
+    const w = W(res);
+    const e = eventRow(db, w, String(req.params.id));
+    if (!e || (!isDM(res) && e.account_id !== me(res))) throw new HttpError(404, 'Event not found');
+    const n = (v: unknown, what: string, lo: number, hi: number) => { const x = Number(v); if (!Number.isInteger(x) || x < lo || x > hi) throw new HttpError(400, `${what} must be a whole number from ${lo} to ${hi}`); return x; };
+    const b = req.body ?? {};
+    const how = b.total !== undefined && b.total !== null && b.total !== '' ? { total: n(b.total, 'total', -10, 60) } : { bonus: b.bonus === undefined || b.bonus === null || b.bonus === '' ? 0 : n(b.bonus, 'bonus', -10, 30) };
+    res.json(settle(res, e.id, how));
+  });
+
+  /** The DM decides an event without a roll, or cancels it: { result: success | failure | cancel, note? }. */
+  r.post('/events/:id/decide', requireDM, (req, res) => {
+    need(res);
+    const w = W(res);
+    const e = eventRow(db, w, String(req.params.id));
+    if (!e) throw new HttpError(404, 'Event not found');
+    const result = req.body?.result;
+    if (result === 'cancel') {
+      if (e.status !== 'pending') throw new HttpError(409, 'That event is already settled');
+      run(db, "UPDATE downtime_events SET status = 'cancelled', resolved_at = ?, resolved_by = ?, note = ? WHERE id = ?", now(), me(res), typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : 'Cancelled by the DM', e.id);
+      writeLog(db, w, { accountId: e.account_id, taskId: e.task_id, taskName: e.task_name, kind: 'event', roundId: e.round_id, by: me(res), note: `${eventOut(e).title}: cancelled` });
+      hub.emit(w, 'downtime-event', { accountId: e.account_id, ids: [e.id] }, dmAnd(e.account_id));
+      return res.json(eventOut(eventRow(db, w, e.id)));
+    }
+    if (result !== 'success' && result !== 'failure') throw new HttpError(400, 'result must be success, failure or cancel');
+    res.json(settle(res, e.id, { result }));
   });
 
   // ---- the helper model: rank and decide ----
@@ -479,13 +541,14 @@ const P = (description: string) => ({ type: 'string', description });
 
 const feature: Feature = {
   id: 'downtime',
-  schema: SCHEMA,
+  schema: SCHEMA + EVENTS_SCHEMA,
   settings: {
     downtimeOn: { type: 'boolean', default: false },
     downtimeDayHours: { type: 'int', default: 8, min: 1, max: 24 },
     downtimePlayerNew: { type: 'enum', values: ['approve', 'free', 'off'], default: 'approve' },
     downtimeAdvanceClock: { type: 'boolean', default: true },
     downtimeAutoReward: { type: 'boolean', default: false },
+    downtimeEventChance: { type: 'int', default: 10, min: 0, max: 100 },
     downtimeTierDays: { type: 'json', default: { ...DEFAULT_TIER_DAYS }, validate: checkTierDays },
     downtimePremade: { type: 'json', default: [], validate: checkPremade },
   },
@@ -512,6 +575,23 @@ const feature: Feature = {
       name: 'downtime_suggest', description: 'Rank downtime activities for what a character wants (e.g. "earn money", "get stronger") with the small helper model; returns the best three with a reason each.',
       props: { player: P('DM: which player'), want: P('What they want from their downtime') },
       call: (a) => ({ method: 'POST', path: '/downtime/suggest', body: { player: a.player, want: a.want } }),
+    },
+    {
+      name: 'downtime_events', description: 'Random downtime events (quick-time checks that happened on downtime days): the event, its check and DC, what success and failure do, and the result. status pending lists the ones waiting for a roll.',
+      props: { player: P('DM: one player'), status: { type: 'string', enum: ['pending', 'success', 'failure', 'cancelled'] } },
+      call: (a) => ({ method: 'GET', path: `/downtime/events?${[a.player && `player=${enc(a.player)}`, a.status && `status=${enc(a.status)}`].filter(Boolean).join('&')}` }),
+    },
+    {
+      name: 'downtime_event_roll', playerOnly: true,
+      description: 'Roll your pending downtime event: bonus is your modifier for its check (the server rolls the d20), or total if you rolled your own dice.',
+      props: { event: P('Event id'), bonus: { type: 'integer' }, total: { type: 'integer' } }, required: ['event'],
+      call: (a) => ({ method: 'POST', path: `/downtime/events/${enc(a.event)}/roll`, body: { bonus: a.bonus, total: a.total } }),
+    },
+    {
+      name: 'downtime_event_decide', write: true, dmOnly: true,
+      description: 'Decide a pending downtime event without a roll (success or failure, applying its outcome) or cancel it.',
+      props: { event: P('Event id'), result: { type: 'string', enum: ['success', 'failure', 'cancel'] }, note: P('Why') }, required: ['event', 'result'],
+      call: (a) => ({ method: 'POST', path: `/downtime/events/${enc(a.event)}/decide`, body: { result: a.result, note: a.note } }),
     },
     {
       name: 'downtime_start', playerOnly: true,

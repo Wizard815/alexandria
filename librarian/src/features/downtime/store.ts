@@ -83,7 +83,7 @@ export const SCHEMA = `
     account_id TEXT NOT NULL,
     task_id TEXT,
     task_name TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL,              -- start | work | time | skip | missed | pause | resume | remove | edit | approve | complete | reward | join | leave
+    kind TEXT NOT NULL,              -- start | work | time | skip | missed | pause | resume | remove | edit | approve | complete | reward | join | leave | event
     minutes INTEGER NOT NULL DEFAULT 0,
     round_id TEXT,
     world_minutes INTEGER,

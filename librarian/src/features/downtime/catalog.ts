@@ -32,7 +32,21 @@ export interface Activity {
   tags: string[];
   /** A group activity: the party works on one shared task and its progress is everyone's together. */
   group: boolean;
+  /** Random events that can happen on a downtime day spent on it (a quick-time check with a bonus or a cost). */
+  events: EventDef[];
+  /** Percent chance per downtime day of an event; null: the world's default. */
+  eventChance: number | null;
 }
+
+/** What an event's result does: a line of story, coin (may be negative), an item, days of progress gained or lost, damage or healing, exhaustion. */
+export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number }
+export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0, damage: 0, heal: 0, exhaustion: 0 };
+/**
+ * A random event: "Rats in the cellar!" with a check (Athletics, DC 12). Success and failure each have an outcome.
+ * With no check it just happens (the success outcome). `weight` makes one likelier than another on the same activity.
+ */
+export interface EventDef { id: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight: number }
+export const MAX_EVENTS = 12;
 export interface Link { kind: string; ref?: string }
 
 export const MAX_DAYS = 3650;
@@ -93,8 +107,51 @@ export function checkActivity(raw: any, id: string): Activity {
     reward: checkReward(raw.reward),
     link,
     tags,
+    events: checkEvents(raw.events),
+    eventChance: raw.eventChance === undefined || raw.eventChance === null || raw.eventChance === '' ? null : whole(raw.eventChance, 'eventChance', 0, 100),
   };
 }
+
+export function checkOutcome(v: unknown, at: string): Outcome {
+  if (v === undefined || v === null) return { ...NO_OUTCOME };
+  if (typeof v === 'string') return { ...NO_OUTCOME, text: text(v, at, 300) };
+  if (typeof v !== 'object' || Array.isArray(v)) throw bad(`${at} must be text or { text, gp, item, qty, days, damage, heal, exhaustion }`);
+  const o = v as any;
+  const num = (k: string, lo: number, hi: number) => (o[k] === undefined || o[k] === null || o[k] === '' ? 0 : whole(o[k], `${at}.${k}`, lo, hi));
+  return {
+    text: text(o.text, `${at}.text`, 300),
+    cp: o.cp === undefined || o.cp === null ? num('gp', -100_000, 100_000) * 100 : whole(o.cp, `${at}.cp`, -10_000_000, 10_000_000),
+    item: text(o.item, `${at}.item`, 120),
+    qty: o.qty === undefined || o.qty === null ? 1 : whole(o.qty, `${at}.qty`, 1, 999),
+    days: num('days', -MAX_DAYS, MAX_DAYS),
+    damage: num('damage', 0, 500),
+    heal: num('heal', 0, 500),
+    exhaustion: num('exhaustion', -6, 6),
+  };
+}
+
+export function checkEvents(v: unknown): EventDef[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) throw bad('events must be a list');
+  if (v.length > MAX_EVENTS) throw bad(`At most ${MAX_EVENTS} events on one activity`);
+  const seen = new Set<string>();
+  return v.map((raw: any, i: number) => {
+    if (!raw || typeof raw !== 'object') throw bad(`events[${i}] must be an object`);
+    const title = text(raw.title, `events[${i}].title`, 80, true);
+    let eid = typeof raw.id === 'string' && /^[a-z0-9-]{1,40}$/.test(raw.id) ? raw.id : title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || `e${i}`;
+    while (seen.has(eid)) eid = `${eid.slice(0, 36)}-${i}`;
+    seen.add(eid);
+    const check = text(raw.check, `events[${i}].check`, 40);
+    return {
+      id: eid, title, text: text(raw.text, `events[${i}].text`, 400), check,
+      dc: check ? (raw.dc === undefined || raw.dc === null ? 12 : whole(raw.dc, `events[${i}].dc`, 1, 40)) : 0,
+      success: checkOutcome(raw.success, `events[${i}].success`),
+      failure: checkOutcome(raw.failure, `events[${i}].failure`),
+      weight: raw.weight === undefined || raw.weight === null ? 1 : whole(raw.weight, `events[${i}].weight`, 1, 100),
+    };
+  });
+}
+export const hasOutcome = (o: Outcome) => !!(o.text || o.cp || o.item || o.days || o.damage || o.heal || o.exhaustion);
 
 /**
  * The ready-made activities. They are data in the rule file (mods/downtime.alxmod.json, presets.downtimePremade), so a

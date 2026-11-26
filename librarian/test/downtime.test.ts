@@ -248,3 +248,57 @@ test('TestDowntime_GroupTasksAreSharedApartFromPersonal', async () => {
   assert.equal((await call('POST', `${D()}/tasks/${(await task('jess', 'Research lore')).id}/join`, T.jess)).status, 409, 'personal tasks have no members');
   await ok('DELETE', `${D()}/tasks/${fest.id}`, T.dm);
 });
+
+test('TestDowntime_RandomEventsAreQuickTimeChecks', async () => {
+  const acts = (await ok('GET', `${D()}/activities`, T.tom)).activities;
+  const cellar = acts.find((a: any) => a.id === 'pre-cellar');
+  assert.ok(cellar.events.some((e: any) => e.title === 'Rats in the cellar!' && e.check === 'Athletics' && e.dc === 12));
+  // The DM gives the cellar one event only, and every downtime day has one.
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Rats in the cellar!', text: 'A swarm of rats.', check: 'Athletics', dc: 12, success: { text: 'Cleared out', gp: 5 }, failure: { text: 'Bitten', damage: 3, exhaustion: 1 } }] });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100 });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const p = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal(p.events.length, 1);
+  const ev = p.events[0];
+  assert.equal(ev.status, 'pending');
+  assert.equal(ev.accountId, ID.tom);
+  // A new pick replaces the old one, and the event that was not rolled yet goes with it.
+  const p2 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal((await ok('GET', `${D()}/events?status=cancelled`, T.tom)).events.some((e: any) => e.id === ev.id), true);
+  const ev2 = p2.events[0];
+  // Jess cannot roll Tom's event; Tom sees it on his overview.
+  assert.equal((await call('POST', `${D()}/events/${ev2.id}/roll`, T.jess, { bonus: 2 })).status, 404);
+  assert.ok((await ok('GET', D(), T.tom)).events.some((e: any) => e.id === ev2.id));
+  // Tom rolls with his own dice: 15 beats DC 12. The bonus coin goes to his purse.
+  const before = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  const r = await ok('POST', `${D()}/events/${ev2.id}/roll`, T.tom, { total: 15 });
+  assert.equal(r.status, 'success');
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, before + 500);
+  assert.equal((await call('POST', `${D()}/events/${ev2.id}/roll`, T.tom, { total: 15 })).status, 409, 'settled once');
+  // A failure: damage and a level of exhaustion on his sheet.
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 20, maxHp: 20 });
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const p3 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const f = await ok('POST', `${D()}/events/${p3.events[0].id}/roll`, T.tom, { total: 4 });
+  assert.equal(f.status, 'failure');
+  assert.match(f.note, /Athletics 4 vs DC 12, failure: Bitten, 3 damage, \+1 exhaustion/);
+  const sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.tom}`, T.tom);
+  const v = sheet.vitals ?? sheet;
+  assert.equal(v.hp, 17);
+  assert.ok(v.conditions.includes('Exhaustion 1'), JSON.stringify(v.conditions));
+  // The DM decides or cancels the next one instead of a roll; the log has every event.
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const p4 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal((await call('POST', `${D()}/events/${p4.events[0].id}/decide`, T.tom, { result: 'success' })).status, 403);
+  assert.equal((await ok('POST', `${D()}/events/${p4.events[0].id}/decide`, T.dm, { result: 'cancel' })).status, 'cancelled');
+  const log = (await ok('GET', `${D()}/log?player=Tomas`, T.dm)).log.filter((l: any) => l.kind === 'event');
+  assert.ok(log.some((l: any) => /success/.test(l.note)) && log.some((l: any) => /failure/.test(l.note)) && log.some((l: any) => /cancelled/.test(l.note)));
+  // Taking a round back cancels its unrolled events; chance 0 turns events off.
+  await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 0 });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 3, advance: false });
+  assert.equal((await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] })).events.length, 0);
+  await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+});

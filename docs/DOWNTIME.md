@@ -67,6 +67,39 @@ becomes a group one with `"group": true`. The DM sets this with a checkbox in
 the activity editor. A player sets it with the checkbox on a new activity.
 The DM can also assign one to "The whole party".
 
+## Random events
+
+Something can happen on a downtime day: rats boil out of the cellar you are
+cleaning, a fight breaks out where you work, or a dwarf challenges you to a
+drinking contest.
+
+- **How often:** each activity can have up to 12 events. Every downtime day
+  spent on it has a chance of one, at most one per task per pick. The chance
+  is the activity's `eventChance`, or else the world's (the rule's
+  `eventChance` option, `downtimeEventChance`). The default is 10%, and 0
+  turns events off.
+- **What the player sees:** a quick-time card after the pick, showing what
+  happens, the check and DC, and both stakes. The player types their bonus
+  and the server rolls a d20, or they enter the total from their own dice.
+  This is an ability check, so a natural 20 or 1 is not automatic.
+- **What an outcome can do:** give or take coin, give an item, add or take
+  away days of progress, deal damage, heal, or add levels of exhaustion.
+  Exhaustion goes on the sheet as the condition "Exhaustion N". Coin and
+  items go to the character who had the event, even on a group task.
+- **What the DM sees:** waiting events under the Downtime button. The DM can
+  call **Success** or **Failure** without a roll, or **Cancel it**. A new
+  pick, or **Take back**, cancels events nobody has rolled yet.
+- **Where they're edited:** in the activity editor under **Random events**,
+  live and per world.
+- **The record:** every event, roll and result is in the log and in table
+  chat.
+
+The rule ships events for Clean out a cellar (a new common job), Work a job,
+Carouse, Gather herbs, Research lore, Pit fighting, Religious service, Chase
+rumours, Craft an item and Run a business together.
+
+![A random event on a phone](screenshots/downtime/9-player-event-phone.png)
+
 ![A player's group tasks](screenshots/downtime/8-player-group-tasks.png)
 
 ## In play
@@ -98,9 +131,9 @@ a **Downtime** module to their sheet.
 ## The assistant
 
 The DM's assistant: `downtime` (everyone's tasks and the open round),
-`downtime_log`, `downtime_activities`, `downtime_suggest`, and with approval
+`downtime_log`, `downtime_activities`, `downtime_suggest`, `downtime_events`, and with approval
 `downtime_round`, `downtime_close_round`, `downtime_assign`, `downtime_time`,
-`downtime_work`, `downtime_update`, `downtime_remove`, `downtime_reward`.
+`downtime_work`, `downtime_update`, `downtime_remove`, `downtime_reward`, `downtime_event_decide`. Players also get `downtime_event_roll`.
 Players' helpers: `downtime`, `downtime_log`, `downtime_activities`,
 `downtime_suggest`, `downtime_start` and `downtime_pick` (their own only; `group: true` starts or
 joins a group activity). `downtime_assign` with `group: true` and no player
@@ -117,7 +150,7 @@ Under `/api/worlds/:world/downtime`: `GET /`, `GET|POST /activities`,
 `PATCH|DELETE /activities/:id`, `GET|POST /tasks`, `PATCH|DELETE /tasks/:id`,
 `POST /tasks/:id/time|work|reward|join|leave`, `GET /log`, `GET /rounds`,
 `GET /rounds/current`, `POST /rounds`, `POST /rounds/:rid/pick|close|cancel`
-(`current` for the open one), `POST /suggest`, `POST /decide`. `POST /tasks`
+(`current` for the open one), `POST /suggest`, `POST /decide`, `GET /events`, `POST /events/:id/roll` (`{ bonus }` or `{ total }`), `POST /events/:id/decide` (`{ result: success | failure | cancel }`). `POST /tasks`
 takes `group: true` (the DM may leave out `player` for the whole party);
 `GET /tasks?scope=personal|group` filters; `/tasks/:id/work` takes `worker`
 on a group task. Live events:
