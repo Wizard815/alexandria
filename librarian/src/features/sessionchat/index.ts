@@ -20,6 +20,15 @@ import { fanout as fanoutTo, runCommand } from './hooks.ts';
 
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 
+/** Send each reader their own view of a message; only readers of the channel get it. Exported for features that post as a player (the Discord bot's /roll). */
+export function fanoutChat(d: Pick<Deps, 'db' | 'hub'>, worldId: string, channel: Channel, type: string, row: any) {
+  for (const m of all<any>(d.db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId)) {
+    const v = { accountId: m.account_id as string, role: m.role as Viewer['role'] };
+    if (!canRead(v, channel)) continue;
+    d.hub.emit(worldId, 'chat', { type, channel, sessionId: row.session_id, message: viewMessage(d.db, row, v, worldId) }, only(v.accountId));
+  }
+}
+
 const feature: Feature = {
   id: 'sessionchat',
   schema: `
