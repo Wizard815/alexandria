@@ -1,0 +1,70 @@
+// DownTime in the app: types, the tier chip, the progress bar and the data
+// hooks the DM page, the player page, the popup and the sheet module share.
+import { useLoad, useWorld } from '../../lib/world.tsx';
+
+export type Tier = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';
+export interface Reward { text: string; cp: number; item: string; qty: number; hidden: boolean }
+export interface Activity {
+  id: string; name: string; summary: string; tier: Tier; tierLabel: string; days: number | null; daysNeeded: number; hoursPerDay: number;
+  repeatable: boolean; reward: Reward | { hidden: true }; link: { kind: string; ref?: string } | null; tags: string[];
+  source: 'premade' | 'dm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean;
+}
+export interface Task {
+  id: string; accountId: string; player?: string; activityId: string | null; name: string; summary: string; tier: Tier; tierLabel: string;
+  needMin: number; doneMin: number; perDayMin: number; status: 'active' | 'paused' | 'proposed' | 'done' | 'removed'; percent: number;
+  needLabel: string; doneLabel: string; leftLabel: string; daysLeft: number;
+  reward: Reward | { hidden: true }; rewardGivenAt: string | null; rewardWaiting: boolean; link: { kind: string; ref?: string } | null;
+  createdAt: string; finishedAt: string | null; dmNote?: string;
+}
+export interface Answer { accountId: string; name: string; waiting?: boolean; skipped?: boolean; picks?: { taskId: string; days: number; name: string }[]; at?: string }
+export interface Round { id: string; days: number; hours: number; status: 'open' | 'closed' | 'cancelled'; note: string; worldLabel: string; createdAt: string; answers?: Answer[]; mine?: Answer | null }
+export interface Overview {
+  on: boolean; dayHours: number; playerNew: 'approve' | 'free' | 'off'; advanceClock: boolean; now: string;
+  tiers: { id: Tier; label: string; days: number }[]; round: Round | null; tasks: Task[]; waitingRewards?: number; proposals?: number;
+}
+export interface LogLine { id: string; at: string; worldDate: string; accountId: string; player: string; taskId: string | null; task: string; kind: string; minutes: number; time: string; by: string; note: string; undone: boolean }
+export interface Ranked { id: string; name: string; tier: Tier; tierLabel: string; days: number; hoursPerDay: number; why: string }
+
+export const EVENTS = ['downtime', 'downtime-round', 'downtime-done', 'settings', 'clock'];
+
+export function useDowntime(player?: string | null) {
+  const { w } = useWorld();
+  return useLoad<Overview>(() => w.call('GET', '/downtime', undefined, player ? { player } : undefined), [w, player], EVENTS);
+}
+
+export const TIER_COLOR: Record<Tier, string> = { common: '#8a8f98', uncommon: '#3f9d5a', rare: '#3b7dd8', 'very-rare': '#9a52d6', legendary: '#e08a1e' };
+
+export function TierChip({ tier, label }: { tier: Tier; label?: string }) {
+  return <span className="dt-tier" style={{ borderColor: TIER_COLOR[tier], color: TIER_COLOR[tier] }}>{label ?? tier.replace('-', ' ')}</span>;
+}
+
+export function Progress({ t }: { t: Pick<Task, 'percent' | 'tier' | 'doneLabel' | 'needLabel'> }) {
+  return (
+    <div className="dt-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={t.percent} aria-label={`${t.doneLabel} of ${t.needLabel}`}>
+      <span style={{ width: `${t.percent}%`, background: TIER_COLOR[t.tier] }} />
+    </div>
+  );
+}
+
+export const rewardText = (r: Task['reward']): string => ('text' in r ? [r.text, r.cp ? `${r.cp / 100} gp` : '', r.item ? `${r.qty > 1 ? `${r.qty} × ` : ''}${r.item}` : ''].filter(Boolean).join(', ') : 'A reward waits at the end');
+
+export const KIND_LABEL: Record<string, string> = {
+  start: 'Started', work: 'Worked', time: 'Time changed', skip: 'Skipped', missed: 'No pick', pause: 'Paused', resume: 'Back to it',
+  remove: 'Stopped', edit: 'Changed', approve: 'Approved', complete: 'Finished', reward: 'Reward given',
+};
+
+export const CSS = `
+.dt-tier { display: inline-block; border: 1px solid; border-radius: 999px; padding: 0 8px; font-size: 11px; text-transform: capitalize; white-space: nowrap; }
+.dt-bar { height: 8px; border-radius: 4px; background: var(--line, rgba(127,127,127,.25)); overflow: hidden; }
+.dt-bar > span { display: block; height: 100%; border-radius: 4px; transition: width .3s; }
+.dt-task { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); }
+.dt-task:last-child { border-bottom: 0; }
+.dt-acts { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); }
+.dt-act { text-align: left; display: grid; gap: 2px; padding: 8px 10px; white-space: normal; min-width: 0; overflow-wrap: anywhere; justify-content: stretch; }
+.dt-act.on { outline: 2px solid var(--accent, #3b7dd8); }
+.dt-step { display: inline-flex; align-items: center; gap: 4px; }
+.dt-step input { width: 3.5em; text-align: center; }
+.dt-log { display: grid; gap: 2px; font-size: 13px; }
+.dt-log .undone { text-decoration: line-through; opacity: .6; }
+.dt-chip { position: fixed; right: 16px; bottom: 76px; z-index: 40; }
+`;

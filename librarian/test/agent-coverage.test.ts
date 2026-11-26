@@ -203,6 +203,12 @@ const shopId = () => once('shop', async () => (await dm('POST', '/shop/generate'
 const shopItem = () => once('shopitem', async () => (await dm('POST', '/shop/items', { name: 'Coverage Lantern', cost: '2 gp' })).id as string);
 
 /** Arguments that need real ids or values. A tool not listed gets values made from its schema. */
+// DownTime: the house rule on, a fresh task per tool, a round open or closed as the tool needs.
+const dtOn = () => once('downtime-on', async () => { await dm('PUT', '/mods/downtime/enabled', { on: true }); return true; });
+const dtTask = async (label: string, reward?: unknown) => { await dtOn(); return (await dm('POST', '/downtime/tasks', { player: ID.jess, activity: { name: `Coverage ${label}`, tier: 'common' }, reward })).id as string; };
+const dtNoRound = async () => { await dtOn(); await call('POST', w('/downtime/rounds/current/cancel'), T.dm, {}); };
+const dtRound = async () => { await dtOn(); if (!(await dm('GET', '/downtime/rounds/current')).round) await dm('POST', '/downtime/rounds', { days: 1, advance: false }); };
+
 const ARGS: Record<string, Maker> = {
   run_macro: () => once('macro', async () => { await dm('POST', '/actions/macros', { name: 'Coverage roll', steps: [{ action: 'dice.roll' }] }); return 'ok'; }).then(() => ({ macro: 'Coverage roll' })),
   share_library_item: () => ({ kind: 'page', id: ID.saltmarsh, to: 'party', notify: true }),
@@ -320,6 +326,17 @@ const ARGS: Record<string, Maker> = {
   present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
   set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
   house_rule_grant: async () => { await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true }); return { mod: 'inspiration-rerolls', player: ID.tom, resource: 'dm', note: 'Stayed in character' }; },
+  downtime_suggest: async () => { await dtOn(); return { player: 'jess', want: 'earn money' }; },
+  downtime_start: async () => { await dtOn(); return { activityId: 'pre-carouse' }; },
+  downtime_pick: async () => { await dtRound(); return { skip: true }; },
+  downtime_assign: async () => { await dtOn(); return { player: 'jess', activityId: 'pre-work', reward: { gp: 1 } }; },
+  downtime_time: async () => ({ task: await dtTask('time'), days: -1, note: 'Fever' }),
+  downtime_work: async () => ({ task: await dtTask('work'), hours: 4, note: 'Half a day' }),
+  downtime_update: async () => ({ task: await dtTask('update'), tier: 'rare' }),
+  downtime_remove: async () => ({ task: await dtTask('remove'), note: 'Gave up' }),
+  downtime_reward: async () => { const t = await dtTask('reward', { gp: 2 }); await dm('POST', `/downtime/tasks/${t}/work`, { days: 1 }); return { task: t }; },
+  downtime_round: async () => { await dtNoRound(); return { days: 1, advance: false }; },
+  downtime_close_round: async () => { await dtRound(); return {}; },
   house_rule_save: () => ({ mod: { kit: 1, id: 'coverage-points', name: 'Coverage points', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] } }),
 };
 
@@ -357,6 +374,8 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['add a pin on the map', ['add_map_mark']],
     ['give Jess a personal reroll for that speech', ['house_rule_grant']],
     ['write a house rule for hero points', ['house_rule_check', 'house_rule_save']],
+    ['start a downtime round for 3 days', ['downtime_round']],
+    ['Mira lost two days of crafting to the fever', ['downtime_time']],
   ] as const) {
     const picked = selectTools(text, toolsFor(true).map((t) => t.name));
     for (const n of tools) assert.ok(picked.includes(n), `"${text}" offers ${n}: got ${picked.join(', ')}`);

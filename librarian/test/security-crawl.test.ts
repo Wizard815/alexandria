@@ -729,6 +729,8 @@ const PLAYER_ROUTES = [
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
   // House rules: a player spends their own counters (the server checks who may run each action).
   'POST /mods/:id/act',
+  // DownTime: a player starts, pauses and stops their own tasks, picks in a Downtime round, and asks the helper to rank or rate activities.
+  'POST /downtime/tasks', 'PATCH /downtime/tasks/:id', 'DELETE /downtime/tasks/:id', 'POST /downtime/rounds/:rid/pick', 'POST /downtime/suggest', 'POST /downtime/decide',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
 const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/)/;

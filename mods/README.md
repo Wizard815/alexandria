@@ -12,6 +12,7 @@ for the format.
 | `mana-pool.alxmod.json` | Simple mana pool | Alexandria's own mana numbers (spells feature) |
 | `mana-system.alxmod.json` | MANA spell system | Wizard's MANA rules; needs the MANA engine |
 | `spell-crafting.alxmod.json` | Spell crafting (Codex) | Learning spells by combining known ones (spells feature) |
+| `downtime.alxmod.json` | DownTime | Downtime activities from common to legendary, the DM's Downtime button and the players' popup (downtime feature); the ready-made activities are data in its `presets.downtimePremade` |
 
 `examples/` holds rules that are not built in (the server does not read it).
 Paste one under **World → House rules → Make or add one** to try it.
