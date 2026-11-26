@@ -1,14 +1,15 @@
 // My pack and the party's shared stash, plus coin. Weight only shows when
 // the world tracks it (a DM setting). Adding, editing or removing items and
 // coin waits for the DM when the world asks for approval; the DM's changes
-// to my things show as alerts. Giving is free: coin and items move between
+// to my things show as alerts, and so do trades: offers waiting for me with
+// Accept / Decline, my own open offers, and how recent ones ended. Giving is free: coin and items move between
 // players and the party stash at once (the DM sees a log). Items can have a
 // picture.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { PageHead, Loading, ErrorBox, Empty, Tabs, Field, Modal, useAction, useToast } from '../../ui/index.tsx';
-import { TradeButton } from '../../features/sessionchat/TradeDialog.tsx';
+import { TradeButton, TradeOffers } from '../../features/sessionchat/TradeDialog.tsx';
 import { AlertsCard, useMine } from '../broker/shared.tsx';
 import { ItemHover } from '../../features/itemcards/index.tsx';
 import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
@@ -71,6 +72,7 @@ export default function PlayerInventory() {
       </div>
       <style>{`.inv-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .inv-sum-card { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; padding: 12px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--panel); color: inherit; font: inherit; cursor: pointer; min-height: 44px; } .inv-sum-card b { font-size: 22px; color: var(--accent-strong); font-variant-numeric: tabular-nums; } .inv-sum-card.on { border-color: var(--accent); background: var(--accent-bg); } .inv-sum-t { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); } @media (max-width: 480px) { .inv-sum { gap: 8px; } .inv-sum-card { padding: 10px; } .inv-sum-card b { font-size: 18px; } }`}</style>
       <ErrorBox error={inv.error ?? act.error} />
+      <TradeOffers heading recent />
       <AlertsCard mine={mine.data} reload={async () => { await Promise.all([mine.reload(), inv.reload()]); }} />
       <div className="cols">
         <section className="col-3 card flush" aria-label="Items">
