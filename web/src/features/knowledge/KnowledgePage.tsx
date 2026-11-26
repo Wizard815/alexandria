@@ -75,7 +75,7 @@ export default function KnowledgePage() {
               <td className="small">{when(x.lastSyncAt)}{x.lastStatus && <span className="tiny muted"> · {x.lastStatus}</span>}</td>
             </tr>
           ))}
-        </tbody></table></div> : <p className="small muted">No sources yet. Add Kanka, LegendKeeper, World Anvil or a folder in <Link to={dm('settings')}>Settings</Link>.</p>}
+        </tbody></table></div> : <p className="small muted">No sources yet. Add Kanka, LegendKeeper, World Anvil, Notion, Obsidian or a folder in <Link to={dm('settings')}>Settings</Link>.</p>}
       </section>
 
       <section className="card stack" aria-label="Indexes">

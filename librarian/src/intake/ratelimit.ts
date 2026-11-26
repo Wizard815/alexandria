@@ -36,6 +36,7 @@ export const BACKGROUND_SHARE = 0.8
  *   Kanka (https://app.kanka.io/api-docs/1.0/setup, "Rate limits"): 30 requests a minute per user, 90 for subscribers,
  *     shared by every token of the user; /profile returns `rate_limit`. Subscribers raise "Max calls per minute" themselves.
  *   World Anvil (https://www.worldanvil.com/api/external/boromir/documentation) publishes no limit: 60 a minute, 2 a second.
+ *   Obsidian Portal publishes no limit: 30 a minute.
  *   Notion (https://developers.notion.com/reference/request-limits): an average of three requests a second per integration.
  *   LegendKeeper (https://www.legendkeeper.com/api/v3/openapi.json, "Rate limits"): per key 300 a minute, 6,000 an hour and
  *     60,000 a day; writes 120 a minute and 3,000 an hour; 12,000 an hour per project. 60 a minute (3,600 an hour) stays well
@@ -49,6 +50,7 @@ export const DEFAULT_LIMITS: Record<string, { perMinute: number; perSecond: numb
   'legendkeeper-mcp': { perMinute: 200, perSecond: 2, perHour: LK_PER_HOUR },
   'worldanvil-api': { perMinute: 60, perSecond: 2, perHour: 0 },
   'notion-api': { perMinute: 150, perSecond: 3, perHour: 0 },
+  'obsidian-portal': { perMinute: 30, perSecond: 1, perHour: 0 },
   'obsidian-rest': { perMinute: 600, perSecond: 20, perHour: 0 },
   'obsidian-publish': { perMinute: 60, perSecond: 2, perHour: 0 },
   api: { perMinute: 60, perSecond: 0, perHour: 0 },

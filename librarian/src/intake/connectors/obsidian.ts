@@ -28,16 +28,18 @@ const mdPath = (p: string) => /\.md$/i.test(p) && !p.split('/').some((s) => !s |
 
 /** The `ob` command: ALX_OBSIDIAN_BIN, else `ob` on the PATH. */
 const obBin = (env: Record<string, string | undefined>) => env.ALX_OBSIDIAN_BIN || 'ob';
+/** `ob` keeps its sign-in under HOME: ALX_OBSIDIAN_HOME puts it somewhere that survives a container restart (the image uses /data). */
+const obEnv = (env: Record<string, string | undefined>) => ({ ...process.env, NO_COLOR: '1', ...(env.ALX_OBSIDIAN_HOME ? { HOME: env.ALX_OBSIDIAN_HOME } : {}) });
 
 /** Run one `ob` command (an argument list, never a shell). The E2EE password goes in as an argument, as `ob` documents; it is never logged. */
 export async function ob(ctx: Pick<ConnectorContext, 'env' | 'signal'>, args: string[], timeout = 600_000): Promise<string> {
   try {
-    const { stdout } = await run(obBin(ctx.env), args, { timeout, signal: ctx.signal, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, NO_COLOR: '1' } });
+    const { stdout } = await run(obBin(ctx.env), args, { timeout, signal: ctx.signal, maxBuffer: 8 * 1024 * 1024, env: obEnv(ctx.env) });
     return String(stdout);
   } catch (err: any) {
     if (err?.code === 'ENOENT') throw new Error('The Obsidian headless client is not installed on the server: npm install -g obsidian-headless (Node 22+), then run "ob login" once');
     const out = `${err?.stderr ?? ''} ${err?.stdout ?? ''}`.replace(/\s+/g, ' ').trim();
-    if (/log ?in|not logged|unauthori[sz]ed|credentials/i.test(out)) throw new Error('Obsidian Sync is not signed in on the server: run "ob login" there once');
+    if (/log ?in|not logged|unauthori[sz]ed|credentials/i.test(out)) throw new Error('Obsidian Sync is not signed in on the server: run "ob login" there once (see HOSTING.md, "Obsidian Sync")');
     throw new Error(`ob ${args[0]} failed: ${(out || String(err?.message ?? err)).slice(0, 200)}`);
   }
 }

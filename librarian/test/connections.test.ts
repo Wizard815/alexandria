@@ -381,7 +381,7 @@ test('TestPresets_BuiltInSaveApplyImportExport', async () => {
   const connectors = await t.ok('GET', '/api/admin/connectors');
   const ids = connectors.map((x: any) => x.id);
   assert.equal(ids.at(-1), 'api');
-  assert.deepEqual(ids.slice(0, 9), ['legendkeeper-mcp', 'legendkeeper-api', 'kanka-api', 'kanka-mcp', 'worldanvil-api', 'markdown-folder', 'git', 'mcp-files', 'push']);
+  assert.deepEqual(ids.slice(0, 14), ['legendkeeper-mcp', 'legendkeeper-api', 'kanka-api', 'kanka-mcp', 'worldanvil-api', 'notion-api', 'markdown-folder', 'obsidian-sync', 'obsidian-rest', 'obsidian-publish', 'obsidian-portal', 'git', 'mcp-files', 'push']);
   assert.equal(connectors.at(-1).group, 'generic');
   assert.ok(connectors.at(-1).presets.length >= 5);
   const kanka = connectors.find((x: any) => x.id === 'kanka-api');

@@ -20,6 +20,8 @@ services:
       LOCAL_LLM_URL: ${LOCAL_LLM_URL:-}
       ALX_MCP_STDIO: ${ALX_MCP_STDIO:-}
       ALX_WORLDANVIL_APP_KEY: ${ALX_WORLDANVIL_APP_KEY:-}
+      ALX_OBSIDIANPORTAL_KEY: ${ALX_OBSIDIANPORTAL_KEY:-}
+      ALX_OBSIDIANPORTAL_SECRET: ${ALX_OBSIDIANPORTAL_SECRET:-}
     volumes:
       - alexandria-data:/data
       - ${VAULTS_DIR:-./vaults}:/vaults:ro

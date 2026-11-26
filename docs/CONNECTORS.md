@@ -20,8 +20,13 @@ is the same for every source:
 | `legendkeeper-api` | LegendKeeper REST v3 (`https://www.legendkeeper.com/api/v3/projects/<id>`) with an Admin API key; waits out 429s | Same |
 | `kanka-api` | Kanka API with a token (`?related=1` on every page, waits out 429s) | `is_private` entities, posts not "all"/"members" or with a deny permission, private attributes, `is_attributes_private`, hidden personality traits, private races and families, private tags |
 | `worldanvil-api` | World Anvil API v2 ("Boromir") with an application key and a user token; waits out 429s (see "World Anvil") | Drafts, `private` articles, categories, maps, markers and events (unless shared with a player subscriber group), `[secret:id]` secrets, `[subcontainer:id]`, `[userstate:…]`, `/* comments */`, storyteller seeds (unless shown) and the scrapbook |
+| `notion-api` | Notion's public API with an internal integration token: pages and databases shared with the integration (see "Notion") | No `Visibility` of party on a database row and not published to the web; toggles, toggle headings and callouts titled Secret, DM or GM |
+| `obsidian-portal` | Obsidian Portal API v1 (OAuth 1.0a): wiki pages, adventure log and characters (see "Obsidian Portal") | `is_game_master_only` (or not said), `private` characters, GM info |
 | `kanka-mcp` | The mcp-kanka server (`find_entities`, `get_entities`) | `is_hidden`. Posts are DM-only unless "trust post visibility" is on. |
 | `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- dm -->`, DM headings |
+| `obsidian-sync` | An Obsidian Sync vault (yours or shared with you), brought to the server by Obsidian's official headless client `ob` (see "Obsidian") | Same as Markdown |
+| `obsidian-rest` | The vault open in Obsidian, through the Local REST API community plugin | Same as Markdown |
+| `obsidian-publish` | A site published with Obsidian Publish (public notes only) | Secret callouts, comments and DM headings; the rest is public (or keep the whole site DM-only) |
 | `git` | A repo of Markdown reference files, cloned read-only | Same as Markdown |
 | `mcp-files` | Any MCP server that lists and reads files (Obsidian MCP and filesystem MCP presets, or name the tools) | Same as Markdown |
 | `api` | Any JSON API over HTTP (pages, tags, calendars, pictures), or any MCP tool that returns records (with an optional per-item read tool) | A visibility field you name; shared only for the values you list |
@@ -460,8 +465,8 @@ no connection has its own.
 
 | Setting (on the connection) | Default | Meaning |
 |---|---|---|
-| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 200, World Anvil 60, generic API 60 | never more in any 60 seconds |
-| `maxPerSecond` ("Max calls per second") | LegendKeeper 2, World Anvil 2, others 0 (no cap) | never more in any second |
+| `maxPerMinute` ("Max calls per minute") | Kanka 30, LegendKeeper 200, World Anvil 60, Notion 150, Obsidian Portal 30, Obsidian Publish 60, Obsidian REST 600, generic API 60 | never more in any 60 seconds |
+| `maxPerSecond` ("Max calls per second") | LegendKeeper 2, World Anvil 2, Notion 3, Obsidian Portal 1, Obsidian Publish 2, others 0 (no cap) | never more in any second |
 | `maxPerHour` ("Max calls per hour") | LegendKeeper 6,000, others 0 (no cap) | never more in any hour |
 | `spreadMinutes` ("Spread the first scan over (minutes)") | 1 | see below; 0: as fast as the limits allow |
 
@@ -791,6 +796,9 @@ model and the broker never get it. The list endpoint never carries it.
 | Kanka | `https://app.kanka.io/w/<campaign id>/entities/<entity id>`. The API's own `urls.view` is used when it sends one; a self-hosted Kanka uses its own host. | Documented in the API (`urls.view`). |
 | LegendKeeper | `https://www.legendkeeper.com/app/project/{project}/resource/{id}`, from the project id and the resource id. The project id is read from the API URL, or set as **Project id** for the MCP connector. | Not documented: LegendKeeper's API docs give no app address. Treat the default as a best guess and set **Page address in the LegendKeeper app** (`webUrl`, with `{project}`, `{id}`, `{doc}`) if it does not open the page. |
 | World Anvil | The article's own `url` from the API (`https://www.worldanvil.com/w/<world>/a/<article>`). | Documented in the API (`url`). |
+| Notion | The page's own `url` from the API (`https://www.notion.so/…`). | Documented in the API (`url`). |
+| Obsidian Portal | The page's `wiki_page_url` or `character_url`. | Documented in the API. |
+| Obsidian Publish | `<site>/<path without .md>`. | How Publish sites address notes. |
 | Markdown, Obsidian | `obsidian://open?vault=<vault name>&file=<path without .md>` when **Obsidian vault name** is set; no button otherwise. Git sources have none. | Obsidian URI documentation. It opens the note in Obsidian on the computer where the browser runs. |
 
 ## What each source keeps
@@ -807,7 +815,14 @@ the main text and the sidebar, footer, footnotes and author's notes
 (BBCode: headings, bold, lists, tables, quotes, links, `[img:id]`
 pictures, `@[Title](type:id)` mentions), template fields as facts (a
 linked article becomes a mention), secrets, map pictures and markers,
-and timelines. Markdown keeps frontmatter as facts, tags (also `#tags`), aliases,
+and timelines. Notion keeps titles, emoji icons, covers, the page tree
+(databases are pages holding their rows), database properties as facts
+(relations become mentions, a Tags multi-select becomes tags), headings,
+lists and to-dos, toggles, callouts, quotes, code, tables, columns
+(flattened), synced blocks, page mentions and pictures. Obsidian Portal keeps
+names, tags, the wiki, adventure-log posts (title, tagline, date), characters
+(tagline, description, bio, portrait), links between pages and the GM info (as
+a secret). Markdown keeps frontmatter as facts, tags (also `#tags`), aliases,
 wiki and relative links, callouts, tables, lists, secrets and levels.
 
 Still lossy: LegendKeeper columns become one column; `collection` blocks
@@ -869,6 +884,85 @@ part", World Anvil).
 
 **Not yet.** Per-player World Anvil keys, block templates and statblocks, manuscripts, notebooks and
 the family tree, diplomacy and chronicle views.
+
+## Notion
+
+`notion-api` reads Notion through its public API (`https://api.notion.com/v1`,
+version `2022-06-28`, [reference](https://developers.notion.com/reference)).
+
+**Set up.** At [notion.so/my-integrations](https://www.notion.so/my-integrations)
+make an **internal** integration (Read content; add Insert and Update content
+for WorldLore) and copy its secret (`ntn_…`). In Notion, open the world's top
+page, ••• → **Connections** → add the integration: Notion shows an integration
+only the pages shared with it (and their children). **Only under this page**
+narrows it to one page's tree.
+
+**Who sees what (fails closed).** A database row's `Visibility` property
+(select, status or multi-select; also `Access` or `Audience`) decides first:
+`party`, `players`, `public` or `shared` is the players', `broker` and
+`classified` are those levels, anything else (`DM`, `GM`, `secret`) the DM's.
+Without one, a page published to the web (Share → Publish) is the players'.
+Otherwise **Pages without a visibility are shared** decides (off by default).
+Inside a page, a toggle, toggle heading or callout whose title starts with
+*Secret*, *DM* or *GM* (an emoji in front is fine) is a secret block.
+
+**Tiers and calls.** The index is `POST /search` (100 a call; complete every
+time). Details read `GET /pages/{id}` and `GET /blocks/{id}/children` (100 a
+call, again below each block with children, 8 levels and 3,000 blocks at most).
+Notion allows about three calls a second: the connection defaults to 3 a second
+and 150 a minute. Pictures uploaded to Notion have addresses that expire within
+the hour; they are stored here when the page is read.
+
+## Obsidian
+
+Besides the vault folder (`markdown-folder`) and the Obsidian MCP preset
+(`mcp-files`), three sources read Obsidian. All of them use the Markdown rules
+(frontmatter `visibility:`, `> [!secret]`, `%% %%`, DM headings).
+
+- **`obsidian-sync`**: Obsidian's own Sync, through its official headless
+  client (`ob`, npm `obsidian-headless`, open beta, Node 22+, needs a Sync
+  subscription; set-up in HOSTING.md, "Obsidian Sync"). The remote vault (your
+  own or one shared with you) is synced into a folder under `ALX_VAULTS_DIR`,
+  then read like a vault. Pull-only unless **Two-way** is on; an end-to-end
+  encrypted vault needs its password (kept as a secret, passed to `ob` as an
+  argument, never logged).
+- **`obsidian-rest`**: the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api)
+  community plugin in the DM's Obsidian (`GET /vault/`, `GET /vault/<path>` as
+  note JSON, `PUT`, `DELETE`, bearer API key). Obsidian must be open and
+  reachable from the server. Its HTTPS certificate is self-signed: use the
+  plugin's non-encrypted server (`http://<computer>:27123`), or trust the
+  certificate with `NODE_EXTRA_CA_CERTS`.
+- **`obsidian-publish`**: a site published with Obsidian Publish, read the
+  way its own pages read it (the `siteInfo` on the page, then
+  `https://<host>/cache/<uid>` for the file list and `/access/<uid>/<path>` for
+  a note). **These addresses are not a documented API** and may change.
+  Everything published is public, so pages are shared when the source shares;
+  **Keep it DM-only** keeps the whole site for the DM.
+
+## Obsidian Portal
+
+`obsidian-portal` reads one campaign through Obsidian Portal's API v1
+(`https://api.obsidianportal.com/v1`, help.obsidianportal.com "API Overview").
+
+**Set up.** Register an app at `www.obsidianportal.com/oauth/clients/new` for
+its consumer key and secret (on the connection, or `ALX_OBSIDIANPORTAL_KEY` and
+`ALX_OBSIDIANPORTAL_SECRET` on the server). Then sign in once with the PIN flow:
+`ALX_OBSIDIANPORTAL_KEY=… ALX_OBSIDIANPORTAL_SECRET=… npm run --prefix librarian op-login`
+prints an address, asks for the PIN and prints the access token and secret.
+Every request is signed (OAuth 1.0a, HMAC-SHA1). **Campaign** is its name, slug
+or address; the connection test lists your campaigns.
+
+**Who sees what (fails closed).** A wiki page, post or character is the
+players' only when Obsidian Portal says `is_game_master_only` is false, and a
+character also needs `public` or `friends` visibility. GM info
+(`game_master_info`) is always a secret block. Use the GM's own tokens: a
+player's token cannot see GM-only pages.
+
+**Tiers and calls.** The index is the wiki and character lists (one call each);
+details read each page (`/campaigns/{id}/wikis/{page}.json`,
+`/characters/{character}.json`). Obsidian Portal publishes no limit: 30 a minute.
+Read-only: WorldLore does not write to Obsidian Portal. **Not tested against
+Obsidian Portal itself yet:** built from its help pages only.
 
 ## Records
 
@@ -963,7 +1057,8 @@ A connector opts in with an optional `write` (`ConnectorWrite`: `createPage`,
 `updatePage`, `movePage`, `deletePage`, plus `readPage`, `roots` and `search`). It must
 refuse (`WriteRefused`, 403) anything outside the workspace `root`, checked
 against the source itself. Shipped: LegendKeeper API key (REST v3), LegendKeeper
-MCP, Markdown folder, Kanka API token, mcp-kanka, World Anvil API. The LegendKeeper MCP may call only `create_resource`,
+MCP, Markdown folder, Kanka API token, mcp-kanka, World Anvil API, Notion, Obsidian Sync
+(two-way only) and the Obsidian Local REST API plugin. The LegendKeeper MCP may call only `create_resource`,
 `write_page`, `update_resource`, `move_resource` and `delete_resource`
 (`confirm=true`), and only through `workspaceMcpFactory`; `readOnlyMcp` still
 refuses every write tool for sync and everything else. Pages carry a level
@@ -996,6 +1091,35 @@ categories (the home included), maps, secrets and timelines are never changed.
 - **Not tested against World Anvil itself yet:** built from the API v2 schemas
   only. Moving an article back to the top sends `articleParent: null`, which the
   docs do not spell out.
+
+### Notion
+
+The WorldLore home is one Notion **page or database**, saved as
+`notion:<id>` (the picker lists what the integration sees). The agent's pages
+are pages under it; a database inside the home may hold new rows, but is never
+changed itself.
+
+- **Calls (`notion-write.ts`):** `POST /pages` (parent, title, the first 100
+  blocks), `PATCH /blocks/{id}/children` for the rest, `PATCH /pages/{id}` to
+  rename or archive (Notion's trash, restorable for 30 days), `DELETE
+  /blocks/{id}` to clear the old text before an update. A `> [!secret]` callout
+  becomes a toggle titled "Secret", which reads back as a secret. Notion's API
+  cannot move pages: a move is refused with a message to move it in Notion.
+- **Guard, before every write:** the target and every parent (pages,
+  databases, and the blocks a page sits in) are read from Notion again, and the
+  root must be among them.
+- **Levels:** under a database with a `Visibility` select, the level is written
+  there and read back. Under a plain page Notion has no field for it, so the
+  page stays the DM's in Notion and the library keeps the level the agent gave
+  until the next sync.
+
+### Obsidian (Sync and Local REST API)
+
+Path-based like the Markdown folder: the home is a folder of the vault. With
+Obsidian Sync, pages are written into the synced folder and `ob sync` sends
+them (only when **Two-way** is on; otherwise refused). With the Local REST API,
+pages are `PUT` and `DELETE` under the folder; a move writes the new file, then
+removes the old one.
 
 ### Kanka
 

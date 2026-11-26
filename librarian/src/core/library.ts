@@ -1160,6 +1160,7 @@ export function sourceApp(kind: string | null): string {
   if (k.startsWith('worldanvil')) return 'worldanvil';
   if (k.startsWith('notion')) return 'notion';
   if (k === 'obsidian-publish') return 'obsidian-publish';
+  if (k === 'obsidian-portal') return 'obsidian-portal';
   if (['markdown-folder', 'vault', 'git', 'mcp-files', 'obsidian-sync', 'obsidian-rest'].includes(k)) return 'markdown';
   return 'other';
 }
