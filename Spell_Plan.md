@@ -56,6 +56,8 @@ Why not a flat 6 per level: it gave a level 2 caster twice the casting of a norm
 
 **Mana potions** (example values): 10 / 25 / 50 / 75 / 100 mana, Common to Legendary.
 
+**Changing mana:** rests on the world clock refill it. A player can change their own mana (a potion, a drained crystal) with a reason; every change is logged and the DM sees each player's mana and health at the top of the DM panel.
+
 ## 3. Limits on casting
 
 **Per turn** (2024 rule: one spell slot per turn)
@@ -71,6 +73,9 @@ Why not a flat 6 per level: it gave a level 2 caster twice the casting of a norm
 
 ## 4. Dual cast
 
+**Silent casting** is an ability the DM grants (like Dual cast): cast with no verbal or somatic components, at no extra mana.
+
+
 Needs the Dual cast ability (granted by the DM), once per short rest, using action + bonus action.
 - **Empower** (the same spell twice): ×2 mana; counts as cast 2 levels higher (Fireball becomes 10d6).
 - **Fuse** (two different known spells): both costs added ×1.5; both effects land on the same target or area; at most one needs concentration.
@@ -82,7 +87,7 @@ Needs the Dual cast ability (granted by the DM), once per short rest, using acti
 - The DM defines **lines** (name, colour, theme): e.g. Fire, Frost, Lightning, Earth, Air, Light, Shadow, Mind, Healing. A spell can be in more than one.
 - **Line mastery** = how many spells you know in that line.
 - **Hybrid spells** (in two lines, like fire + air) need mastery 2 in both and take ×1.25 study. This is the Divinity: Original Sin 2 skillbook-crafting idea.
-- The tree shows tiers (cantrip → 9th) with links from each recipe's spells. Each spell is shown as known, gift, can learn, in progress (with a bar), locked or hidden ("???"). Hover or tap for the cost to cast and upcast, every requirement with ✓/✗ for the chosen character, the learning cost per method and progress.
+- **The tree shows every spell** of the world (about 700 with imports), darkened until it matters. Its branches are the schools of magic; hybrid spells (two lines, like fire + air) sit between the branches they mix; spells with no school go under **Others**. A spell whose recipe the character can start turns grey with a **Start learning** button and its requirements. Rows are tiers (cantrip → 9th) with links from each recipe's spells. Each spell is shown as known, gift, can learn, in progress (with a bar), locked or hidden ("???"). Hover or tap for the cost to cast and upcast, every requirement with ✓/✗ for the chosen character, the learning cost per method and progress.
 
 ## 6. Learning a spell
 
@@ -106,6 +111,14 @@ Built from Morrowind's spellmaking (cost follows power), Oblivion (you only buil
 - **Complexity** C = the spell's mana cost (a cantrip counts as 1).
 - **Study points needed** = ceil(C² ÷ 2) × 1.25 if hybrid × (1 − 10% per recipe spell beyond the tier minimum, at most 20%).
 - **Progress per 8-hour day:** alone 1 · with a written text 2 · with a mentor 3 · in a lab +1. Progress is banked, so days don't need to be in a row.
+- **Downtime is not a long rest.** It is days the party spends away from adventuring (in town, travelling safely, between sessions). Each 8-hour downtime day of study earns 1 to 3 study points: 1 alone, 2 with a text, 3 with a mentor. A long rest is the night's sleep; it is when a failed final check may be tried again.
+- **Example, a 3rd-level spell** (13 study points, 250 gp of materials):
+
+  | How | Days | Gold |
+  |---|---|---|
+  | Alone | 13 | 250 |
+  | With a text | 7 | 250 |
+  | With a mentor | 5 | 500 (materials + the mentor's fee) |
 - **Materials:** 10 × C² coin. A mentor charges the same again.
 - **Final check:** d20 + casting modifier + proficiency bonus against:
 
@@ -135,7 +148,7 @@ Compared with an earlier draft (3 days per spell level alone): low spells get a 
 **Shortcuts**
 - **Level-up insight:** a free attempt when you level up; a failure banks half the study.
 - **Memory:** a full memory of learning a spell (taken whole, e.g. by a memory spell) teaches it at once. Optional WIS save DC 10 + 2 × spell level (off by default); a failure banks a quarter and gives 1 exhaustion.
-- **Scroll:** a study aid, not the spell: 1 hour per spell level to decode; using it up adds a quarter of the study. The spell still has to be studied and checked.
+- **Scroll:** a scroll is one-time use. Studying from it adds a quarter of the study (1 hour per spell level to decode) and keeps the scroll, so after learning the spell it can still be cast once. Casting the scroll first spends it, and its help to the study is lost. The spell still has to be studied and checked.
 
 ### Flow
 1. The player picks a spell they can learn and a method, and starts studying.

@@ -351,3 +351,87 @@ test('SpellRules: in play: caster levels set the pool, casts follow the limits, 
   assert.equal((await call('POST', `${SP()}/dual/quote`, T.jess, { spellA: 'srd:fire-bolt' })).status, 400, 'not for cantrips');
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false });
 });
+
+test('SpellRules: studying a spell: the plan, days, DM approval, the final check, a long rest retry, the scroll', async () => {
+  const ok = async (m: string, u: string, t: string, b?: unknown) => { const r = await call(m, u, t, b); assert.ok(r.status < 300, `${m} ${u} -> ${r.status} ${JSON.stringify(r.body)}`); return r.body; };
+  assert.deepEqual((await ok('GET', `${SP()}/study`, T.jess)).studies, [], 'off: no studies');
+  assert.equal((await call('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:lightning-bolt' })).status, 409, 'the engine is off');
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellMana: true, spellRulesOn: true, spellCrafting: true, spellCraftApproval: 'dm' });
+  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { level: 5, castingAbility: 'int', abilities: { int: 16 } });
+  await ok('PUT', `${SP()}/characters/me/caster`, T.jess, { casterLevels: { full: 5 } });
+  await ok('POST', `${SP()}/recipes`, T.dm, { result: 'Lightning Bolt', prereqs: ['Misty Step', 'Scorching Ray'] });
+  // The plan: what is missing, and the plan's table for a 3rd-level spell.
+  let plan = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:lightning-bolt', source: 'text' });
+  assert.deepEqual(plan.missing, ['know Misty Step', "know 2 of its recipe's spells that are one level lower (knows 1)"]);
+  assert.deepEqual([plan.needed, plan.perDay, plan.days, plan.materials, plan.mentorFee, plan.finalDC, plan.checkBonus, plan.scrollPoints], [13, 2, { alone: 13, text: 7, mentor: 5 }, 250, 0, 15, 6, 3]);
+  assert.equal((await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:lightning-bolt', source: 'mentor' })).mentorFee, 250, 'a mentor doubles the gold: 500 in all');
+  assert.match((await call('POST', `${SP()}/study`, T.jess, { spellId: 'srd:lightning-bolt', source: 'text' })).body.error, /Not yet: know Misty Step/);
+  await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: 'srd:misty-step' });
+  plan = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:lightning-bolt', source: 'text' });
+  assert.equal(plan.canStart, true, JSON.stringify(plan.missing));
+  // Start with a text: 7 days left.
+  const st = await call('POST', `${SP()}/study`, T.jess, { spellId: 'srd:lightning-bolt', source: 'text' });
+  assert.equal(st.status, 201, JSON.stringify(st.body));
+  const sid = st.body.id;
+  assert.deepEqual([st.body.status, st.body.banked, st.body.needed, st.body.daysLeft, st.body.materials], ['studying', 0, 13, 7, 250]);
+  assert.equal((await call('POST', `${SP()}/study/${sid}/check`, T.jess, { d20: 20 })).status, 409, 'not complete yet');
+  // A player's days wait for the DM.
+  let x = await ok('POST', `${SP()}/study/${sid}/days`, T.jess, { days: 3 });
+  assert.deepEqual([x.banked, x.pendingDays], [0, 3]);
+  assert.equal((await call('POST', `${SP()}/study/${sid}/approve`, T.jess)).status, 403);
+  x = await ok('POST', `${SP()}/study/${sid}/approve`, T.dm);
+  assert.deepEqual([x.banked, x.pendingDays, x.days, x.daysLeft], [6, 0, 3, 4]);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellCraftApproval: 'auto' });
+  x = await ok('POST', `${SP()}/study/${sid}/days`, T.jess, { days: 5 });
+  assert.deepEqual([x.banked, x.status, x.daysLeft], [13, 'ready', 0], 'points stop at what is needed');
+  assert.equal((await call('POST', `${SP()}/study/${sid}/days`, T.jess, { days: 1 })).status, 409);
+  // The tree shows it as studied, by school.
+  let tree = await ok('GET', `${SP()}/tree`, T.jess);
+  const evo = tree.schools.find((s: any) => s.name === 'Evocation');
+  const lb = evo.spells.find((s: any) => s.id === 'srd:lightning-bolt');
+  assert.deepEqual([lb.status, lb.study.banked, lb.study.needed], ['studying', 13, 13]);
+  // A failed check (2 + 6 vs 15) waits for a long rest; the points stay.
+  let chk = await ok('POST', `${SP()}/study/${sid}/check`, T.jess, { d20: 2 });
+  assert.deepEqual([chk.outcome, chk.learned, chk.total, chk.study.banked, chk.study.waitLongRest], ['fail', false, 8, 13, true]);
+  assert.match((await call('POST', `${SP()}/study/${sid}/check`, T.jess, { d20: 20 })).body.error, /after a long rest/);
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'long-rest' });
+  chk = await ok('POST', `${SP()}/study/${sid}/check`, T.jess, { d20: 12 });
+  assert.deepEqual([chk.outcome, chk.learned, chk.study.status, chk.study.attempts], ['success', true, 'learned', 2]);
+  assert.ok((await ok('GET', `${SP()}/characters/me`, T.jess)).known.some((k: any) => (k.spellId ?? k.id) === 'srd:lightning-bolt'));
+  // A scroll adds a quarter of the points and is kept; casting it first loses that help.
+  await ok('POST', `${SP()}/recipes`, T.dm, { result: 'Hypnotic Pattern', prereqs: ['Misty Step', 'Scorching Ray'] });
+  const s2 = await ok('POST', `${SP()}/study`, T.jess, { spellId: 'srd:hypnotic-pattern', scroll: true });
+  assert.deepEqual([s2.source, s2.banked, s2.scrollHelp, s2.daysLeft], ['alone', 3, true, 10]);
+  x = await ok('POST', `${SP()}/study/${s2.id}/scroll-cast`, T.jess);
+  assert.deepEqual([x.banked, x.scrollHelp], [0, false]);
+  assert.equal((await call('POST', `${SP()}/study/${s2.id}/scroll-cast`, T.jess)).status, 409);
+  // Stop keeps the points; starting again picks the same study up.
+  await ok('POST', `${SP()}/study/${s2.id}/days`, T.jess, { days: 2 });
+  x = await ok('POST', `${SP()}/study/${s2.id}/stop`, T.jess);
+  assert.deepEqual([x.status, x.banked], ['stopped', 2]);
+  const again = await call('POST', `${SP()}/study`, T.jess, { spellId: 'srd:hypnotic-pattern', source: 'mentor' });
+  assert.deepEqual([again.status, again.body.id, again.body.status, again.body.banked, again.body.daysLeft], [200, s2.id, 'studying', 2, 4]);
+  // The DM sees every study and can set the points by hand.
+  assert.equal((await ok('GET', `${SP()}/study`, T.dm)).studies.length, 2);
+  assert.equal((await call('PUT', `${SP()}/study/${s2.id}`, T.jess, { banked: 13 })).status, 403);
+  assert.equal((await ok('PUT', `${SP()}/study/${s2.id}`, T.dm, { banked: 13 })).status, 'ready');
+  tree = await ok('GET', `${SP()}/tree`, T.jess);
+  const all = [...tree.schools.flatMap((s: any) => s.spells), ...tree.hybrids];
+  assert.ok(all.length > 300, `every SRD spell is on the tree (${all.length})`);
+  assert.equal(all.find((s: any) => s.id === 'srd:lightning-bolt').status, 'known');
+  assert.equal(all.find((s: any) => s.id === 'srd:wish').status, 'dark', 'no recipe: darkened');
+  assert.equal(tree.counts.studying, 1);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false, spellCraftApproval: 'dm' });
+});
+
+test('SpellRules: silent casting is an ability the DM grants, at no extra mana', async () => {
+  const ok = async (m: string, u: string, t: string, b?: unknown) => { const r = await call(m, u, t, b); assert.ok(r.status < 300, `${m} ${u} -> ${r.status} ${JSON.stringify(r.body)}`); return r.body; };
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellMana: true, spellRulesOn: true });
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'long-rest' });
+  assert.match((await call('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:fireball', silent: true })).body.error, /Silent casting is an ability/);
+  assert.equal((await call('PUT', `${SP()}/characters/me/caster`, T.jess, { silentAbility: true })).status, 403);
+  await ok('PUT', `${SP()}/characters/${ID.jess}/caster`, T.dm, { silentAbility: true });
+  const quiet = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:fireball', silent: true });
+  assert.deepEqual([quiet.silent, quiet.cost], [true, 5], 'the same cost as a normal cast');
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false });
+});

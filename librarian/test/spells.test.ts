@@ -287,7 +287,10 @@ test('Spells: mana pool, casting, upcasting, overdraw, DM adjustments, max level
   assert.equal(me.mana.now, 2);
   me = await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { manaMax: 20 });
   assert.equal(me.mana.max, 20);
-  assert.equal((await call('POST', `${SP()}/characters/${ID.jess}/mana`, T.jess, { delta: 50 })).status, 403);
+  assert.equal((await call('POST', `${SP()}/characters/${ID.jess}/mana`, T.jess, { delta: 50 })).status, 400, 'a player says why');
+  me = await ok('POST', `${SP()}/characters/me/mana`, T.jess, { delta: 50, note: 'Potion of mana' });
+  assert.equal(me.mana.now, 20, 'a player never goes above the maximum');
+  await ok('POST', `${SP()}/characters/${ID.jess}/mana`, T.dm, { set: 2 });
   // A short rest gives half back, a long rest all, also when the DM rests from the world clock.
   await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'short-rest' });
   me = await ok('GET', `${SP()}/characters/me`, T.jess);

@@ -127,7 +127,11 @@ World settings → Spells & mana → **Use mana** (`spellMana`). Then:
   pool, a short rest gives nothing). The rest presets of the world clock (Clock
   page, Minerva's `advance_world_time`, the macro actions) give it back by
   themselves; the Codex's Characters tab has its own rest buttons.
-- **DM adjustments.** `POST /spells/characters/:aid/mana {delta | set | full}`.
+- **Changing mana.** `POST /spells/characters/:aid/mana {delta | set | full, note}`.
+  The DM can set anything. A player changes their own mana (a potion, a
+  feature) with a note saying why, never above their maximum; the world can
+  turn that off with `spellManaPlayerEdit`. Every change is logged with who made
+  it, and the DM sees each character's mana in `GET /spells/characters`.
 
 Everything is logged per character (`GET /spells/log`: casts, rests,
 adjustments, spells learned). Changes reach the player and the DM live
@@ -284,7 +288,9 @@ engine into casting:
   pool and the highest spell level come from the engine's tables (multiclass:
   the full table at the combined caster level); a mana maximum set by hand
   still wins. Without them the old formula or table applies.
-- **The Dual cast ability.** `PUT .../caster {dualAbility: true}`, the DM only.
+- **Abilities.** `PUT .../caster {dualAbility: true, silentAbility: true}`, the
+  DM only. Silent casting (`POST /spells/cast {silent: true}`) costs no extra
+  mana; the log marks the cast as silent.
 - **Casting.** `POST /spells/cast` applies every limit: upcast surcharge, echo
   strain, one leveled spell per turn with the surge cast, the high-level
   limit, overchannel and low mana. It answers with the cost breakdown and the
@@ -297,8 +303,54 @@ engine into casting:
 - **Rests.** A short rest resets the turn, echo strain, the surge cast and the
   dual cast; a long rest also the high-level spells.
 
-Not yet: the fuse insight toward recipes, studying spells (days, final
-check, memories, scrolls), the cast panel and tree view in the app.
+### Studying a spell
+
+With `spellRulesOn`, a character learns a spell taught by a recipe by studying
+it on downtime days. Downtime is time between adventures, not a rest: one day
+is 8 hours of study. Each day earns 1 to 3 study points: 1 alone, 2 with a
+text, 3 with a mentor (a lab adds 1). For a 3rd-level spell (13 points):
+
+| How | Days | Gold |
+|---|---|---|
+| Alone | 13 | 250 |
+| With a text | 7 | 250 |
+| With a mentor | 5 | 500 |
+
+- **Plan.** `POST /spells/study/plan {spellId, source, lab}` shows what is
+  missing (the recipe's spells, the tier gate, ability, level, pool, the source
+  the tier allows), the points, days by source, gold, the final check's DC and
+  the character's bonus (casting modifier + proficiency).
+- **Start.** `POST /spells/study {spellId, source, scroll, arcana}`. A tier with
+  an Arcana check needs its total to start. Starting again picks up a stopped
+  study with its points.
+- **Days.** `POST /spells/study/:sid/days {days}`. The DM's days count at once,
+  a player's wait for `POST /spells/study/:sid/approve` unless
+  `spellCraftApproval` is `auto`. The DM can set points with `PUT /spells/study/:sid`.
+- **Final check.** When the points are complete, `POST /spells/study/:sid/check
+  {d20}` (or leave d20 out to roll on the server). A failure keeps the points
+  and waits for a long rest; then try again. A natural 1 or failing by 10 sets
+  the points back.
+- **Scrolls.** A scroll is used once. Studying with it (`scroll: true`) adds a
+  quarter of the points and keeps the scroll, so it can still be cast after
+  the spell is learned. Casting it first (`POST /spells/study/:sid/scroll-cast`)
+  spends it and takes its points back off the study.
+- **Stop.** `POST /spells/study/:sid/stop` keeps the points.
+
+`GET /spells/study` lists the character's studies (the DM sees all). Changes
+go out live as `spells-study`.
+
+### The spell tree
+
+`GET /spells/tree` lists every spell in the world (all SRD spells, and homebrew
+a player may see), grouped by school of magic, with hybrid spells (in two or
+more lines) in `hybrids` between the schools and spells without a school
+under Others. Each spell has a status: `known`, `gift`, `studying`, `stopped`,
+`learn` (its requirements are met: it can be started), `locked` (a recipe
+teaches it but something is missing, listed in `missing`), `hidden` (a hidden
+recipe, DM only; a player sees it as dark) or `dark` (no recipe yet).
+
+Not yet: the fuse insight toward recipes, the cast panel, Study panel and tree
+view in the app.
 
 ## Settings
 
@@ -312,6 +364,7 @@ check, memories, scrolls), the cast panel and tree view in the app.
 | `spellManaRest` | `{long: full, short: none}` | |
 | `spellManaMaxLevel` | off | `{on, table[20]}` |
 | `spellManaOverdraw` | false | |
+| `spellManaPlayerEdit` | true | Players may change their own mana, with a note |
 | `spellRules` | `{}` (all defaults) | The spell rules engine, below; only what the world changes |
 | `spellCrafting` | false | |
 | `spellCraftApproval` | `dm` | or `auto` |

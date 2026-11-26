@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS spells_state (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   caster_levels TEXT NOT NULL DEFAULT '{}',
   dual_ability INTEGER NOT NULL DEFAULT 0,
+  silent_ability INTEGER NOT NULL DEFAULT 0,
   turn_leveled INTEGER NOT NULL DEFAULT 0,
   surge_used INTEGER NOT NULL DEFAULT 0,
   dual_used INTEGER NOT NULL DEFAULT 0,
@@ -29,6 +30,8 @@ export type CasterLevels = Partial<Record<Exclude<CasterType, 'none'>, number>>;
 export interface CastMemory {
   casterLevels: CasterLevels;
   dualAbility: boolean;
+  /** Silent casting: no verbal or somatic components, no extra mana (an ability the DM grants). */
+  silentAbility: boolean;
   turnLeveled: number;
   surgeUsed: boolean;
   dualUsed: boolean;
@@ -44,6 +47,7 @@ export function castMemory(db: DB, worldId: string, accountId: string): CastMemo
   return {
     casterLevels: parseJson<CasterLevels>(r?.caster_levels, {}),
     dualAbility: !!r?.dual_ability,
+    silentAbility: !!r?.silent_ability,
     turnLeveled: r?.turn_leveled ?? 0,
     surgeUsed: !!r?.surge_used,
     dualUsed: !!r?.dual_used,
@@ -55,10 +59,10 @@ export function castMemory(db: DB, worldId: string, accountId: string): CastMemo
 
 export function saveMemory(db: DB, worldId: string, accountId: string, patch: Partial<CastMemory>) {
   const m = { ...castMemory(db, worldId, accountId), ...patch };
-  run(db, `INSERT INTO spells_state (world_id, account_id, caster_levels, dual_ability, turn_leveled, surge_used, dual_used, dual_penalty, echo, high_used, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(world_id, account_id) DO UPDATE SET caster_levels = excluded.caster_levels, dual_ability = excluded.dual_ability, turn_leveled = excluded.turn_leveled, surge_used = excluded.surge_used,
+  run(db, `INSERT INTO spells_state (world_id, account_id, caster_levels, dual_ability, silent_ability, turn_leveled, surge_used, dual_used, dual_penalty, echo, high_used, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(world_id, account_id) DO UPDATE SET caster_levels = excluded.caster_levels, dual_ability = excluded.dual_ability, silent_ability = excluded.silent_ability, turn_leveled = excluded.turn_leveled, surge_used = excluded.surge_used,
       dual_used = excluded.dual_used, dual_penalty = excluded.dual_penalty, echo = excluded.echo, high_used = excluded.high_used, updated_at = excluded.updated_at`,
-    worldId, accountId, JSON.stringify(m.casterLevels), m.dualAbility ? 1 : 0, m.turnLeveled, m.surgeUsed ? 1 : 0, m.dualUsed ? 1 : 0, m.dualPenalty, JSON.stringify(m.echo), JSON.stringify(m.highUsed), now());
+    worldId, accountId, JSON.stringify(m.casterLevels), m.dualAbility ? 1 : 0, m.silentAbility ? 1 : 0, m.turnLeveled, m.surgeUsed ? 1 : 0, m.dualUsed ? 1 : 0, m.dualPenalty, JSON.stringify(m.echo), JSON.stringify(m.highUsed), now());
 }
 
 /** Does the character have any caster levels set? */
