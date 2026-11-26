@@ -28,6 +28,7 @@ export const DM_NAMES: Record<string, DMName> = {
 
   inbox: { group: 'players', label: 'Inbox', icon: 'fa-inbox', desc: 'Coin and item approvals, and what players ask for.' },
   sharing: { group: 'players', label: 'Sharing & keys', icon: 'fa-share-nodes', desc: 'Share pages with players, invite people, and give out API and AI keys.' },
+  sheets: { group: 'players', label: 'Player sheets', icon: 'fa-id-card', desc: 'Each player’s quick sheet, and every HP and mana change.' },
   party: { group: 'players', label: 'Players', icon: 'fa-sack-dollar', desc: 'Each player’s gold and pack, then the party’s: give or take in one tap.' },
   broker: { group: 'players', label: 'Broker', icon: 'fa-scale-balanced', desc: 'Information players can buy, and your price tiers.' },
   shops: { group: 'players', label: 'Shops', icon: 'fa-store', desc: 'Shops players can buy from: open, close, stock and price them, and approve purchases.' },
