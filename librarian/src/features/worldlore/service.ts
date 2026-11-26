@@ -15,6 +15,7 @@ import { HttpError, now, parseJson } from '../../core/util.ts';
 import type { Connector, ConnectorContext, WriteLevel } from '../../intake/connector.ts';
 import { WriteRefused } from '../../intake/connector.ts';
 import { connectorFor, workspaceMcpFactory } from '../../intake/registry.ts';
+import { notionId } from '../../intake/connectors/notion.ts';
 import { effectiveConfig } from '../../intake/connections.ts';
 import { prefixFor, runSync } from '../../intake/sync.ts';
 
@@ -86,7 +87,7 @@ export function setConfig(d: Deps, worldId: string, next: LoreConfig | null, who
     const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', next.sourceId, worldId);
     if (!src) throw new HttpError(404, 'Source not found in this world');
     const c = connectorFor(src.kind, parseJson(src.config, {}));
-    if (!c?.write) throw new HttpError(400, `${c?.label ?? src.kind} cannot be written to; pick a LegendKeeper, Kanka, World Anvil or Markdown source, or use the library`);
+    if (!c?.write) throw new HttpError(400, `${c?.label ?? src.kind} cannot be written to; pick a LegendKeeper, Kanka, World Anvil, Notion, Obsidian or Markdown source, or use the library`);
     if (c.id.startsWith('kanka')) {
       const id = /^(?:kanka:)?(\d{1,12})$/.exec(next.root.trim())?.[1];
       if (!id) throw new HttpError(400, 'The WorldLore home in Kanka is one note or journal: pick it from the list');
@@ -96,6 +97,11 @@ export function setConfig(d: Deps, worldId: string, next: LoreConfig | null, who
       const id = /^(?:wa:)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(next.root.trim())?.[1];
       if (!id) throw new HttpError(400, 'The WorldLore home in World Anvil is one category: pick it from the list');
       next = { ...next, root: `wa:${id.toLowerCase()}` };
+    }
+    if (c.id.startsWith('notion')) {
+      const id = notionId(next.root);
+      if (!id) throw new HttpError(400, 'The WorldLore home in Notion is one page or database: pick it from the list');
+      next = { ...next, root: `notion:${id}` };
     }
   }
   if (next?.kind === 'library') next = { ...next, root: LIBRARY_ROOT, sourceId: undefined };
@@ -369,7 +375,7 @@ export async function deletePage(d: Deps, worldId: string, who: string | null, a
     const ref = refFor(d, worldId, w, a.id);
     await w.connector!.write!.deletePage(w.srcCfg, w.ctx!, { root: w.cfg.root, id: ref }).catch(toHttp);
     const pg = one<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, w.src.id, ref);
-    const kids = w.connector!.id.startsWith('kanka') || w.connector!.id.startsWith('worldanvil') ? all<any>(d.db, 'SELECT external_id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND parent_external = ?', worldId, w.src.id, ref) : [];
+    const kids = w.connector!.id.startsWith('kanka') || w.connector!.id.startsWith('worldanvil') || w.connector!.id.startsWith('notion') ? all<any>(d.db, 'SELECT external_id, visibility FROM pages WHERE world_id = ? AND source_id = ? AND parent_external = ?', worldId, w.src.id, ref) : [];
     if (pg) d.library.remove(worldId, pg.id);
     run(d.db, 'DELETE FROM worldlore_pages WHERE world_id = ? AND ref = ?', worldId, ref);
     // Kanka and World Anvil may move the children up or delete them with the page: read each again and keep it only if it is still in the workspace.
