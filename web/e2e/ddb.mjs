@@ -24,12 +24,16 @@ const character = {
   data: {
     id: 87654321, name: 'Brindle Ashvale', readonlyUrl: 'https://www.dndbeyond.com/characters/87654321',
     race: { fullName: 'Hill Dwarf', weightSpeeds: { normal: { walk: 25 } } }, background: { definition: { name: 'Sage' } }, alignmentId: 2,
-    classes: [{ level: 5, definition: { name: 'Wizard', spellCastingAbilityId: 4 }, subclassDefinition: { name: 'School of Evocation' } }],
+    classes: [{ level: 5, hitDiceUsed: 2, definition: { name: 'Wizard', hitDice: 6, spellCastingAbilityId: 4, spellRules: { multiClassSpellSlotDivisor: 1, levelSpellSlots: [[], [2], [3], [4, 2], [4, 3], [4, 3, 2]] } },
+      classFeatures: [{ definition: { name: 'Arcane Recovery', requiredLevel: 1 } }], subclassDefinition: { name: 'School of Evocation', classFeatures: [{ definition: { name: 'Sculpt Spells', requiredLevel: 2 } }] } }],
+    spellSlots: [{ level: 1, used: 2 }], inspiration: true,
+    actions: { class: [{ name: 'Arcane Recovery', limitedUse: { maxUses: 1, numberUsed: 0, resetType: 2 } }] },
+    traits: { personalityTraits: 'Reads at the table.', flaws: 'Too curious.' }, notes: { backstory: 'Raised in a library.' },
     stats: [{ id: 1, value: 10 }, { id: 2, value: 14 }, { id: 3, value: 13 }, { id: 4, value: 16 }, { id: 5, value: 12 }, { id: 6, value: 8 }],
     bonusStats: [], overrideStats: [],
     baseHitPoints: 22, removedHitPoints: 5, temporaryHitPoints: 0,
     modifiers: { race: [{ type: 'bonus', subType: 'constitution-score', value: 2 }, { type: 'language', friendlySubtypeName: 'Dwarvish' }], class: [{ type: 'proficiency', subType: 'intelligence-saving-throws' }, { type: 'proficiency', subType: 'arcana' }] },
-    inventory: [{ quantity: 1, equipped: true, definition: { name: 'Quarterstaff' } }, { quantity: 1, equipped: false, definition: { name: 'Spellbook' } }, { quantity: 3, equipped: false, definition: { name: 'Potion of Healing' } }],
+    inventory: [{ quantity: 1, equipped: true, definition: { name: 'Quarterstaff', filterType: 'Weapon', attackType: 1, damage: { diceString: '1d6' }, damageType: 'Bludgeoning' } }, { quantity: 1, equipped: false, definition: { name: 'Spellbook' } }, { quantity: 3, equipped: false, definition: { name: 'Potion of Healing' } }],
     currencies: { gp: 42 }, conditions: [{ id: 11 }],
     classSpells: [{ spells: [{ definition: { name: 'Fire Bolt', level: 0 } }, { definition: { name: 'Magic Missile', level: 1 } }, { definition: { name: 'Fireball', level: 3 } }] }],
   },
@@ -89,8 +93,11 @@ try {
   const vit = pl.getByTestId('mod-vitals');
   await vit.getByTestId('hp').getByText('27').waitFor({ timeout: 8000 });
   check(await vit.getByText('Poisoned').count() > 0, 'the condition came across');
+  check(/Passive Perception/.test(await mod.innerText()) && /Quarterstaff/.test(await mod.innerText()), 'the module shows passive Perception and attacks');
+  check(await pl.getByTestId('mod-counters').getByText('Arcane Recovery').count() === 1, 'limited uses became counters');
   await mod.scrollIntoViewIfNeeded();
   await shot(pl, '3-character-module');
+  if (SHOTS) await mod.screenshot({ path: path.join(SHOTS, '3b-character-module-full.png') });
   note('player: Character module, HP 27/32, Poisoned');
 
   // 4. The DM sees the module on the player's sheet and the items waiting for approval.

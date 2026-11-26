@@ -20,7 +20,20 @@ export interface DdbCharacter {
   saves: Ab[]; skills: { name: string; expertise: boolean }[]; languages: string[]; feats: string[];
   spells: { name: string; level: number }[]; items: { name: string; qty: number; equipped: boolean }[];
   coins: Partial<Record<'pp' | 'gp' | 'ep' | 'sp' | 'cp', number>>; conditions: string[];
+  // Added later: a character imported before these existed has none of them.
+  initiative?: number; passivePerception?: number; inspiration?: boolean;
+  hitDice?: { die: number; total: number; used: number }[];
+  slots?: { level: number; max: number; used: number }[]; pact?: { level: number; max: number; used: number } | null;
+  attacks?: { name: string; hit: number; damage: string; range: string }[];
+  features?: { name: string; from: string }[];
+  uses?: { name: string; max: number; used: number; reset: string }[];
+  traits?: { personality: string; ideals: string; bonds: string; flaws: string; backstory: string };
 }
+const ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
+/** Filled and empty dots for used and left (slots, uses). */
+const Dots = ({ max, used, label }: { max: number; used: number; label: string }) => (
+  <span className="sht-tokens" role="img" aria-label={`${label}: ${max - used} of ${max} left`}>{Array.from({ length: Math.min(max, 12) }, (_, i) => <span key={i} className={i < max - used ? 'on' : ''} />)}</span>
+);
 
 const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 const mod = (score: number) => Math.floor((score - 10) / 2);
@@ -58,10 +71,40 @@ export function CharacterMod({ c, onUpdate }: { c: DdbCharacter; onUpdate?: () =
         <span>Speed <strong>{c.speed ?? '—'}</strong></span>
         <span>Level <strong>{c.level}</strong></span>
         <span>Proficiency <strong>{sign(c.prof)}</strong></span>
+        {c.initiative !== undefined && <span>Initiative <strong>{sign(c.initiative)}</strong></span>}
+        {c.passivePerception !== undefined && <span>Passive Perception <strong>{c.passivePerception}</strong></span>}
+        {c.inspiration && <span className="chip teal">Inspiration</span>}
       </div>
+      {(c.hitDice?.length ?? 0) > 0 && <div className="tiny"><span className="faint">Hit dice </span>{c.hitDice!.map((h) => `${h.total - h.used}/${h.total} d${h.die}`).join(', ')}</div>}
+      {((c.slots?.length ?? 0) > 0 || c.pact) && (
+        <div className="stack tight tiny" aria-label="Spell slots">
+          <span className="faint">Spell slots (when imported)</span>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            {c.slots!.map((x) => <span key={x.level} className="row" style={{ gap: 4 }}>{ORD[x.level]} <Dots max={x.max} used={x.used} label={`${ORD[x.level]} level slots`} /></span>)}
+            {c.pact && <span className="row" style={{ gap: 4 }}>Pact ({ORD[c.pact.level]}) <Dots max={c.pact.max} used={c.pact.used} label="Pact slots" /></span>}
+          </div>
+        </div>
+      )}
+      {(c.attacks?.length ?? 0) > 0 && (
+        <div className="stack tight tiny">
+          <span className="faint" title="Worked out from worn weapons, assuming proficiency; check it on D&D Beyond">Attacks</span>
+          <ul className="sht-list">{c.attacks!.map((a, i) => <li key={i}><span className="grow">{a.name}{a.range && <span className="faint"> · {a.range}</span>}</span><strong>{sign(a.hit)}</strong><span className="muted">{a.damage}</span></li>)}</ul>
+        </div>
+      )}
+      {(c.uses?.length ?? 0) > 0 && (
+        <div className="stack tight tiny">
+          <span className="faint">Limited uses (when imported; they are counters on your sheet)</span>
+          <ul className="sht-list">{c.uses!.map((u) => <li key={u.name}><span className="grow">{u.name}{u.reset && <span className="faint"> · {u.reset}</span>}</span><Dots max={u.max} used={u.used} label={u.name} /></li>)}</ul>
+        </div>
+      )}
       {c.skills.length > 0 && <div className="tiny"><span className="faint">Skills </span>{c.skills.map((s) => s.name + (s.expertise ? ' (expertise)' : '')).join(', ')}</div>}
       {c.languages.length > 0 && <div className="tiny"><span className="faint">Languages </span>{c.languages.join(', ')}</div>}
       {c.feats.length > 0 && <div className="tiny"><span className="faint">Feats </span>{c.feats.join(', ')}</div>}
+      {(c.features?.length ?? 0) > 0 && (
+        <details className="tiny"><summary>Features and traits ({c.features!.length})</summary>
+          <ul className="sht-list">{c.features!.map((f) => <li key={f.name}><span className="grow">{f.name}</span><span className="faint">{f.from}</span></li>)}</ul>
+        </details>
+      )}
       {c.spells.length > 0 && (
         <details className="tiny"><summary>Spells ({c.spells.length})</summary>
           <ul className="sht-list">{Object.entries(spellsBy).map(([lvl, names]) => <li key={lvl} style={{ alignItems: 'flex-start' }}><span className="faint" style={{ minWidth: 52 }}>{lvl === '0' ? 'Cantrips' : `Level ${lvl}`}</span><span className="grow" style={{ whiteSpace: 'normal' }}>{names.join(', ')}</span></li>)}</ul>
@@ -70,6 +113,14 @@ export function CharacterMod({ c, onUpdate }: { c: DdbCharacter; onUpdate?: () =
       {(c.items.length > 0 || coins) && (
         <details className="tiny"><summary>On D&amp;D Beyond: {c.items.length} items{coins ? `, ${coins}` : ''}</summary>
           <ul className="sht-list sht-scroll">{c.items.map((it, i) => <li key={i}><span className="grow">{it.name}{it.equipped && <span className="faint"> (worn)</span>}</span>{it.qty !== 1 && <span className="muted">×{it.qty}</span>}</li>)}</ul>
+        </details>
+      )}
+      {c.traits && Object.values(c.traits).some(Boolean) && (
+        <details className="tiny"><summary>Personality and backstory</summary>
+          <div className="stack tight" style={{ marginTop: 4 }}>
+            {([['Personality', c.traits.personality], ['Ideals', c.traits.ideals], ['Bonds', c.traits.bonds], ['Flaws', c.traits.flaws]] as const).filter(([, v]) => v).map(([k, v]) => <div key={k}><span className="faint">{k} </span>{v}</div>)}
+            {c.traits.backstory && <p className="sht-scroll" style={{ whiteSpace: 'pre-line', margin: 0, maxHeight: 200 }}>{c.traits.backstory}</p>}
+          </div>
         </details>
       )}
       <div className="row between tiny faint" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -95,7 +146,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
   const [paste, setPaste] = useState(false);
   const [json, setJson] = useState('');
   const [preview, setPreview] = useState<DdbCharacter | null>(null);
-  const [opt, setOpt] = useState({ health: true, conditions: true, name: true, stats: true, spells: false, items: false });
+  const [opt, setOpt] = useState({ health: true, conditions: true, name: true, stats: true, counters: true, spells: false, items: false });
   const [progress, setProgress] = useState('');
   const src = () => (paste ? { json } : { url });
   const path = `/sheet/${own ? 'me' : account}/import/ddb`;
@@ -105,7 +156,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
     setPreview(out.character);
   });
   const go = () => act.run(async () => {
-    const out = await w.call<Applied>('POST', path, { ...src(), apply: { health: opt.health, conditions: opt.conditions, name: opt.name, stats: opt.stats, spells: dm && opt.spells } });
+    const out = await w.call<Applied>('POST', path, { ...src(), apply: { health: opt.health, conditions: opt.conditions, name: opt.name, stats: opt.stats, counters: opt.counters, spells: dm && opt.spells } });
     let sent = 0, skipped = 0;
     if (opt.items && preview?.items.length) {
       const have = await w.call<any>('GET', '/inventory', undefined, { owner: own ? 'me' : account });
@@ -160,6 +211,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
             {preview.conditions.length > 0 && box('conditions', `Add conditions: ${preview.conditions.join(', ')}`)}
             {box('name', `Use “${preview.name}” as the character name`)}
             {box('stats', 'Class, level and ability scores for spells and mana')}
+            {((preview.uses?.length ?? 0) + (preview.hitDice?.length ?? 0)) > 0 && box('counters', `Counters for ${[...(preview.uses ?? []).map((u) => u.name), 'hit dice'].slice(0, 4).join(', ')}${(preview.uses?.length ?? 0) > 3 ? '…' : ''}`, '(same names are updated)')}
             {preview.items.length > 0 && box('items', `Send ${preview.items.length} items to Inventory`, dm ? '(skips ones already there)' : '(the DM approves them; skips ones already there)')}
             {dm && preview.spells.length > 0 && box('spells', `Add ${preview.spells.length} known spells`, '(ones in this world’s spell list)')}
           </div>

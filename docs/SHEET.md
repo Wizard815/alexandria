@@ -38,12 +38,17 @@ screen and the Character module both say so.
   Beyond (Character Settings › Character Privacy › Public); a private one gets a message saying how to change that.
 - If the link stops working, **Paste the JSON**: open the character-service address above in a browser and paste the page.
 - **Read character** shows a preview first. The **Character** module (race, classes, ability scores and saves, AC as an
-  estimate from worn armour, speed, skills, languages, feats, spells, items and coin) is always written; the rest is
-  chosen: HP / max / temporary HP (logged with source *import*), conditions (added, not replaced), the character name,
+  estimate from worn armour, speed, initiative, passive Perception, inspiration, hit dice, spell slots and pact slots as
+  they were when imported, attacks with worn weapons (an estimate assuming proficiency), class features and racial
+  traits, limited uses, skills, languages, feats, spells, items, coin, personality and backstory) is always written; the
+  rest is chosen: limited uses (Rage, Ki, Second Wind…) and hit dice as **Counters** (an entry with the same name is
+  updated), HP / max / temporary HP (logged with source *import*), conditions (added, not replaced), the character name,
   class, level and ability scores for spells and mana (skipped for a player when the DM keeps them, `spellPlayerStats`),
   items sent to **Inventory** (a player's wait for the DM's approval as usual; names already there are skipped) and, for
   the DM only, known spells that match the world's spell list.
 - **Update** on the Character module imports the same character again; the module is replaced, never doubled.
+- It only goes one way. Nothing updates by itself, and nothing changed in Alexandria is written back to D&D Beyond (its
+  unofficial data is read-only). Item quantities and items removed on D&D Beyond are not changed in Inventory.
 
 Nothing else on the sheet changes, and nothing is sent to D&D Beyond except the request for that character.
 
@@ -98,7 +103,7 @@ Under `/api/worlds/:world/sheet` (`:aid` is `me`, or for the DM any player's
 account id or character name):
 
 - `GET /:aid`: the sheet (vitals, mana, modules).
-- `POST /:aid/import/ddb { url | json, dryRun?, apply?: { health, conditions, name, stats, spells } }`: import from D&D Beyond (unofficial; `spells` is the DM's only).
+- `POST /:aid/import/ddb { url | json, dryRun?, apply?: { health, conditions, name, stats, counters, spells } }`: import from D&D Beyond (unofficial; `spells` is the DM's only).
 - `PUT /me/modules { modules }`: the player's own layout.
 - `POST /:aid/vitals { damage | heal | hp | maxHp | tempHp | setTempHp | conditions, note? }`.
 - `POST /:aid/mana { delta | set | full, note? }` (mana must be on).

@@ -151,6 +151,10 @@ export const CSS = `
 .sht-warn { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-bg); color: var(--text); font-size: 13px; line-height: 1.4; }
 .sht-warn i { color: var(--accent); margin-top: 2px; }
 .sht-mod .sht-warn { font-size: 11px; padding: 4px 8px; }
+.sht-mod details > summary { cursor: pointer; color: var(--accent); min-height: 26px; display: flex; align-items: center; gap: 4px; list-style: none; }
+.sht-mod details > summary::-webkit-details-marker { display: none; }
+.sht-mod details > summary::before { content: '▸'; transition: transform .15s; }
+.sht-mod details[open] > summary::before { transform: rotate(90deg); }
 .sht-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
 .sht-stats > div { display: flex; flex-direction: column; align-items: center; padding: 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-variant-numeric: tabular-nums; }
 .sht-stats > div.save { border-color: var(--accent); }

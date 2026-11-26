@@ -23,6 +23,16 @@ const ALIGNMENT = ['', 'Lawful Good', 'Neutral Good', 'Chaotic Good', 'Lawful Ne
 const SKILLS = ['acrobatics', 'animal-handling', 'arcana', 'athletics', 'deception', 'history', 'insight', 'intimidation', 'investigation', 'medicine', 'nature', 'perception', 'performance', 'persuasion', 'religion', 'sleight-of-hand', 'stealth', 'survival'];
 const COINS = ['pp', 'gp', 'ep', 'sp', 'cp'] as const;
 
+// The standard multiclass spellcaster table (caster level 1-20 -> slots of levels 1-9).
+const FULL_SLOTS: number[][] = [
+  [2], [3], [4, 2], [4, 3], [4, 3, 2], [4, 3, 3], [4, 3, 3, 1], [4, 3, 3, 2], [4, 3, 3, 3, 1], [4, 3, 3, 3, 2],
+  [4, 3, 3, 3, 2, 1], [4, 3, 3, 3, 2, 1], [4, 3, 3, 3, 2, 1, 1], [4, 3, 3, 3, 2, 1, 1], [4, 3, 3, 3, 2, 1, 1, 1], [4, 3, 3, 3, 2, 1, 1, 1],
+  [4, 3, 3, 3, 2, 1, 1, 1, 1], [4, 3, 3, 3, 3, 1, 1, 1, 1], [4, 3, 3, 3, 3, 2, 1, 1, 1], [4, 3, 3, 3, 3, 2, 2, 1, 1],
+];
+const RESET: Record<number, string> = { 1: 'short rest', 2: 'long rest', 3: 'dawn', 4: 'other' };
+// Class features every character has, which only clutter a short list.
+const DULL_FEATURES = /^(hit points|proficiencies|ability score improvement|equipment|spellcasting|core .* traits|subclass feature|.* subclass|epic boon|weapon mastery)$/i;
+
 export interface DdbClass { name: string; subclass: string; level: number }
 export interface DdbCharacter {
   source: 'dndbeyond';
@@ -49,6 +59,18 @@ export interface DdbCharacter {
   items: { name: string; qty: number; equipped: boolean }[];
   coins: Partial<Record<(typeof COINS)[number], number>>;
   conditions: string[];
+  initiative: number;
+  passivePerception: number;
+  inspiration: boolean;
+  hitDice: { die: number; total: number; used: number }[];
+  /** Spell slots by spell level 1-9 (index 0 = level 1); pact magic separately. */
+  slots: { level: number; max: number; used: number }[];
+  pact: { level: number; max: number; used: number } | null;
+  attacks: { name: string; hit: number; damage: string; range: string }[];
+  features: { name: string; from: string }[];
+  /** Abilities with a number of uses (Rage, Ki, Channel Divinity...). */
+  uses: { name: string; max: number; used: number; reset: string }[];
+  traits: { personality: string; ideals: string; bonds: string; flaws: string; backstory: string };
 }
 
 /** The character id in a D&D Beyond link (or a bare id), or null. */
@@ -173,6 +195,88 @@ export function mapDdb(raw: unknown, url = ''): DdbCharacter {
     return n === 'Exhaustion' && int(x?.level, 1, 10) ? `Exhaustion ${int(x.level, 1, 10)}` : n;
   }).filter((x): x is string => !!x);
 
+
+  // Initiative and passive Perception.
+  const initiative = dex + sum('bonus', 'initiative');
+  const percProf = has('expertise', 'perception') ? 2 * prof : has('proficiency', 'perception') ? prof : 0;
+  const passivePerception = 10 + mod(abilities.wis) + percProf + sum('bonus', 'passive-perception');
+
+  const hitDice = arr(c.classes).map((k) => ({ die: int(k?.definition?.hitDice, 4, 12) ?? 8, total: int(k?.level, 1, 20) ?? 1, used: int(k?.hitDiceUsed, 0, 20) ?? 0 }));
+
+  // Spell slots: D&D Beyond works them out in the browser, so they come from each class's own table (one caster)
+  // or the multiclass table (caster levels added up); the JSON only says how many are used.
+  const casters = arr(c.classes).filter((k) => k?.definition?.canCastSpells !== false && Array.isArray(k?.definition?.spellRules?.levelSpellSlots) && String(k?.definition?.name).toLowerCase() !== 'warlock');
+  let table: number[] = [];
+  if (casters.length === 1) {
+    table = arr(casters[0].definition.spellRules.levelSpellSlots[int(casters[0].level, 1, 20) ?? 1]).map((n) => int(n, 0, 9) ?? 0);
+  } else if (casters.length > 1) {
+    const lvl = casters.reduce((n, k) => {
+      const div = int(k.definition.spellRules.multiClassSpellSlotDivisor, 1, 3) ?? 1;
+      const up = k.definition.spellRules.multiClassSpellSlotRounding === 2;
+      const l = (int(k.level, 1, 20) ?? 1) / div;
+      return n + (up ? Math.ceil(l) : Math.floor(l));
+    }, 0);
+    table = lvl > 0 ? FULL_SLOTS[Math.min(20, lvl) - 1] : [];
+  }
+  const usedAt = (list: unknown, l: number) => int(arr(list).find((x) => x?.level === l)?.used, 0, 9) ?? 0;
+  const slots = table.map((max, i) => ({ level: i + 1, max, used: Math.min(max, usedAt(c.spellSlots, i + 1)) })).filter((x) => x.max > 0);
+  const lock = arr(c.classes).find((k) => String(k?.definition?.name).toLowerCase() === 'warlock');
+  let pact: DdbCharacter['pact'] = null;
+  if (lock) {
+    const row = arr(arr(lock.definition?.spellRules?.levelSpellSlots)[int(lock.level, 1, 20) ?? 1]).map((n) => int(n, 0, 9) ?? 0);
+    const at = row.findIndex((n, i) => n > 0 && row.slice(i + 1).every((m) => !m));
+    if (at >= 0) pact = { level: at + 1, max: row[at], used: Math.min(row[at], usedAt(c.pactMagic, at + 1)) };
+  }
+
+  // Attacks with worn weapons, as an estimate: proficient, Strength (Dexterity for ranged or the better with finesse).
+  const attacks: DdbCharacter['attacks'] = [];
+  for (const it of inv) {
+    const def = it?.definition;
+    if (!it?.equipped || def?.filterType !== 'Weapon') continue;
+    const finesse = arr(def.properties).some((p) => /finesse/i.test(String(p?.name)));
+    const ranged = def.attackType === 2;
+    const ab = ranged ? dex : finesse ? Math.max(dex, mod(abilities.str)) : mod(abilities.str);
+    const magic = arr(def.grantedModifiers).filter((m) => m?.type === 'bonus' && m?.subType === 'magic').reduce((n, m) => n + (int(m?.value, 0, 5) ?? 0), 0);
+    const dice = str(def.damage?.diceString, 20);
+    const dmg = dice ? `${dice}${ab + magic ? (ab + magic > 0 ? ` + ${ab + magic}` : ` - ${-(ab + magic)}`) : ''}${def.damageType ? ` ${String(def.damageType).toLowerCase()}` : ''}` : '';
+    const range = def.range ? `${int(def.range, 0, 2000)}${def.longRange ? `/${int(def.longRange, 0, 2000)}` : ''} ft` : '';
+    attacks.push({ name: str(def.name, 60), hit: prof + ab + magic, damage: dmg, range });
+    if (attacks.length >= 12) break;
+  }
+
+  // Features: class features up to the class level, racial traits and feats.
+  const features: DdbCharacter['features'] = [];
+  const addF = (name: string, from: string) => { if (name && !DULL_FEATURES.test(name) && !features.some((f) => f.name.toLowerCase() === name.toLowerCase())) features.push({ name, from }); };
+  for (const k of arr(c.classes)) {
+    const lvl = int(k?.level, 1, 20) ?? 1;
+    for (const f of [...arr(k?.classFeatures), ...arr(k?.subclassDefinition?.classFeatures)]) {
+      const d = f?.definition ?? f;
+      if ((int(d?.requiredLevel, 1, 20) ?? 1) <= lvl) addF(str(d?.name, 60), str(k?.definition?.name, 40));
+    }
+  }
+  for (const t of arr(c.race?.racialTraits)) addF(str(t?.definition?.name, 60), str(c.race?.baseName, 40) || 'Species');
+
+  // Limited uses: D&D Beyond's actions with a use count. A count of 0 with "uses = proficiency" or an ability gets that number.
+  const uses: DdbCharacter['uses'] = [];
+  const allActions = c.actions && typeof c.actions === 'object' ? Object.values(c.actions).flatMap(arr) : [];
+  for (const a of allActions) {
+    const lu = a?.limitedUse;
+    if (!lu) continue;
+    let mx = int(lu.maxUses, 0, 99) ?? 0;
+    if (lu.useProficiencyBonus) mx += prof * (int(lu.proficiencyBonusOperator, 0, 3) === 2 ? 0 : 1);
+    const stat = int(lu.statModifierUsesId, 0, 6);
+    if (stat) mx += Math.max(1, mod(abilities[ABIL[stat - 1]]));
+    const name = str(a?.name, 40);
+    if (!name || mx < 1 || uses.some((u) => u.name.toLowerCase() === name.toLowerCase())) continue;
+    uses.push({ name, max: mx, used: Math.min(mx, int(lu.numberUsed, 0, 99) ?? 0), reset: RESET[int(lu.resetType, 0, 9) ?? 0] ?? '' });
+    if (uses.length >= 20) break;
+  }
+
+  const traits = {
+    personality: str(c.traits?.personalityTraits, 600), ideals: str(c.traits?.ideals, 400), bonds: str(c.traits?.bonds, 400), flaws: str(c.traits?.flaws, 400),
+    backstory: typeof c.notes?.backstory === 'string' ? c.notes.backstory.trim().slice(0, 3000) : '',
+  };
+
   const ddbId = String(int(c.id, 0, 1e12) ?? '');
   return {
     source: 'dndbeyond',
@@ -186,6 +290,7 @@ export function mapDdb(raw: unknown, url = ''): DdbCharacter {
     classes, level, abilities, castingAbility,
     hp: { max, now, temp }, ac, speed, prof, saves, skills, languages, feats,
     spells: spells.slice(0, 300), items, coins, conditions,
+    initiative, passivePerception, inspiration: c.inspiration === true, hitDice, slots, pact, attacks: attacks.slice(0, 12), features: features.slice(0, 60), uses, traits,
   };
 }
 
@@ -232,5 +337,15 @@ export function cleanCharacter(d: any): DdbCharacter | Record<string, never> {
     items: arr(d.items).slice(0, 200).map((it) => ({ name: str(it?.name, 120), qty: int(it?.qty, 0, 1_000_000) ?? 1, equipped: it?.equipped === true })).filter((it) => it.name),
     coins,
     conditions: arr(d.conditions).slice(0, 20).map((x) => str(x, 40)).filter(Boolean),
+    initiative: int(d.initiative, -20, 40) ?? 0,
+    passivePerception: int(d.passivePerception, 0, 60) ?? 10,
+    inspiration: d.inspiration === true,
+    hitDice: arr(d.hitDice).slice(0, 6).map((h) => ({ die: int(h?.die, 4, 12) ?? 8, total: int(h?.total, 1, 20) ?? 1, used: int(h?.used, 0, 20) ?? 0 })),
+    slots: arr(d.slots).slice(0, 9).map((x) => ({ level: int(x?.level, 1, 9) ?? 1, max: int(x?.max, 0, 9) ?? 0, used: int(x?.used, 0, 9) ?? 0 })),
+    pact: d.pact && typeof d.pact === 'object' ? { level: int(d.pact.level, 1, 9) ?? 1, max: int(d.pact.max, 0, 9) ?? 0, used: int(d.pact.used, 0, 9) ?? 0 } : null,
+    attacks: arr(d.attacks).slice(0, 12).map((a) => ({ name: str(a?.name, 60), hit: int(a?.hit, -10, 40) ?? 0, damage: str(a?.damage, 60), range: str(a?.range, 30) })).filter((a) => a.name),
+    features: arr(d.features).slice(0, 60).map((f) => ({ name: str(f?.name, 60), from: str(f?.from, 40) })).filter((f) => f.name),
+    uses: arr(d.uses).slice(0, 20).map((u) => ({ name: str(u?.name, 40), max: int(u?.max, 1, 99) ?? 1, used: int(u?.used, 0, 99) ?? 0, reset: str(u?.reset, 20) })).filter((u) => u.name),
+    traits: { personality: str(d.traits?.personality, 600), ideals: str(d.traits?.ideals, 400), bonds: str(d.traits?.bonds, 400), flaws: str(d.traits?.flaws, 400), backstory: typeof d.traits?.backstory === 'string' ? d.traits.backstory.slice(0, 3000) : '' },
   };
 }

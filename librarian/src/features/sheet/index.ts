@@ -153,7 +153,7 @@ function routes(d: Deps) {
   });
 
   // ---- import a character from D&D Beyond (unofficial: it can break without notice) ----
-  // { url | json, dryRun?, apply?: { health, conditions, name, stats, spells } }. The player imports onto their own
+  // { url | json, dryRun?, apply?: { health, conditions, name, stats, counters, spells } }. The player imports onto their own
   // sheet, the DM onto anyone's. dryRun only reads it, so the screen can show what will change first.
   // Items are not added here: the sheet sends them through Inventory, where the DM approves them as usual.
   r.post('/:aid/import/ddb', requirePlayerOrDM, async (req, res) => {
@@ -174,7 +174,7 @@ function routes(d: Deps) {
     const ch = mapDdb(raw, url);
     if (b.dryRun === true) return res.json({ character: ch, warning: DDB_WARNING, applied: [] });
 
-    const want = { health: true, conditions: true, name: true, stats: true, spells: false, ...(b.apply && typeof b.apply === 'object' ? b.apply : {}) };
+    const want = { health: true, conditions: true, name: true, stats: true, counters: true, spells: false, ...(b.apply && typeof b.apply === 'object' ? b.apply : {}) };
     const applied: string[] = [];
     const notes: string[] = [];
     const s = settings(res);
@@ -183,7 +183,24 @@ function routes(d: Deps) {
       const mods = modulesOf(w, aid);
       const mod: Module = { id: 'character', type: 'character', title: 'Character', wide: false, private: false, collapsed: false, data: ch };
       const at = mods.findIndex((m) => m.type === 'character');
-      const next = cleanModules(at >= 0 ? mods.map((m, i) => (i === at ? { ...m, data: ch } : m)) : [mod, ...mods]);
+      let list = at >= 0 ? mods.map((m, i) => (i === at ? { ...m, data: ch } : m)) : [mod, ...mods];
+      // Limited uses (Rage, Ki…) and hit dice as counters: an entry with the same name is updated, others are added.
+      if (want.counters) {
+        const wanted = [...ch.uses.map((u) => ({ label: u.name, max: u.max, value: u.max - u.used })),
+          ...ch.hitDice.map((h) => ({ label: `Hit dice (d${h.die})`, max: h.total, value: h.total - h.used }))].map((e) => ({ ...e, label: e.label.slice(0, 40) }));
+        if (wanted.length) {
+          const ci = list.findIndex((m) => m.type === 'counters');
+          const entries: any[] = ci >= 0 ? [...(list[ci].data?.entries ?? [])] : [];
+          for (const e of wanted) {
+            const j = entries.findIndex((x) => String(x.label).toLowerCase() === e.label.toLowerCase());
+            if (j >= 0) entries[j] = { ...entries[j], value: e.value, max: e.max };
+            else if (entries.length < 30) entries.push({ id: id('c'), ...e });
+          }
+          list = ci >= 0 ? list.map((m, i) => (i === ci ? { ...m, data: { entries } } : m)) : [...list, { id: 'counters', type: 'counters', title: 'Counters', wide: false, private: false, collapsed: false, data: { entries } }];
+          applied.push('counters');
+        }
+      }
+      const next = cleanModules(list);
       run(db, `INSERT INTO sheets (world_id, account_id, conditions, modules, updated_at) VALUES (?, ?, '[]', ?, ?)
         ON CONFLICT (world_id, account_id) DO UPDATE SET modules = excluded.modules, updated_at = excluded.updated_at`, w, aid, JSON.stringify(next), now());
       applied.push('character');

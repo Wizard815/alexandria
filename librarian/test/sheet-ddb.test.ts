@@ -41,11 +41,26 @@ function ddbJson(over: Record<string, unknown> = {}) {
     id: 87654321, success: true, message: 'Character successfully received.',
     data: {
       id: 87654321, name: 'Brindle Ashvale', readonlyUrl: 'https://www.dndbeyond.com/characters/87654321',
-      race: { fullName: 'Hill Dwarf', baseName: 'Dwarf', weightSpeeds: { normal: { walk: 25 } } },
+      race: { fullName: 'Hill Dwarf', baseName: 'Dwarf', weightSpeeds: { normal: { walk: 25 } }, racialTraits: [{ definition: { name: 'Darkvision' } }, { definition: { name: 'Dwarven Resilience' } }] },
+      spellSlots: [{ level: 1, used: 3, available: 0 }, { level: 2, used: 0, available: 0 }],
+      inspiration: true,
+      traits: { personalityTraits: 'Reads at the table.', ideals: 'Knowledge.', bonds: 'My spellbook.', flaws: 'Too curious.' },
+      notes: { backstory: 'Raised in a library.\nLeft to find a lost page.' },
+      actions: {
+        class: [
+          { name: 'Arcane Recovery', limitedUse: { maxUses: 1, numberUsed: 0, resetType: 2 } },
+          { name: 'Second Wind', limitedUse: { maxUses: 1, numberUsed: 1, resetType: 1 } },
+          { name: 'Not counted', limitedUse: null },
+        ],
+        race: [], feat: [{ name: 'Lucky', limitedUse: { maxUses: 0, useProficiencyBonus: true, numberUsed: 1, resetType: 2 } }],
+      },
       background: { definition: { name: 'Sage' } }, alignmentId: 2,
       classes: [
-        { level: 4, isStartingClass: true, definition: { name: 'Wizard', hitDice: 6, spellCastingAbilityId: 4 }, subclassDefinition: { name: 'School of Evocation' } },
-        { level: 1, definition: { name: 'Fighter', hitDice: 10, spellCastingAbilityId: null }, subclassDefinition: null },
+        { level: 4, isStartingClass: true, hitDiceUsed: 1,
+          definition: { name: 'Wizard', hitDice: 6, spellCastingAbilityId: 4, canCastSpells: true, spellRules: { multiClassSpellSlotDivisor: 1, multiClassSpellSlotRounding: 1, levelSpellSlots: [[], [2], [3], [4, 2], [4, 3]] } },
+          classFeatures: [{ definition: { name: 'Arcane Recovery', requiredLevel: 1 } }, { definition: { name: 'Spellcasting', requiredLevel: 1 } }, { definition: { name: 'Ability Score Improvement', requiredLevel: 4 } }, { definition: { name: 'Arcane Tradition Feature', requiredLevel: 6 } }],
+          subclassDefinition: { name: 'School of Evocation', classFeatures: [{ definition: { name: 'Sculpt Spells', requiredLevel: 2 } }] } },
+        { level: 1, definition: { name: 'Fighter', hitDice: 10, spellCastingAbilityId: null, canCastSpells: false }, subclassDefinition: null, classFeatures: [{ definition: { name: 'Second Wind', requiredLevel: 1 } }] },
       ],
       stats: [{ id: 1, value: 10 }, { id: 2, value: 14 }, { id: 3, value: 13 }, { id: 4, value: 15 }, { id: 5, value: 12 }, { id: 6, value: 8 }],
       bonusStats: [{ id: 1, value: null }, { id: 2, value: null }, { id: 3, value: null }, { id: 4, value: 1 }, { id: 5, value: null }, { id: 6, value: null }],
@@ -74,6 +89,8 @@ function ddbJson(over: Record<string, unknown> = {}) {
         { quantity: 1, equipped: true, definition: { name: 'Shield', armorClass: 2, armorTypeId: 4, filterType: 'Armor' } },
         { quantity: 1, equipped: false, definition: { name: 'Plate Armor', armorClass: 18, armorTypeId: 3, filterType: 'Armor' } },
         { quantity: 20, equipped: false, definition: { name: 'Crossbow Bolts', filterType: 'Other Gear' } },
+        { quantity: 1, equipped: true, definition: { name: 'Dagger', filterType: 'Weapon', attackType: 1, range: 20, longRange: 60, damage: { diceString: '1d4' }, damageType: 'Piercing', properties: [{ name: 'Finesse' }, { name: 'Thrown' }] } },
+        { quantity: 1, equipped: true, definition: { name: 'Light Crossbow +1', filterType: 'Weapon', attackType: 2, range: 80, longRange: 320, damage: { diceString: '1d8' }, damageType: 'Piercing', grantedModifiers: [{ type: 'bonus', subType: 'magic', value: 1 }] } },
         { quantity: 1, equipped: true, definition: { name: 'Ring of Protection', filterType: 'Ring' } },
       ],
       currencies: { cp: 12, sp: 0, gp: 85, ep: 0, pp: 1 },
@@ -158,6 +175,41 @@ test('SheetDdb_Map: scores with bonuses, HP from base + Con + per level, AC esti
   assert.deepEqual(c.coins, { pp: 1, gp: 85, cp: 12 });
   assert.deepEqual(c.conditions, ['Poisoned', 'Exhaustion 2']);
   assert.equal(c.url, 'https://www.dndbeyond.com/characters/87654321');
+  // More from the sheet: initiative, passive Perception, hit dice, slots, attacks, features, limited uses, personality.
+  assert.equal(c.initiative, 2);
+  assert.equal(c.passivePerception, 11);
+  assert.equal(c.inspiration, true);
+  assert.deepEqual(c.hitDice, [{ die: 6, total: 4, used: 1 }, { die: 10, total: 1, used: 0 }]);
+  // One spellcasting class (Fighter 1 casts nothing): the Wizard's own table at level 4, 3 first-level slots used.
+  assert.deepEqual(c.slots, [{ level: 1, max: 4, used: 3 }, { level: 2, max: 3, used: 0 }]);
+  assert.equal(c.pact, null);
+  assert.deepEqual(c.attacks, [
+    { name: 'Dagger', hit: 5, damage: '1d4 + 2 piercing', range: '20/60 ft' },
+    { name: 'Light Crossbow +1', hit: 6, damage: '1d8 + 3 piercing', range: '80/320 ft' },
+  ]);
+  assert.deepEqual(c.features.map((f) => f.name), ['Arcane Recovery', 'Sculpt Spells', 'Second Wind', 'Darkvision', 'Dwarven Resilience']);
+  assert.deepEqual(c.uses, [
+    { name: 'Arcane Recovery', max: 1, used: 0, reset: 'long rest' },
+    { name: 'Second Wind', max: 1, used: 1, reset: 'short rest' },
+    { name: 'Lucky', max: 3, used: 1, reset: 'long rest' },
+  ]);
+  assert.equal(c.traits.flaws, 'Too curious.');
+  assert.match(c.traits.backstory, /library\.\nLeft/);
+});
+
+test('SheetDdb_MulticlassSlots: caster levels add up on the multiclass table; a warlock keeps pact slots apart', () => {
+  const rules = (div: number, table: number[][]) => ({ multiClassSpellSlotDivisor: div, multiClassSpellSlotRounding: 1, levelSpellSlots: table });
+  const c = mapDdb(ddbJson({
+    classes: [
+      { level: 3, definition: { name: 'Wizard', hitDice: 6, spellRules: rules(1, []) } },
+      { level: 4, definition: { name: 'Paladin', hitDice: 10, spellRules: rules(2, []) } },
+      { level: 2, definition: { name: 'Warlock', hitDice: 8, spellRules: rules(1, [[], [1], [2], [0, 2]]) } },
+    ],
+    spellSlots: [{ level: 1, used: 1 }], pactMagic: [{ level: 1, used: 2 }],
+  }));
+  // Wizard 3 + Paladin 4/2 = caster level 5.
+  assert.deepEqual(c.slots, [{ level: 1, max: 4, used: 1 }, { level: 2, max: 3, used: 0 }, { level: 3, max: 2, used: 0 }]);
+  assert.deepEqual(c.pact, { level: 1, max: 2, used: 2 });
 });
 
 test('SheetDdb_MapIsForgiving: overrides win, missing parts stay empty, an error body or other JSON is refused', () => {
@@ -202,11 +254,14 @@ test('SheetDdb_PlayerImport: Character module first, HP and conditions logged as
   fakeDdb(() => ({ status: 200, body: ddbJson() }));
   try {
     const out = await ok('POST', `${SH()}/me/import/ddb`, T.jess, { url: '87654321', apply: { spells: true } });
-    assert.deepEqual(out.applied, ['character', 'health', 'conditions', 'name', 'stats']);
+    assert.deepEqual(out.applied, ['counters', 'character', 'health', 'conditions', 'name', 'stats']);
     assert.equal(out.learned, 0);
     const sheet = await ok('GET', `${SH()}/me`, T.jess);
     assert.equal(sheet.modules[0].type, 'character');
     assert.equal(sheet.modules[0].data.level, 5);
+    const counters = sheet.modules.find((m: any) => m.type === 'counters').data.entries;
+    assert.deepEqual(counters.filter((e: any) => /Arcane|Second|Lucky|Hit dice/.test(e.label)).map((e: any) => [e.label, e.value, e.max]),
+      [['Arcane Recovery', 1, 1], ['Second Wind', 0, 1], ['Lucky', 2, 3], ['Hit dice (d6)', 3, 4], ['Hit dice (d10)', 1, 1]]);
     assert.equal(sheet.name, 'Brindle Ashvale');
     assert.deepEqual([sheet.hp, sheet.maxHp, sheet.tempHp], [40, 47, 3]);
     assert.deepEqual(sheet.conditions, ['Poisoned', 'Exhaustion 2']);
@@ -224,6 +279,8 @@ test('SheetDdb_PlayerImport: Character module first, HP and conditions logged as
     const again = await ok('GET', `${SH()}/me`, T.jess);
     assert.equal(again.modules.filter((m: any) => m.type === 'character').length, 1);
     assert.equal(again.hp, 47);
+    // Counters with the same name are updated, not doubled.
+    assert.equal(again.modules.find((m: any) => m.type === 'counters').data.entries.filter((e: any) => e.label === 'Lucky').length, 1);
     // A player's later layout save keeps the module.
     await ok('PUT', `${SH()}/me/modules`, T.jess, { modules: again.modules });
     assert.equal((await ok('GET', `${SH()}/me`, T.jess)).modules[0].data.name, 'Brindle Ashvale');
