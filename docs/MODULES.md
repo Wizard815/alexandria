@@ -183,6 +183,21 @@ is labelled 5e 2024 or 5e 2014 (Open5e's Kobold Press and Level Up books are
   database, for a library module or an earlier import ("Add spells & items"
   in World settings → Game module).
 
+## Browsing a module and leaving entries out
+
+In World settings → Game module, **Browse** on any module (on or available) opens its entries: search,
+filter by kind, read an entry in full. **Leave out** drops one entry from this world only: it is gone
+from look-ups, chat links, the encounter generator, and from what **Add spells & items** sends to the
+Codex and the shop. When another enabled module has an entry of the same name, that one shows instead.
+**Put back** undoes it; **Only left out** lists what the world skipped. Copies already added to the Codex
+or the shop stay there; remove those in the Codex or the shop.
+
+| Route (DM) | Does |
+|---|---|
+| `GET /api/worlds/:w/modules/browse/:id?q=&kind=&left=1&offset=&limit=` | counts, total, left-out count and a page of entries |
+| `GET /api/worlds/:w/modules/browse/:id/:termId` | one entry in full |
+| `PUT /api/worlds/:w/modules/left-out` `{module, terms, out}` | leave out (`out: true`) or put back |
+
 ## Looking things up
 
 All under `/api/worlds/:world/modules`, open to every member (modules hold no

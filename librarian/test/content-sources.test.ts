@@ -282,3 +282,35 @@ test('Sources: the server content library pulls a book once and every world can 
   assert.equal((await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.dm)).terms.length, 0);
   assert.ok(!(await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-tob'));
 });
+
+test('Sources: a DM browses a module and leaves single entries out of the world', async () => {
+  const req = { type: 'open5e', ...O5, documents: ['deepm', 'vom'] };
+  await ok('POST', `${M()}/import`, T.dm, req);
+  const id = 'open5e-deepm-vom';
+  const b = await ok('GET', `${M()}/browse/${id}`, T.dm);
+  assert.deepEqual([b.total, b.leftOut, b.counts.spell, b.counts.item], [4, 0, 2, 2]);
+  const ward = b.terms.find((t: any) => t.term === 'Quick Ward');
+  const amulet = b.terms.find((t: any) => t.term === 'Amulet of the Void');
+  const one = await ok('GET', `${M()}/browse/${id}/${encodeURIComponent(ward.id)}`, T.dm);
+  assert.match(one.text, /faint ward/);
+  assert.equal((await call('GET', `${M()}/browse/${id}`, T.jess)).status, 403, 'DMs only');
+  assert.equal((await call('PUT', `${M()}/left-out`, T.jess, { module: id, terms: [ward.id], out: true })).status, 403);
+  assert.equal((await call('PUT', `${M()}/left-out`, T.dm, { module: 'nope', terms: [ward.id], out: true })).status, 404);
+
+  const r = await ok('PUT', `${M()}/left-out`, T.dm, { module: id, terms: [ward.id, amulet.id], out: true });
+  assert.equal(r.leftOut, 2);
+  // Gone from the world's terms, still in the module's browser marked as left out.
+  assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.dm)).terms.length, 0);
+  assert.ok((await ok('GET', `${M()}/terms?q=abhorrent`, T.dm)).terms.length > 0, 'the rest stay');
+  const only = await ok('GET', `${M()}/browse/${id}?left=1`, T.dm);
+  assert.deepEqual(only.terms.map((t: any) => [t.term, t.leftOut]).sort(), [['Amulet of the Void', true], ['Quick Ward', true]]);
+  // Feeding skips them: the Codex and the shop do not get what the DM left out.
+  const fed = await ok('POST', `${M()}/feed`, T.dm, { id });
+  assert.equal(fed.fed.spells.added + fed.fed.spells.replaced + fed.fed.spells.skipped, 1);
+  const it = fed.fed.items;
+  assert.equal(Object.values(it).filter((v) => typeof v === 'number').reduce((a: number, v: any) => a + v, 0), 1, JSON.stringify(it));
+
+  await ok('PUT', `${M()}/left-out`, T.dm, { module: id, terms: [ward.id], out: false });
+  assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.dm)).terms.length, 1, 'put back');
+  await ok('DELETE', `${M()}/imported/${id}`, T.dm);
+});

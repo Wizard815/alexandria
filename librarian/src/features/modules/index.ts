@@ -16,7 +16,7 @@ import { feedModule, readFeed } from './feed.ts';
 import { DND5EAPI_BASE, open5eDocuments } from './sources.ts';
 import { OPEN5E_BASE, OPEN5E_ENDPOINTS } from './open5e.ts';
 import { searchRules, searchTerms } from './search.ts';
-import { SCHEMA, available, moduleDoc, removeImported, removeServer, saveImported, saveServer, serverModules, serverRows, setEnabled, worldModules } from './store.ts';
+import { SCHEMA, available, leftOut, moduleDoc, setLeftOut, removeImported, removeServer, saveImported, saveServer, serverModules, serverRows, setEnabled, worldModules } from './store.ts';
 import { clearSourceCache } from './sources.ts';
 import { parseJson } from '../../core/util.ts';
 
@@ -116,6 +116,52 @@ function routes(d: Deps) {
       open5e: { ...open5e, kinds, lists: OPEN5E_ENDPOINTS.map((e) => ({ kind: e.kind, label: e.label })) },
       dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
     });
+  });
+
+  // ---- browse one module and leave single entries out of this world (DM) ----
+  r.get('/browse/:id', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const m = moduleDoc(d.db, W(res), id)!;
+    const out = leftOut(d.db, W(res), id);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase().slice(0, 100) : '';
+    const kind = typeof req.query.kind === 'string' ? req.query.kind : '';
+    const only = req.query.left === '1';
+    const counts: Record<string, number> = {};
+    for (const t of m.doc.terms) counts[t.kind] = (counts[t.kind] ?? 0) + 1;
+    const list = m.doc.terms.filter((t) => (!kind || t.kind === kind) && (!only || out.has(t.id)) && (!q || t.term.toLowerCase().includes(q) || t.aliases.some((a) => a.toLowerCase().includes(q))))
+      .sort((a, b) => a.term.localeCompare(b.term));
+    const offset = Math.max(0, intQ(req.query.offset, 0));
+    const limit = Math.min(200, Math.max(1, intQ(req.query.limit, 50)));
+    res.json({
+      module: { id: m.doc.id, name: m.doc.name, builtin: m.builtin, server: !!m.server },
+      counts, leftOut: out.size, total: list.length,
+      terms: list.slice(offset, offset + limit).map((t) => ({ id: t.id, term: t.term, kind: t.kind, summary: t.summary, leftOut: out.has(t.id) })),
+    });
+  });
+
+  r.get('/browse/:id/:termId', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const t = moduleDoc(d.db, W(res), id)!.doc.terms.find((x) => x.id === String(req.params.termId));
+    if (!t) throw new HttpError(404, 'Term not found');
+    res.json({ id: t.id, term: t.term, kind: t.kind, aliases: t.aliases, summary: t.summary, text: t.text, data: t.data ?? null, leftOut: leftOut(d.db, W(res), id).has(t.id) });
+  });
+
+  r.put('/left-out', requireDM, (req, res) => {
+    const id = str(req.body?.module, 'module', { max: 120 });
+    const m = available(d.db, W(res)).some((x) => x.id === id) ? moduleDoc(d.db, W(res), id) : null;
+    if (!m) throw new HttpError(404, 'Module not found');
+    const ids: unknown = req.body?.terms;
+    if (!Array.isArray(ids) || !ids.length || ids.length > 5000) throw new HttpError(400, 'terms must be a list of term ids');
+    const known = new Set(m.doc.terms.map((t) => t.id));
+    const clean = [...new Set(ids.map(String))].filter((x) => known.has(x));
+    if (!clean.length) throw new HttpError(400, 'None of those terms are in the module');
+    const out = req.body?.out !== false;
+    setLeftOut(d.db, W(res), id, clean, out);
+    audit(d.db, W(res), me(res), out ? 'modules.leave-out' : 'modules.put-back', `${id}: ${clean.slice(0, 20).join(', ')}${clean.length > 20 ? ` +${clean.length - 20}` : ''}`);
+    d.hub.emit(W(res), 'modules', {}, () => true);
+    res.json({ ok: true, leftOut: leftOut(d.db, W(res), id).size });
   });
 
   // A module the world already has (the server library's or an import): its spells into the Codex, its items into the shop.
