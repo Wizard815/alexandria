@@ -8,12 +8,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
-import { useWorld } from '../../lib/world.tsx';
+import { useLoad, useWorld } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
 import { buzz } from '../dmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
 import { AutoSwitch, ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
 import { PREFILL_EVENT, takePrefill } from './prefill.ts';
+import { ChatNav, rememberView, rememberedView, type ChatView, type TreeTools } from './ChatTree.tsx';
 import './agent.css';
 
 export { linkCitations } from './ChatParts.tsx';
@@ -51,6 +52,8 @@ export interface ChatProps {
   harness: 'dm' | 'player'; page?: string; placeholder?: string;
   /** A player's table helper instead of the broker. */
   mode?: 'helper';
+  /** Chats about one template (its id): created with it and listed apart from the main chats. */
+  template?: string;
   /** The DM phone's layout: big targets, a pinned input, quick prompts and hold-to-talk. */
   phone?: boolean;
   /** Phone: shown at the top of the chat (the session summary). */
@@ -63,7 +66,7 @@ export interface ChatProps {
   onEditQuick?: () => void;
 }
 
-export default function Chat({ harness, page, placeholder, mode, phone, header, context, attachable, quickPrompts, onEditQuick }: ChatProps) {
+export default function Chat({ harness, page, placeholder, mode, template, phone, header, context, attachable, quickPrompts, onEditQuick }: ChatProps) {
   const { w, info, on, isDM } = useWorld();
   const { world = '' } = useParams();
   const navigate = useNavigate();
@@ -101,7 +104,17 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const box = useRef<HTMLTextAreaElement>(null);
   const chatRef = useRef<ChatState | null>(null);
   chatRef.current = chat;
-  const key = KEY(info.id, mode ? `${harness}-${mode}` : harness);
+  const key = KEY(info.id, [harness, mode, template && `tpl-${template}`].filter(Boolean).join('-'));
+  // The list asked for (the broker's or the helper's; main chats or one template's) and what a new chat is made with.
+  const listPath = (tpl?: string) => { const q = new URLSearchParams(); if (mode) q.set('mode', mode); if (tpl) q.set('template', tpl); const t = q.toString(); return `/agent/chats${t ? `?${t}` : ''}`; };
+  const newBody = (folder?: string) => ({ ...(mode ? { mode } : {}), ...(template ? { template } : {}), ...(folder ? { folder } : {}) });
+  // Folders outside a session, recent chats during one (or whichever the DM picked).
+  const [view, setViewState] = useState<ChatView>(rememberedView);
+  const setView = (v: ChatView) => { setViewState(v); rememberView(v); };
+  const sess = useLoad<any>(() => w.call('GET', '/sessionchat/current'), [w], ['chat-session']);
+  const inSession = !!sess.data?.session;
+  const [tplList, setTplList] = useState<ChatRow[]>([]);
+  const [tplNames, setTplNames] = useState<Record<string, string>>({});
   const attachedPage = page && !dropPage ? page : undefined;
 
   // An older answer never replaces a newer one (the chat is re-read from several places at once).
@@ -121,14 +134,25 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
         if (alive) { setModel(!!st.model); setAlwaysAsk(Array.isArray(st.alwaysAsk) ? st.alwaysAsk : []); }
         const id = remembered(key);
         if (id) { try { const c = await w.call<ChatState>('GET', `/agent/chats/${id}`); if (alive) setChat(c); return; } catch { /* a deleted chat: start fresh */ } }
-        const list = await w.call<{ chats: { id: string }[] }>('GET', `/agent/chats${mode ? `?mode=${mode}` : ''}`);
+        const list = await w.call<{ chats: { id: string }[] }>('GET', listPath(template));
         if (list.chats[0]) { remember(key, list.chats[0].id); const c = await w.call<ChatState>('GET', `/agent/chats/${list.chats[0].id}`); if (alive) setChat(c); }
       } catch (e: any) { if (alive) setError(e.message); }
     })();
     return () => { alive = false; };
   }, [w, key, setError]);
 
-  const refreshList = useCallback(() => { w.call<{ chats: ChatRow[] }>('GET', `/agent/chats${mode ? `?mode=${mode}` : ''}`).then((r) => setList(r.chats ?? [])).catch(() => {}); }, [w, mode]);
+  const refreshList = useCallback(() => {
+    w.call<{ chats: ChatRow[] }>('GET', listPath(template)).then((r) => setList(r.chats ?? [])).catch(() => {});
+    // The main chat also lists every template chat, in the tree's own Templates branch (never mixed in with the rest).
+    if (!template) w.call<{ chats: ChatRow[] }>('GET', listPath('only')).then((r) => setTplList((r.chats ?? []).filter((c) => !!c.template))).catch(() => {});
+  }, [w, mode, template]);
+  // Template names for that branch (the DM's templates; built-in starters are named from their id).
+  useEffect(() => {
+    if (template || !isDM || harness !== 'dm' || !tplList.length) return;
+    let alive = true;
+    w.call<{ templates: { id: string; name: string }[] }>('GET', '/templates').then((r) => { if (alive) setTplNames(Object.fromEntries((r.templates ?? []).map((x) => [x.id, x.name]))); }).catch(() => {});
+    return () => { alive = false; };
+  }, [w, template, isDM, harness, tplList.length]);
   useEffect(() => { refreshList(); }, [refreshList, chat?.id, chat?.busy]);
 
   const open = useCallback(async (id: string) => {
@@ -248,7 +272,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     // What the phone attaches is read now, so a fight that moved on since it was picked is not described by old numbers.
     const extra = context ? await context.get().catch(() => undefined) : undefined;
     let id = chat?.id;
-    if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); id = c.id; remember(key, id); seen.current = { chat: id, ids: new Set() }; }
+    if (!id) { const c = await w.call<ChatState>('POST', '/agent/chats', newBody()); id = c.id; remember(key, id); seen.current = { chat: id, ids: new Set() }; }
     setText('');
     stopSpeaking();
     toEnd();
@@ -267,13 +291,15 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   });
   const retry = () => { if (lastSent.current) void send(lastSent.current); };
   const stop = () => { if (chat) void w.call('POST', `/agent/chats/${chat.id}/stop`, {}).catch((e: any) => setError(e.message)); };
-  const fresh = () => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', mode ? { mode } : {}); remember(key, c.id); setChat(c); setLive(null); stopSpeaking(); });
+  const fresh = (folder?: string) => run(async () => { const c = await w.call<ChatState>('POST', '/agent/chats', newBody(folder)); remember(key, c.id); setChat(c); setLive(null); stopSpeaking(); refreshList(); });
+  const move = (id: string, folder: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { folder }); refreshList(); });
+  const renameFolder = (from: string, to: string) => run(async () => { await w.call('POST', '/agent/chats/folders/rename', { from, to, ...(mode ? { mode } : {}) }); refreshList(); });
   const rename = (id: string, title: string) => run(async () => { await w.call('PATCH', `/agent/chats/${id}`, { title }); setRenaming(null); refreshList(); });
   const remove = () => run(async () => {
     if (!chat) return;
     await w.call('DELETE', `/agent/chats/${chat.id}`);
     setConfirmDel(false);
-    const rest = list.filter((c) => c.id !== chat.id);
+    const rest = [...list, ...tplList].filter((c) => c.id !== chat.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     if (rest[0]) await open(rest[0].id); else { remember(key, ''); setChat(null); setLive(null); }
     refreshList();
   });
@@ -339,7 +365,10 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
   const working = !!chat?.busy;
   const focusInput = () => (box.current ?? document.querySelector<HTMLTextAreaElement>('[data-ag-input]'))?.focus();
   const addText = (t: string) => { setText((cur) => (cur.trim() ? `${cur.trim()} ${t}` : t)); focusInput(); };
-  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh() };
+  const switcher = { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel, open: (id: string) => void open(id), rename: (id: string, t: string) => void rename(id, t), remove: () => void remove(), fresh: () => void fresh(), titleOf: (id: string) => [...list, ...tplList].find((c) => c.id === id)?.title ?? '' };
+  const tree: TreeTools = { view, setView, inSession, templates: tplList, templateNames: tplNames, freshIn: (f) => void fresh(f), move: (id, f) => void move(id, f), renameFolder: (a, b) => void renameFolder(a, b) };
+  // One template's chats are few and short-lived: the plain dropdown is enough there.
+  const nav = (ph?: boolean) => (template ? <ChatSwitcher phone={ph} s={switcher} /> : <ChatNav s={switcher} t={tree} phone={ph} recent={<ChatSwitcher phone={ph} s={switcher} />} />);
   const dmCards = harness === 'dm' && isDM;
   const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} cardTools={dmCards ? { edit: editAction, trust: trustAction } : undefined} />;
   const modeSwitch = dmCards && <AutoSwitch phone={phone} on={autoOn} saving={savingAuto} onToggle={() => void toggleAuto()} alwaysAsk={alwaysAsk} trusted={trusted} untrust={untrust} />;
@@ -361,7 +390,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
         <div className="ask-top">
           {model === false && <div className="sub">No chat model is set (Admin, Models). Dice, the date and simple combat commands still work.</div>}
           {modeSwitch}
-          <ChatSwitcher phone s={switcher} />
+          {nav(true)}
         </div>
         <div className="ask-log" aria-live="polite" data-testid="ask-log" ref={log} onScroll={onScroll}>
           {!chat?.messages.length && <div className="empty">{hello}</div>}
@@ -399,7 +428,7 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     <div className="stack" style={{ minHeight: 0, flex: 1 }}>
       {noModel}
       {modeSwitch}
-      <ChatSwitcher s={switcher} />
+      {nav()}
       <div className="stack" style={{ overflowY: 'auto', flex: 1, minHeight: 120, position: 'relative' }} aria-live="polite" ref={log} onScroll={onScroll} data-testid="ag-log">
         {!chat?.messages.length && <p className="tiny muted">{hello}</p>}
         {messages}

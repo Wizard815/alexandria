@@ -2,7 +2,7 @@
 // the log of replies the leak check blocked.
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
-import { id, now, parseJson } from '../../core/util.ts';
+import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { alwaysAsk } from './auto.ts';
 
 export const SCHEMA = `
@@ -61,9 +61,22 @@ CREATE TABLE IF NOT EXISTS agent_leaks (
 
 export interface Citation { kind: 'page' | 'transcript' | 'term' | 'web'; id: string; title: string; path?: string; snippet?: string; sessionId?: string }
 
-export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '') => {
-  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), created_at: now(), updated_at: now() };
-  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.created_at, c.updated_at);
+/**
+ * A chat's folder as stored: a path of up to 6 names split by "/", each trimmed and at most 60 characters, '' for the
+ * top level. Anything that is not a string is refused.
+ */
+export const chatFolder = (v: unknown): string => {
+  if (v === null || v === '') return '';
+  if (typeof v !== 'string') throw new HttpError(400, 'folder must be text');
+  const parts = v.split('/').map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (parts.length > 6) throw new HttpError(400, 'Folders go at most 6 deep');
+  if (parts.some((p) => p.length > 60)) throw new HttpError(400, 'A folder name is at most 60 characters');
+  return parts.join('/');
+};
+
+export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '', o: { folder?: string; template?: string } = {}) => {
+  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), folder: o.folder ?? '', template: (o.template ?? '').slice(0, 80), created_at: now(), updated_at: now() };
+  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, folder, template, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.folder, c.template, c.created_at, c.updated_at);
   return c;
 };
 
