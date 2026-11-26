@@ -52,6 +52,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | POST | `/api/me/password` | `{current, password}` |
 | GET/POST | `/api/keys` | `{scope: scribe\|admin, access: read\|write, label, worldId}` → key once, plus `mcp` settings |
 | DELETE | `/api/keys/:id` | Revoke |
+| GET | `/api/apps` | Public: `{downloads, version, release}` for the Get the app page (`ALX_APP_DOWNLOADS`) |
 
 ## A world (`/api/worlds/:world`, id or slug)
 
@@ -171,6 +172,15 @@ Settings:
   shown on the player broker page only when the URL is http(s).
 - In the config, `unknown`: `dm` (the DM prices it) or `refuse` (turned
   away; the DM still sees the question, with status `noted`).
+
+### At a glance (`/api/worlds/:world/glance`)
+
+One small read for the Android home-screen widgets and the player's "You" card.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/glance` | `{world, role, name, date, combat: {active, round, myTurn, turnName, me: {hp, maxHp, tempHp, conditions} \| null}, mana: {now, max} \| null, session: {live, title, since, recording, here}, next, quick, waiting, at}`. A player gets their own HP and mana, quick events meant for them (`answered`) and `waiting: {offers, replies}`; the DM gets every open quick event (`answers`/`of`) and `waiting: {requests, approvals, broker}`. `turnName` is never a hidden foe for players. |
+| POST | `/glance/link` | A player or the DM, signed in (not with a key; guests get 403). A widget key (`alx_wdg_…`, shown once) that opens only `GET /glance` of this world. Keeps the newest four per account and world. |
 
 ### Approvals (`/api/worlds/:world/approvals`)
 

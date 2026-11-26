@@ -39,3 +39,4 @@ jobs:
           node e2e/buttons.mjs
           node e2e/leaks.mjs
           node e2e/thoughts.mjs
+          node e2e/apps.mjs

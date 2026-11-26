@@ -60,6 +60,7 @@ export const DM_NAMES: Record<string, DMName> = {
   screens: { group: 'setup', label: 'Screens', icon: 'fa-display', desc: 'Open the side, TV and table screens on your monitors.' },
   audio: { group: 'setup', label: 'Microphones', icon: 'fa-microphone', desc: 'Choose the mics the table transcript listens to.' },
   phone: { group: 'setup', label: 'Phone', icon: 'fa-mobile-screen', desc: 'Your pocket remote and assistant.' },
+  app: { group: 'setup', label: 'This device', icon: 'fa-mobile-screen-button', desc: 'Install the app, link the Android widget, change server.' },
   settings: { group: 'setup', label: 'Settings', icon: 'fa-gear', desc: 'Visibility, invites and options for this world.' },
   connect: { group: 'setup', label: 'Connect AI', icon: 'fa-plug', desc: 'Make a key to link an AI app to this world.' },
 };

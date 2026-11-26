@@ -67,7 +67,6 @@ impl State {
 }
 
 /// Where the bundled first-run screen lives, whatever the platform.
-#[cfg(desktop)]
 fn local_url(path: &str) -> Url {
     let base = if cfg!(any(windows, target_os = "android")) { "http://tauri.localhost/" } else { "tauri://localhost/" };
     Url::parse(base).and_then(|b| b.join(path)).expect("valid local url")
@@ -97,10 +96,74 @@ fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
         return true;
     }
     if server_url(app).is_some_and(|s| s.origin() == url.origin()) {
+        if let Some(action) = url.path().strip_prefix("/app-link/") {
+            app_link(app, action, url);
+            return false;
+        }
         return true;
     }
     open_external(url);
     false
+}
+
+/// What the widget reads (Android): the server, the world and a widget key that only opens that
+/// world's glance (see librarian/src/features/glance). Lives next to settings.json, inside the
+/// app's own data folder, which no other app can read.
+fn widget_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("widget.json"))
+}
+
+fn forget_widget(app: &AppHandle) {
+    if let Some(p) = widget_path(app) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// `k=...&w=...` from a link's #fragment (never sent to the server). Keys are base64url and
+/// slugs are lowercase letters, digits and dashes, so nothing here needs decoding; anything else
+/// is refused.
+fn fragment_value(url: &Url, name: &str) -> Option<String> {
+    let ok = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    url.fragment()?
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v.to_string())
+        .filter(|v| !v.is_empty() && v.len() <= 200 && v.chars().all(ok))
+}
+
+/// A page of the saved server asks the app for something by going to `/app-link/<action>`.
+/// The navigation itself is always cancelled, and the page gets no other access to the app.
+/// - `widget#k=<widget key>&w=<world slug>`: link the home-screen widget (Android).
+/// - `widget-off`: unlink it.
+/// - `change-server`: back to the first-run screen, to type another address.
+fn app_link(app: &AppHandle, action: &str, url: &Url) {
+    match action.trim_end_matches('/') {
+        "widget" if cfg!(target_os = "android") => {
+            let (Some(key), Some(world), Some(server)) = (fragment_value(url, "k"), fragment_value(url, "w"), app.state::<State>().get().server) else {
+                return;
+            };
+            if !key.starts_with("alx_wdg_") {
+                return;
+            }
+            let Some(path) = widget_path(app) else { return };
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let body = serde_json::json!({ "server": server, "world": world, "key": key });
+            let _ = std::fs::write(&path, body.to_string());
+        }
+        "widget-off" => forget_widget(app),
+        "change-server" => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.navigate(local_url("index.html"));
+                }
+            });
+        }
+        _ => {}
+    }
 }
 
 /// Microphone requests (dictation, recording, voice) are answered yes, but only for a page of the
@@ -291,12 +354,17 @@ async fn set_server(app: AppHandle, url: String) -> Result<(), String> {
         return Err("The address must start with http:// or https://".into());
     }
     let origin = parsed.origin().ascii_serialization();
+    let changed = app.state::<State>().get().server.as_deref() != Some(&origin);
     app.state::<State>().update(|s| {
-        if s.server.as_deref() != Some(&origin) {
+        if changed {
             s.last_world = None;
         }
         s.server = Some(origin.clone());
     });
+    if changed {
+        // The widget's key belongs to the old server.
+        forget_widget(&app);
+    }
     let target = Url::parse(&origin).map_err(|e| e.to_string())?;
     let main = app.get_webview_window("main").ok_or("The main window is gone.")?;
     main.navigate(target).map_err(|e| e.to_string())

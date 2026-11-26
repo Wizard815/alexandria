@@ -18,6 +18,11 @@ What it adds over the browser:
 - **Push-to-talk** is the assistant's own mic button, the same as in the browser.
 - **Change server** from the Alexandria menu; **Reload** too.
 
+**App links.** A page of the saved server asks the app for something by going to
+`/app-link/<action>`: the app cancels that navigation and acts (`app_link` in `src/lib.rs`):
+`widget#k=...&w=...` (Android: link the home-screen widget), `widget-off`, `change-server`.
+In a browser the same address shows "Open this in the app". Nothing else is reachable that way.
+
 The web app and the Assistant window are remote pages and are given no access
 to the app (`src-tauri/capabilities/default.json` covers only the bundled
 first-run screen, with `core:default`). Window, menu and shortcut handling are
@@ -81,7 +86,17 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
   an earlier build only if it was signed with the same key. The release workflow reads the
   key from the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` and
   `ANDROID_STORE_PASSWORD` secrets.
-- To change the server address on Android, clear the app's data in system settings.
+- **Change server:** More, This device, Change server (or clear the app's data in system settings).
+- **Home-screen widgets** (`gen/android/.../widget/`): *Alexandria: character* (2x1: your HP, temp
+  HP, mana and conditions; for the DM, whose turn it is) and *Alexandria: table* (4x2: world date,
+  the fight or session or next game night, quick events, the bars, and what waits for you). Link
+  them in the app: More, This device, Home-screen widget. That makes a widget key on the server
+  (`alx_wdg_`, read-only, opens only `GET /api/worlds/<world>/glance`) and hands it to the app
+  through `/app-link/widget#k=...&w=...`; `app_link` in `src/lib.rs` writes `widget.json`
+  (server, world, key) next to `settings.json`, where only this app can read it. Changing server
+  forgets it. The widgets load every 30 minutes (Android's shortest period), when you leave the
+  app, and from their ↻ button; offline they show the last answer and when it was from. A tap
+  opens the app at the right page (Live in a fight, the quick event, the calendar).
 
 Not part of the root npm workspaces, and not built by the server's Docker image. The
 Linux build and the Android arm64 build were compiled and checked for AlphaV1; the
@@ -92,6 +107,7 @@ Windows and macOS builds are made by the release workflow.
 | Path | What |
 |---|---|
 | `ui/` | The first-run screen (plain HTML and JS, no build step) |
-| `src-tauri/src/lib.rs` | Windows, menu, shortcut, saved address |
+| `src-tauri/src/lib.rs` | Windows, menu, shortcut, saved address, app links (`/app-link/...`) |
+| `src-tauri/gen/android/.../widget/` | The Android home-screen widgets (Kotlin; layouts in `res/layout/widget_*.xml`) |
 | `src-tauri/tauri.conf.json` | App and bundle config; no windows are declared, Rust creates them |
 | `src-tauri/capabilities/` | Permissions for the bundled screen |

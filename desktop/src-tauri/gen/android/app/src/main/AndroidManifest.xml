@@ -29,6 +29,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Home-screen widgets (java/.../widget). They read only GET /api/worlds/<world>/glance,
+             with a widget key the person links from the app (More, Home-screen widget). -->
+        <receiver android:name=".widget.CharacterWidget" android:exported="false" android:label="@string/widget_character_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_character_info" />
+        </receiver>
+        <receiver android:name=".widget.TableWidget" android:exported="false" android:label="@string/widget_table_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_table_info" />
+        </receiver>
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

@@ -252,7 +252,10 @@ shapes, and you've checked it on your Fold.
   the screen locked
 - [ ] **Release builds in CI:** `.AppImage`, `.deb`, `.msi`, `.dmg` and the
   APK. iOS builds on a Mac runner.
-- [ ] **"Get the app"** page on the gateway; updates are offered in the app
+- [x] **"Get the app"** page on the gateway (`/get-app`, `ALX_APP_DOWNLOADS`)
+- [ ] Updates are offered in the app
+- [x] **Android home-screen widgets** (character and table) and the This device page
+- [ ] **Web push** for the installed web app (iPhone 16.4+, Android): your turn, quick events
 - [ ] **Sideloading notes** for AltStore and SideStore, a developer account,
   and EU marketplaces
 

@@ -1,13 +1,19 @@
 package app.alexandria.desktop
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.WebView
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import app.alexandria.desktop.widget.Glance
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,5 +35,48 @@ class MainActivity : TauriActivity() {
     // A table app: the screen stays on while Alexandria is open. The back button goes back in the
     // web app's history and leaves the app at the first page (TauriActivity handles it).
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    openFromWidget(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    openFromWidget(intent)
+  }
+
+  // Leaving the app: the home-screen widgets load again, so they show what just changed
+  // (and pick up a widget link made a moment ago).
+  override fun onStop() {
+    super.onStop()
+    Glance.refreshAll(this)
+  }
+
+  /**
+   * A tap on a widget opens a page of the world ("/w/<world>/live"). Only a path on the
+   * linked server is loaded, once the web view exists (on a cold start Rust makes it a moment
+   * after onCreate).
+   */
+  private fun openFromWidget(intent: Intent?) {
+    val path = intent?.getStringExtra(Glance.EXTRA_PATH) ?: return
+    intent.removeExtra(Glance.EXTRA_PATH)
+    if (path.isEmpty() || !path.startsWith("/w/") || path.contains("..") || path.contains("//")) return
+    val server = Glance.link(this)?.server ?: return
+    val main = Handler(Looper.getMainLooper())
+    val attempt = object : Runnable {
+      var tries = 0
+      override fun run() {
+        val wv = findWebView(findViewById(android.R.id.content))
+        val at = wv?.url
+        // Wait for the first page of the server, so the web app's own sign-in is in place, then go.
+        if (wv != null && at != null && (at == server || at.startsWith("$server/"))) wv.loadUrl(server + path)
+        else if (tries++ < 40) main.postDelayed(this, 250)
+      }
+    }
+    main.post(attempt)
+  }
+
+  private fun findWebView(v: View?): WebView? {
+    if (v is WebView) return v
+    if (v is ViewGroup) for (i in 0 until v.childCount) findWebView(v.getChildAt(i))?.let { return it }
+    return null
   }
 }

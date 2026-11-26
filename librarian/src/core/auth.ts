@@ -3,7 +3,9 @@
 // - Sessions and keys: random tokens, stored only as SHA-256 hashes, shown once.
 // - Key prefixes: alx_ses_ (browser session), alx_adm_ (admin key),
 //   alx_scr_ (scribe key, bound to one world), alx_ads_ (gateway admin
-//   session, valid only on /api/admin/** and /api/admin-auth/**).
+//   session, valid only on /api/admin/** and /api/admin-auth/**),
+//   alx_wdg_ (home-screen widget: a read scribe key that only opens
+//   GET /api/worlds/:world/glance, see features/glance).
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { type DB, one, run } from './db.ts';
@@ -88,8 +90,11 @@ export function createSession(db: DB, accountId: string): string {
   return token;
 }
 
-export function createKey(db: DB, accountId: string, scope: 'admin' | 'scribe', label: string, worldId: string | null, access: 'read' | 'write' = 'read'): { id: string; key: string } {
-  const key = secret(scope === 'admin' ? 'alx_adm_' : 'alx_scr_');
+/** A widget key's prefix. It resolves only on the glance route (see authenticate). */
+export const WIDGET_PREFIX = 'alx_wdg_';
+
+export function createKey(db: DB, accountId: string, scope: 'admin' | 'scribe', label: string, worldId: string | null, access: 'read' | 'write' = 'read', prefix?: typeof WIDGET_PREFIX): { id: string; key: string } {
+  const key = secret(prefix ?? (scope === 'admin' ? 'alx_adm_' : 'alx_scr_'));
   const kid = id('key_');
   run(db, 'INSERT INTO api_keys (id, account_id, scope, world_id, label, prefix, key_hash, created_at, access) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     kid, accountId, scope, worldId, label, key.slice(0, 12), sha256(key), now(), access);
@@ -99,7 +104,14 @@ export function createKey(db: DB, accountId: string, scope: 'admin' | 'scribe', 
 /** Resolve a bearer token (session or API key) to an account. Admin sessions
  *  (alx_ads_) resolve only when the caller asks for them, so every other
  *  consumer (MCP, /v1, join) fails closed. */
-export function resolveToken(db: DB, token: string, opts: { adminSession?: boolean } = {}): Auth | null {
+export function resolveToken(db: DB, token: string, opts: { adminSession?: boolean; widget?: boolean } = {}): Auth | null {
+  if (token.startsWith(WIDGET_PREFIX)) {
+    if (!opts.widget) return null;
+    const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, k.id AS key_id, k.world_id FROM api_keys k JOIN accounts a ON a.id = k.account_id WHERE k.key_hash = ? AND k.revoked = 0 AND k.scope = 'scribe'`, sha256(token));
+    if (!row) return null;
+    run(db, 'UPDATE api_keys SET last_used_at = ? WHERE id = ?', now(), row.key_id);
+    return { account: { id: row.id, username: row.username, display_name: row.display_name, is_admin: row.is_admin }, via: 'scribe_key', keyWorldId: row.world_id, access: 'read' };
+  }
   if (token.startsWith('alx_ads_')) {
     if (!opts.adminSession) return null;
     const row = one<any>(db, `SELECT a.id, a.username, a.display_name, a.is_admin, s.expires_at FROM adminauth_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ?`, sha256(token));
@@ -145,13 +157,15 @@ export interface AdminGate {
 }
 const gateOf = (req: Request) => req.app.locals.adminGate as AdminGate | undefined;
 const isAdminPath = (req: Request) => /^\/api\/admin(-auth)?(\/|\?|$)/.test(req.originalUrl);
+/** The one route a widget key opens: reading a world's glance. */
+const isGlanceRead = (req: Request) => req.method === 'GET' && /^\/api\/worlds\/[^/?#]+\/glance\/?(\?|$)/.test(req.originalUrl);
 
 export function authenticate(db: DB) {
   return (req: Request, res: Response, next: NextFunction) => {
     const onAdmin = isAdminPath(req);
     if (onAdmin) gateOf(req)?.checkIp(req);
     const tok = bearer(req);
-    const auth = tok ? resolveToken(db, tok, { adminSession: onAdmin }) : null;
+    const auth = tok ? resolveToken(db, tok, { adminSession: onAdmin, widget: isGlanceRead(req) }) : null;
     if (!auth) throw new HttpError(tok?.startsWith('alx_ads_') && !onAdmin ? 403 : 401, tok?.startsWith('alx_ads_') && !onAdmin ? 'Admin sessions only work on admin pages' : 'Sign in first');
     if (auth.access === 'read' && !READ_METHODS.has(req.method)) throw new HttpError(403, 'This key is read-only');
     res.locals.auth = auth;

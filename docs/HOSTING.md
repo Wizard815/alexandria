@@ -91,6 +91,7 @@ Needs Node 22.13 or newer. Data goes to `librarian/data` unless
 | `ALX_RATE_LIMIT` | Requests per minute per IP for the API and MCP (default 900; 0 turns it off) |
 | `ALX_VAULTS_DIR` | Folders under this path can be added as Markdown-folder sources |
 | `ALX_MCP_STDIO` | Local MCP servers the librarian may start, as JSON: `{"kanka": {"command": ["uvx", "mcp-kanka"], "env": {"KANKA_TOKEN": "…", "KANKA_CAMPAIGN_ID": "…"}}}`. Only these commands can ever be started. |
+| `ALX_APP_DOWNLOADS` | Where the public **Get the app** page (`/get-app`) sends people for the Android APK and the desktop installers (default: this project's GitHub releases page). Only an http(s) address is used. |
 | `ALX_CORS_ORIGINS` | Other origins allowed to call the API (e.g. a dev server). Empty (the default) means none. |
 | `ALX_MEMORY_MB` | The heap size the memory guard measures against (default: V8's limit, `NODE_OPTIONS=--max-old-space-size`) |
 | `ALX_AUDIO_STALE_MIN` | Minutes without a line or audio after which a recording session is closed (default 30; 0 turns it off) |

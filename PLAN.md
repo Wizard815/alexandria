@@ -680,6 +680,7 @@ Not going to app stores: everything is installed directly (sideloaded).
 |---|---|---|---|---|---|
 | Browser | Side panel (Ctrl+K), Ask tab on the DM phone | A browser popup window | OS-dependent, not controlled | Only while the tab is focused | The mic button beside Send (records, then the world's speech model transcribes) |
 | Installed web app (PWA, from the manifest; Android, iOS, desktop Chrome/Edge) | Same, full screen, opens offline | Same as the browser; on phones the Ask tab is the pop-out | No | No | Same mic button |
+| Android app (`desktop/`, APK) | Same as the browser, full screen | No | No | No | Same mic button; plus **home-screen widgets** (HP, mana, session, quick events) |
 | Desktop app (`desktop/`) | Main window plus a separate Assistant window | Yes, own window, remembers the world | Menu toggle, remembered | Ctrl/Cmd+Shift+Space shows or hides it from any program | Same mic button; global hold-to-talk keys and multi-mic capture are still planned (§3.1) |
 
 All three sign in the same way and use the same server; the desktop app has no
@@ -712,6 +713,19 @@ extra access to it.
   `.dmg`) and the Android APK.
 - The iOS build needs a Mac, or a CI Mac runner.
 - The gateway hosts the files under **Get the app**.
+
+**Built so far (2026-11-26):**
+- The Android APK and the desktop apps (Tauri) wrap the web app; release CI builds both.
+- **Android home-screen widgets:** *character* (HP, temp HP, mana, conditions; the DM gets
+  whose turn it is) and *table* (world date, fight / live session / next game night, quick
+  events, what waits). They read one small glance (`GET /api/worlds/:w/glance`) with a
+  widget key that opens nothing else. Linked from More, This device.
+- **This device** page (players and DM): install steps (iPhone: Add to Home Screen), the
+  widget link, change server, reload. **Get the app** (`/get-app`) needs no sign-in.
+- **iPhone (installed web app):** a back button in the top bar (no back gesture there) and the
+  player's **You** card on Home: HP, temp HP, conditions, mana and "Your turn".
+- Still open: web push notifications (iOS 16.4+ allows them for installed web apps), an iOS
+  build, updates offered in the app, phone recording with the screen locked.
 
 **Done:**
 - The desktop app records two mics with different hold keys and plays music

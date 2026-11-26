@@ -1,0 +1,14 @@
+/* The "You" card (player home) and the This device page. */
+.you-card { gap: 8px; }
+.you-bar { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 10px; }
+.you-label { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.you-track { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.you-track > span { display: block; height: 100%; border-radius: 999px; }
+.you-bar.hp .you-track > span { background: var(--danger); }
+.you-bar.mana .you-track > span { background: #6A9FD9; }
+.you-num { font-size: 22px; font-variant-numeric: tabular-nums; }
+.you-num .faint { font-size: 15px; font-weight: 500; }
+.you-cond { font-size: 16px; color: var(--danger-text); }
+.you-turn { padding: 10px 14px; border-radius: 8px; background: var(--accent-bg); border: 2px solid var(--accent); font-family: var(--font-head); font-size: 20px; color: var(--accent-strong); }
+.apps-page ol, .apps-page ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.ios-back { order: -1; flex: 0 0 auto; margin-right: 2px; }
