@@ -38,7 +38,7 @@ How to work:
 - To change a rule the world has, read it with house_rule_file, edit it, keep its id and raise its version.
   A rule that comes with Alexandria keeps its id: copy it under a new id (and a new name) instead.
 Write numbers as numbers, yes/no as true/false. "$name" in place of a number or yes/no reads the option "name".
-Chat text may use {name} (always the player's character) and {note} (the reason given). Record text may also use
+Chat text may use {name} (the player's character; on a shared record, whoever ran it) and {note} (the reason given). Record text may also use
 {field}, {title} (the field that names the record), {kind.field} for the record's own field (a field called name
 is {project.name}, since {name} is the player) and {ref.field} (a field of the record a ref field points at).`;
 
@@ -88,7 +88,8 @@ const DATA = `# Data systems: records, recordActions, timers, prompts, views
 "timers": [{ "id", "record": "<kind>", "on": "longRest" | "shortRest" | "sessionStart" | "sessionEnd" |
              "prompt:<prompt id>", "where"?, "field": "<int field>", "add": 1, "goal": "<field>" | number | "$opt",
              "done": { "set": { "status": "done" }, "chat": "{name} finished {activity.name}!" } }]
-  Moves a number on every matching record; when it reaches goal, done runs once. With prompt:<id> it moves
+  Moves a number on every matching record; when it reaches goal, done runs once. A goal read from a field that
+  is 0 means no goal (it never finishes by itself). With prompt:<id> it moves
   only the records of players who picked a choice of that prompt (not skip).
 "prompts": [{ "id", "button": "Downtime", "title", "text", "choices": [{ "label", "action": "<record action>" }
               | { "label": "Skip", "skip": true }] }]

@@ -10,17 +10,17 @@
 import { HttpError } from '../../core/util.ts';
 import { cleanCharacter } from './ddb.ts';
 
-export const TYPES = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list'] as const;
+export const TYPES = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list', 'downtime'] as const;
 export type ModuleType = (typeof TYPES)[number];
 /** Modules that show the player's own live data once; the DM always sees them. */
-const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
+const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent', 'downtime'];
 const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 const MAX_MODULES = 24;
 const MAX_JSON = 128_000;
 
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 
-const TITLES: Record<ModuleType, string> = { character: 'Character', stats: 'Stats', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist' };
+const TITLES: Record<ModuleType, string> = { character: 'Character', stats: 'Stats', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist', downtime: 'Downtime' };
 
 /** The Stats module's rows on a new sheet; the D&D Beyond import fills the same labels. */
 export const STAT_LABELS = ['AC', 'Initiative', 'Speed', 'Proficiency', 'Passive Perception', 'Passive Insight', 'Passive Investigation', 'Spell save DC', 'Spell attack'];

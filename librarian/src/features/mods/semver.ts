@@ -46,6 +46,8 @@ export function parseRange(range: string): Test | null {
   if (r.length > 80) return null;
   const alts = r.split('||').map((alt) => {
     const tokens = alt.trim().replace(/(>=|<=|>|<|=|\^|~)\s+/g, '$1').split(/\s+/).filter(Boolean);
+    // An empty side of || ("^1 ||", "|| ||") is a typo, not "any version".
+    if (!tokens.length && r.includes('||')) return null;
     const tests = tokens.map(comparator);
     return tests.some((t) => !t) ? null : (v: Ver) => tests.every((t) => t!(v));
   });

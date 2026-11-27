@@ -1,0 +1,168 @@
+{
+  "kit": 2,
+  "id": "lingering-injuries",
+  "name": "Lingering injuries",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "A critical hit or a drop to 0 HP can leave a lasting injury the DM records, until it heals or is healed by magic.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "sheet"
+    ],
+    "worksWith": [
+      "combat",
+      "table",
+      "assistant"
+    ]
+  },
+  "records": {
+    "injury": {
+      "label": "Injury",
+      "plural": "Injuries",
+      "owned": true,
+      "title": "name",
+      "fields": {
+        "name": "text",
+        "effect": "text",
+        "days": {
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 365,
+          "label": "Days to heal (0: magic only)"
+        },
+        "healed": {
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "label": "Days rested"
+        },
+        "status": {
+          "type": "enum",
+          "values": [
+            "open",
+            "healed"
+          ],
+          "default": "open",
+          "label": "Status"
+        }
+      }
+    }
+  },
+  "recordActions": [
+    {
+      "id": "injure",
+      "label": "Give an injury",
+      "by": "dm",
+      "record": "injury",
+      "do": "create",
+      "ask": [
+        "name",
+        "effect",
+        "days"
+      ],
+      "effect": {
+        "chat": "{name} suffers a lingering injury: {injury.name}. {effect}"
+      }
+    },
+    {
+      "id": "heal",
+      "label": "Heal it",
+      "by": "dm",
+      "record": "injury",
+      "do": "set",
+      "set": {
+        "status": "healed"
+      },
+      "where": {
+        "status": "open"
+      },
+      "effect": {
+        "chat": "{name}'s {injury.name} has healed."
+      }
+    },
+    {
+      "id": "rest-days",
+      "label": "Add or take rest days",
+      "by": "dm",
+      "record": "injury",
+      "do": "add",
+      "field": "healed",
+      "amount": "ask",
+      "where": {
+        "status": "open"
+      }
+    }
+  ],
+  "timers": [
+    {
+      "id": "mend",
+      "record": "injury",
+      "on": "longRest",
+      "where": {
+        "status": "open"
+      },
+      "field": "healed",
+      "add": 1,
+      "goal": "days",
+      "done": {
+        "set": {
+          "status": "healed"
+        },
+        "chat": "{name}'s {injury.name} has healed."
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": "mine",
+      "title": "Injuries",
+      "record": "injury",
+      "place": "sheet",
+      "columns": [
+        "name",
+        "effect",
+        "healed",
+        "days"
+      ],
+      "where": {
+        "status": "open"
+      }
+    },
+    {
+      "id": "dm",
+      "title": "Injuries",
+      "record": "injury",
+      "place": "dm",
+      "columns": [
+        "name",
+        "effect",
+        "healed",
+        "days",
+        "status"
+      ],
+      "actions": [
+        "heal",
+        "rest-days"
+      ],
+      "groupByPlayer": true
+    }
+  ],
+  "rules": [
+    {
+      "term": "Lingering injuries (house rule)",
+      "text": "When a creature takes a **critical hit** or **drops to 0 hit points**, the DM may give it a lingering injury (a lost eye, a limp, a broken rib) with its effect. It heals after its days of long rests, or with magic such as *regenerate*. An injury of 0 days heals only with magic."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "injury",
+      "injuries",
+      "injured",
+      "lingering"
+    ],
+    "dm": "When a creature takes a critical hit or drops to 0 HP you may give a lingering injury with the injure action: a short name, its effect in play, and days of long rests to heal (0 means only magic heals it). Suggest one that fits the blow, for example Broken ribs: disadvantage on Constitution saves, 7 days.",
+    "player": "Explain their lingering injuries: the effect in play and how many long rests are left before it heals. Only the DM gives or heals injuries; magic like regenerate heals any."
+  }
+}

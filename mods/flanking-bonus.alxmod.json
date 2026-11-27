@@ -1,0 +1,42 @@
+{
+  "kit": 2,
+  "id": "flanking-bonus",
+  "name": "Flanking: +2, not advantage",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Two allies on opposite sides of a foe each get +2 to hit it, instead of advantage.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "combat"
+    ],
+    "worksWith": [
+      "map",
+      "assistant"
+    ]
+  },
+  "options": {
+    "bonus": {
+      "type": "int",
+      "default": 2,
+      "min": 1,
+      "max": 5,
+      "label": "Flanking bonus to hit"
+    }
+  },
+  "rules": [
+    {
+      "term": "Flanking (house rule)",
+      "text": "When you and an ally are on **opposite sides** of a creature and both can act, you each get a **bonus to attack rolls** against it (the DM sets it, +2 by default) instead of advantage. A creature that cannot be flanked (no front or back, or that sees all around) ignores it."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "flank",
+      "flanking",
+      "opposite side"
+    ],
+    "dm": "Flanking at this table is a flat bonus to hit (the rule's option, +2 by default), not advantage. It does not stack with itself.",
+    "player": "Flanking at this table gives a flat bonus to hit (usually +2), not advantage. Both attackers need to be on opposite sides of the foe and able to act."
+  }
+}

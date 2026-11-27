@@ -1,0 +1,33 @@
+{
+  "kit": 2,
+  "id": "potion-bonus-action",
+  "name": "Potions as a bonus action",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Drinking a potion yourself is a bonus action. Feeding one to someone else is still an action.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "combat"
+    ],
+    "worksWith": [
+      "inventory",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Potions as a bonus action (house rule)",
+      "text": "Drinking a potion **yourself** takes a **bonus action**. Giving a potion to another creature takes an **action**, as normal."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "potion",
+      "drink a potion",
+      "healing potion"
+    ],
+    "dm": "At this table drinking a potion yourself is a bonus action; giving one to someone else is an action.",
+    "player": "At this table drinking a potion yourself is a bonus action, so the player can still attack or cast on the same turn. Giving one to an ally is an action."
+  }
+}

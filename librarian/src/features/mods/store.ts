@@ -71,7 +71,7 @@ const known = (k: string) => k in DEFAULT_SETTINGS;
 
 // One transaction, also when a step calls another step (turning a rule on turns its group's other rule off).
 const depth = new WeakMap<DB, number>();
-function tx<T>(db: DB, fn: () => T): T {
+export function tx<T>(db: DB, fn: () => T): T {
   const d = depth.get(db) ?? 0;
   if (d > 0) { depth.set(db, d + 1); try { return fn(); } finally { depth.set(db, d); } }
   depth.set(db, 1);
@@ -224,9 +224,12 @@ export function setEnabled(db: DB, worldId: string, modId: string, on: boolean, 
       upsert(db, worldId, modId, m.source, { enabled: true, saved }, by);
       seedRecords(db, worldId, m);
     } else {
-      const dependents = enabledMods(db, worldId).filter((o) => o.mod.requires.mods[modId]);
+      // Rules that need each other (a loop) are turned off once each: the chain holds those already on the way off.
+      const chain = opts.chain ?? new Set<string>();
+      chain.add(modId);
+      const dependents = enabledMods(db, worldId).filter((o) => o.mod.requires.mods[modId] && !chain.has(o.mod.id));
       if (dependents.length && !opts.cascade) throw new HttpError(409, `${dependents.map((d) => d.mod.name).join(', ')} ${dependents.length > 1 ? 'need' : 'needs'} ${m.mod.name}: turn ${dependents.length > 1 ? 'them' : 'it'} off too`);
-      for (const d of dependents) { merge(setEnabled(db, worldId, d.mod.id, false, by, { cascade: true })); if (!out.turnedOff.includes(d.mod.id)) out.turnedOff.push(d.mod.id); }
+      for (const d of dependents) { merge(setEnabled(db, worldId, d.mod.id, false, by, { cascade: true, chain })); if (!out.turnedOff.includes(d.mod.id)) out.turnedOff.push(d.mod.id); }
       out.settingsChanged = patchSettings(db, worldId, getMod(db, worldId, modId).saved) || out.settingsChanged;
       upsert(db, worldId, modId, m.source, { enabled: false, saved: {} }, by);
     }
@@ -262,6 +265,10 @@ export function setOptions(db: DB, worldId: string, modId: string, patch: Record
   });
 }
 
+export const MAX_OWN = 50;
+/** How many more of its own rules a world can take. */
+export const roomFor = (db: DB, worldId: string) => MAX_OWN - all<any>(db, "SELECT 1 FROM mods WHERE world_id = ? AND source = 'imported'", worldId).length;
+
 /** Add (or update) an imported rule. A shipped rule's id cannot be taken. */
 export function importMod(db: DB, worldId: string, raw: unknown, by: string | null): { mod: ModFile; updated: boolean } {
   const { mod, errors } = checkMod(raw);
@@ -269,12 +276,17 @@ export function importMod(db: DB, worldId: string, raw: unknown, by: string | nu
   if (shippedMod(mod.id)) throw new HttpError(409, `${mod.id} is the id of a house rule that comes with Alexandria; give yours another id`);
   const cur = one<any>(db, 'SELECT * FROM mods WHERE world_id = ? AND id = ?', worldId, mod.id);
   const n = all<any>(db, "SELECT 1 FROM mods WHERE world_id = ? AND source = 'imported'", worldId).length;
-  if (!cur && n >= 50) throw new HttpError(409, 'A world holds at most 50 imported house rules');
+  if (!cur && n >= MAX_OWN) throw new HttpError(409, `A world holds at most ${MAX_OWN} imported house rules`);
   tx(db, () => {
     upsert(db, worldId, mod.id, 'imported', { json: JSON.stringify(toFile(mod)), options: resolveOptions(mod, parseJson(cur?.options, {})) }, by);
     // Counters of resources the new version dropped go; the rest are kept (clamped to the new max).
     const ids = new Set(mod.resources.map((r) => r.id));
     for (const r of all<any>(db, 'SELECT DISTINCT resource FROM mod_counts WHERE world_id = ? AND mod_id = ?', worldId, mod.id)) if (!ids.has(r.resource)) run(db, 'DELETE FROM mod_counts WHERE world_id = ? AND mod_id = ? AND resource = ?', worldId, mod.id, r.resource);
+    const opts = resolveOptions(mod, parseJson(cur?.options, {}));
+    for (const r of mod.resources) {
+      const max = maxOf(r, opts);
+      if (max !== null) run(db, 'UPDATE mod_counts SET value = ? WHERE world_id = ? AND mod_id = ? AND resource = ? AND value > ?', max, worldId, mod.id, r.id, max);
+    }
   });
   if (cur?.enabled) invalidateGlossary(db, worldId);
   return { mod, updated: !!cur };
