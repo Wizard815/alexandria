@@ -92,6 +92,72 @@ model fails (it is written to the audit log). The classified guard in
 `core/ai.ts` screens every attempt, the fallback included, so classified
 text still never goes to any model.
 
+**A main model that failed rests for a minute.** After it fails, calls go to
+the fallback first, so a server that went away mid-session costs one timeout,
+not one per request. After the minute the main model is tried first again, and
+its first answer ends the rest.
+
+**The DM is told.** When a job moves to its fallback, has nothing left that
+answers, or is back, every DM with a world open gets a `models-health` event,
+and a band on every DM page names the role and model, with **Switch model**.
+It goes away when the model answers again or the DM picks another one. Test
+and Warm up (here and on the DM's page) never set it off.
+
+### The DM's model switcher (DM → Setup → Models)
+
+The DM picks the model behind each AI role (Minerva, Chat, The Broker, Squire,
+Audit, Story bible, Historian, Arbiter) and its backup from the table, without
+the admin page: **Switch models** on the Table's AI card, or the notice band.
+These are the same server-wide settings as this page, so every world uses
+them, and each change is in the audit log with the DM's world. Roles that can
+follow another one (Minerva, The Broker and Story bible follow Chat; Squire
+follows The Broker) have **Same as Chat**. Speech, voice and job options stay
+here.
+
+How far a DM may go is the admin's choice, **DMs and models** (`PUT
+/api/admin/models/dm-access { level }`):
+
+| level | the DM may |
+|---|---|
+| `off` | see each role's model and health, and test it |
+| `switch` | pick any saved provider and model it lists, for the main model and the backup |
+| `setup` (default) | also add a provider (address and key), and let a local role fall back to a cloud one |
+
+Changes come from the DM's own sign-in only, never from an API key or a model
+calling the world's tools. Admins always have `setup`.
+
+**The Historian (embeddings) asks first.** Vectors from two models do not mix,
+so a new embeddings model, or a backup that is another model, is refused with
+`409 { code: "reindex" }` until the DM confirms; then the page offers
+**Re-embed this world**. Keep it on `nomic-embed-text-v1.5`; for a backup,
+pick the same model on another server.
+
+DM routes (DM only): `GET /api/worlds/:w/models/switch`, `GET .../models/health`,
+`POST .../models/switch/discover { providerId }`, `PUT .../models/switch { job,
+providerId, model, fallback?, follow?, confirmReindex? }`, `POST
+.../models/switch/test { job, which? }`, `POST .../models/switch/providers`.
+Source: `features/models/dmswitch.ts`, web `features/models/SwitchPage.tsx`
+and `HealthBand.tsx`. Tests: `test/models-dmswitch.test.ts`,
+`web/e2e/modelswitch.mjs` (`MODELSWITCH_REAL=1` uses `tencent/hy4-flash` on
+OpenRouter as the backup).
+
+### The story bible on a small model
+
+The story bible job (`bible`) is a chat model, not an embedder: it reads each
+page into short facts as JSON, and the Historian embeds those. Unset, it uses
+the Chat model. Its prompt asks for facts in the caveman voice
+([JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman): few words,
+names, numbers and every *not*, *never*, *no*, *only* kept), and sends a JSON
+schema, so a 0.5 to 2B model can do it.
+
+A small model is known by its name (`qwen3-0.6b`, `lfm-3-1.7b`, `gemma-3-1b`)
+or by the job option `{"smallModel": true}`. It then reads a page in pieces of
+about 1,800 characters, at most 10 facts a piece, and a fact about a name the
+page never says is dropped. Run a small local model with reasoning off
+(`--reasoning off`, or the job option `{"reasoning": "off"}`): thinking spends
+the token budget before any JSON is written. A changed prompt re-reads every
+page in the background once (`PROMPT_VERSION` in `features/bible/extract.ts`).
+
 ### Warm up and status
 
 - **Warm up** sends the job's tiny request to the main provider, so an

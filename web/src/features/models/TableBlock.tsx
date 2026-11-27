@@ -1,5 +1,5 @@
 // The AI on the DM's Table: whether the local models are loaded for the session, and one tap to the templates and guides the
-// assistant follows, the model settings, Minerva and Active mode.
+// assistant follows, the DM's model switcher, the model settings, Minerva and Active mode.
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
@@ -33,6 +33,7 @@ export default function TableModels() {
       {failed && <span className="small tb-danger">A model did not answer. Check the model settings.</span>}
       <div className="tb-links">
         <Link className="tb-link" to={`${base}/templates`}><i className="fa-solid fa-compass-drafting" aria-hidden="true" /> Templates &amp; guides</Link>
+        <Link className="tb-link" to={`${base}/models`} data-testid="switch-models"><i className="fa-solid fa-shuffle" aria-hidden="true" /> Switch models</Link>
         {me?.account.is_admin && <Link className="tb-link" to="/admin/models"><i className="fa-solid fa-sliders" aria-hidden="true" /> Model settings</Link>}
         <Link className="tb-link" to={`${base}/active`}><i className="fa-solid fa-ear-listen" aria-hidden="true" /> Active mode</Link>
         <Link className="tb-link" to={`${base}/connect`}><i className="fa-solid fa-plug" aria-hidden="true" /> Connect AI</Link>
