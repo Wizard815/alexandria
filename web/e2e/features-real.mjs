@@ -80,6 +80,8 @@ try {
     ['Quick events', 'Send the party a quick perception save, DC 13, with a 30 second timer.', ['send_quick_event']],
     ['Session prep', 'Write each player a session prep for Friday. Tell them we start at the lighthouse.', ['draft_session_prep']],
     ['NPC voices', 'Give Captain Vex the Gravel voice in encounters, and turn NPC voices on.', ['set_npc_voice', 'set_npc_voices']],
+    ['Story events by place', 'Save a story event for the docks: a pickpocket bumps into the player and they can chase or let it go.', ['save_encounter_template']],
+    ['Homebrew spell', 'Save a homebrew spell: Lantern Ward, 1st-level abjuration, a ring of light that gives allies +1 AC for a minute.', ['save_homebrew_spell']],
     ['Roll20', 'Is our Roll20 game connected? If so, send the players the Saltmarsh handout there.', ['roll20_status', 'roll20_send_handout']],
     ['Foundry VTT', "Move Tomas's token to the docks in Foundry.", ['foundry_move_token', 'foundry_status']],
     ['Open5e content', 'Which Open5e books could I import monsters from? Tome of Beasts maybe.', ['list_content_books', 'import_content']],
