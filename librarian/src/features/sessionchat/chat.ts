@@ -143,7 +143,11 @@ export function viewMessage(db: DB, m: any, v: Viewer, worldId: string) {
   };
 }
 
-export interface NewMessage { sessionId: string; channel: Channel; authorId: string; role: Role; body: string; replyTo?: string | null }
+export interface NewMessage {
+  sessionId: string; channel: Channel; authorId: string; role: Role; body: string; replyTo?: string | null;
+  /** A roll already made elsewhere (e.g. in Roll20): kept as it is instead of rolling the body again. */
+  roll?: { expr: string; terms: { term: string; dice: number[]; sum: number }[]; total: number; note: string };
+}
 
 export function addMessage(db: DB, worldId: string, n: NewMessage) {
   const body = n.body.trim();
@@ -151,7 +155,8 @@ export function addMessage(db: DB, worldId: string, n: NewMessage) {
   if (body.length > MAX_BODY) throw new HttpError(400, `Messages can be up to ${MAX_BODY} characters`);
   let kind: 'text' | 'roll' = 'text';
   let roll: string | null = null;
-  if (isRoll(body)) { kind = 'roll'; roll = JSON.stringify(parseRoll(body)); }
+  if (n.roll) { kind = 'roll'; roll = JSON.stringify(n.roll); }
+  else if (isRoll(body)) { kind = 'roll'; roll = JSON.stringify(parseRoll(body)); }
   else checkLinks(db, worldId, body, n.role);
   if (n.replyTo) {
     const p = one<any>(db, 'SELECT id FROM sessionchat_messages WHERE id = ? AND session_id = ? AND channel = ? AND deleted_at IS NULL', n.replyTo, n.sessionId, n.channel);

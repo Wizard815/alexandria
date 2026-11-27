@@ -11,7 +11,7 @@ import { type DB, all, one, run, tx } from '../../core/db.ts';
 import { HttpError, id as newId, now, parseJson } from '../../core/util.ts';
 import { makeRng } from '../quickgen/rng.ts';
 import { priceFor } from '../quickgen/items.ts';
-import { moduleDoc } from '../modules/store.ts';
+import { leftOut, moduleDoc } from '../modules/store.ts';
 import type { Term } from '../modules/format.ts';
 
 export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'ammunition', 'gear', 'tool', 'potion', 'scroll', 'ring', 'rod', 'staff', 'wand', 'wondrous item', 'mount', 'food', 'other'] as const;
@@ -284,8 +284,9 @@ export function moduleItems(db: DB, worldId: string, moduleId: string): NewItem[
   if (!m) throw new HttpError(404, `No game module ${moduleId.slice(0, 60)} in this world`);
   const label = m.builtin ? (moduleId === 'dnd-2014' ? 'SRD 5.1' : 'SRD 5.2') : m.doc.name;
   const out: NewItem[] = [];
+  const skip = leftOut(db, worldId, moduleId);
   for (const t of m.doc.terms) {
-    if (t.kind !== 'item') continue;
+    if (t.kind !== 'item' || skip.has(t.id)) continue;
     const f = fromTerm(t);
     out.push({ ...f, source: moduleId, sourceLabel: label.slice(0, 80), sourceRef: `${moduleId}:${f.sourceRef}`, attribution: m.doc.attribution.slice(0, 1000) });
   }

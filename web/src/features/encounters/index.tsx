@@ -1,5 +1,6 @@
 import type { WebFeature } from '../registry.ts';
-import EncountersDM, { EncountersNow } from './EncountersDM.tsx';
+import EncountersDM from './EncountersDM.tsx';
+import TableEncounters from './TableBlock.tsx';
 import PlayerEncounter, { MyEncounters, WanderCard } from './PlayerEncounter.tsx';
 
 const feature: WebFeature = {
@@ -10,6 +11,6 @@ const feature: WebFeature = {
   playerNav: [{ to: 'encounters', label: 'Encounters', icon: 'fa-person-walking' }],
   overlay: PlayerEncounter,
   playerHome: [WanderCard],
-  dmHome: [EncountersNow],
+  dmTable: [{ id: 'encounters', label: 'Encounters & story events', zone: 'side', order: 20, component: TableEncounters }],
 };
 export default feature;
