@@ -19,7 +19,6 @@ import { pick } from '../../intake/connectors/api.ts';
 import { KINDS, LIMITS, asKind, normalizeModule, slug, type ModuleDoc } from './format.ts';
 import { readZip, ZIP_LIMITS } from './zip.ts';
 import { readDnd5eApi, readOpen5e } from './sources.ts';
-import { serverModOn } from '../mods/server.ts';
 
 export interface SourceFile { path: string; text: string }
 
@@ -214,7 +213,6 @@ export async function readModule(b: any, d: Deps, rawZip?: Buffer): Promise<{ mo
   if (!b || typeof b !== 'object') b = {};
   const meta = metaOf(b);
   const type = rawZip ? 'zip' : String(b.type ?? '');
-  if ((type === 'open5e' || type === 'dnd5eapi') && !serverModOn(d.db, 'open5e')) throw new HttpError(404, 'Open5e is turned off on this server (Admin → Mods)');
   let r: { raw: any; warnings: string[] };
   let source = type;
   switch (type) {

@@ -365,7 +365,8 @@ const coverageSystem = () => once('cov-system', async () => {
   await dm('PUT', '/mods/coverage-system/enabled', { on: true });
   return 'coverage-system';
 });
-const argsFor = async (tool: { name: string; props: Record<string, any>; required?: string[] }) => (ARGS[tool.name] ? await ARGS[tool.name]() : fromSchema(tool));
+const open5eOn = () => once('open5e', async () => { await dm('PUT', '/mods/open5e/enabled', { on: true }); return 'open5e'; }); // a house rule
+const argsFor = async (tool: { name: string; props: Record<string, any>; required?: string[] }) => { if (/content/.test(tool.name)) await open5eOn(); return ARGS[tool.name] ? await ARGS[tool.name]() : fromSchema(tool); };
 
 /** Tools that end something the others need (a running game, a recording, a page) go last. */
 const LAST = ['end_game_session', 'stop_recording', 'lore_delete', 'delete_map_mark', 'publish_session_log', 'remove_combatant', 'hide_stage_card'];

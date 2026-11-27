@@ -110,6 +110,7 @@ before(async () => {
   T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
   W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Bookland', dmAccountId: dm.account.id })).id;
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  await ok('PUT', `/api/worlds/${W}/mods/open5e/enabled`, T.dm, { on: true }); // the house rule
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
 });
 after(() => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -315,21 +316,19 @@ test('Sources: a DM browses a module and leaves single entries out of the world'
   await ok('DELETE', `${M()}/imported/${id}`, T.dm);
 });
 
-test('Sources: Open5e is a server mod; off hides the sources and the content library, the stored books stay', async () => {
+test('Sources: Open5e is a house rule; off, the world cannot pull from it, and library books stay', async () => {
   const A = '/api/admin/content';
   await ok('POST', A, T.admin, { type: 'open5e', ...O5, documents: ['vom'], replace: true });
-  assert.ok((await ok('GET', '/api/server-mods', T.dm)).on.includes('open5e'), 'on by default');
-  await ok('PUT', '/api/admin/mods/open5e/enabled', T.admin, { on: false });
-  assert.ok(!(await ok('GET', '/api/server-mods', T.dm)).on.includes('open5e'));
-  const off = await call('GET', A, T.admin);
-  assert.equal(off.status, 404);
-  assert.match(JSON.stringify(off.body), /turned off/);
-  assert.equal((await call('GET', `${M()}/sources`, T.dm)).status, 404);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'open5e', ...O5, documents: ['tob'] })).status, 404);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'dnd5eapi', edition: '2014' })).status, 404);
-  // A book already pulled is still there for worlds: nothing needs the network.
-  assert.ok((await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-vom'));
-  await ok('PUT', '/api/admin/mods/open5e/enabled', T.admin, { on: true });
+  await ok('PUT', `/api/worlds/${W}/mods/open5e/enabled`, T.dm, { on: false });
+  const off = await call('GET', `${M()}/sources`, T.dm);
+  assert.equal(off.status, 403);
+  assert.match(JSON.stringify(off.body), /House rules/);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'open5e', ...O5, documents: ['tob'] })).status, 403);
+  assert.equal((await call('POST', `${M()}/import`, T.dm, { type: 'dnd5eapi', edition: '2014' })).status, 403);
+  // The admin's library is not a mod, and the world still sees its books (nothing to download).
   assert.ok((await ok('GET', A, T.admin)).modules.some((m: any) => m.id === 'open5e-vom'));
+  assert.ok((await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-vom'));
+  await ok('PUT', `/api/worlds/${W}/mods/open5e/enabled`, T.dm, { on: true });
+  assert.equal((await call('GET', `${M()}/sources`, T.dm)).status, 200);
   await ok('DELETE', `${A}/open5e-vom`, T.admin);
 });
