@@ -48,6 +48,10 @@ export default function MapBoard() {
   // Maps imported from the world's sources (Kanka, LegendKeeper, a JSON API): the list the viewer may open, each with a fresh signed address.
   const imported = useLoad(() => w.call('GET', '/intake/map-images').catch(() => []) as Promise<ImportedMap[]>, [w], ['page']);
   const [picked] = store<Record<string, string>>(`alx.mapimport.${info.id}`, {});
+  // Maps linked to Foundry scenes (features/foundry): offered in the map list, each with its picture.
+  const linked = useLoad<{ mapId: string; pic: string; name: string }[]>(() => w.call('GET', '/foundry/maps').catch(() => []), [w], ['foundry', 'libfile']);
+  const linkedPic = (id: string) => linked.data?.find((l) => l.mapId === id)?.pic ?? '';
+  const mapList = [...maps, ...(linked.data ?? []).map((l) => l.mapId).filter((id, i, all) => !maps.includes(id) && all.indexOf(id) === i)];
   // One list of every map picture this viewer may use: the world's sources, then files in the library (generated maps are saved there too).
   const options = useMemo(() => [
     ...(imported.data ?? []).map((m) => ({ value: `imp:${m.id}`, group: 'source', label: `${m.name || 'Map'}${m.page ? ` (${m.page.title})` : ''}`, url: m.url })),
@@ -56,7 +60,7 @@ export default function MapBoard() {
   const sourceImage = (v: string) => (v.startsWith('imp:') ? v.slice(4) : null);
   const loadingPictures = imported.loading || libMaps.loading;
   // Nothing chosen yet: the first map there is. The blank placeholder is only for a world with no map pictures at all, or when "Blank" is chosen.
-  const stored = bgs[mapId] ?? (picked[mapId] ? `imp:${picked[mapId]}` : '');
+  const stored = bgs[mapId] ?? (picked[mapId] ? `imp:${picked[mapId]}` : linkedPic(mapId));
   const choice = stored === '' && options.length ? options[0].value : stored;
   const chosenOption = options.find((o) => o.value === choice) ?? null;
   const bg = chosenOption?.url ?? (/^(https?:|\/)/.test(choice) ? choice : '');
@@ -221,7 +225,7 @@ export default function MapBoard() {
             onClick={onAreaClick} onDoubleClick={(e) => { if (tool === 'route') { e.preventDefault(); finishRoute(); } }} onKeyDown={onKey}
             onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
             style={{
-              position: 'relative', width: `${zoom * 100}%`, aspectRatio: String(aspect), borderRadius: 10, border: '1px solid var(--line-strong)', overflow: 'hidden',
+              position: 'relative', width: `${zoom * 100}%`, aspectRatio: String(aspect), containerType: 'inline-size', borderRadius: 10, border: '1px solid var(--line-strong)', overflow: 'hidden',
               cursor: tool === 'select' ? 'default' : tool === 'erase' ? 'not-allowed' : 'crosshair', userSelect: 'none',
               // The picture waits for its fog state, so a fogged map is never seen uncovered first.
               background: bg ? (fog.ready ? `center / 100% 100% no-repeat url("${bg.replace(/"/g, '%22')}"), #15212D` : '#15212D') : 'radial-gradient(ellipse 40% 32% at 30% 42%, #4B4632 0 60%, transparent 61%), radial-gradient(ellipse 30% 40% at 64% 56%, #47432F 0 62%, transparent 63%), linear-gradient(160deg, #1A2A38, #15212D)',
@@ -229,7 +233,9 @@ export default function MapBoard() {
             {fog.ready && fog.state && <FogCanvas state={fog.state} extra={fogEd.pending} tint={isDM} />}
             <RouteLayer marks={shown} draft={draft} selected={sel} onPick={onMark} />
             <SourcePins pins={pins} selected={spin?.id ?? null} labels={labels} active={tool === 'select'} onPick={(p) => { setSel(null); setSpin(p); }} />
-            <MarkLayer marks={shown} selected={sel} onPick={onMark} me={me} />
+            <MarkLayer marks={shown} selected={sel} onPick={onMark} me={me}
+              canMove={(m) => tool === 'select' && !!m.data.token && (isDM || ((s as unknown as Record<string, unknown>).foundryPlayersMove !== false && m.data.token.account === me))}
+              onMove={(m, p) => void act.run(async () => { await w.call('PUT', `/foundry/tokens/${encodeURIComponent(m.id)}`, p); await marks.reload(); })} />
             <Ruler points={ruler} cursor={hover} aspect={aspect} scale={scale.data} />
             <FogDraw ed={fogEd} active={isDM && tool === 'fog' && fogEd.enabled} />
             {pending && <span aria-hidden="true" style={{ position: 'absolute', left: `${pending.x}%`, top: `${pending.y}%`, transform: 'translate(-50%,-50%)', width: 16, height: 16, borderRadius: '50%', border: '2px dashed var(--accent)' }} />}
@@ -290,7 +296,7 @@ export default function MapBoard() {
           <section className="card" aria-labelledby="maps-h">
             <h3 id="maps-h">Which map</h3>
             <div className="row" style={{ gap: 4 }}>
-              {maps.map((m) => <button key={m} type="button" className={`btn small${m === mapId ? ' on' : ''}`} aria-pressed={m === mapId} onClick={() => switchMap(m)}>{m}</button>)}
+              {mapList.map((m) => <button key={m} type="button" className={`btn small${m === mapId ? ' on' : ''}`} aria-pressed={m === mapId} onClick={() => switchMap(m)} title={linked.data?.find((l) => l.mapId === m) ? `Linked to the Foundry scene ${linked.data.find((l) => l.mapId === m)!.name}` : undefined}>{m}</button>)}
             </div>
             <form className="row" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); switchMap(String(f.get('map') ?? '')); e.currentTarget.reset(); }}>
               <label className="sr-only" htmlFor="map-new">New map name</label>
