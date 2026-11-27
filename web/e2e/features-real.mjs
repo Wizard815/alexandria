@@ -40,7 +40,7 @@ try {
   const [jessId, tomId] = [acc('jess'), acc('tom')];
 
   // The state the prompts act on: Jessamine is hurt and poisoned and has a goal; Tomas has a private DM note.
-  await j('PATCH', `${P}/settings`, dm, { sheetRerolls: true, agentAutoApprove: [] });
+  await j('PATCH', `${P}/settings`, dm, { sheetRerolls: true, downtimeOn: true, agentAutoApprove: [] });
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { maxHp: 24, hp: 24 });
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { damage: 7, conditions: ['Poisoned'], note: 'Spider bite' });
   await j('POST', `${P}/sheet/${jessId}/dm-notes`, dm, { kind: 'goal', text: 'Find the lighthouse keeper before the new moon.' });
@@ -70,7 +70,9 @@ try {
     ['Sheet: DM goal', "Put a goal on Tomas's sheet: win back his father's sword.", ['add_sheet_note']],
     ['Sheet: HP', 'Tomas took 6 damage from a falling beam. Update his sheet.', ['change_player_hp']],
     ['Sheet: HP history', "Who changed Jessamine's HP tonight, and why?", ['sheet_log']],
-    ['House rule: re-roll', 'Give Anselm a personal re-roll for that great speech.', ['give_reroll']],
+    ['House rule: re-roll', 'Give Anselm a personal re-roll for that great speech.', ['give_reroll', 'house_rule_grant']],
+    ['House rules: new mod', 'Write a house rule for hero points: each player gets one per session to add a d6 to a roll.', ['house_rule_check', 'house_rule_save', 'house_rule_file', 'house_rule_guide']],
+    ['DownTime', 'Start a downtime round: the party has 5 days in Saltmarsh before the ship leaves.', ['downtime_round']],
     ['NPC encounters', 'Send Tomas a street gambler encounter.', ['send_encounter', 'list_encounter_templates']],
     ['Shops', 'Make a small blacksmith shop for this town and save it.', ['generate_shop']],
     ['Fog of war', 'Turn on the fog of war on the world map, then uncover a circle around the middle of it.', ['set_fog', 'reveal_fog']],
@@ -136,6 +138,7 @@ try {
     ['Helper: codex', 'Which spells can I learn now, and what do I still need for Scorching Ray?', (s) => /burning hands/i.test(s) && /scorching ray/i.test(s)],
     ['Helper: quests', 'What are my open quests and goals?', (s) => /keeper|new moon/i.test(s)],
     ['Helper: to the broker', 'Who secretly controls the harbour council?', (s) => /broker/i.test(s)],
+    ['Helper: downtime', 'We have a few days of downtime. What could I do with it?', (s) => /craft|train|research|carous|work|study|practi[cs]e/i.test(s)],
   ];
   for (const [feature, text, check] of HELPER_PROMPTS) {
     const r = await ask(jess, text, 'helper');
