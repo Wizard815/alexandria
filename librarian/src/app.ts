@@ -34,7 +34,6 @@ import approvalsRoutes from './routes/approvals.ts';
 import modelRoutes from './routes/models.ts';
 import mcpServerRoutes from './routes/mcpServer.ts';
 import { FEATURES, applyFeatureSchemas } from './features/registry.ts';
-import { serverModGate } from './features/mods/server.ts';
 
 export interface Deps {
   db: DB;
@@ -154,9 +153,7 @@ export function createApp(opts: AppOptions = {}) {
   app.use('/api/admin/jobs', authenticate(db), requireAdmin, jobRoutes(deps));
   app.use('/api/admin/models/activity', authenticate(db), requireAdmin, activityRoutes(deps));
   app.use('/api/admin/models/access', authenticate(db), requireAdmin, accessRoutes(deps));
-  // A feature that is a server mod answers 404 while the admin has it off (Admin → Mods).
-  const modGate = (f: (typeof FEATURES)[number]) => serverModGate(db, f.serverMod);
-  for (const f of FEATURES) if (f.adminRoutes) app.use(`/api/admin/${f.adminMount ?? f.id}`, authenticate(db), requireAdmin, modGate(f), f.adminRoutes(deps));
+  for (const f of FEATURES) if (f.adminRoutes) app.use(`/api/admin/${f.adminMount ?? f.id}`, authenticate(db), requireAdmin, f.adminRoutes(deps));
 
   const w = express.Router({ mergeParams: true });
   w.use(authenticate(db), loadWorld(db), dmGoesFirst);
@@ -173,7 +170,7 @@ export function createApp(opts: AppOptions = {}) {
   w.use('/whiteboard', whiteboardRoutes(deps));
   w.use('/broker', brokerRoutes(deps));
   w.use('/approvals', approvalsRoutes(deps));
-  for (const f of FEATURES) if (f.worldRoutes) w.use(`/${f.worldMount ?? f.id}`, modGate(f), f.worldRoutes(deps));
+  for (const f of FEATURES) if (f.worldRoutes) w.use(`/${f.worldMount ?? f.id}`, f.worldRoutes(deps));
   app.use('/api/worlds/:world', w);
   app.get('/api/worlds', authenticate(db), listMyWorlds(deps));
 
