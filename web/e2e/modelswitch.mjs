@@ -69,10 +69,12 @@ try {
   // ---- Minerva on the dead box, with a backup
   await minerva.getByRole('button', { name: 'Change' }).click();
   await minerva.getByLabel('Main provider').selectOption(spare.id);
-  await minerva.getByText('did not list its models').waitFor({ timeout: 15000 }).catch(() => {});
-  await minerva.getByLabel('Main model').fill('fake-chat');
+  // A server that is down cannot list its models: the dropdown offers the ones in use, and "Another model…" a box.
+  await minerva.getByText('could not list its models').waitFor({ timeout: 15000 }).catch(() => problems.push('no note that the provider could not list models'));
+  check(await minerva.getByLabel('Main model', { exact: true }).evaluate((e) => e.tagName === 'SELECT'), 'the main model is not a dropdown');
+  await minerva.getByLabel('Main model', { exact: true }).selectOption('fake-chat');
   await minerva.getByLabel('Backup provider').selectOption(backup.id);
-  const bm = minerva.getByLabel('Backup model');
+  const bm = minerva.getByLabel('Backup model', { exact: true });
   // The provider's list loads after the pick: a dropdown when it lists models, a text box when it does not.
   await minerva.locator('select[aria-label="Backup model"]').waitFor({ timeout: 15000 }).catch(() => {});
   if (await bm.evaluate((e) => e.tagName === 'SELECT')) await bm.selectOption(backupModel); else await bm.fill(backupModel);
@@ -115,7 +117,7 @@ try {
   const fake = view.providers.find((p) => p.name === 'Fake Argos');
   await minerva.getByLabel('Main provider').selectOption(fake.id);
   await minerva.locator('select[aria-label="Main model"]').waitFor({ timeout: 15000 });
-  await minerva.getByLabel('Main model').selectOption('fake-chat');
+  await minerva.getByLabel('Main model', { exact: true }).selectOption('fake-chat');
   await minerva.getByLabel('Backup provider').selectOption('');
   await minerva.getByRole('button', { name: 'Save', exact: true }).click();
   await band.waitFor({ state: 'detached', timeout: 10000 }).catch(() => problems.push('the notice did not go away after the switch'));
@@ -127,9 +129,9 @@ try {
   await hist.getByRole('button', { name: 'Change' }).click();
   await hist.getByLabel('Main provider').selectOption(fake.id);
   await hist.locator('select[aria-label="Main model"]').waitFor({ timeout: 15000 });
-  await hist.getByLabel('Main model').selectOption('fake-chat');
+  await hist.getByLabel('Main model', { exact: true }).selectOption('fake-chat');
   await hist.getByRole('button', { name: 'Save', exact: true }).click();
-  await hist.getByRole('alert').filter({ hasText: 're-embedded' }).waitFor({ timeout: 10000 }).catch(() => problems.push('no re-index warning for a new embeddings model'));
+  await hist.getByRole('alert').filter({ hasText: 'embedded again' }).waitFor({ timeout: 10000 }).catch(() => problems.push('no re-index warning for a new embeddings model'));
   await page.screenshot({ path: path.join(out, '5-historian-warning.png'), fullPage: true });
   await hist.getByRole('button', { name: 'Keep the current model' }).click();
   check((await api('GET', `${WA}/models/switch`, dmT)).roles.find((r) => r.job === 'extra').effective?.model === 'fake-embed', 'the Historian changed without a yes');
@@ -138,10 +140,34 @@ try {
   // ---- a phone
   const phone = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 390, height: 844 }, true);
   await phone.page.goto(`${W}/dm/models`);
-  await phone.page.locator('[data-role="dm"]').waitFor({ timeout: 15000 });
+  // A phone shows a square per role (green answering, gold on its backup, red down); a tap opens the role's card.
+  await phone.page.getByTestId('role-grid').waitFor({ timeout: 15000 }).catch(() => problems.push('no role squares on a phone'));
+  check(await phone.page.locator('[data-role-square="dm"][data-tone="ok"]').count() === 1, 'Minerva\'s square should be green');
   const wide = await phone.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   check(!wide, 'the switcher scrolls sideways on a phone');
-  await phone.page.screenshot({ path: path.join(out, '6-phone.png'), fullPage: true });
+  await phone.page.screenshot({ path: path.join(out, '6-phone.png') });
+  await phone.page.locator('[data-role-square="dm"]').click();
+  await phone.page.getByRole('dialog', { name: 'Minerva' }).locator('[data-role="dm"]').waitFor({ timeout: 5000 }).catch(() => problems.push('tapping Minerva did not open her card'));
+  await phone.page.screenshot({ path: path.join(out, '7-phone-minerva.png') });
+
+  // ---- the admin page: the DM's rules, and the provider the DM brought
+  const actx = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...(process.env.E2E_DSF ? { deviceScaleFactor: Number(process.env.E2E_DSF) } : {}) });
+  const admin = { page: await actx.newPage() };
+  await admin.page.goto(base + '/admin/login');
+  await admin.page.getByLabel('Username').fill('admin');
+  await admin.page.getByLabel('Password').fill('library admin 123');
+  await admin.page.getByRole('button', { name: 'Sign in' }).click();
+  await admin.page.waitForURL((u) => u.pathname.startsWith('/admin') && !u.pathname.startsWith('/admin/login'), { timeout: 15000 });
+  await admin.page.goto(`${base}/admin/models`);
+  const card = admin.page.getByTestId('dm-access');
+  await card.waitFor({ timeout: 15000 }).catch(() => problems.push('no "GMs and models" card on the admin page'));
+  await card.getByLabel('GMs may use cloud providers').click(); // saved on the server first, then the box follows
+  await admin.page.waitForTimeout(500);
+  const rules = await api('GET', `${WA}/models/switch`, dmT);
+  check(rules.providerRules?.cloud === false, 'the admin\'s cloud switch did not reach the DM');
+  check(await admin.page.getByText(/Added by .* \(a GM\)/).count() > 0, 'the admin page does not say which provider the DM added');
+  await card.screenshot({ path: path.join(out, '8-admin-dm-rules.png') });
+  await card.getByLabel('GMs may use cloud providers').click();
 } catch (e) {
   problems.push(`crashed: ${e.message}`);
 } finally {

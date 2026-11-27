@@ -117,13 +117,55 @@ test('ModelsDmSwitch_AdminAccessLevelIsEnforced', async () => {
   await ok('PUT', `${S()}/switch`, T.dm, { job: 'chat', providerId: p.id, model: 'fake-chat', fallback: null });
 });
 
+test('ModelsDmSwitch_AdminCanDenyCloudOrLocalProvidersButNotTheDmsOwn', async () => {
+  const cloud = (await ok('POST', '/api/admin/models/providers', T.admin, { name: 'Admin cloud', kind: 'openai-compatible', baseUrl: fake.baseUrl, location: 'cloud' })).provider;
+  const local = (await ok('GET', `${S()}/switch`, T.dm)).providers.find((x: any) => x.name === 'Box');
+  await ok('PUT', '/api/admin/models/dm-access', T.admin, { cloud: false });
+  let v = await ok('GET', `${S()}/switch`, T.dm);
+  assert.deepEqual(v.providerRules, { cloud: false, local: true });
+  assert.ok(!v.providers.some((p: any) => p.id === cloud.id), 'the admin cloud provider is not offered');
+  const no = await call('PUT', `${S()}/switch`, T.dm, { job: 'audit', providerId: cloud.id, model: 'fake-audit' });
+  assert.equal(no.status, 403);
+  assert.match(no.body.error, /cloud providers set up in Admin/);
+  assert.equal((await call('PUT', `${S()}/switch`, T.dm, { job: 'audit', providerId: local.id, model: 'fake-audit', fallback: { providerId: cloud.id } })).status, 403, 'not as a backup either');
+  // The DM brings their own cloud API: theirs to use.
+  const mine = (await ok('POST', `${S()}/switch/providers`, T.dm, { name: 'My OpenRouter', baseUrl: fake.baseUrl, location: 'cloud', apiKey: 'sk-mine' })).provider;
+  assert.equal(mine.mine, true);
+  await ok('PUT', `${S()}/switch`, T.dm, { job: 'audit', providerId: mine.id, model: 'fake-audit' });
+  // The admin page shows who brought it, and the same setting.
+  const adm = await ok('GET', '/api/admin/models', T.admin);
+  assert.equal(adm.providers.find((p: any) => p.id === mine.id).addedBy, 'dungeon');
+  assert.equal(adm.jobs.find((j: any) => j.job === 'audit').providerId, mine.id);
+  // Local denied too: only the DM's own are left.
+  await ok('PUT', '/api/admin/models/dm-access', T.admin, { local: false });
+  v = await ok('GET', `${S()}/switch`, T.dm);
+  assert.ok(v.providers.length >= 1 && v.providers.every((p: any) => p.mine), 'only the DM\'s own providers are left');
+  assert.ok(v.providers.some((p: any) => p.id === mine.id));
+  assert.equal((await call('POST', `${S()}/switch/discover`, T.dm, { providerId: local.id })).status, 403);
+  assert.deepEqual(await ok('GET', '/api/admin/models/dm-access', T.admin), { level: 'setup', cloud: false, local: false });
+  await ok('PUT', '/api/admin/models/dm-access', T.admin, { cloud: true, local: true });
+  await ok('PUT', `${S()}/switch`, T.dm, { job: 'audit', providerId: local.id, model: 'fake-audit' });
+});
+
+test('ModelsDmSwitch_AdminChangesReachTheDmPage', async () => {
+  await openLive();
+  const seen: string[] = [];
+  const off = deps.hub.tap((_w: string, type: string) => { if (type === 'models-changed') seen.push(type); });
+  const p = (await ok('GET', `${S()}/switch`, T.dm)).providers.find((x: any) => x.name === 'Box');
+  await ok('PUT', '/api/admin/models', T.admin, { jobs: { rerank: { providerId: p.id, model: 'fake-rerank' } } });
+  assert.ok(seen.length >= 1, 'an admin save tells the DM pages');
+  assert.equal(role(await ok('GET', `${S()}/switch`, T.dm), 'rerank').model, 'fake-rerank');
+  off();
+});
+
 test('ModelsDmSwitch_HistorianAsksBeforeANewEmbedder', async () => {
   const p = (await ok('GET', `${S()}/switch`, T.dm)).providers[0];
   await ok('PUT', `${S()}/switch`, T.dm, { job: 'extra', providerId: p.id, model: 'fake-embed' });
   const r = await call('PUT', `${S()}/switch`, T.dm, { job: 'extra', providerId: p.id, model: 'other-embed' });
   assert.equal(r.status, 409);
   assert.equal(r.body.code, 'reindex');
-  assert.match(r.body.error, /re-embedded/);
+  assert.match(r.body.error, /embedded again/);
+  assert.match(r.body.error, /keeps its facts/);
   assert.equal(role(await ok('GET', `${S()}/switch`, T.dm), 'extra').model, 'fake-embed', 'nothing changed');
   const fb = await call('PUT', `${S()}/switch`, T.dm, { job: 'extra', providerId: p.id, model: 'fake-embed', fallback: { providerId: p.id, model: 'other-embed' } });
   assert.equal(fb.status, 409, 'a backup that is another embedder is asked about too');
@@ -131,6 +173,13 @@ test('ModelsDmSwitch_HistorianAsksBeforeANewEmbedder', async () => {
   const yes = await ok('PUT', `${S()}/switch`, T.dm, { job: 'extra', providerId: p.id, model: 'other-embed', fallback: null, confirmReindex: true });
   assert.equal(yes.reembed, true);
   assert.equal(role(yes, 'extra').model, 'other-embed');
+  // The admin page asks the same question.
+  const adm = await call('PUT', '/api/admin/models', T.admin, { jobs: { extra: { providerId: p.id, model: 'fake-embed' } } });
+  assert.equal(adm.status, 409);
+  assert.equal(adm.body.code, 'reindex');
+  await ok('PUT', '/api/admin/models', T.admin, { jobs: { extra: { providerId: p.id, model: 'fake-embed' } }, confirmReindex: true });
+  const audits = deps.db.prepare("SELECT detail FROM audit WHERE action = 'models.reindex'").all();
+  assert.equal(audits.length, 2, 'both yeses are in the audit log');
 });
 
 test('ModelsDmSwitch_DeadMainMovesToBackupAndTellsTheDM', async () => {

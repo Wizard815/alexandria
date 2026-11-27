@@ -338,6 +338,26 @@ async function extract(d: Deps, r: Pending, signal?: AbortSignal): Promise<Fact[
   return cleanFacts({ facts: all });
 }
 
+/**
+ * The Historian got a new embeddings model: make every fact's vector again with it, keeping the facts themselves (no
+ * page is read again by the chat model). Calls `onDone` as batches finish. Returns how many facts got a new vector.
+ */
+export async function revectorFacts(d: Deps, worldId: string, signal?: AbortSignal, onDone?: (done: number, total: number) => void): Promise<number> {
+  if (!hasJob(d, 'extra')) return 0;
+  const rows = d.db.prepare('SELECT id, subject, kind, fact FROM bible_facts WHERE world_id = ? ORDER BY id').all(worldId) as { id: number; subject: string; kind: FactKind; fact: string }[];
+  const batch = embedBatch(d);
+  let done = 0;
+  for (let i = 0; i < rows.length && !signal?.aborted; i += batch) {
+    const part = rows.slice(i, i + batch);
+    const vecs = await embedFacts(d, part, batch, signal);
+    if (!vecs) break;
+    tx(d.db, () => { part.forEach((r, k) => run(d.db, 'UPDATE bible_facts SET vec = ? WHERE id = ?', toBlob(vecs[k]), r.id)); });
+    done += part.length;
+    onDone?.(done, rows.length);
+  }
+  return done;
+}
+
 /** Vectors of the facts for searching by meaning, `batch` facts a request; null when there is no embeddings model or it fails. */
 async function embedFacts(d: Deps, facts: Fact[], batch: number, signal?: AbortSignal): Promise<Float32Array[] | null> {
   if (!facts.length || !hasJob(d, 'extra')) return null;

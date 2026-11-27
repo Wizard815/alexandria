@@ -197,7 +197,7 @@ export function createApp(opts: AppOptions = {}) {
 
   app.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Body is not valid JSON' });
     if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Body too large' });
     console.error(err);

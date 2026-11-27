@@ -11,13 +11,14 @@
 import type { Deps } from '../../app.ts';
 import { hasJob, withPriority } from '../../core/ai.ts';
 import { bibleCoverage } from '../bible/assemble.ts';
-import { bibleRunning, forgetFailures, syncBible } from '../bible/extract.ts';
+import { bibleRunning, forgetFailures, revectorFacts, syncBible } from '../bible/extract.ts';
 import { embeddingCoverage, syncEmbeddings } from './embeddings.ts';
 import { VEC_SCOPES } from './scopes.ts';
 
 export const BULK_KIND = 'index-build';
-export interface BulkWhat { embeddings?: boolean; bible?: boolean }
-export interface BulkResult { embeddings?: { pages: number; chunks: number; error?: string }; bible?: { pages: number; facts: number; skipped?: string } }
+/** bibleVectors: make the story bible facts' vectors again with a new embeddings model (the facts are kept). */
+export interface BulkWhat { embeddings?: boolean; bible?: boolean; bibleVectors?: boolean }
+export interface BulkResult { bibleVectors?: number; embeddings?: { pages: number; chunks: number; error?: string }; bible?: { pages: number; facts: number; skipped?: string } }
 
 const waitingBible = (d: Deps, worldId: string) => { const c = bibleCoverage(d, worldId); return VEC_SCOPES.reduce((n, s) => n + c.scopes[s].pending, 0); };
 
@@ -31,16 +32,20 @@ export const bulkRunning = (d: Deps, worldId: string) => d.jobs.running(BULK_KIN
 export function startBulkBuild(d: Deps, worldId: string, what: BulkWhat = { embeddings: true, bible: true }): boolean {
   const emb = !!what.embeddings && hasJob(d, 'extra');
   const bib = !!what.bible && hasJob(d, 'bible');
-  if ((!emb && !bib) || bulkRunning(d, worldId)) return false;
-  void runBulkBuild(d, worldId, { embeddings: emb, bible: bib }).catch(() => {});
+  const vec = !!what.bibleVectors && hasJob(d, 'extra');
+  if ((!emb && !bib && !vec) || bulkRunning(d, worldId)) return false;
+  void runBulkBuild(d, worldId, { embeddings: emb, bible: bib, bibleVectors: vec }).catch(() => {});
   return true;
 }
 
 /** The bulk build itself, as a tracked job. Resolves when it is done or stopped. */
 export function runBulkBuild(d: Deps, worldId: string, what: BulkWhat): Promise<BulkResult> {
   const title = what.embeddings && what.bible ? 'Indexing the world (embeddings and story bible)' : what.embeddings ? 'Indexing the world (embeddings)' : 'Reading the world into the story bible';
-  return d.jobs.track({ kind: BULK_KIND, title, worldId, resume: { worldId, embeddings: !!what.embeddings, bible: !!what.bible } }, (job) => withPriority(0, async () => {
+  return d.jobs.track({ kind: BULK_KIND, title, worldId, resume: { worldId, embeddings: !!what.embeddings, bible: !!what.bible, bibleVectors: !!what.bibleVectors } }, (job) => withPriority(0, async () => {
     const out: BulkResult = {};
+    if (what.bibleVectors && hasJob(d, 'extra')) {
+      out.bibleVectors = await revectorFacts(d, worldId, job.signal, (n, total) => job.progress(n, total, `Story bible: new vectors for ${n} of ${total} facts (the facts are kept)`));
+    }
     if (what.embeddings && hasJob(d, 'extra')) {
       const e = (out.embeddings = { pages: 0, chunks: 0 } as NonNullable<BulkResult['embeddings']>);
       const total = embeddingCoverage(d, worldId).progress.pending;

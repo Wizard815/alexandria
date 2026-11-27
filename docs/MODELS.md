@@ -103,39 +103,56 @@ and a band on every DM page names the role and model, with **Switch model**.
 It goes away when the model answers again or the DM picks another one. Test
 and Warm up (here and on the DM's page) never set it off.
 
-### The DM's model switcher (DM → Setup → Models)
+### The GM's model switcher (GM → Setup → Models)
 
-The DM picks the model behind each AI role (Minerva, Chat, The Broker, Squire,
+The GM picks the model behind each AI role (Minerva, Chat, The Broker, Squire,
 Audit, Story bible, Historian, Arbiter) and its backup from the table, without
 the admin page: **Switch models** on the Table's AI card, or the notice band.
 These are the same server-wide settings as this page, so every world uses
-them, and each change is in the audit log with the DM's world. Roles that can
+them, and each change is in the audit log with the GM's world. Roles that can
 follow another one (Minerva, The Broker and Story bible follow Chat; Squire
 follows The Broker) have **Same as Chat**. Speech, voice and job options stay
 here.
 
-How far a DM may go is the admin's choice, **DMs and models** (`PUT
-/api/admin/models/dm-access { level }`):
+How far a GM may go is the admin's choice, **GMs and models** (`PUT
+/api/admin/models/dm-access { level?, cloud?, local? }`):
 
-| level | the DM may |
+| level | the GM may |
 |---|---|
 | `off` | see each role's model and health, and test it |
 | `switch` | pick any saved provider and model it lists, for the main model and the backup |
 | `setup` (default) | also add a provider (address and key), and let a local role fall back to a cloud one |
 
-Changes come from the DM's own sign-in only, never from an API key or a model
+Changes come from the GM's own sign-in only, never from an API key or a model
 calling the world's tools. Admins always have `setup`.
+
+**Which providers a GM may use.** The same card has two boxes, **Local
+providers** and **Cloud providers** (`cloud`, `local`, both on by default).
+Turning one off keeps GMs off the admin's providers of that kind. A GM with
+`setup` can still add their own provider, local or cloud, with their own key;
+it shows as "yours" on the GM page and "Added by <name> (a GM)" in Admin →
+Models. Both pages read the same settings, and a change on either one reloads
+the other (`models-changed`).
+
+The model picker is always a dropdown: the provider's own list, then the
+models the roles already use, then **Another model…** for a name it does not
+list. On a phone the page shows one square per role, green when it answers,
+amber on its backup, red when down; tapping one opens its card.
 
 **The Historian (embeddings) asks first.** Vectors from two models do not mix,
 so a new embeddings model, or a backup that is another model, is refused with
-`409 { code: "reindex" }` until the DM confirms; then the page offers
-**Re-embed this world**. Keep it on `nomic-embed-text-v1.5`; for a backup,
-pick the same model on another server.
+`409 { code: "reindex" }`, on this page and in Admin → Models, until the GM or
+admin says yes. Then every world is embedded again in the background: the
+search vectors, and the story bible's fact vectors (`revectorFacts`). The story
+bible keeps its facts; no page is read again by the chat model. Embedding is
+batched and fast (minutes for a large world on a local GPU); search falls back
+to keywords until it is done. Keep it on `nomic-embed-text-v1.5`; for a
+backup, pick the same model on another server.
 
-DM routes (DM only): `GET /api/worlds/:w/models/switch`, `GET .../models/health`,
+GM routes (GM only): `GET /api/worlds/:w/models/switch`, `GET .../models/health`,
 `POST .../models/switch/discover { providerId }`, `PUT .../models/switch { job,
 providerId, model, fallback?, follow?, confirmReindex? }`, `POST
-.../models/switch/test { job, which? }`, `POST .../models/switch/providers`.
+.../models/switch/test { job, which? }`, `POST .../models/switch/providers`. Admin: `GET`/`PUT /api/admin/models/dm-access`.
 Source: `features/models/dmswitch.ts`, web `features/models/SwitchPage.tsx`
 and `HealthBand.tsx`. Tests: `test/models-dmswitch.test.ts`,
 `web/e2e/modelswitch.mjs` (`MODELSWITCH_REAL=1` uses `tencent/hy4-flash` on

@@ -5,17 +5,18 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { all } from '../src/core/db.ts';
-import { isSmallModel, piecesOf, syncBible } from '../src/features/bible/extract.ts';
+import { isSmallModel, piecesOf, revectorFacts, syncBible } from '../src/features/bible/extract.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
 
 const json = (o: unknown) => new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } });
 const seen: any[] = [];
+let embedSeed = 1;
 const fake = (async (url: any, init?: any) => {
   const u = String(url);
   const body = JSON.parse(init?.body ?? '{}');
-  if (u.endsWith('/embeddings')) return json({ data: body.input.map((_t: string, i: number) => ({ index: i, embedding: [1, 0.5, 0.25] })) });
+  if (u.endsWith('/embeddings')) return json({ data: body.input.map((_t: string, i: number) => ({ index: i, embedding: [embedSeed, 0.5, 0.25] })) });
   if (u.endsWith('/chat/completions')) {
     seen.push(body);
     const user = String(body.messages.at(-1).content);
@@ -89,4 +90,20 @@ test('TestBible_BigModelReadsAPageInOneCall', async () => {
   const forPage = seen.filter((b) => String(b.messages.at(-1).content).startsWith('Page: Mira Vell'));
   assert.ok(forPage.length >= 1 && forPage.length <= 4, `one call per page copy (${forPage.length})`);
   assert.match(String(forPage[0].messages[0].content), /At most 30 facts/);
+});
+
+test('TestBible_NewEmbedderRemakesFactVectorsAndKeepsTheFacts', async () => {
+  const h = await boot('qwen3-0.6b');
+  await syncBible(h.deps, { worldId: h.world, maxPages: 100 });
+  const before = all<any>(h.deps.db, 'SELECT id, fact, vec FROM bible_facts WHERE world_id = ? ORDER BY id', h.world);
+  assert.ok(before.length > 0);
+  seen.length = 0;
+  embedSeed = 3;
+  const n = await revectorFacts(h.deps, h.world);
+  assert.equal(n, before.length);
+  const after = all<any>(h.deps.db, 'SELECT id, fact, vec FROM bible_facts WHERE world_id = ? ORDER BY id', h.world);
+  assert.deepEqual(after.map((r) => r.fact), before.map((r) => r.fact), 'the same facts');
+  assert.notDeepEqual(Buffer.from(after[0].vec), Buffer.from(before[0].vec), 'new vectors');
+  assert.equal(seen.length, 0, 'no page read again by the chat model');
+  embedSeed = 1;
 });

@@ -34,7 +34,7 @@ import { HttpError, now } from '../../core/util.ts';
 import { ALL_JOBS, CHAT_PARTS, clearJobHealth, JOBS, activeJobs, ownJobConfig, chat, chainFor, gateStats, embed, normalizeDmFirst, setDmFirstResolver, DM_FIRST_DEFAULTS, type DmFirst, jobConfig, inferLocation, pinned, rerank, setJobResolver, speak, transcribe, ModelUnavailable, type Job, type JobConfig, type Location } from '../../core/ai.ts';
 import { argosWebUrl, discover, fetchVoices, listModels, type ModelStatus } from './argos.ts';
 import { testJob } from './probe.ts';
-import { attachHealthNotices, dmAccessAdminRoutes, dmSwitchRoutes } from './dmswitch.ts';
+import { attachHealthNotices, dmAccessAdminRoutes, dmSwitchRoutes, reindexAll, tellChanged } from './dmswitch.ts';
 import { argosSnippets, budgetFor, readArgos } from './pool.ts';
 import { attachSessionEvents, getLifecycleSettings, getPolicy, lifecycleTick, lifecycleView, localJobs, releaseNow, setLifecycleSettings, setManual, setPolicy, startLifecycle, targetsFor, unloadEverything, warmSnapshot, POLICY_DEFAULTS, sessionLive } from './lifecycle.ts';
 import { BACKENDS, backendOf, cachedBackend, describeBackend, isHosted, providerSettings, setProviderSettings } from './backends.ts';
@@ -112,6 +112,7 @@ function providerView(d: Deps, p: ProviderRow) {
     id: p.id, name: p.name, kind: p.kind, baseUrl: p.base_url, apiKey: p.api_key ? MASK : '', location: p.location,
     ...(p.kind === 'argos' ? { webUrl: argosWebUrl(p.base_url) } : {}),
     usedBy: usedBy(d, p.id),
+    addedBy: p.added_by ? (one<{ display_name: string }>(d.db, 'SELECT display_name FROM accounts WHERE id = ?', p.added_by)?.display_name ?? 'a GM') : null,
     backend: { ...describeBackend(cachedBackend(d, p.id, p.base_url)?.backend ?? (p.location === 'cloud' || p.kind === 'openai' ? 'hosted' : 'generic'), providerSettings(d, p.id)), detected: cachedBackend(d, p.id, p.base_url)?.backend ?? null, override: providerSettings(d, p.id).backend, ttl: providerSettings(d, p.id).ttl, pingMinutes: providerSettings(d, p.id).pingMinutes },
   };
 }
@@ -216,9 +217,18 @@ export async function listVoiceNames(d: Deps): Promise<string[]> {
 // Body: { chat: { providerId, model, options, enabled, gameNight: 'hold' | 'ondemand', fallback: { providerId, model, options, allowCloud } | null } }.
 // The old shape { baseUrl, apiKey } still works: it finds or makes a provider for that URL.
 // Only the jobs and fields sent change. apiKey "••••" or missing keeps the saved key; "" clears it.
-export function applyJobs(d: Deps, jobsBody: unknown, accountId: string | null, worldId: string | null = null): Job[] {
+export function applyJobs(d: Deps, jobsBody: unknown, accountId: string | null, worldId: string | null = null, opts: { confirmReindex?: boolean } = {}): Job[] {
   const body = jobsBody as any;
   if (!body || typeof body !== 'object') throw new HttpError(400, 'Send { jobs: { chat: {...} } }');
+  // The Historian: a new embeddings model means every stored vector no longer matches. Nothing changes until someone says
+  // yes (confirmReindex); then every world is embedded again and the story bible keeps its facts (reindexAll).
+  const embedBefore = ownJobConfig(d, 'extra')?.model ?? null;
+  const want = (Array.isArray(body) ? body.find((b: any) => b?.job === 'extra') : body.extra) as any;
+  const embedAfter = want && typeof want === 'object' && want.model !== undefined && want.enabled !== false ? String(want.model).trim() : null;
+  const embedChanges = !!embedBefore && !!embedAfter && embedAfter !== embedBefore;
+  if (embedChanges && !opts.confirmReindex) {
+    throw new HttpError(409, `The search index and the story bible's vectors were made with ${embedBefore}. Vectors from ${embedAfter} do not match them, so every world is embedded again (the story bible keeps its facts; only their vectors are made again).`, 'reindex');
+  }
   const entries: [string, any][] = Array.isArray(body) ? body.map((b: any) => [String(b?.job), b]) : Object.entries(body);
   const plan: { job: Job; row: Row; setKeyOn?: { id: string; key: string }; cloudOn?: boolean; policy?: 'hold' | 'ondemand' }[] = [];
   for (const [name, b] of entries) {
@@ -307,6 +317,9 @@ export function applyJobs(d: Deps, jobsBody: unknown, accountId: string | null, 
   if (touched.has('chat')) for (const j of CHAT_PARTS) touched.add(j);
   if (touched.has('player')) touched.add('helper');
   for (const j of touched) clearJobHealth(d, j);
+  // The DM's switcher shows the same settings: it loads them again.
+  tellChanged(d);
+  if (embedChanges) { reindexAll(d); auditIn(d, worldId, accountId, 'models.reindex', `embeddings ${embedBefore} -> ${embedAfter}: every world embedded again`); }
   return plan.map((p) => p.job);
 }
 
@@ -343,6 +356,9 @@ const feature: Feature = {
     add('fallback_options', "TEXT NOT NULL DEFAULT '{}'");
     add('allow_cloud_fallback', 'INTEGER NOT NULL DEFAULT 0');
     add('keep_warm', 'INTEGER NOT NULL DEFAULT 0');
+    // Providers a DM brought (DM → Setup → Models): the DM may always use their own, whatever the admin allows of the rest.
+    const pcols = new Set((db.prepare('PRAGMA table_info(models_providers)').all() as any[]).map((c) => c.name));
+    if (!pcols.has('added_by')) db.exec("ALTER TABLE models_providers ADD COLUMN added_by TEXT NOT NULL DEFAULT ''");
     migrateJobsToProviders(db);
   },
   // Listening for session start and end is the only thing this does (no routes).
@@ -388,6 +404,7 @@ const feature: Feature = {
       const baseUrl = normalizeBase(kind, b.baseUrl ?? b.address);
       const p = createProvider(d.db, { name: b.name, kind, baseUrl, apiKey: b.apiKey && b.apiKey !== MASK ? String(b.apiKey) : '', location: b.location === undefined ? undefined : parseLocation(b.location) });
       audit(d, who(res), 'models.provider.create', `${p.name} (${p.kind}, ${p.location})`);
+      tellChanged(d);
       res.status(201).json({ provider: providerView(d, p), ...all6() });
     });
 
@@ -403,6 +420,7 @@ const feature: Feature = {
       if (b.location !== undefined) next.location = parseLocation(b.location);
       run(d.db, 'UPDATE models_providers SET name=?, kind=?, base_url=?, api_key=?, location=?, updated_at=? WHERE id=?', next.name, next.kind, next.base_url, next.api_key, next.location, next.updated_at, next.id);
       if (b.backend !== undefined || b.ttl !== undefined || b.pingMinutes !== undefined) setProviderSettings(d, next.id, b);
+      tellChanged(d);
       audit(d, who(res), 'models.provider.update', `${next.name}${b.apiKey !== undefined && b.apiKey !== MASK ? ' (key changed)' : ''}`);
       res.json({ provider: providerView(d, next), ...all6() });
     });
@@ -414,6 +432,7 @@ const feature: Feature = {
       if (used.length) throw new HttpError(409, `${cur.name} is used by ${used.join(', ')}. Point those jobs somewhere else first.`);
       run(d.db, 'DELETE FROM models_providers WHERE id = ?', cur.id);
       audit(d, who(res), 'models.provider.delete', cur.name);
+      tellChanged(d);
       res.json(all6());
     });
 
@@ -450,7 +469,7 @@ const feature: Feature = {
 
     // ---- jobs (applyJobs above)
     r.put('/', (req, res) => {
-      applyJobs(d, req.body?.jobs, who(res));
+      applyJobs(d, req.body?.jobs, who(res), null, { confirmReindex: req.body?.confirmReindex === true });
       res.json(all6());
     });
 

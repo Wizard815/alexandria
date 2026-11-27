@@ -325,17 +325,17 @@ test('ModelsJobs_NoFallbackOnARequestError', async () => {
   const bad = (await ok('POST', `${A}/providers`, adminT, { name: 'Strict', kind: 'openai-compatible', baseUrl: fake.baseUrl + '/nope', location: 'local' })).provider;
   // fake-models answers an unknown path with 404 "no route": a missing model, which does fall back.
   const lan = listProviders().find((p: any) => p.name === 'Spare box');
-  await ok('PUT', A, adminT, { jobs: { extra: { providerId: bad.id, model: 'm', fallback: { providerId: lan.id, model: 'fake-embed' } } } });
+  await ok('PUT', A, adminT, { jobs: { extra: { providerId: bad.id, model: 'm', fallback: { providerId: lan.id, model: 'fake-embed' } } }, confirmReindex: true });
   assert.equal((await embed(deps, ['x'])).length, 1, '404 (not found) falls back');
   const fake400 = await startRejecting();
   const strict = (await ok('POST', `${A}/providers`, adminT, { name: 'Rejects', kind: 'openai-compatible', baseUrl: fake400.url, location: 'local' })).provider;
-  await ok('PUT', A, adminT, { jobs: { extra: { providerId: strict.id, model: 'm', fallback: { providerId: lan.id, model: 'fake-embed' } } } });
+  await ok('PUT', A, adminT, { jobs: { extra: { providerId: strict.id, model: 'm', fallback: { providerId: lan.id, model: 'fake-embed' } } }, confirmReindex: true });
   fake.requests.length = 0;
   await assert.rejects(embed(deps, ['x']), (e: any) => e instanceof ModelUnavailable && e.status === 400);
   assert.equal(fake.requests.length, 0, 'a 400 about the request never falls back');
   await fake400.close();
   const fakeArgos = listProviders().find((p: any) => p.name === 'Fake Argos');
-  await ok('PUT', A, adminT, { jobs: { extra: { providerId: fakeArgos.id, model: 'fake-embed', fallback: null } } });
+  await ok('PUT', A, adminT, { jobs: { extra: { providerId: fakeArgos.id, model: 'fake-embed', fallback: null } }, confirmReindex: true });
 });
 
 const listProviders = () => all<any>(deps.db, 'SELECT * FROM models_providers');

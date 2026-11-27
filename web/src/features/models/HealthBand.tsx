@@ -15,7 +15,7 @@ export default function HealthBand() {
   return (
     <div className={`card ${down ? '' : 'gold'}`} role="status" data-testid="model-health-band" style={{ margin: '8px 0', padding: '8px 12px', borderColor: down ? 'var(--danger)' : undefined }}>
       {jobs.map((j) => (
-        <div key={j.job} className="row small" data-job={j.job} data-state={j.state}>
+        <div key={j.job} className="row" data-job={j.job} data-state={j.state}>
           <i className={`fa-solid ${j.state === 'down' ? 'fa-circle-xmark tb-danger' : 'fa-life-ring'}`} aria-hidden="true" />
           <span style={{ flex: 1, minWidth: 0 }}>
             {j.state === 'fallback'
