@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
-import { useServerMods } from '../lib/servermods.ts';
 import './dmmenu.css';
 import { DM_GROUPS, DM_NAMES, type DMGroupId } from '../lib/dmnames.ts';
 import { LAYOUTS_EVENT, PAGE_MIME, PRESETS, layoutDef, loadSaved, normalize, openBeside, openIn, pageOfRoute, parse, recWorkspace, routeOfPage, workspaceHidden, wsPath, type LayoutRec, type Workspace } from '../lib/workspace.ts';
@@ -24,15 +23,14 @@ function write(key: string, value: unknown) { try { localStorage.setItem(key, JS
 
 /** Every page in the menu, in menu order. */
 export function menuEntries(): MenuEntry[] {
-  const nav = F.onlyOn(F.dmNav);
-  const fromFeatures = new Map(nav.map((n) => [n.to, n]));
+  const fromFeatures = new Map(F.dmNav.map((n) => [n.to, n]));
   const out: MenuEntry[] = [];
   for (const [to, base] of Object.entries(DM_NAMES)) {
     if (!CORE.has(to) && !fromFeatures.has(to)) continue;
     const f = fromFeatures.get(to);
     out.push({ to, label: f?.label ?? base.label, icon: f?.icon ?? base.icon, desc: f?.desc ?? base.desc, group: f?.group ?? base.group });
   }
-  for (const n of nav) if (!(n.to in DM_NAMES)) out.push({ to: n.to, label: n.label ?? n.to, icon: n.icon ?? 'fa-circle', desc: n.desc ?? '', group: n.group ?? 'prep' });
+  for (const n of F.dmNav) if (!(n.to in DM_NAMES)) out.push({ to: n.to, label: n.label ?? n.to, icon: n.icon ?? 'fa-circle', desc: n.desc ?? '', group: n.group ?? 'prep' });
   return out;
 }
 
@@ -43,8 +41,7 @@ export const matches = (e: MenuEntry, q: string): boolean => {
 
 /** Where we are: the page's route under /dm ('' is the table) and its entry. */
 export function useDMPlace(base: string) {
-  const on = useServerMods();
-  const entries = useMemo(menuEntries, [on]);
+  const entries = useMemo(menuEntries, []);
   const loc = useLocation();
   const here = loc.pathname.replace(/\/$/, '').slice(base.length + 1);
   // In the workspace (ws?p=combat,sound...) the place is the page in the focused pane.

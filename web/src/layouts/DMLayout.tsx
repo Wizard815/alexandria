@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
 import * as F from '../features/registry.ts';
-import { loadServerMods, useServerMods } from '../lib/servermods.ts';
 import { OPEN_EVENT } from '../features/search/SearchBox.tsx';
 import { ShareHost, openShare } from '../features/sourcekeys/ShareButton.tsx';
 import { setWorkspaceHidden, workspaceHidden } from '../lib/workspace.ts';
@@ -16,8 +15,6 @@ const TOPBARS = F.FEATURES.filter((f) => f.topbar && f.id !== 'search').map((f) 
 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
-  const { client } = useAuth();
-  const mods = useServerMods(useMemo(() => loadServerMods(client), [client]));
   const inWorkspace = /\/dm\/ws\/?$/.test(useLocation().pathname);
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
@@ -45,12 +42,12 @@ export function DMLayout() {
         <DMRail base={base} badges={badges} />
         <div className="dmx-col">
           <DMTabs base={base} badges={badges} />
-          {F.onlyOn(F.dmBands, mods).map((C, i) => <C key={i} />)}
+          {F.dmBands.map((C, i) => <C key={i} />)}
           <main className={`main${inWorkspace ? ' main-ws' : ''}`}><OfflineBanner /><Outlet /></main>
         </div>
       </div>
       <ShareHost />
-      {F.onlyOn(F.overlays, mods).map((C, i) => <C key={i} />)}
+      {F.overlays.map((C, i) => <C key={i} />)}
     </div>
   );
 }

@@ -31,8 +31,6 @@ export interface McpTool {
   required?: string[];
   /** The world API request to make; the path is relative to /api/worlds/:world. */
   call: (args: any) => { method: string; path: string; body?: unknown };
-  /** Set by the registry: the server mod of the feature this tool belongs to (left out while that mod is off). */
-  serverMod?: string;
 }
 
 export interface Feature {
@@ -64,10 +62,4 @@ export interface Feature {
    * so the DM turns it on under House rules.
    */
   houseRules?: unknown[];
-  /**
-   * The feature is itself a server mod: the id of a rule file in mods/ with "scope": "server". While the server
-   * admin has it off (Admin → Mods) its world and admin API answers 404 and its assistant tools are left out; the
-   * web feature with the same `serverMod` hides its pages. See features/mods/server.ts.
-   */
-  serverMod?: string;
 }

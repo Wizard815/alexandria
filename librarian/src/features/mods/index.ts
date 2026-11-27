@@ -6,7 +6,7 @@
 // them. See docs/MODS.md.
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
-import { authenticate, requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
 import { all, one, run, tx, type DB } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, settingsFor, type Role } from '../../core/policy.ts';
@@ -16,7 +16,6 @@ import { addTermSource, enabledIds as gameModuleIds } from '../modules/store.ts'
 import { shippedMods, targetInfo } from './catalog.ts';
 import { exampleFiles, guideText, previewMod } from './guide.ts';
 import { keepDraft, takeDraft } from './drafts.ts';
-import { SERVER_SCHEMA, listServerMods, serverModsOn, setServerMod, type ServerMod } from './server.ts';
 import { satisfies } from './semver.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
 import { SCHEMA as RECORDS_SCHEMA, answerPrompt, closePrompt, listRecords, openPrompt, openRounds, readRecordLog, recordAct, runTimers, type Rec, type Said } from './recstore.ts';
@@ -203,7 +202,7 @@ function routes(d: Deps) {
 
   // ---- the Mod studio: what the assistant reads to write a rule ----
 
-  const exampleIds = () => [...new Set([...exampleFiles().keys(), ...shippedMods().filter((s) => s.mod.scope !== 'server').map((s) => s.mod.id)])];
+  const exampleIds = () => [...new Set([...exampleFiles().keys(), ...shippedMods().map((s) => s.mod.id)])];
   r.get('/guide', requireDM, (req, res) => {
     const part = typeof req.query.part === 'string' ? req.query.part : undefined;
     res.json({ part: part ?? 'start', text: guideText(part, DEFAULT_SETTINGS as any, exampleIds()) });
@@ -440,25 +439,7 @@ export function migrateSheetRerolls(db: DB) {
 
 const feature: Feature = {
   id: 'mods',
-  schema: SCHEMA + RECORDS_SCHEMA + SERVER_SCHEMA,
-  // Admin → Mods: the server rules (whole features such as a content source), on or off for the whole server.
-  adminMount: 'mods',
-  adminRoutes: (d) => {
-    const r = Router();
-    const out = (m: ServerMod) => ({ id: m.mod.id, name: m.mod.name, version: m.mod.version, author: m.mod.author, summary: m.mod.summary, feature: m.feature, enabled: m.enabled, onByDefault: m.mod.onByDefault, group: m.mod.group || null, requires: m.mod.requires.mods, conflicts: m.mod.conflicts, targets: m.mod.targets, rules: m.mod.rules, updatedAt: m.updatedAt });
-    r.get('/', (_req, res) => { res.json({ mods: listServerMods(d.db).map(out) }); });
-    r.put('/:id/enabled', (req, res) => {
-      if (typeof req.body?.on !== 'boolean') throw new HttpError(400, 'on must be true or false');
-      const id = String(req.params.id);
-      const by = (res.locals.auth?.account?.id as string | undefined) ?? null;
-      const changed = tx(d.db, () => setServerMod(d.db, id, req.body.on, by));
-      run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', null, by, req.body.on ? 'servermods.on' : 'servermods.off', [id, ...changed.turnedOn.map((x) => `+${x}`), ...changed.turnedOff.map((x) => `-${x}`)].join(','), now());
-      res.json({ ...changed, mods: listServerMods(d.db).map(out) });
-    });
-    return r;
-  },
-  // Which server rules are on, for anyone signed in: the web hides the pages of the rest.
-  appRoutes: (app, d) => { app.get('/api/server-mods', authenticate(d.db), (_req, res) => { res.json({ on: serverModsOn(d.db) }); }); },
+  schema: SCHEMA + RECORDS_SCHEMA,
   migrate: migrateSheetRerolls,
   worldMount: 'mods',
   worldRoutes: routes,
