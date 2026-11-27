@@ -74,5 +74,14 @@ RUN apk add --no-cache python3 uv \
  && UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "${MCP_KANKA_SPEC}" \
  && test -x /usr/local/bin/mcp-kanka
 
+# ---- Optional: with Obsidian's official headless Sync client ----------------
+# For the "Obsidian Sync" source (obsidian-sync). Needs an Obsidian Sync
+# subscription. Sign in once: docker compose exec -u node alexandria ob login
+# (the sign-in is kept in /data/obsidian-home, so it survives restarts).
+FROM runtime AS with-obsidian
+ARG OBSIDIAN_HEADLESS_SPEC="obsidian-headless"
+RUN npm install -g --no-audit --no-fund "${OBSIDIAN_HEADLESS_SPEC}" && command -v ob
+ENV ALX_OBSIDIAN_HOME=/data/obsidian-home
+
 # ---- Default: the standard image --------------------------------------------
 FROM runtime AS app

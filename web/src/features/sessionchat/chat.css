@@ -18,4 +18,10 @@
 .sc-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; }
 .sc-drawer { z-index: 811; width: min(380px, calc(100vw - 32px)); max-height: min(520px, calc(100vh - 170px)); overflow-y: auto; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
 @media (max-width: 640px) { .sc-drawer.dock-panel { right: 8px; left: 8px; width: auto; max-height: min(66vh, calc(100vh - 150px)); } }
+.sc-trade.incoming { border-color: var(--accent); background: var(--accent-bg); }
+.sc-trade-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sc-trade-toast { display: flex; align-items: center; gap: 10px; }
+.sc-trade-toast a { white-space: nowrap; }
+/* At the top, clear of the dock buttons and the phone's tab bar. */
+.player .toast.sc-trade-toast, .toast.sc-trade-toast { top: calc(68px + env(safe-area-inset-top, 0px)); bottom: auto; }
 .sc-trade { border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; background: var(--panel-2); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
