@@ -14,6 +14,7 @@ import {
   type Activity, type Link, type Reward, type Tier,
 } from './catalog.ts';
 import { linkFor } from './hooks.ts';
+import { libraryEvents } from './library.ts';
 
 export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS downtime_activities (
@@ -136,7 +137,8 @@ export function activities(db: DB, worldId: string): ActivityRow[] {
   const by = new Map(rows.map((r) => [r.id, r]));
   const out: ActivityRow[] = premadeFrom(featureSetting(worldSettings(db, worldId), 'downtimePremade')).map((p) => {
     const r = by.get(p.id);
-    if (!r) return { ...p, source: 'premade', status: 'ok', createdBy: null, changed: false };
+    // A ready-made activity with no events of its own takes the library's.
+    if (!r) return { ...p, events: p.events.length ? p.events : libraryEvents(p.id), source: 'premade', status: 'ok', createdBy: null, changed: false };
     return { ...checkActivity(parseJson(r.json, {}), p.id), source: 'premade', status: r.status, createdBy: null, changed: true };
   });
   for (const r of rows) {

@@ -27,7 +27,7 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
   if (!o.data) return <Loading />;
   const r = o.data.round;
   const start = () => act.run(async () => { await w.call('POST', '/downtime/rounds', { days, note: note.trim() || undefined, ...(travel ? { travel: true } : {}) }); setNote(''); toast(`${travel ? 'Travel' : 'Downtime'}: ${days} day${days === 1 ? '' : 's'}. Each player has a popup.`); });
-  const close = (how: 'close' | 'cancel') => act.run(async () => { const x = await w.call<any>('POST', `/downtime/rounds/current/${how}`, {}); toast(how === 'close' ? 'Downtime closed' : `Taken back${x?.clockBack ? ', the clock too' : ''}`); });
+  const close = (how: 'close' | 'cancel') => act.run(async () => { const x = await w.call<any>('POST', `/downtime/rounds/current/${how}`, {}); toast(how === 'close' ? 'Downtime closed' : `Taken back${x?.clockBack ? ', the clock too' : ''}${x?.eventsUndone ? `, and ${x.eventsUndone} event${x.eventsUndone === 1 ? '' : 's'}` : ''}${x?.note ? `. ${x.note}` : ''}`); });
   return (
     <div className="stack tight" data-testid="downtime-button">
       <style>{CSS}</style>

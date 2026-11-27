@@ -27,7 +27,7 @@ import {
   PARTY, SCHEMA, activities, activity, addWork, migrateRounds, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
   isGroup, saveActivity, setMember, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
 } from './store.ts';
-import { EVENTS_SCHEMA, announce, cancelPending, eventOut, eventRow, outcomeText, resolveEvent, rollForPick } from './events.ts';
+import { EVENTS_SCHEMA, announce, cancelPending, eventOut, eventRow, outcomeText, resolveEvent, rollForPick, takeBackEvents } from './events.ts';
 import { decideTier, rankActivities } from './suggest.ts';
 
 const enc = encodeURIComponent;
@@ -313,7 +313,9 @@ function routes(d: Deps) {
   function afterFinish(w: string, row: any) {
     if (!row || row.status !== 'done' || row.reward_given_at) return;
     const rw = checkReward(parseJson(row.reward, {}));
-    if (hasReward(rw) && featureSetting<boolean>(worldSettings(db, w), 'downtimeAutoReward') === true) giveReward(w, row, row.created_by ?? me0(w), 'given at once');
+    // An event still waiting on the task may fail the job: the reward waits for it.
+    const waiting = one(db, "SELECT 1 FROM downtime_events WHERE world_id = ? AND task_id = ? AND status = 'pending'", w, row.id);
+    if (hasReward(rw) && !waiting && featureSetting<boolean>(worldSettings(db, w), 'downtimeAutoReward') === true) giveReward(w, row, row.created_by ?? me0(w), 'given at once');
     hub.emit(w, 'downtime-done', { accountId: row.account_id, taskId: row.id, name: row.name, group: isGroup(row) }, isGroup(row) ? everyone : dmAnd(row.account_id));
   }
   const me0 = (w: string) => one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' LIMIT 1", w)?.account_id ?? null;
@@ -414,16 +416,18 @@ function routes(d: Deps) {
       }
       picks.push({ taskId: tid!, days });
     }
-    cancelPending(db, w, round.id, aid, me(res));
+    // A task still in the pick keeps its waiting event; the ones dropped lose theirs.
+    cancelPending(db, w, round.id, aid, me(res), new Set(picks.map((p) => p.taskId)));
     let result;
     try { result = applyPick(d, w, round, aid, picks, skip, me(res), typeof b.note === 'string' ? b.note.slice(0, 300) : ''); } catch (e) {
       // A pick that does not fit leaves no new empty tasks behind.
       for (const m of made) run(db, "UPDATE downtime_tasks SET status = 'removed', updated_at = ? WHERE id = ? AND done_min = 0", now(), m.id);
       throw e;
     }
+    // Something may happen on those days: a quick-time event for the player to roll. Rolled first, so a
+    // finished task's auto reward waits for an event that could fail the job.
+    const events = skip ? [] : rollForPick(d, w, round, aid, picks);
     for (const f of result.finished) afterFinish(w, f);
-    // Something may happen on those days: a quick-time event for the player to roll.
-    const events = skip ? [] : rollForPick(d, w, round.id, aid, picks);
     changed(w, aid);
     roundChanged(w, round.id, 'open');
     res.json({ round: roundView(res, roundRow(db, w, round.id)), finished: result.finished.map((x) => out(res, x)), events });
@@ -449,8 +453,10 @@ function routes(d: Deps) {
     const w = W(res);
     const round = req.params.rid === 'current' ? openRound(db, w) : roundRow(db, w, String(req.params.rid));
     if (!round || round.status !== 'open') throw new HttpError(404, 'No open downtime round');
+    let taken = { undone: 0, sheetKept: [] as string[] };
     tx(db, () => {
       for (const p of all<any>(db, 'SELECT account_id FROM downtime_picks WHERE round_id = ?', round.id)) undoPick(d, w, round.id, p.account_id, me(res));
+      taken = takeBackEvents(d, w, round.id, me(res));
       cancelPending(db, w, round.id, null, me(res));
       run(db, "UPDATE downtime_rounds SET status = 'cancelled', closed_at = ? WHERE id = ?", now(), round.id);
     });
@@ -458,7 +464,8 @@ function routes(d: Deps) {
     if (round.clock_entry) { try { clock.undo(db, hub, w, round.clock_entry, me(res)); clockBack = true; } catch { /* the clock moved since */ } }
     roundChanged(w, round.id, 'cancelled');
     changed(w, null);
-    res.json({ ok: true, clockBack });
+    const nm = nameMap(w);
+    res.json({ ok: true, clockBack, eventsUndone: taken.undone, ...(taken.sheetKept.length ? { note: `HP and exhaustion from events stay on ${taken.sheetKept.map((a) => nm[a] ?? 'a player').join(', ')}'s sheet: change them there if you want them back` } : {}) });
   });
 
   // ---- random events: quick-time checks on downtime days ----
@@ -482,6 +489,9 @@ function routes(d: Deps) {
     const w = W(res);
     const r = resolveEvent(d, w, eid, how, me(res));
     announce(hub, w, r);
+    // The task may be finished now (the event added days), or was waiting on this event for its reward.
+    const t = taskRow(db, w, r.event.taskId);
+    if (t?.status === 'done' && !t.reward_given_at) afterFinish(w, t);
     const nm = nameMap(w)[r.event.accountId] ?? 'Someone';
     try { postChat(d, w, 'table', me(res), isDM(res) ? 'dm' : 'player', `🎲 ${nm}, during **${r.event.task}**: ${r.event.title}. ${r.event.note}`); } catch { /* no session running: the log has it */ }
     return { ...r.event, outcomeText: outcomeText(r.outcome) };

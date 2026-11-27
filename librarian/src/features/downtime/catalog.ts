@@ -46,7 +46,7 @@ export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0,
  * With no check it just happens (the success outcome). `weight` makes one likelier than another on the same activity.
  */
 export interface EventDef { id: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight: number }
-export const MAX_EVENTS = 12;
+export const MAX_EVENTS = 40;
 export interface Link { kind: string; ref?: string }
 
 export const MAX_DAYS = 3650;

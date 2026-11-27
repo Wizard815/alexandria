@@ -230,11 +230,15 @@ const dtOn = () => once('downtime-on', async () => { await dm('PUT', '/mods/down
 const dtTask = async (label: string, reward?: unknown) => { await dtOn(); return (await dm('POST', '/downtime/tasks', { player: ID.jess, activity: { name: `Coverage ${label}`, tier: 'common' }, reward })).id as string; };
 const dtNoRound = async () => { await dtOn(); await call('POST', w('/downtime/rounds/current/cancel'), T.dm, {}); };
 const dtRound = async () => { await dtOn(); if (!(await dm('GET', '/downtime/rounds/current')).round) await dm('POST', '/downtime/rounds', { days: 1, advance: false }); };
-// A pending random event of Jess's: every downtime day has one (chance 100), and she spends a day clearing a cellar.
+// A pending random event of Jess's: every downtime day has one (chance 100), on a fresh task each time
+// (a task that already had an event this round gets no second one).
+let dtEvents = 0;
 const dtEvent = async () => {
   await dtRound();
   await dm('PATCH', '/settings', { downtimeEventChance: 100 });
-  const p = await dm('POST', '/downtime/rounds/current/pick', { player: ID.jess, picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const t = await dm('POST', '/downtime/tasks', { player: ID.jess, activityId: 'pre-cellar' }).catch(async () => dm('POST', '/downtime/tasks', { player: ID.jess, activity: { name: `Coverage event ${++dtEvents}`, tier: 'rare' } }));
+  const p = await dm('POST', '/downtime/rounds/current/pick', { player: ID.jess, picks: [{ taskId: t.id, days: 1 }] });
+  if (!p.events?.[0]) throw new Error('no event: ' + JSON.stringify(p).slice(0, 300));
   return p.events[0].id as string;
 };
 

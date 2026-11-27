@@ -1,0 +1,6 @@
+{
+  "_general": [
+    { "id": "distraction", "title": "A noisy neighbour", "text": "Hammering next door all day long.", "check": "Wisdom", "dc": 11, "success": "You tune it out and keep working.", "failure": { "text": "You get little done.", "days": -1 } },
+    { "id": "lucky-find", "title": "A lucky find", "text": "Something glints in the gutter on your way home.", "success": { "text": "A few lost coins.", "gp": 2 } }
+  ]
+}

@@ -11,9 +11,12 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { tierByWords } from '../src/features/downtime/suggest.ts';
 import { premadeFrom } from '../src/features/downtime/catalog.ts';
+import { rollForPick } from '../src/features/downtime/events.ts';
+import { generalEvents, libraryEvents } from '../src/features/downtime/library.ts';
 
 let base = '';
 let server: any;
+let deps: any;
 let tmp = '';
 const T: Record<string, string> = {};
 const ID: Record<string, string> = {};
@@ -38,6 +41,7 @@ before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-downtime-'));
   // No model at all: the helper falls back to its word rules.
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0' } });
+  deps = made.deps;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -329,4 +333,71 @@ test('TestDowntime_FiveDaysAtOnceAndTravelDays', async () => {
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeTravelHours: 0 });
   assert.equal((await call('POST', `${D()}/rounds`, T.dm, { days: 2, travel: true })).status, 409);
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeTravelHours: 2 });
+});
+
+test('TestDowntime_EventLogicHolds', async () => {
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100, downtimeAutoReward: true });
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Rats', check: 'Athletics', dc: 12, success: { gp: 5 }, failure: { text: 'Bitten', noReward: true } }] });
+  // 1. Changing the pick does not dodge or re-roll an event on the same task.
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 2, advance: false });
+  const a1 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal(a1.events.length, 1);
+  const cellarTask = a1.events[0].taskId;
+  // 2. Auto rewards wait for a waiting event: the cellar is done but not paid yet.
+  let ct = (await ok('GET', `${D()}/tasks?all=1`, T.dm)).tasks.find((x: any) => x.id === cellarTask);
+  assert.equal(ct.status, 'done');
+  assert.equal(ct.rewardGivenAt, null, 'held for the event');
+  const long = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Long study', tier: 'legendary' } });
+  const b1 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: long.id, days: 1 }] });
+  assert.equal(b1.events.length, 1, 'the general events cover a one-off task');
+  const b2 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: long.id, days: 2 }] });
+  assert.equal(b2.events.length, 0, 'the same task in a new pick: no new roll');
+  const pend = (await ok('GET', `${D()}/events?status=pending`, T.tom)).events;
+  assert.equal(pend.filter((e: any) => e.taskId === long.id).length, 1, 'its event still waits');
+  assert.equal(pend.filter((e: any) => e.taskId === cellarTask).length, 0, 'the cellar left the pick, so its event went with it');
+  const purse0 = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  void purse0;
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  // A failed job pays nothing, even with auto rewards on.
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const f1 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const purseF = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  await ok('POST', `${D()}/events/${f1.events[0].id}/roll`, T.tom, { total: 2 });
+  ct = (await ok('GET', `${D()}/tasks?all=1`, T.dm)).tasks.find((x: any) => x.id === f1.events[0].taskId);
+  assert.equal(ct.rewardWaiting, false);
+  assert.equal(ct.rewardGivenAt, null);
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, purseF, 'no pay');
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  // 3. A success: the held reward is paid the moment the event is settled, with the event's bonus.
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const a2 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const purse1 = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  await ok('POST', `${D()}/events/${a2.events[0].id}/roll`, T.tom, { total: 20 });
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, purse1 + 500 + 100, '5 gp bonus and the 1 gp job');
+  // 4. Taking the round back undoes the event's coin too.
+  const back = await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+  assert.equal(back.eventsUndone, 1);
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, purse1 + 100, 'the bonus is gone; the reward paid stays the DM\'s call');
+  // 5. A loss never takes more than the purse holds.
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Fined', success: { gp: -100000 } }] });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const a3 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  await ok('POST', `${D()}/events/${a3.events[0].id}/roll`, T.tom, {});
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, 0);
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 10, downtimeAutoReward: false });
+});
+
+test('TestDowntime_EventChanceIsPerDayAndTravelIsAShare', () => {
+  // The engine on its own with a fixed roll: a travel day of 2 of 8 hours has a quarter of the chance.
+  const db = deps.db;
+  const t = db.prepare("SELECT * FROM downtime_tasks WHERE world_id = ? AND activity_id = 'pre-cellar' LIMIT 1").get(W);
+  db.prepare("UPDATE worlds SET settings = json_set(COALESCE(settings, '{}'), '$.downtimeEventChance', 40) WHERE id = ?").run(W);
+  const d = { db, hub: { emit() {} } };
+  const at = (n: number) => (lo: number, hi: number) => (hi === 1000 ? n : lo);
+  const full = { id: 'sim-full', day_min: null };
+  const travel = { id: 'sim-travel', day_min: 120 };
+  assert.equal(rollForPick(d as any, W, full, ID.tom, [{ taskId: t.id, days: 1 }], at(400)).length, 1, '40% full day: a 400 in 1000 hits');
+  assert.equal(rollForPick(d as any, W, travel, ID.tom, [{ taskId: t.id, days: 1 }], at(101)).length, 0, 'travel: 10% of 1000 is the line');
+  assert.equal(rollForPick(d as any, W, { id: 'sim-travel-2', day_min: 120 }, ID.tom, [{ taskId: t.id, days: 1 }], at(100)).length, 1);
 });
