@@ -119,7 +119,34 @@ async function askTour(page, label, wide) {
   if (!wide) check(inp.y + inp.height <= (await page.locator('.dmp-tabs').boundingBox()).y + 1, `${label}: the message box is not above the tab bar`);
   note(`${label}: Ask answered a typed message and a quick prompt`);
 
-  // Past chats: start one, name it, go back, come again, delete it.
+  // Outside a session the chats show as folders: make a folder, move the open chat into it, find it there.
+  // The demo world has a session running, so the recent dropdown shows first; one tap switches to the folders.
+  if (!(await page.getByTestId('ag-tree-fold').count())) await page.getByTestId('ag-view-tree').click().catch(() => problems.push(`${label}: no way to show the folders`));
+  // A phone starts with the tree folded, so the chat keeps the room.
+  if (!(await page.getByTestId('ag-tree').count())) await page.getByTestId('ag-tree-fold').click().catch(() => {});
+  if (await page.getByTestId('ag-tree').count()) {
+    const more = async () => { if (await page.getByTestId('ag-tree-more').count()) await page.getByTestId('ag-tree-more').click(); };
+    await more();
+    await page.getByTestId('ag-tree-newfolder').click();
+    await page.getByTestId('ag-folder-name').fill('Lantern arc');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await page.getByTestId('ag-move').click();
+    await page.getByTestId('ag-move-form').locator('input').fill('Lantern arc');
+    await page.getByRole('button', { name: 'Move', exact: true }).click();
+    await page.waitForFunction(() => { const f = [...document.querySelectorAll('[data-testid=ag-tree-folder]')].find((x) => /Lantern arc/.test(x.textContent)); return f && /1/.test(f.textContent); }, null, { timeout: 8000 }).catch(() => problems.push(`${label}: the chat did not move into the folder`));
+    note(`${label}: chats in folders: new folder, move a chat`);
+    // An incognito chat: works, is never listed, and ending it goes back to a saved chat.
+    await more();
+    await page.getByTestId('ag-incognito').click();
+    await page.getByTestId('ag-incognito-bar').waitFor({ timeout: 8000 }).catch(() => problems.push(`${label}: no incognito bar`));
+    await page.getByTestId('ag-incognito-bar').getByRole('button', { name: 'End', exact: true }).click();
+    await page.getByTestId('ag-incognito-bar').waitFor({ state: 'detached', timeout: 8000 }).catch(() => problems.push(`${label}: the incognito chat did not end`));
+    note(`${label}: incognito chat started and ended`);
+  }
+
+  // Past chats in the recent dropdown (the view a session shows): start one, name it, go back, come again, delete it.
+  if (await page.getByTestId('ag-tree-more').count()) { if (!(await page.getByTestId('ag-tree').count())) await page.getByTestId('ag-tree-fold').click(); await page.getByTestId('ag-tree-more').click(); }
+  await page.getByTestId('ag-view-recent').click();
   const sel = page.getByTestId('ag-chat-select');
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await empty();

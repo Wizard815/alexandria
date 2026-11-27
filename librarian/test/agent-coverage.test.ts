@@ -76,6 +76,14 @@ const fakeFetch = (async (url: any, init?: any) => {
     // Every other job (sculpting, statblocks, session summaries, voice, the broker) goes to the stock fake models.
     return fetch(u.replace('http://fake.test/v1', fakes.baseUrl), init);
   }
+  // The free content sources (import_content, list_content_books): one small book, never the real services.
+  if (u.startsWith('https://api.open5e.com/')) {
+    const tob = { key: 'tob', name: 'Tome of Beasts', licenses: [{ name: 'OPEN GAME LICENSE Version 1.0a', key: 'ogl-10a' }], publisher: { name: 'Kobold Press' } };
+    const list = new URL(u).pathname.replace(/^\/v2\/|\/$/g, '');
+    const results = list === 'documents' ? [tob] : list === 'conditions' ? [{ name: 'Void Sick', document: { key: 'tob' }, descriptions: [{ desc: 'You feel the void.' }] }] : [];
+    return new Response(JSON.stringify({ count: results.length, next: null, results }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.startsWith('https://raw.githubusercontent.com/5e-bits/')) return new Response(u.endsWith('5e-SRD-Conditions.json') ? JSON.stringify([{ index: 'dazed', name: 'Dazed', desc: ['You are dazed.'] }]) : '404: Not Found', { status: u.endsWith('5e-SRD-Conditions.json') ? 200 : 404 });
   return fetch(url, init);
 }) as typeof fetch;
 
@@ -202,11 +210,37 @@ const movableItem = () => once('movable', async () => (await dm('POST', '/invent
 const shopId = () => once('shop', async () => (await dm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'cov', save: true, status: 'open' })).shop.id as string);
 const shopItem = () => once('shopitem', async () => (await dm('POST', '/shop/items', { name: 'Coverage Lantern', cost: '2 gp' })).id as string);
 
+// Foundry: a map picture in the library, and a token on a linked scene (as the bridge module would have sent).
+const foundryPic = () => once('fpic', async () => {
+  put(`libfiles/${W}/lf_covmap`, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]));
+  run(deps.db, "INSERT INTO libfiles_files (id, world_id, page_id, name, kind, level, mime, family, size, by_id, at) VALUES ('lf_covmap', ?, ?, 'cove.png', 'map', 'party', 'image/png', 'image', 12, NULL, ?)", W, ID.saltmarsh, new Date().toISOString());
+  return 'lib:lf_covmap';
+});
+const foundryToken = () => once('ftoken', async () => {
+  const at = new Date().toISOString();
+  run(deps.db, "INSERT INTO foundry_scenes (world_id, scene_id, name, map_id, pic, seen_at) VALUES (?, 'covscene', 'Cove', 'world', 'none', ?)", W, at);
+  run(deps.db, "INSERT INTO map_marks (id, world_id, map_id, author_id, kind, data, visibility, hidden_by_dm, created_at) VALUES ('mk_covtoken', ?, 'world', ?, 'pin', ?, 'party', 0, ?)", W, ID.dm, JSON.stringify({ x: 10, y: 10, label: 'Cove goblin', token: { scene: 'covscene', id: 'tok1', actor: null, account: null, size: 0.02, disposition: -1, player: false } }), at);
+  run(deps.db, "INSERT INTO foundry_tokens (world_id, scene_id, token_id, mark_id) VALUES (?, 'covscene', 'tok1', 'mk_covtoken')", W);
+  return 'mk_covtoken';
+});
+
 /** Arguments that need real ids or values. A tool not listed gets values made from its schema. */
+// DownTime: the house rule on, a fresh task per tool, a round open or closed as the tool needs.
+const dtOn = () => once('downtime-on', async () => { await dm('PUT', '/mods/downtime/enabled', { on: true }); return true; });
+const dtTask = async (label: string, reward?: unknown) => { await dtOn(); return (await dm('POST', '/downtime/tasks', { player: ID.jess, activity: { name: `Coverage ${label}`, tier: 'common' }, reward })).id as string; };
+const dtNoRound = async () => { await dtOn(); await call('POST', w('/downtime/rounds/current/cancel'), T.dm, {}); };
+const dtRound = async () => { await dtOn(); if (!(await dm('GET', '/downtime/rounds/current')).round) await dm('POST', '/downtime/rounds', { days: 1, advance: false }); };
+
 const ARGS: Record<string, Maker> = {
+  import_content: () => ({ source: 'open5e', books: ['tob'], kinds: ['condition'] }),
   run_macro: () => once('macro', async () => { await dm('POST', '/actions/macros', { name: 'Coverage roll', steps: [{ action: 'dice.roll' }] }); return 'ok'; }).then(() => ({ macro: 'Coverage roll' })),
   share_library_item: () => ({ kind: 'page', id: ID.saltmarsh, to: 'party', notify: true }),
   read_page: () => ({ page: ID.saltmarsh }),
+  foundry_send_handout: () => ({ page: ID.saltmarsh }),
+  foundry_send_map: async () => ({ pic: await foundryPic(), name: 'Cove' }),
+  foundry_move_token: async () => ({ token: await foundryToken(), x: 40, y: 60 }),
+  roll20_send_handout: () => ({ page: ID.saltmarsh }),
+  owlbear_link: () => once('owlbear', async () => { await dm('POST', '/owlbear/key', {}); return 'ok'; }).then(() => ({ lead: 'alexandria' })),
   search_library: () => ({ query: 'Saltmarsh' }),
   search_world: () => ({ query: 'Saltmarsh' }),
   related_pages: () => ({ page: ID.saltmarsh }),
@@ -278,6 +312,7 @@ const ARGS: Record<string, Maker> = {
   add_map_mark: () => ({ kind: 'pin', x: 40, y: 50, label: 'The dark lighthouse' }),
   hide_map_mark: async () => ({ markId: await mark('A'), hidden: true }),
   delete_map_mark: async () => ({ markId: await mark('B') }),
+  remove_someday_event: async () => ({ id: (await dm('POST', '/clock/someday', { title: 'The dragon wakes' })).id }),
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),
@@ -319,6 +354,33 @@ const ARGS: Record<string, Maker> = {
   give_shop_deal: async () => ({ shop: await shopId(), player: ID.jess, pct: 10, days: 2 }),
   present_shop: async () => ({ shop: await shopId(), players: [ID.jess], message: 'Fine wares, friend!', open: true }),
   set_town: () => ({ name: 'Coverage Harbour', size: 'town', price_pct: 20 }),
+  house_rule_grant: async () => { await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true }); return { mod: 'inspiration-rerolls', player: ID.tom, resource: 'dm', note: 'Stayed in character' }; },
+  downtime_suggest: async () => { await dtOn(); return { player: 'jess', want: 'earn money' }; },
+  downtime_start: async () => { await dtOn(); return { activityId: 'pre-carouse' }; },
+  downtime_pick: async () => { await dtRound(); return { skip: true }; },
+  downtime_assign: async () => { await dtOn(); return { player: 'jess', activityId: 'pre-work', reward: { gp: 1 } }; },
+  downtime_time: async () => ({ task: await dtTask('time'), days: -1, note: 'Fever' }),
+  downtime_work: async () => ({ task: await dtTask('work'), hours: 4, note: 'Half a day' }),
+  downtime_update: async () => ({ task: await dtTask('update'), tier: 'rare' }),
+  downtime_remove: async () => ({ task: await dtTask('remove'), note: 'Gave up' }),
+  downtime_reward: async () => { const t = await dtTask('reward', { gp: 2 }); await dm('POST', `/downtime/tasks/${t}/work`, { days: 1 }); return { task: t }; },
+  downtime_round: async () => { await dtNoRound(); return { days: 1, advance: false }; },
+  downtime_close_round: async () => { await dtRound(); return {}; },
+  // A player spends a personal reroll they really hold (for a roll made with real dice), so the run shows a spend, not a refusal.
+  house_rule_spend: async () => {
+    await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true });
+    const held = (await dm('GET', '/mods/counters')).players.find((p: any) => p.accountId === ID.jess).mods['inspiration-rerolls'].find((c: any) => c.id === 'personal').value;
+    if (held < 1) await dm('POST', '/mods/inspiration-rerolls/act', { action: 'grant', player: ID.jess, resource: 'personal', note: 'coverage' });
+    return { mod: 'inspiration-rerolls', action: 'use-personal', atTable: true, note: 'coverage' };
+  },
+  // A small data system for the record tools: shared notes the DM keeps, a task each player owns, a prompt.
+  house_rule_records: async () => ({ mod: await coverageSystem() }),
+  house_rule_record_act: async () => ({ mod: await coverageSystem(), action: 'note', values: { text: 'The tide turns at dusk' }, note: 'coverage' }),
+  house_rule_prompt: async () => ({ mod: await coverageSystem(), prompt: 'day' }),
+  house_rule_my_record: async () => ({ mod: await coverageSystem(), action: 'start', values: { what: 'Mend nets' } }),
+  house_rule_file: () => ({ mod: 'hero-points' }),
+  house_rule_guide: () => ({ part: 'data' }),
+  house_rule_save: () => ({ mod: { kit: 1, id: 'coverage-points', name: 'Coverage points', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] } }),
 };
 
 /** Values from a tool's own schema for any tool without an entry in ARGS. */
@@ -331,7 +393,16 @@ function fromSchema(tool: { props: Record<string, any>; required?: string[] }): 
   }
   return a;
 }
-const argsFor = async (tool: { name: string; props: Record<string, any>; required?: string[] }) => (ARGS[tool.name] ? await ARGS[tool.name]() : fromSchema(tool));
+const coverageSystem = () => once('cov-system', async () => {
+  await dm('POST', '/mods/import', { mod: { kit: 2, id: 'coverage-system', name: 'Coverage system',
+    records: { note: { label: 'Note', fields: { text: 'text' } }, task: { label: 'Task', owned: true, fields: { what: 'text', done: { type: 'int', default: 0 } } } },
+    recordActions: [{ id: 'note', label: 'Note', by: 'dm', record: 'note', do: 'create', ask: ['text'] }, { id: 'start', label: 'Start', by: 'owner', record: 'task', do: 'create', ask: ['what'] }],
+    prompts: [{ id: 'day', button: 'Day', choices: [{ label: 'Start', action: 'start' }, { label: 'Skip', skip: true }] }] } });
+  await dm('PUT', '/mods/coverage-system/enabled', { on: true });
+  return 'coverage-system';
+});
+const open5eOn = () => once('open5e', async () => { await dm('PUT', '/mods/open5e/enabled', { on: true }); return 'open5e'; }); // a house rule
+const argsFor = async (tool: { name: string; props: Record<string, any>; required?: string[] }) => { if (/content/.test(tool.name)) await open5eOn(); return ARGS[tool.name] ? await ARGS[tool.name]() : fromSchema(tool); };
 
 /** Tools that end something the others need (a running game, a recording, a page) go last. */
 const LAST = ['end_game_session', 'stop_recording', 'lore_delete', 'delete_map_mark', 'publish_session_log', 'remove_combatant', 'hide_stage_card'];
@@ -353,6 +424,13 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['publish the session log', ['publish_session_log']],
     ['approve the coin request', ['decide_approval']],
     ['add a pin on the map', ['add_map_mark']],
+    ['give Jess a personal reroll for that speech', ['house_rule_grant']],
+    ['write a house rule for hero points', ['house_rule_check', 'house_rule_save']],
+    ['start a downtime round for 3 days', ['downtime_round']],
+    ['Mira lost two days of crafting to the fever', ['downtime_time']],
+    ['make me a downtime mod for my table', ['house_rule_guide', 'house_rule_file', 'house_rule_check']],
+    ['start a downtime day for the party', ['house_rule_prompt']],
+    ['take two days off Jess\'s downtime task', ['house_rule_record_act', 'house_rule_records']],
   ] as const) {
     const picked = selectTools(text, toolsFor(true).map((t) => t.name));
     for (const n of tools) assert.ok(picked.includes(n), `"${text}" offers ${n}: got ${picked.join(', ')}`);
@@ -443,7 +521,10 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
   assert.deepEqual(failures, [], `player tools that did not run:\n${failures.join('\n')}`);
   console.log(`Player harness: ${readTools.length - denied.length} ran, ${denied.length} are the DM's and were refused (${denied.join(', ')})`);
   // The ones a player is meant to have are not among the refused.
-  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory']) assert.ok(!denied.includes(n), `${n} works for a player`);
+  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory', 'house_rule_spend', 'house_rule_records', 'house_rule_my_record']) assert.ok(!denied.includes(n), `${n} works for a player`);
+  // The spend really happened: Jess's personal reroll is used and logged as hers.
+  const spent = (await dm('GET', '/mods/log')).log.find((l: any) => l.action === 'use-personal' && l.accountId === ID.jess);
+  assert.ok(spent && spent.after === spent.before - 1, 'house_rule_spend spent a personal reroll for the player');
   // What the tools returned to a player holds nothing of the DM's.
   for (const marker of DM_ONLY) assert.ok(!results.some((r) => r.includes(marker)), `a tool result for a player held ${marker}`);
 

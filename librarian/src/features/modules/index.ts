@@ -12,12 +12,21 @@ import { playerCard } from './hide.ts';
 import { summarize, preview } from './format.ts';
 import { readModule } from './importers.ts';
 import { findMatches } from './match.ts';
+import { feedModule, readFeed } from './feed.ts';
+import { DND5EAPI_BASE, open5eDocuments } from './sources.ts';
+import { OPEN5E_BASE, OPEN5E_ENDPOINTS } from './open5e.ts';
 import { searchRules, searchTerms } from './search.ts';
-import { SCHEMA, available, moduleDoc, removeImported, saveImported, setEnabled, worldModules } from './store.ts';
+import { SCHEMA, available, leftOut, moduleDoc, setLeftOut, removeImported, saveImported, setEnabled, worldModules } from './store.ts';
+import { featureSetting } from '../../core/policy.ts';
 
 // (app.ts imports the feature registry, so features write the audit row themselves.)
 const audit = (db: any, worldId: string, accountId: string, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
 const intQ = (v: unknown, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : d; };
+
+// Open5e and the 5e SRD API are a house rule (features/open5e): off, the world cannot pull from them.
+const OPEN5E_OFF = 'Open5e is off in this world: the DM turns it on under House rules';
+const open5eOn = (res: any) => featureSetting<boolean>(settings(res), 'open5e') === true;
+const needOpen5e = (req: any, res: any, next: any) => (open5eOn(res) ? next() : next(new HttpError(403, OPEN5E_OFF)));
 
 function routes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -101,6 +110,74 @@ function routes(d: Deps) {
     throw new HttpError(404, 'Unknown card source');
   });
 
+  // ---- free content sources (DM): what can be pulled in one step ----
+  r.get('/sources', requireDM, needOpen5e, async (req, res) => {
+    const kinds = [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))];
+    let open5e: any;
+    try { open5e = await open5eDocuments(d, { base: typeof req.query.open5e === 'string' ? req.query.open5e : undefined }); }
+    catch (e: any) { open5e = { base: OPEN5E_BASE, documents: [], error: String(e?.message ?? e).slice(0, 200) }; }
+    res.json({
+      open5e: { ...open5e, kinds, lists: OPEN5E_ENDPOINTS.map((e) => ({ kind: e.kind, label: e.label })) },
+      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
+    });
+  });
+
+  // ---- browse one module and leave single entries out of this world (DM) ----
+  r.get('/browse/:id', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const m = moduleDoc(d.db, W(res), id)!;
+    const out = leftOut(d.db, W(res), id);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase().slice(0, 100) : '';
+    const kind = typeof req.query.kind === 'string' ? req.query.kind : '';
+    const only = req.query.left === '1';
+    const counts: Record<string, number> = {};
+    for (const t of m.doc.terms) counts[t.kind] = (counts[t.kind] ?? 0) + 1;
+    const list = m.doc.terms.filter((t) => (!kind || t.kind === kind) && (!only || out.has(t.id)) && (!q || t.term.toLowerCase().includes(q) || t.aliases.some((a) => a.toLowerCase().includes(q))))
+      .sort((a, b) => a.term.localeCompare(b.term));
+    const offset = Math.max(0, intQ(req.query.offset, 0));
+    const limit = Math.min(200, Math.max(1, intQ(req.query.limit, 50)));
+    res.json({
+      module: { id: m.doc.id, name: m.doc.name, builtin: m.builtin, server: !!m.server },
+      counts, leftOut: out.size, total: list.length,
+      terms: list.slice(offset, offset + limit).map((t) => ({ id: t.id, term: t.term, kind: t.kind, summary: t.summary, leftOut: out.has(t.id) })),
+    });
+  });
+
+  r.get('/browse/:id/:termId', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const t = moduleDoc(d.db, W(res), id)!.doc.terms.find((x) => x.id === String(req.params.termId));
+    if (!t) throw new HttpError(404, 'Term not found');
+    res.json({ id: t.id, term: t.term, kind: t.kind, aliases: t.aliases, summary: t.summary, text: t.text, data: t.data ?? null, leftOut: leftOut(d.db, W(res), id).has(t.id) });
+  });
+
+  r.put('/left-out', requireDM, (req, res) => {
+    const id = str(req.body?.module, 'module', { max: 120 });
+    const m = available(d.db, W(res)).some((x) => x.id === id) ? moduleDoc(d.db, W(res), id) : null;
+    if (!m) throw new HttpError(404, 'Module not found');
+    const ids: unknown = req.body?.terms;
+    if (!Array.isArray(ids) || !ids.length || ids.length > 5000) throw new HttpError(400, 'terms must be a list of term ids');
+    const known = new Set(m.doc.terms.map((t) => t.id));
+    const clean = [...new Set(ids.map(String))].filter((x) => known.has(x));
+    if (!clean.length) throw new HttpError(400, 'None of those terms are in the module');
+    const out = req.body?.out !== false;
+    setLeftOut(d.db, W(res), id, clean, out);
+    audit(d.db, W(res), me(res), out ? 'modules.leave-out' : 'modules.put-back', `${id}: ${clean.slice(0, 20).join(', ')}${clean.length > 20 ? ` +${clean.length - 20}` : ''}`);
+    d.hub.emit(W(res), 'modules', {}, () => true);
+    res.json({ ok: true, leftOut: leftOut(d.db, W(res), id).size });
+  });
+
+  // A module the world already has (the server library's or an import): its spells into the Codex, its items into the shop.
+  r.post('/feed', requireDM, (req, res) => {
+    const id = str(req.body?.id, 'id', { max: 120 });
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const feed = readFeed({ spells: req.body?.spells !== false, items: req.body?.items !== false, replace: req.body?.replace === true })!;
+    const fed = feedModule(d, W(res), id, feed, me(res));
+    audit(d.db, W(res), me(res), 'modules.feed', `${id}${fed.spells ? ` spells +${fed.spells.added} =${fed.spells.skipped}` : ''}${fed.items ? ` items +${fed.items.added} =${fed.items.skipped}` : ''}`);
+    res.json({ fed });
+  });
+
   // ---- import (DM): always preview, then save ----
   const raw = express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '16mb' });
   const body = (req: any): { b: any; zip?: Buffer } => {
@@ -115,20 +192,26 @@ function routes(d: Deps) {
 
   r.post('/import/preview', requireDM, raw, async (req, res) => {
     const { b, zip } = body(req);
+    if (!zip && (b?.type === 'open5e' || b?.type === 'dnd5eapi') && !open5eOn(res)) throw new HttpError(403, OPEN5E_OFF);
     const m = await readModule(b, d, zip);
     const p = preview(m.module, m.warnings);
-    const exists = available(d.db, W(res)).some((x) => x.id === m.module.id && !x.builtin);
-    const reserved = available(d.db, W(res)).some((x) => x.id === m.module.id && x.builtin);
+    const exists = available(d.db, W(res)).some((x) => x.id === m.module.id && !x.builtin && !x.server);
+    const reserved = available(d.db, W(res)).some((x) => x.id === m.module.id && (x.builtin || x.server));
     res.json({ ...p, exists, reserved });
   });
 
   r.post('/import', requireDM, raw, async (req, res) => {
     const { b, zip } = body(req);
+    if (!zip && (b?.type === 'open5e' || b?.type === 'dnd5eapi') && !open5eOn(res)) throw new HttpError(403, OPEN5E_OFF);
     const m = await readModule(b, d, zip);
     saveImported(d.db, W(res), m.module, m.source, b.replace === true, b.enable !== false);
     audit(d.db, W(res), me(res), 'modules.import', `${m.module.id} ${m.module.terms.length} terms`);
     d.hub.emit(W(res), 'modules', {}, () => true);
-    res.json({ ...preview(m.module, m.warnings), saved: true, modules: worldModules(d.db, W(res)).enabled });
+    // Optionally, spells into the Codex and items into the shop's item database, in the same step.
+    const feed = readFeed(b.feed);
+    const fed = feed ? feedModule(d, W(res), m.module.id, { ...feed, replace: feed.replace || b.replace === true }, me(res)) : null;
+    if (fed) audit(d.db, W(res), me(res), 'modules.feed', `${m.module.id}${fed.spells ? ` spells +${fed.spells.added} ~${fed.spells.replaced} =${fed.spells.skipped}` : ''}${fed.items ? ` items +${fed.items.added} ~${fed.items.updated} =${fed.items.skipped}` : ''}`);
+    res.json({ ...preview(m.module, m.warnings), saved: true, modules: worldModules(d.db, W(res)).enabled, ...(fed ? { fed } : {}) });
   });
 
   void moduleDoc;

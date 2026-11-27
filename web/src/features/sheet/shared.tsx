@@ -4,7 +4,7 @@ import { timeShort, dateLong } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, Loading } from '../../ui/index.tsx';
 
-export type ModuleType = 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list';
+export type ModuleType = 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list' | 'downtime';
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 export interface Mana { on: boolean; now?: number | null; max?: number | null }
 export interface Sheet {
@@ -29,8 +29,9 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'text', label: 'Text', desc: 'Any notes with your own title', icon: 'fa-align-left' },
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
+  { type: 'downtime', label: 'Downtime', desc: 'Your downtime tasks and how far along they are (DownTime house rule)', icon: 'fa-hourglass-half' },
 ];
-export const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent'];
+export const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent', 'downtime'];
 export const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 export const CONDITIONS = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Concentrating', 'Blessed', 'Hasted'];
 
@@ -57,7 +58,7 @@ export function ManaMeter({ mana, small = false }: { mana: Mana; small?: boolean
 }
 
 const KIND_LABEL: Record<string, string> = { hp: 'HP', temp: 'Temp HP', max: 'Max HP', conditions: 'Conditions', mana: 'Mana', reroll: 'Re-roll' };
-const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'DM', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
+const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'DM', foundry: 'Foundry', roll20: 'Roll20', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
 
 /** Every HP and mana change, newest first. `account` null: the whole party (DM). */
 export function ChangeLog({ account, limit = 40 }: { account: string | null; limit?: number }) {

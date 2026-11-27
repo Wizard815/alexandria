@@ -17,7 +17,7 @@
 // model round. Only the tools that fit the message are offered. Replies
 // stream to the owner as 'agent' events. Obvious commands run with no model.
 import type { Deps } from '../../app.ts';
-import { chatStream, hasJob, jobConfig, rerankItems, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
+import { chatStream, hasJob, jobConfig, rerankItems, ModelPreempted, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly, only } from '../../core/events.ts';
 import type { Viewer, WorldSettings } from '../../core/policy.ts';
@@ -55,6 +55,8 @@ import { applyGuides } from '../templates/guides.ts';
 import { webPrecheck } from '../templates/web.ts';
 import { setGuideNotes } from './store.ts';
 import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
+import { saveProblem } from '../mods/drafts.ts';
+import { ruleHints } from '../mods/assist.ts';
 import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
@@ -129,6 +131,14 @@ export function describeCall(tool: string, a: any): string {
     }
     case 'create_dm_template': return `Save the ${n(a.kind || 'guide')} template "${n(a.name)}"${Array.isArray(a.triggers) && a.triggers.length ? ` (used for: ${a.triggers.slice(0, 6).join(', ')})` : ''}`;
     case 'update_dm_template': return `Update the template "${n(a.id)}"${a.enabled === false ? ' (turn it off)' : a.enabled === true ? ' (turn it on)' : ''}`;
+    case 'house_rule_save': {
+      const m = a.mod && typeof a.mod === 'object' ? a.mod : null;
+      const many = Array.isArray(m?.mods) ? m.mods.length : 0;
+      return a.draft ? `Save the checked house rule ${n(String(a.draft).replace(/-[a-z0-9]{5}$/, ''))} (it starts off)` : many ? `Save ${many} house rules from the package ${n(m.name)} (they start off)` : `Save the house rule ${n(m?.name ?? m?.id)} (it starts off)`;
+    }
+    case 'house_rule_grant': return `${n(a.action ?? 'grant')} ${a.resource ? `${n(a.resource)} ` : ''}(${n(a.mod)}) for ${n(a.player)}${a.note ? `: ${n(a.note).slice(0, 80)}` : ''}`;
+    case 'house_rule_record_act': return `${n(a.mod)}: ${n(a.action)}${a.recordId ? ` on ${n(a.recordId)}` : ''}${a.player ? ` for ${n(a.player)}` : ''}${a.amount !== undefined ? ` (${n(a.amount)})` : ''}${a.values ? ` ${JSON.stringify(a.values).slice(0, 80)}` : ''}`;
+    case 'house_rule_prompt': return `Open ${n(a.prompt)} (${n(a.mod)}) for every player`;
     default: return describeMinerva(tool, a) ?? `Run ${tool} ${JSON.stringify(a ?? {}).slice(0, 200)}`;
   }
 }
@@ -591,6 +601,8 @@ export interface RunInput { chatId: string; replyId: string; text: string; conte
 
 /** Runs in progress, so the Stop button can end one. */
 const running = new Map<string, AbortController>();
+/** The end of a player's answer that was cut short because the DM needed the model. */
+export const PAUSED_FOR_DM = '_Paused so the DM could go first. Ask again in a moment._';
 export const stopRun = (chatId: string): boolean => { const a = running.get(chatId); if (!a) return false; a.abort(); return true; };
 
 /** Tell the owner's screens about an action (a new card, or a decision): the card travels with the event, so no screen re-reads the chat. */
@@ -650,6 +662,7 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
     if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
     // A web search that would not run (off, or a query with a DM-only or classified word) never becomes a card: nothing is sent.
+    if (name === 'house_rule_save') { const why = saveProblem(c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (name === 'web_research') { const why = webPrecheck(d, c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (tool.write && !auto(name)) {
       // The same change already waiting in this chat (a model that repeats itself, or a retry) is not a second card.
@@ -822,6 +835,16 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const names = tools.map((t) => t.name);
     const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
     const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
+    // House rules that are on and that this message is about: their guidance for this person, the exact calls, what
+    // they may see, and the tools (plus feature tools a rule names). The DM's assistant and a player's helper only.
+    if (dmHarness || c.mode === 'helper') {
+      const hr = ruleHints(d.db, c.worldId, `${input.text} ${input.context.selection ?? ''}`, dmHarness, c.accountId);
+      if (hr.text) {
+        built.text += `\n\n${hr.text}`;
+        for (const n of hr.tools) if (byName.has(n)) picked.add(n);
+        if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `House rules this is about: ${hr.mods.join(', ')}.` });
+      }
+    }
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
     const soundMod = dmHarness ? await import('../sound/index.ts') : null;
     const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
@@ -932,7 +955,11 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       think(d, c.worldId, { ...meta, kind: 'done', chatId: input.chatId, text: `Answered in ${took(T.totalMs)}${T.toolCalls ? `, ${T.toolCalls} tool call${T.toolCalls === 1 ? '' : 's'}` : ''}${waiting ? `. ${waiting} change${waiting === 1 ? '' : 's'} waiting for you` : ''}.`, detail: reply.slice(0, 600) });
     }
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
+    if (err instanceof ModelPreempted) {
+      // The DM needed the model and this answer gave way (DM first, core/ai.ts): keep what was shown and say why it stopped.
+      const shown = (gate ? gate.sent : live.text).trim();
+      finish(`${shown ? `${shown}\n\n` : ''}${PAUSED_FOR_DM}`, 'done');
+    } else if (err?.name === 'AbortError') {
       // Stopped by the user: keep what was shown (the player's is only what passed the check).
       const shown = (gate ? gate.sent : live.text).trim();
       finish(shown ? `${shown}\n\n_Stopped._` : '_Stopped._', 'done');

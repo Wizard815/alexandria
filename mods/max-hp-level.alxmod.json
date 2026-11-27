@@ -1,0 +1,33 @@
+{
+  "kit": 2,
+  "id": "max-hp-level",
+  "name": "Hit points: roll, keep the better",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "When you level up, roll your Hit Die and take the roll or the average, whichever is higher.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "sheet"
+    ],
+    "worksWith": [
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Level-up hit points (house rule)",
+      "text": "When you gain a level, **roll your Hit Die** and add your Constitution modifier. If the roll is lower than the **average** (d6: 4, d8: 5, d10: 6, d12: 7), take the average instead."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "level up",
+      "leveling up",
+      "hit die",
+      "hit dice"
+    ],
+    "player": "When they level up at this table: roll the Hit Die, and if the roll is under the average (d6 4, d8 5, d10 6, d12 7) take the average, then add the Constitution modifier.",
+    "dm": "Level-up HP here: roll the Hit Die and keep the higher of the roll and the average, plus Constitution."
+  }
+}

@@ -35,3 +35,37 @@
 .ag-guide li[data-status=done] i { color: var(--ok-text, var(--accent)); }
 .ag-guide li[data-status=blocked] i { color: var(--danger-text); }
 .ag-guide li[data-status=waiting] i { color: var(--gold, var(--accent)); }
+
+/* The chat list as folders (ChatTree.tsx): outside a session, or when picked. */
+.ag-tree-wrap { gap: 4px; }
+.ag-tree { list-style: none; margin: 0; padding: 4px 0; max-height: 34vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; display: grid; gap: 1px; }
+.ag-tree.phone { max-height: 40vh; }
+.ag-tree ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.ag-tree li { min-width: 0; }
+.ag-tree-folder, .ag-tree-chat { display: flex; align-items: center; gap: 2px; border-radius: 4px; padding: 0 4px; }
+.ag-tree-folder:hover, .ag-tree-chat:hover { background: var(--hover, rgba(255, 255, 255, 0.05)); }
+.ag-tree-folder .btn { opacity: 0; }
+.ag-tree-folder:hover .btn, .ag-tree-folder:focus-within .btn { opacity: 1; }
+.ag-tree-folder.over, .ag-tree-over { outline: 1px dashed var(--accent); }
+.ag-tree-chat.on { background: var(--hover, rgba(255, 255, 255, 0.07)); box-shadow: inset 2px 0 0 var(--accent); }
+.ag-tree-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: transparent; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 4px 2px; min-height: 28px; }
+.ag-tree.phone .ag-tree-open { min-height: 48px; min-width: 48px; }
+.ag-tree-acts { gap: 4px; padding: 0 4px 4px 22px; }
+.ag-tree-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0; }
+.ag-tree-open .tiny { margin-left: auto; flex: none; }
+.ag-tree-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+.ag-tree-move { padding: 2px 4px 4px 22px; }
+.ag-tree-tools { gap: 4px; }
+.ag-nav { gap: 6px; align-items: center; justify-content: flex-end; }
+.ag-tree-tpl { padding: 2px 6px; }
+.ag-incognito { gap: 8px; align-items: center; flex-wrap: nowrap; padding: 6px 8px; border: 1px dashed var(--line-strong, var(--line)); border-radius: 6px; }
+.ag-tree-head { flex-wrap: nowrap; align-items: center; gap: 6px; }
+.ag-tree-head .ag-tree-title { font-size: 0.9em; margin-left: 4px; }
+.ag-tree-menu { padding: 4px; border: 1px solid var(--line); border-radius: 8px; }
+.ag-tree-menu > button, .ag-tree-menu > button.b { justify-content: flex-start; width: 100%; }
+
+/* The quick helper (a small second model) above the table helper's chat. */
+.quick-help { margin-bottom: 8px; }
+.quick-help input.grow { flex: 1; min-width: 0; width: auto; }
+.quick-answer, .quick-handoff { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.quick-link { min-height: 0; padding: 0 4px; text-decoration: underline; }

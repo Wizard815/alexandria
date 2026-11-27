@@ -21,10 +21,10 @@ export const FALLBACK_GROUP = 'More';
 const GROUP_OF: Record<string, string> = {};
 const put = (g: (typeof GROUPS)[number], ...ids: string[]) => ids.forEach((id) => { GROUP_OF[id] = g; });
 put('At the table', '', 'live', 'assistant', 'stage', 'chat', 'rules', 'whiteboard', 'map', 'ask');
-put('My character', 'sheet', 'me', 'inventory', 'codex', 'journal');
+put('My character', 'sheet', 'me', 'inventory', 'codex', 'downtime', 'journal');
 put('World', 'library', 'people', 'encounters', 'calendar', 'bible', 'log', 'broker', 'shop', 'messages');
 // Device and table setup: the phone as a microphone, its recordings, and the colour the room lights show on your turn.
-put('Settings & account', 'audio', 'recordings', 'lights', 'my-keys', 'connect');
+put('Settings & account', 'audio', 'recordings', 'lights', 'discord', 'my-keys', 'connect');
 /** A page nobody has filed yet lands in "More", so a new feature never goes missing. */
 export const groupOf = (to: string): string => GROUP_OF[to] ?? FALLBACK_GROUP;
 
@@ -36,6 +36,7 @@ export function isOff(to: string, settings: unknown): boolean {
   if (to === 'calendar') return s.calendar === 'off';
   if (to === 'assistant') return s.brokerEnabled === false && s.agentPlayerHelper === false;
   if (to === 'my-keys') return s.sourceKeysPlayers === false;
+  if (to === 'downtime') return (s as any).downtimeOn !== true;
   return false;
 }
 export const availableLinks = (settings: unknown): NavItem[] => allLinks().filter((l) => !isOff(l.to, settings));

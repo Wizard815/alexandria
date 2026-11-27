@@ -10,9 +10,10 @@ import { OfflineBanner } from '../ui/index.tsx';
 import './dmmenu.css';
 import { MoreSheet } from './MoreSheet.tsx';
 import * as F from '../features/registry.ts';
+import { useTrades, waitingForMe } from '../features/sessionchat/TradeDialog.tsx';
 
 export function PlayerLayout() {
-  const { info, isDM, connected, w } = useWorld();
+  const { info, isDM, connected, w, me: meId } = useWorld();
   const { me, signOut } = useAuth();
   const [menu, setMenu] = useState(false);
   const [pinned, setPinned] = useState<string[] | null>(() => loadPinned(info.slug));
@@ -28,7 +29,16 @@ export function PlayerLayout() {
   const brokerOn = !isDM && (info.settings as { brokerEnabled?: boolean }).brokerEnabled !== false;
   const offers = useLoad(() => (brokerOn ? w.call<{ status: string }[]>('GET', '/broker/offers') : Promise.resolve([])), [w, brokerOn], ['broker-offer']);
   const offerCount = (offers.data ?? []).filter((o) => o.status === 'open').length;
-  const badge = (to: string) => (to === 'broker' && offerCount > 0 ? <span className="nav-badge" aria-label={`${offerCount} offer${offerCount === 1 ? '' : 's'} waiting`}>{offerCount}</span> : null);
+  // Trade offers waiting for this player: a badge on the Inventory link.
+  const trades = useTrades();
+  const tradeCount = waitingForMe(trades.data, meId);
+  const counts: Record<string, [number, string]> = { broker: [offerCount, 'offer'], inventory: [tradeCount, 'trade offer'] };
+  const badge = (to: string) => {
+    const [n, what] = counts[to] ?? [0, ''];
+    return n > 0 ? <span className="nav-badge" data-testid={`nav-badge-${to}`} aria-label={`${n} ${what}${n === 1 ? '' : 's'} waiting`}>{n}</span> : null;
+  };
+  // Badges for pages that are not on the bottom bar go on More.
+  const hidden = (ids: string[]) => Object.keys(counts).filter((k) => !ids.includes(k)).reduce((n, k) => n + counts[k][0], 0);
   if (isDM) return <Navigate to={`/w/${info.slug}/dm`} replace />;
   const base = `/w/${info.slug}`;
   const links = availableLinks(info.settings);
@@ -67,7 +77,7 @@ export function PlayerLayout() {
           </NavLink>
         ))}
         <button type="button" className={moreActive ? 'active' : ''} aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu((m) => !m)} data-testid="more-btn">
-          <span className="icon" aria-hidden="true"><i className="fa-solid fa-bars" />{!tabs.some((t) => t.to === 'broker') && badge('broker')}</span>More
+          <span className="icon" aria-hidden="true"><i className="fa-solid fa-bars" />{hidden(tabIds) > 0 && <span className="nav-badge" data-testid="nav-badge-more" aria-label={`${hidden(tabIds)} waiting`}>{hidden(tabIds)}</span>}</span>More
         </button>
       </nav>
       {menu && (
