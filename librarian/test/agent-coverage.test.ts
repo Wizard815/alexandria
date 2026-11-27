@@ -278,6 +278,7 @@ const ARGS: Record<string, Maker> = {
   add_map_mark: () => ({ kind: 'pin', x: 40, y: 50, label: 'The dark lighthouse' }),
   hide_map_mark: async () => ({ markId: await mark('A'), hidden: true }),
   delete_map_mark: async () => ({ markId: await mark('B') }),
+  remove_someday_event: async () => ({ id: (await dm('POST', '/clock/someday', { title: 'The dragon wakes' })).id }),
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   add_recall: async () => ({ personId: await person(), accountId: ID.jess, text: 'Jessamine knew him as a child.', success: true }),
   resolve_quick_event: async () => ({ id: await quickEvent('resolve') }),
