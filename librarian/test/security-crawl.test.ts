@@ -729,6 +729,8 @@ const PLAYER_ROUTES = [
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
   // House rules: a player spends their own counters (the server checks who may run each action).
   'POST /mods/:id/act',
+  // DownTime: a player starts, pauses and stops their own tasks, picks in a Downtime round, and asks the helper to rank or rate activities.
+  'POST /downtime/tasks', 'PATCH /downtime/tasks/:id', 'DELETE /downtime/tasks/:id', 'POST /downtime/rounds/:rid/pick', 'POST /downtime/suggest', 'POST /downtime/decide', 'POST /downtime/tasks/:id/join', 'POST /downtime/tasks/:id/leave',
   // Data systems: a player runs record actions the rule gives them and answers the DM's prompts (checked per action).
   'POST /mods/:id/records/:action', 'POST /mods/:id/prompts/round/:round/answer',
   // The quick helper: a question to the small model (it reads only what this player may see and changes nothing).
