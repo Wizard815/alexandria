@@ -95,9 +95,12 @@ export default function ModuleSettings() {
 }
 
 function ImportBox({ onDone }: { onDone: () => void }) {
-  const { w } = useWorld();
+  const { w, info } = useWorld();
   const act = useAction();
-  const [src, setSrc] = useState<Src>('open5e');
+  // Open5e and the 5e SRD API are a house rule (World → House rules): while it is off their tabs are not offered.
+  const o5 = (info.settings as any).open5e === true;
+  const [pick, setSrc] = useState<Src>('open5e');
+  const src: Src = o5 || (pick !== 'open5e' && pick !== 'dnd5eapi') ? pick : 'json';
   const sources = useLoad<any>(() => (src === 'open5e' || src === 'dnd5eapi' ? w.call('GET', '/modules/sources') : Promise.resolve(null)), [w, src === 'open5e' || src === 'dnd5eapi']);
   const [books, setBooks] = useState<string[]>([]);
   const [edition, setEdition] = useState('2024');
@@ -155,7 +158,8 @@ function ImportBox({ onDone }: { onDone: () => void }) {
   return (
     <section className="card stack">
       <h3>Import a module</h3>
-      <Tabs label="Import from" value={src} onChange={(s) => { setSrc(s); setReq(null); setPre(null); setDone(false); setKinds([]); }} items={[['open5e', 'Open5e'], ['dnd5eapi', '5e SRD API'], ['json', 'JSON'], ['zip', 'Zip'], ['folder', 'Folder'], ['git', 'Git repo'], ['api', 'API']]} />
+      <Tabs label="Import from" value={src} onChange={(s) => { setSrc(s); setReq(null); setPre(null); setDone(false); setKinds([]); }} items={[...(o5 ? [['open5e', 'Open5e'], ['dnd5eapi', '5e SRD API']] as [Src, string][] : []), ['json', 'JSON'], ['zip', 'Zip'], ['folder', 'Folder'], ['git', 'Git repo'], ['api', 'API']]} />
+      {!o5 && <p className="tiny muted">Turn on <strong>Open5e and the 5e SRD API</strong> under House rules to pull free books (Tome of Beasts, Deep Magic, the SRD ...) from here.</p>}
       <ErrorBox error={act.error ?? sources.error} />
       {src === 'open5e' && (
         <div className="stack tight">
