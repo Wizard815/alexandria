@@ -9,6 +9,7 @@
 //   POST /templates/derive     a guide from example library pages (their common structure)
 //   GET/PUT /templates/web, POST /templates/web/check, POST /templates/web/search
 //   POST /templates/:id/shop   a shop draft from the shop generator, with this template's guide
+//   GET /templates/export?ids=a,b&kind=k   a package (.alxtemplates.json); POST /templates/import { file }  (share.ts)
 //   MCP  list_dm_templates, get_dm_template, create_dm_template, update_dm_template, web_research
 import { Router } from 'express';
 import type { Feature, McpTool } from '../types.ts';
@@ -23,6 +24,8 @@ import { createTemplate, deleteTemplate, getTemplate, listTemplates, SCHEMA, set
 import { deriveGuide, draftTemplate } from './draft.ts';
 import { blockedQuery, blockedText, cleanQueries, webSearch } from './web.ts';
 import { generateShopWithTemplate } from './shop.ts';
+import { importTemplates, makePackage, readPackage } from './share.ts';
+import { VERSION } from '../../version.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string | null, action: string, detail = '') =>
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -86,6 +89,22 @@ function routes(d: Deps) {
     const ids = (Array.isArray(req.body?.pageIds) ? req.body.pageIds : []).filter((x: unknown) => typeof x === 'string').slice(0, 8);
     if (!ids.length) throw new HttpError(400, 'Pick one or more example pages');
     res.json(await deriveGuide(d, W(res), ctx(res).viewer, ids, typeof req.body?.name === 'string' ? req.body.name.slice(0, 80) : ''));
+  });
+
+  // ---- sharing: a package file to take to another world or table (before /:id) ----
+  r.get('/export', (req, res) => {
+    const ids = typeof req.query.ids === 'string' && req.query.ids ? req.query.ids.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 300) : null;
+    const kind = typeof req.query.kind === 'string' && (KINDS as readonly string[]).includes(req.query.kind) ? req.query.kind as Kind : undefined;
+    const list = ids ? ids.map((x) => found(res, x)) : listTemplates(d.db, W(res), kind);
+    if (!list.length) throw new HttpError(404, 'There are no templates to export');
+    res.json(makePackage(list, { alexandria: VERSION, name: typeof req.query.name === 'string' ? req.query.name.slice(0, 80) : '' }));
+  });
+  r.post('/import', (req, res) => {
+    const list = readPackage(req.body?.file ?? req.body);
+    if (req.body?.check === true) { for (const t of list) refuseClassified(d, W(res), t); res.json({ ok: true, templates: list.map((t) => ({ kind: t.kind, name: t.name, description: t.description })) }); return; }
+    const out = importTemplates(d.db, W(res), list, me(res), (t) => refuseClassified(d, W(res), t));
+    audit(d, W(res), me(res), 'templates.import', `${out.created.length} new, ${out.updated.length} updated: ${[...out.created, ...out.updated].join(', ')}`);
+    res.json(out);
   });
 
   // ---- the templates ----

@@ -1,0 +1,84 @@
+{
+  "kit": 2,
+  "id": "exhaustion-2024",
+  "name": "Simple exhaustion",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Exhaustion is a single number: each level is -2 to every d20 roll and -5 feet of speed, as in the 2024 rules.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "combat",
+      "assistant"
+    ]
+  },
+  "triggers": [
+    {
+      "on": "longRest",
+      "resource": "exhaustion",
+      "add": -1
+    }
+  ],
+  "sheet": {
+    "title": "Exhaustion",
+    "resources": [
+      "exhaustion"
+    ]
+  },
+  "dmBand": {
+    "chips": [
+      "exhaustion"
+    ],
+    "actions": [
+      "gain",
+      "lose"
+    ]
+  },
+  "resources": [
+    {
+      "id": "exhaustion",
+      "label": "Exhaustion",
+      "icon": "fa-bed",
+      "max": 6,
+      "start": 0
+    }
+  ],
+  "actions": [
+    {
+      "id": "gain",
+      "label": "Add a level",
+      "by": "dm",
+      "resource": "exhaustion",
+      "add": 1,
+      "askReason": true,
+      "effect": {
+        "chat": "{name} gains a level of exhaustion ({note})"
+      }
+    },
+    {
+      "id": "lose",
+      "label": "Remove a level",
+      "by": "dm",
+      "resource": "exhaustion",
+      "add": -1
+    }
+  ],
+  "rules": [
+    {
+      "term": "Exhaustion (house rule)",
+      "text": "Each **level of exhaustion** gives **-2 to every d20 roll** and **-5 feet of speed**. At level 6 the creature dies. A long rest removes one level."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "exhaustion",
+      "exhausted",
+      "tired",
+      "forced march"
+    ],
+    "dm": "Exhaustion is the simple version: each level is -2 to all d20 rolls and -5 feet of speed, level 6 is death, a long rest removes one. Remind players of the penalty when they roll.",
+    "player": "Each level of exhaustion you have is -2 to every d20 roll and -5 feet of speed; a long rest removes one."
+  }
+}

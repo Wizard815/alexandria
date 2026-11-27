@@ -1,0 +1,81 @@
+{
+  "kit": 2,
+  "id": "honor",
+  "name": "Honor",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "An Honor score tracks how a character keeps their word and their code; the DM raises or lowers it.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "assistant"
+    ]
+  },
+  "sheet": {
+    "title": "Honor",
+    "resources": [
+      "honor"
+    ]
+  },
+  "dmBand": {
+    "chips": [
+      "honor"
+    ],
+    "actions": [
+      "raise",
+      "lower"
+    ]
+  },
+  "resources": [
+    {
+      "id": "honor",
+      "label": "Honor",
+      "icon": "fa-scale-balanced",
+      "max": 20,
+      "start": 10
+    }
+  ],
+  "actions": [
+    {
+      "id": "raise",
+      "label": "Raise",
+      "by": "dm",
+      "resource": "honor",
+      "add": 1,
+      "askReason": true,
+      "effect": {
+        "chat": "{name}'s honor rises ({note})"
+      }
+    },
+    {
+      "id": "lower",
+      "label": "Lower",
+      "by": "dm",
+      "resource": "honor",
+      "add": -1,
+      "askReason": true,
+      "effect": {
+        "chat": "{name}'s honor falls ({note})"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "term": "Honor (house rule)",
+      "text": "Each character has an **Honor score** from 0 to 20 (10 to start). Keeping oaths, mercy and fair dealing raise it; betrayal and cruelty lower it. Use it like an ability for checks where reputation and trust matter, and NPCs who value honour react to it."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "honor",
+      "honour",
+      "oath",
+      "reputation",
+      "betray"
+    ],
+    "dm": "Honor is on: raise a character's Honor for keeping oaths, mercy and fair dealing, lower it for betrayal and cruelty, and use it for checks where reputation and trust matter (modifier as for an ability score).",
+    "player": "Your Honor score (0 to 20) shows how you keep your word. NPCs who value honour trust a high score, so think about promises."
+  }
+}

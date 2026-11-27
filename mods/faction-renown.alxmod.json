@@ -1,0 +1,126 @@
+{
+  "kit": 2,
+  "id": "faction-renown",
+  "name": "Faction renown",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Track the party's standing with each faction; renown opens ranks, favours and doors.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "table",
+      "assistant"
+    ]
+  },
+  "records": {
+    "faction": {
+      "label": "Faction",
+      "plural": "Factions",
+      "title": "name",
+      "fields": {
+        "name": "text",
+        "renown": {
+          "type": "int",
+          "default": 0,
+          "min": -10,
+          "max": 50,
+          "label": "Renown"
+        },
+        "rank": {
+          "type": "text",
+          "label": "Rank"
+        },
+        "notes": {
+          "type": "text",
+          "label": "Notes"
+        }
+      }
+    }
+  },
+  "recordActions": [
+    {
+      "id": "add-faction",
+      "label": "Add a faction",
+      "by": "dm",
+      "record": "faction",
+      "do": "create",
+      "ask": [
+        "name",
+        "rank",
+        "notes"
+      ]
+    },
+    {
+      "id": "renown",
+      "label": "Change renown",
+      "by": "dm",
+      "record": "faction",
+      "do": "add",
+      "field": "renown",
+      "amount": "ask",
+      "effect": {
+        "chat": "The party's renown with {faction.name} is now {renown}. {note}"
+      }
+    },
+    {
+      "id": "set-rank",
+      "label": "Set rank",
+      "by": "dm",
+      "record": "faction",
+      "do": "set",
+      "ask": [
+        "rank"
+      ],
+      "effect": {
+        "chat": "The party is now {faction.rank} of {faction.name}."
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": "party",
+      "title": "Factions",
+      "record": "faction",
+      "place": "player",
+      "columns": [
+        "name",
+        "renown",
+        "rank"
+      ]
+    },
+    {
+      "id": "dm",
+      "title": "Factions",
+      "record": "faction",
+      "place": "dm",
+      "columns": [
+        "name",
+        "renown",
+        "rank",
+        "notes"
+      ],
+      "actions": [
+        "renown",
+        "set-rank"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "term": "Renown (house rule)",
+      "text": "The party earns **renown** with a faction by serving its goals (+1 for a task, +2 or more for a big one) and loses it by working against them. At **3, 10, 25 and 50** renown the faction offers a new rank with favours: safe houses, gear, contacts."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "faction",
+      "renown",
+      "guild",
+      "standing",
+      "reputation with"
+    ],
+    "dm": "Faction renown is on: after the party serves or crosses a faction, propose a renown change (+1 a task, +2 or more for a big one, minus for working against it). At 3, 10, 25 and 50 renown offer a new rank with favours.",
+    "player": "The party has renown with factions, shown on the House rules page. Serving a faction's goals raises it and new ranks bring favours."
+  }
+}

@@ -120,6 +120,32 @@ rarity rare"; with a chat model it is the brief. The shop type picks the
 generator's kind ("apothecary" is an alchemist). **Make a shop** shows the draft;
 the DM makes and stocks shops on the Shops page.
 
+## Sharing templates (import and export)
+
+On the **Templates** tab, **Export all** (or **Export these** when one kind is
+shown) saves a `.alxtemplates.json` file, and each template has its own
+**Export** button. **Import** opens a file, lists what is in it, and saves
+them all only when you press **Import** (all or none). Take the file to
+another world, another table, or share it with other DMs.
+
+```json
+{ "type": "alexandria-templates", "version": 1, "name": "My town guides",
+  "exported": "2026-11-27T04:30:00.000Z", "alexandria": "0.1.0-alpha.1",
+  "templates": [ { "kind": "guide", "name": "Make a town", "triggers": ["town"], "spec": { "...": "..." } } ] }
+```
+
+- No ids travel. A guide's example pages are left out, because they are this
+  world's library pages.
+- If you already have a template of the same kind and name, the file's copy
+  becomes its **new version**. The old one stays in its history, and your
+  on/off choice and example pages are kept. An identical file changes nothing.
+- One bare template (`{kind, name, ...}`) imports too.
+- A file with a bad template, two templates of the same name, or classified
+  text saves nothing, and the error names the template. A world keeps at most
+  300 templates, and a file holds at most 100.
+- A house rules file (`.alxmod.json`) is refused here. Import it under House
+  rules instead.
+
 ## API (DM only)
 
 All under `/api/worlds/:world/templates`:
@@ -138,6 +164,8 @@ All under `/api/worlds/:world/templates`:
 | `POST /web/check` `{queries}` | would these words be sent? |
 | `POST /web/search` `{queries}` | search (1 to 3 queries) |
 | `POST /:id/shop` `{options?}` | a shop draft from the shop generator with this template's guide |
+| `GET /export?ids=a,b&kind=` | a package of those templates (or every one, or one kind) |
+| `POST /import` `{file, check?}` | import a package or one template, all or none; `check: true` lists them and saves nothing. Returns `{created, updated, unchanged}` |
 
 MCP (DM only): `list_dm_templates`, `get_dm_template`, `create_dm_template`
 (write), `update_dm_template` (write), `web_research` (write).
@@ -147,7 +175,7 @@ MCP (DM only): `list_dm_templates`, `get_dm_template`, `create_dm_template`
 `librarian/src/features/templates/`: `spec.ts` (kinds and their specs),
 `store.ts` (tables, versions, web settings), `match.ts` (triggers), `draft.ts`
 (drafting and deriving), `guides.ts` (running a guide for the assistant),
-`web.ts` (query checks and providers), `shop.ts` (the shop adapter). The harness
+`web.ts` (query checks and providers), `shop.ts` (the shop adapter), `share.ts` (import and export packages). The harness
 calls `applyGuides` before the first model call (`features/agent/harness.ts`).
 The page is `web/src/features/templates/`. Tests: `librarian/test/templates.test.ts`
 and `web/e2e/templates.mjs`.

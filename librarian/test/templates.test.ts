@@ -335,3 +335,43 @@ test('Templates: the common structure of example pages', () => {
   assert.equal(st.folder, 'Places/Towns');
   assert.ok(st.secrets && st.links);
 });
+
+test('Templates: export a package and import it into another world (all or none; same name updates)', async () => {
+  const g = await dm('POST', '/templates', { kind: 'guide', name: 'Make a town', triggers: ['town'], spec: { task: 'Make a town', sections: ['Overview', 'People'], exemplars: [PG.saltmarsh] } });
+  const m = await dm('POST', '/templates', { kind: 'macro', name: 'Weather', spec: { prompt: 'Roll the weather for {place}', params: [{ name: 'place', label: 'Place', default: 'here' }] } });
+  assert.equal((await call('GET', w('/templates/export'), T.jess)).status, 403);
+  const pkg = await dm('GET', `/templates/export?ids=${g.id},${m.id}`);
+  assert.equal(pkg.type, 'alexandria-templates');
+  assert.equal(pkg.templates.length, 2);
+  assert.deepEqual(pkg.templates[0].spec.exemplars, [], "example pages are this world's library, so they stay home");
+  assert.ok(!JSON.stringify(pkg).includes(g.id), 'no ids travel');
+  // Another world (same DM).
+  const W2 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Elsewhere', dmAccountId: dmId })).id;
+  const w2 = (p: string) => `/api/worlds/${W2}${p}`;
+  const checked = await ok('POST', w2('/templates/import'), T.dm, { file: pkg, check: true });
+  assert.equal(checked.templates.length, 2);
+  assert.equal((await ok('GET', w2('/templates'), T.dm)).templates.length, 0, 'a check saves nothing');
+  const r1 = await ok('POST', w2('/templates/import'), T.dm, { file: pkg });
+  assert.deepEqual(r1.created.sort(), ['Make a town', 'Weather']);
+  // Again: nothing changed. Changed: a new version of the same template, not a copy.
+  assert.deepEqual((await ok('POST', w2('/templates/import'), T.dm, { file: pkg })).unchanged.length, 2);
+  pkg.templates[1].spec.prompt = 'Roll the weather and the wind for {place}';
+  const r3 = await ok('POST', w2('/templates/import'), T.dm, { file: pkg });
+  assert.deepEqual(r3.updated, ['Weather']);
+  const list = (await ok('GET', w2('/templates'), T.dm)).templates;
+  assert.equal(list.length, 2);
+  assert.equal(list.find((t: any) => t.name === 'Weather').version, 2);
+  // A bare template works too; a bad one, or classified text, saves nothing at all.
+  assert.deepEqual((await ok('POST', w2('/templates/import'), T.dm, { file: { kind: 'library', name: 'NPC page', spec: { sections: ['Look'] } } })).created, ['NPC page']);
+  const bad = await call('POST', w2('/templates/import'), T.dm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Good one' }, { kind: 'nope', name: 'Bad' }] } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /Template 2/);
+  const leak = await call('POST', w('/templates/import'), T.dm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Fine' }, { kind: 'guide', name: 'Leaky', spec: { instructions: CLASSIFIED } }] } });
+  assert.equal(leak.status, 400);
+  assert.ok(!(await dm('GET', '/templates')).templates.some((t: any) => t.name === 'Fine'), 'all or none');
+  const dup = await call('POST', w2('/templates/import'), T.dm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Twin' }, { kind: 'library', name: 'twin' }] } });
+  assert.equal(dup.status, 400);
+  assert.equal((await call('POST', w2('/templates/import'), T.dm, { file: { type: 'alexandria-house-rules', mods: [] } })).status, 400);
+  await dm('DELETE', `/templates/${g.id}`);
+  await dm('DELETE', `/templates/${m.id}`);
+});
