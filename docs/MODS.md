@@ -159,6 +159,7 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `conflicts` | Kit 2: ids of rules that cannot be on at the same time. Turning this one on turns them off, like a `group`. |
 | `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
 | `assistant` | Kit 2: how the DM's assistant and the player helper work with the rule (see below). |
+| `content` | Kit 2: content another part of Alexandria reads while the rule is on, by key. `downtimeEvents` is a DownTime event pack: `{ "pre-cellar": [events], "_general": [events] }` (see docs/DOWNTIME.md). The part that owns a key checks it. |
 | `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
 Limits: 128 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16

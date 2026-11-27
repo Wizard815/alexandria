@@ -20,9 +20,10 @@ import { ctx, isDM, me, memberIds, names, settings } from '../../routes/_shared.
 import * as clock from '../clock/api.ts';
 import { postChat } from '../sessionchat/hooks.ts';
 import type { Feature } from '../types.ts';
-import { DEFAULT_TIER_DAYS, MAX_DAYS, TIERS, TIER_LABEL, checkActivity, checkPremade, checkReward, checkTierDays, hasReward, tierOf, type Activity } from './catalog.ts';
+import { DEFAULT_TIER_DAYS, MAX_DAYS, MAX_EVENTS, TIERS, TIER_LABEL, checkActivity, checkEvents, checkPremade, checkReward, checkTierDays, hasReward, tierOf, type Activity } from './catalog.ts';
 import './codex.ts';
 import { linkHandlers } from './hooks.ts';
+import { PACK_KEY, checkPack } from './library.ts';
 import {
   PARTY, SCHEMA, activities, activity, addWork, migrateRounds, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
   isGroup, saveActivity, setMember, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
@@ -510,6 +511,51 @@ function routes(d: Deps) {
   });
 
   /** The DM decides an event without a roll, or cancels it: { result: success | failure | cancel, note? }. */
+  // ---- sharing events: import a list (or a pack) into the editor, export the world's own lists as an event pack ----
+  /** Check events to import: a list, { events }, an exported file, or an event pack (its list for `activity`). */
+  r.post('/event-import', requireDM, (req, res) => {
+    need(res);
+    let data = req.body?.data;
+    const aid = typeof req.body?.activity === 'string' ? req.body.activity : '';
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e: any) { throw new HttpError(400, `That is not valid JSON: ${e.message}`); } }
+    let list: unknown = data;
+    let from = 'list';
+    const pack = data?.content?.[PACK_KEY] ?? data?.[PACK_KEY];
+    if (pack) {
+      const errs = checkPack(pack);
+      if (errs.length) throw new HttpError(400, `That event pack has problems: ${errs.slice(0, 3).join('; ')}`);
+      const key = aid.startsWith('pre-') && pack[aid] ? aid : pack._general ? '_general' : '';
+      if (!key) throw new HttpError(400, `That pack has no events for this activity (it has ${Object.keys(pack).join(', ')})`);
+      list = pack[key];
+      from = key === aid ? 'pack' : 'pack-general';
+    } else if (data && !Array.isArray(data) && Array.isArray(data.events)) list = data.events;
+    if (!Array.isArray(list)) throw new HttpError(400, 'Paste a list of events, an exported events file, or an event pack');
+    if (list.length > MAX_EVENTS) throw new HttpError(400, `At most ${MAX_EVENTS} events on one activity`);
+    res.json({ events: checkEvents(list.map((e: any) => { const { pack: _p, ...rest } = e ?? {}; return rest; })), from });
+  });
+  /** The world's own event lists (the DM's edited ready-made activities, or one: ?activity=) as an event pack, a house rule file. */
+  r.get('/event-pack', requireDM, (req, res) => {
+    need(res);
+    const w = W(res);
+    const only = typeof req.query.activity === 'string' ? req.query.activity : '';
+    const lists: Record<string, unknown[]> = {};
+    for (const a of activities(db, w)) {
+      if (!a.id.startsWith('pre-') || (only ? a.id !== only : !a.changed)) continue;
+      const own = a.events.filter((e) => !e.pack).map(({ pack: _p, ...e }) => e);
+      if (own.length) lists[a.id] = own;
+    }
+    if (!Object.keys(lists).length) throw new HttpError(409, only ? 'That activity has no events of its own to share' : 'No ready-made activity has events you changed yet: edit one first, or pick one to share');
+    const world = ctx(res).world as any;
+    const slug = String(world.slug ?? world.name ?? 'world').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'world';
+    const n = Object.values(lists).reduce((s, l) => s + l.length, 0);
+    const file = {
+      kit: 2, id: `${slug}-events`, name: `${String(world.name ?? 'World').slice(0, 50)} downtime events`, version: '1.0.0', author: '',
+      summary: `An event pack: ${n} DownTime random event${n === 1 ? '' : 's'} for ${Object.keys(lists).length} activit${Object.keys(lists).length === 1 ? 'y' : 'ies'}. Turn it on with DownTime and they join those activities' lists.`,
+      requires: { mods: { downtime: '*' } },
+      content: { [PACK_KEY]: lists },
+    };
+    res.json({ file, events: n });
+  });
   r.post('/events/:id/decide', requireDM, (req, res) => {
     need(res);
     const w = W(res);

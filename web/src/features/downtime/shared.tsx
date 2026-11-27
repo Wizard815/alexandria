@@ -20,7 +20,7 @@ export interface Task {
   contributions: { accountId: string; name?: string; minutes: number; label: string }[];
 }
 export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number; noReward?: boolean }
-export interface EventDef { id?: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight?: number }
+export interface EventDef { id?: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight?: number; /** The event pack (house rule) that adds it. */ pack?: string }
 export interface DtEvent extends EventDef {
   id: string; roundId: string | null; taskId: string; task: string; accountId: string; player?: string;
   status: 'pending' | 'success' | 'failure' | 'cancelled'; roll: number | null; total: number | null; note: string; createdAt: string;

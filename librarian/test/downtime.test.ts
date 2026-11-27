@@ -444,3 +444,56 @@ test('TestDowntime_EveryLibraryEventSettlesBothWays', async () => {
   db.prepare("DELETE FROM ledger WHERE world_id = ? AND owner = ?").run(W, ID.tom);
   await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 20, maxHp: 20, conditions: [] });
 });
+
+test('TestDowntime_EventPacksAndSharing', async () => {
+  const M = `/api/worlds/${W}/mods`;
+  const cellar = async () => (await ok('GET', `${D()}/activities`, T.dm)).activities.find((a: any) => a.id === 'pre-cellar');
+  const base = (await cellar()).events.filter((e: any) => !e.pack).length;
+  // A bad pack is refused when checked, with the reason.
+  const bad = await ok('POST', `${M}/check`, T.dm, { mod: { kit: 2, id: 'bad-pack', name: 'Bad pack', content: { downtimeEvents: { cellar: [{ title: 'x' }], 'pre-work': [{ text: 'no title' }] } } } });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some((e: string) => /content\.downtimeEvents: "cellar" is not a ready-made activity id/.test(e)), JSON.stringify(bad.errors));
+  assert.ok(bad.errors.some((e: string) => /pre-work: .*title is needed/.test(e)), JSON.stringify(bad.errors));
+  // The shipped haunted pack: its check says what it adds; on, its events join the lists, tagged with the pack.
+  const chk = await ok('POST', `${M}/check`, T.dm, { mod: JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'mods', 'downtime-haunted-events.alxmod.json'), 'utf8')) });
+  assert.ok(chk.preview.some((l: string) => /^Adds 12 DownTime random events to /.test(l)), JSON.stringify(chk.preview));
+  await ok('PUT', `${M}/downtime-haunted-events/enabled`, T.dm, { on: true });
+  let c = await cellar();
+  const packed = c.events.filter((e: any) => e.pack === 'downtime-haunted-events');
+  assert.equal(packed.length, 3);
+  assert.equal(c.events.length, base + 3);
+  // Saving the activity keeps the pack's events out of the world's copy.
+  const mine = [{ title: 'Rats in the cellar!', check: 'Athletics', dc: 12, success: { gp: 5 }, failure: { text: 'Bitten', noReward: true } }, { title: 'A loose brick', success: { gp: 2 } }];
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { name: 'Clean out a cellar', events: [...mine, ...packed] });
+  c = await cellar();
+  assert.equal(c.events.filter((e: any) => !e.pack).length, 2, 'the copy has the two own events');
+  assert.equal(c.events.filter((e: any) => e.pack).length, 3, 'the pack still adds its three');
+  // A one-off task's general list gets the pack's general events too: fire them all.
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100 });
+  const odd = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Odd job', tier: 'common', days: 30 } });
+  const seen = new Set<string>();
+  const d = { db: deps.db, hub: { emit() {} } };
+  for (let i = 0; i < 400 && seen.size < 30; i++) for (const e of rollForPick(d as any, W, null, ID.tom, [{ taskId: odd.id, days: 1 }])) seen.add(e.title);
+  assert.ok(seen.has('The bell at midnight') || seen.has('The lantern man') || seen.has('A wrong reflection') || seen.has('The whispering well'), 'a pack general event came up');
+  // Turned off, the pack's events go.
+  await ok('PUT', `${M}/downtime-haunted-events/enabled`, T.dm, { on: false });
+  assert.equal((await cellar()).events.filter((e: any) => e.pack).length, 0);
+  // Export: the world's edited lists as an event pack, which imports back as a house rule.
+  const ex = await ok('GET', `${D()}/event-pack`, T.dm);
+  assert.deepEqual(Object.keys(ex.file.content.downtimeEvents), ['pre-cellar']);
+  assert.equal(ex.file.content.downtimeEvents['pre-cellar'].length, 2);
+  assert.equal((await call('GET', `${D()}/event-pack`, T.tom)).status, 403);
+  const imp = await ok('POST', `${M}/import`, T.dm, { mod: ex.file });
+  assert.equal(imp.id, ex.file.id);
+  // Import into the editor: a plain list (gp or cp), an exported file, or a pack's list for the activity.
+  const one = await ok('POST', `${D()}/event-import`, T.dm, { activity: 'pre-work', data: JSON.stringify([{ title: 'Spilled ink', check: 'Dexterity', dc: 11, success: { gp: 1 } }]) });
+  assert.equal(one.events[0].success.cp, 100);
+  const file = await ok('POST', `${D()}/event-import`, T.dm, { activity: 'pre-work', data: { type: 'alexandria-downtime-events', events: one.events } });
+  assert.equal(file.events[0].title, 'Spilled ink');
+  const fromPack = await ok('POST', `${D()}/event-import`, T.dm, { activity: 'pre-cellar', data: ex.file });
+  assert.equal(fromPack.from, 'pack');
+  assert.equal(fromPack.events.length, 2);
+  assert.equal((await call('POST', `${D()}/event-import`, T.dm, { activity: 'pre-work', data: ex.file })).status, 400, 'no list for that activity');
+  assert.equal((await call('POST', `${D()}/event-import`, T.dm, { data: '{nope' })).status, 400);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 10 });
+});

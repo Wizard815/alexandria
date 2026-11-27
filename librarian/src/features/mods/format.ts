@@ -96,10 +96,18 @@ export interface ModFile {
   /** Kit 2: how the assistant works with the rule: words that bring it up, guidance for the DM's assistant and the
    *  player helper (each sees only its own), and other tools to offer with it (a feature's, such as the Codex's). */
   assistant: Assistant | null;
+  /** Kit 2: content for another part of Alexandria to read while the rule is on, by key (DownTime reads
+   *  content.downtimeEvents: an event pack). The part that owns a key checks it (registerModContent). */
+  content: Record<string, unknown>;
 }
 export interface Assistant { words: string[]; dm: string; player: string; tools: string[] }
 
 export interface Checked { mod: ModFile | null; errors: string[] }
+
+/** Checks for mod content keys, from the parts that read them: each returns its problems as sentences. A key no part
+ *  has registered is kept as it is (a pack for a part this server doesn't have). */
+const CONTENT = new Map<string, (v: unknown) => string[]>();
+export function registerModContent(key: string, check: (v: unknown) => string[]) { CONTENT.set(key, check); }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ICON = /^fa-[a-z0-9-]{1,40}$/;
@@ -153,7 +161,7 @@ export function checkMod(raw: unknown): Checked {
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
     options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
     requires: { settings: [], mods: {} },
-    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null,
+    alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null, content: {},
   };
 
   // ---- options
@@ -366,7 +374,22 @@ export function checkMod(raw: unknown): Checked {
     for (const ra of mod.system.recordActions) if (taken.has(ra.id)) err(`recordActions: "${ra.id}" is also the id of an action; give it another`);
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
+  // ---- kit 2 content for other parts (an event pack for DownTime)
+  if (o.content !== undefined && o.content !== null) {
+    if (typeof o.content !== 'object' || Array.isArray(o.content)) err('content must be an object of key: value, like { "downtimeEvents": { ... } }');
+    else {
+      const ent = Object.entries(o.content);
+      if (ent.length > 8) err('content holds at most 8 keys');
+      for (const [k, v] of ent.slice(0, 8)) {
+        if (!/^[a-zA-Z][a-zA-Z0-9]{0,59}$/.test(k)) { err(`content.${k} is not a content key`); continue; }
+        const check = CONTENT.get(k);
+        if (check) for (const e of check(v).slice(0, 20)) err(`content.${k}: ${e}`);
+        mod.content[k] = v;
+      }
+    }
+  }
+
+  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant', 'content']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
   if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
@@ -376,8 +399,8 @@ export function checkMod(raw: unknown): Checked {
 
 /** A checked rule back in the shape of a file (what is saved, exported and shown to the assistant). */
 export function toFile(mod: ModFile): Record<string, unknown> {
-  const { system, assistant, ...rest0 } = mod;
-  const rest = assistant ? { ...rest0, assistant } : rest0;
+  const { system, assistant, content, ...rest0 } = mod;
+  const rest = { ...rest0, ...(assistant ? { assistant } : {}), ...(Object.keys(content).length ? { content } : {}) };
   if (!system.records.length) return rest;
   return {
     ...rest,

@@ -14,7 +14,7 @@ import {
   type Activity, type Link, type Reward, type Tier,
 } from './catalog.ts';
 import { linkFor } from './hooks.ts';
-import { libraryEvents } from './library.ts';
+import { libraryEvents, packEvents, withPack } from './library.ts';
 
 export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS downtime_activities (
@@ -135,11 +135,13 @@ export interface ActivityRow extends Activity { source: 'premade' | 'dm' | 'play
 export function activities(db: DB, worldId: string): ActivityRow[] {
   const rows = all<any>(db, 'SELECT * FROM downtime_activities WHERE world_id = ? ORDER BY created_at, id', worldId);
   const by = new Map(rows.map((r) => [r.id, r]));
+  const packs = packEvents(db, worldId);
   const out: ActivityRow[] = premadeFrom(featureSetting(worldSettings(db, worldId), 'downtimePremade')).map((p) => {
     const r = by.get(p.id);
-    // A ready-made activity with no events of its own takes the library's.
-    if (!r) return { ...p, events: p.events.length ? p.events : libraryEvents(p.id), source: 'premade', status: 'ok', createdBy: null, changed: false };
-    return { ...checkActivity(parseJson(r.json, {}), p.id), source: 'premade', status: r.status, createdBy: null, changed: true };
+    // A ready-made activity with no events of its own takes the library's; turned-on event packs add theirs.
+    if (!r) return { ...p, events: withPack(p.events.length ? p.events : libraryEvents(p.id), packs.get(p.id)), source: 'premade', status: 'ok', createdBy: null, changed: false };
+    const c = checkActivity(parseJson(r.json, {}), p.id);
+    return { ...c, events: withPack(c.events, packs.get(p.id)), source: 'premade', status: r.status, createdBy: null, changed: true };
   });
   for (const r of rows) {
     if (r.id.startsWith('pre-') && out.some((x) => x.id === r.id)) continue;
@@ -165,7 +167,9 @@ export function saveActivity(db: DB, worldId: string, raw: any, by: string, sour
 export function updateActivity(db: DB, worldId: string, aid: string, patch: any): ActivityRow {
   const cur = activity(db, worldId, aid);
   const { source, status, createdBy, changed, ...base } = cur;
-  const next = checkActivity({ ...base, ...patch, reward: patch?.reward === undefined ? base.reward : patch.reward }, aid);
+  // An event pack's events are not the activity's own: they stay with the pack (on or off), never in the copy.
+  const own = (l: unknown) => (Array.isArray(l) ? l.filter((e: any) => !e?.pack) : l);
+  const next = checkActivity({ ...base, events: own(base.events), ...patch, ...(patch?.events !== undefined ? { events: own(patch.events) } : {}), reward: patch?.reward === undefined ? base.reward : patch.reward }, aid);
   const st = patch?.status === 'hidden' || patch?.status === 'ok' ? patch.status : status === 'proposed' ? 'ok' : status;
   if (one(db, 'SELECT 1 FROM downtime_activities WHERE world_id = ? AND id = ?', worldId, aid)) run(db, 'UPDATE downtime_activities SET json = ?, status = ?, updated_at = ? WHERE world_id = ? AND id = ?', JSON.stringify(next), st, now(), worldId, aid);
   else run(db, "INSERT INTO downtime_activities (world_id, id, json, source, status, created_by, created_at, updated_at) VALUES (?,?,?,'premade',?,NULL,?,?)", worldId, aid, JSON.stringify(next), st, now(), now());

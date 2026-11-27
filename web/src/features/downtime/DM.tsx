@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
+import { download } from '../../lib/offline.ts';
 import { Empty, ErrorBox, Loading, Modal, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { EventCard, LogList, PickModal, TaskLine } from './Player.tsx';
 import { CSS, GroupChip, NO_OUTCOME, TierChip, splitScope, useDowntime, type EventDef, type Outcome, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
@@ -293,9 +294,13 @@ export function Activities() {
   const td = tierDays ?? Object.fromEntries((o.data?.tiers ?? []).map((t) => [t.id, t.days]));
   const saveTiers = () => act.run(async () => { await w.call('PATCH', '/settings', { downtimeTierDays: td }); setTierDays(null); });
   const save = () => act.run(async () => {
-    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward, events: edit!.events ?? [], eventChance: edit!.eventChance ?? null };
+    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward, events: (edit!.events ?? []).filter((e) => !e.pack), eventChance: edit!.eventChance ?? null };
     if (edit!.id) await w.call('PATCH', `/downtime/activities/${edit!.id}`, body); else await w.call('POST', '/downtime/activities', body);
     setEdit(null);
+  });
+  const sharePack = () => act.run(async () => {
+    const x = await w.call<{ file: any; events: number }>('GET', '/downtime/event-pack');
+    download(`${x.file.id}.alxmod.json`, JSON.stringify(x.file, null, 2), 'application/json');
   });
   const hide = (a: Activity) => act.run(() => (a.status === 'hidden' ? w.call('PATCH', `/downtime/activities/${a.id}`, { status: 'ok' }) : w.call('DELETE', `/downtime/activities/${a.id}`)));
   if ((info.settings as any).downtimeOn !== true) return <p className="small muted">Turn DownTime on to manage its activities.</p>;
@@ -310,7 +315,7 @@ export function Activities() {
         </div>
       </section>
       <section className="card stack tight">
-        <div className="card-head"><h2>Activities</h2><button type="button" className="btn small" onClick={() => setEdit({ tier: 'common', hoursPerDay: 8, reward: { text: '', cp: 0, item: '', qty: 1, hidden: false } })}>＋ New activity</button></div>
+        <div className="card-head"><h2>Activities</h2><span className="row" style={{ gap: 6 }}><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void sharePack()} title="Download the events you changed as an event pack: a house rule file other DMs can add">Share events as a pack</button><button type="button" className="btn small" onClick={() => setEdit({ tier: 'common', hoursPerDay: 8, reward: { text: '', cp: 0, item: '', qty: 1, hidden: false } })}>＋ New activity</button></span></div>
         <ErrorBox error={act.error ?? list.error} />
         {!list.data ? <Loading /> : TIERS.map(([t, label]) => {
           const rows = list.data!.activities.filter((a) => a.tier === t);
@@ -344,7 +349,7 @@ export function Activities() {
               <label className="small"><input type="checkbox" checked={!!edit.group} onChange={(e) => setEdit({ ...edit, group: e.target.checked })} /> Group activity (the party shares it)</label>
             </div>
             <RewardFields r={asReward(edit.reward as any)} onChange={(r) => setEdit({ ...edit, reward: r })} />
-            <EventsEditor events={edit.events ?? []} chance={edit.eventChance ?? null} onChange={(events, eventChance) => setEdit({ ...edit, events, eventChance })} />
+            <EventsEditor activity={edit.id ?? ''} name={edit.name ?? ''} events={(edit.events ?? []).filter((e) => !e.pack)} packed={(edit.events ?? []).filter((e) => e.pack)} chance={edit.eventChance ?? null} onChange={(events, eventChance) => setEdit({ ...edit, events: [...events, ...(edit.events ?? []).filter((e) => e.pack)], eventChance })} />
             <ErrorBox error={act.error} />
             <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button>
@@ -360,7 +365,18 @@ export function Activities() {
 const blankEvent = (): EventDef => ({ title: '', text: '', check: '', dc: 12, success: { ...NO_OUTCOME }, failure: { ...NO_OUTCOME } });
 
 /** Random events on an activity: what happens, the check and DC, what success and failure do. */
-function EventsEditor({ events, chance, onChange }: { events: EventDef[]; chance: number | null; onChange: (e: EventDef[], chance: number | null) => void }) {
+function EventsEditor({ activity, name, events, packed, chance, onChange }: { activity: string; name: string; events: EventDef[]; packed: EventDef[]; chance: number | null; onChange: (e: EventDef[], chance: number | null) => void }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const [paste, setPaste] = useState<string | null>(null);
+  const [said, setSaid] = useState('');
+  const take = (how: 'add' | 'replace', data: string) => act.run(async () => {
+    const x = await w.call<{ events: EventDef[]; from: string }>('POST', '/downtime/event-import', { activity, data });
+    onChange(how === 'add' ? [...events, ...x.events].slice(0, 40) : x.events, chance);
+    setPaste(null);
+    setSaid(`${how === 'add' ? 'Added' : 'Now'} ${x.events.length} event${x.events.length === 1 ? '' : 's'}${x.from === 'pack-general' ? " (the pack's general list)" : x.from === 'pack' ? ' from the pack' : ''}. Save to keep ${how === 'add' ? 'them' : 'it'}.`);
+  });
+  const exportList = () => download(`${(name || 'activity').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'activity'}-events.json`, JSON.stringify({ type: 'alexandria-downtime-events', activity, name, events: events.map(({ id: _i, pack: _p, ...e }) => e) }, null, 2), 'application/json');
   const set = (i: number, e: EventDef) => onChange(events.map((x, j) => (j === i ? e : x)), chance);
   const out = (o: Outcome, f: (o: Outcome) => void, label: string, bad = false) => (
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -375,8 +391,25 @@ function EventsEditor({ events, chance, onChange }: { events: EventDef[]; chance
     </div>
   );
   return (
-    <details className="stack tight" open={events.length > 0}>
-      <summary className="small"><strong>Random events</strong> ({events.length}) · things that can happen on a downtime day</summary>
+    <details className="stack tight" open={events.length > 0 && events.length <= 3}>
+      <summary className="small"><strong>Random events</strong> ({events.length}{packed.length ? ` + ${packed.length} from packs` : ''}) · things that can happen on a downtime day</summary>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <button type="button" className="btn small ghost" onClick={() => setPaste(paste === null ? '' : null)} aria-expanded={paste !== null}>Import events</button>
+        <button type="button" className="btn small ghost" disabled={!events.length} onClick={exportList}>Export events</button>
+        {said && <span className="tiny muted" role="status">{said}</span>}
+      </div>
+      {paste !== null && (
+        <div className="card stack tight" style={{ padding: 8 }} data-testid="dt-event-import">
+          <span className="tiny muted">Paste a list of events, an exported events file, or an event pack (its list for this activity is used), or choose a file.</span>
+          <textarea className="input" rows={5} value={paste} onChange={(ev) => setPaste(ev.target.value)} placeholder='[{ "title": "Rats!", "check": "Athletics", "dc": 12, "success": { "gp": 5 }, "failure": { "damage": 3 } }]' aria-label="Events to import" />
+          <input type="file" accept=".json,application/json" aria-label="Events file" onChange={(ev) => { const f = ev.target.files?.[0]; if (f) void f.text().then(setPaste); }} />
+          <ErrorBox error={act.error} />
+          <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+            <button type="button" className="btn small" disabled={act.busy || !paste.trim()} onClick={() => void take('replace', paste)}>Replace the list</button>
+            <button type="button" className="btn small primary" disabled={act.busy || !paste.trim()} onClick={() => void take('add', paste)}>Add to the list</button>
+          </div>
+        </div>
+      )}
       <label className="small">Chance per day <input className="input" type="number" min={0} max={100} style={{ width: 64 }} value={chance ?? ''} placeholder="world" onChange={(ev) => onChange(events, ev.target.value === '' ? null : Math.max(0, Math.min(100, Number(ev.target.value) || 0)))} aria-label="Event chance per day" /> % <span className="tiny muted">(empty: the world's default)</span></label>
       {events.map((e, i) => (
         <div key={i} className="card stack tight" style={{ padding: 8 }}>
@@ -392,6 +425,12 @@ function EventsEditor({ events, chance, onChange }: { events: EventDef[]; chance
         </div>
       ))}
       <button type="button" className="btn small" onClick={() => onChange([...events, blankEvent()], chance)}>＋ Event</button>
+      {packed.length > 0 && (
+        <div className="stack tight">
+          <span className="tiny muted">From event packs (turn a pack off under House rules to remove its events):</span>
+          {packed.map((e, i) => <div key={i} className="tiny"><strong>{e.title}</strong>{e.check ? ` · ${e.check} DC ${e.dc}` : ''} <span className="muted">({e.pack})</span></div>)}
+        </div>
+      )}
     </details>
   );
 }

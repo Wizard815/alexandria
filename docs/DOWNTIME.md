@@ -125,6 +125,41 @@ bruise, a legendary craft risks weeks of work. A ready-made activity uses
 its library list until the DM edits its events, which makes the world's
 own copy.
 
+### Event packs and sharing events
+
+An **event pack** is a house rule that only adds events. It has a `content`
+part with `downtimeEvents`, a list of events per ready-made activity id, and
+`_general` for the general list. It needs DownTime (`requires.mods`):
+
+```json
+{
+  "kit": 2, "id": "my-events", "name": "My events", "version": "1.0.0",
+  "requires": { "mods": { "downtime": "*" } },
+  "content": { "downtimeEvents": {
+    "pre-cellar": [{ "title": "A cellar ghost", "check": "Wisdom", "dc": 13,
+      "success": { "gp": 3 }, "failure": { "text": "You flee", "noReward": true } }],
+    "_general": [{ "title": "A lucky find", "success": { "gp": 2 } }]
+  } }
+}
+```
+
+- Add it like any rule (House rules, Make or add one) and turn it on. Its
+  events join those activities' lists, even a list the DM edited, and go away
+  when it is turned off. The editor lists them under "From event packs" and
+  never saves them into the activity.
+- A key that isn't `_general` or a `pre-` id, or a bad event, is refused when
+  the file is checked, with the reason.
+- **Haunted town events** (`mods/downtime-haunted-events.alxmod.json`) ships as
+  an example: 12 events for the cellar, temple, tavern, work, rumours and the
+  general list.
+- **Share events as a pack** (Activities tab) downloads the events you changed
+  as a pack file another DM can add. `GET /downtime/event-pack?activity=`.
+- In the activity editor, **Export events** downloads one activity's list,
+  and **Import events** takes a pasted or chosen file: a list of events, an
+  exported file, or a pack (its list for that activity, else its general
+  list). You can add to the list or replace it, then Save.
+  `POST /downtime/event-import { activity, data }`.
+
 ![A random event on a phone](screenshots/downtime/9-player-event-phone.png)
 
 ![A player's group tasks](screenshots/downtime/8-player-group-tasks.png)

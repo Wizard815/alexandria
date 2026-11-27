@@ -45,7 +45,7 @@ export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0,
  * A random event: "Rats in the cellar!" with a check (Athletics, DC 12). Success and failure each have an outcome.
  * With no check it just happens (the success outcome). `weight` makes one likelier than another on the same activity.
  */
-export interface EventDef { id: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight: number }
+export interface EventDef { id: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight: number; /** Set when an event pack (house rule) adds it: the rule's id. */ pack?: string }
 export const MAX_EVENTS = 40;
 export interface Link { kind: string; ref?: string }
 

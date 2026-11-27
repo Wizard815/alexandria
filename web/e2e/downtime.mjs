@@ -187,6 +187,29 @@ try {
   check(settled.events.length === 1, 'the DM settled Tomas\'s event');
   await dm.getByRole('button', { name: 'Close', exact: true }).click();
   note('dm: saw Tomas\'s event and decided it');
+
+  // 10. Sharing events: the haunted event pack adds to the cellar; the DM imports a list into it and shares a pack.
+  await api(dmLogin.token, 'PUT', '/mods/downtime-haunted-events/enabled', { on: true });
+  await dm.goto(`${W}/dm/house-rules`);
+  await dm.getByRole('tab', { name: 'DownTime activities' }).click();
+  await dm.locator('div.row.between', { hasText: 'Clean out a cellar' }).getByRole('button', { name: 'Edit' }).click();
+  const evs = dm.locator('details', { hasText: 'Random events' });
+  await evs.locator('summary').click();
+  check(await evs.getByText(/\+ 3 from packs/).count() === 1, 'the cellar shows the pack\'s 3 events');
+  check(await evs.getByText('downtime-haunted-events').count() >= 1, 'pack events say where they come from');
+  await evs.getByRole('button', { name: 'Import events' }).click();
+  await dm.getByLabel('Events to import').fill(JSON.stringify([{ title: 'A cellar ghost', text: 'A cold hand on your shoulder.', check: 'Wisdom', dc: 13, success: { text: 'You stay calm', gp: 3 }, failure: { text: 'You flee', noReward: true } }]));
+  await dm.getByRole('button', { name: 'Add to the list' }).click();
+  await evs.getByText(/Added 1 event/).waitFor({ timeout: 8000 });
+  await dm.getByLabel('Event title').last().scrollIntoViewIfNeeded();
+  await shot(dm, '12-dm-event-import');
+  await dm.getByRole('button', { name: 'Save', exact: true }).click();
+  await dm.getByRole('button', { name: 'Save', exact: true }).waitFor({ state: 'detached', timeout: 8000 });
+  const [dl] = await Promise.all([dm.waitForEvent('download', { timeout: 8000 }), dm.getByRole('button', { name: 'Share events as a pack' }).click()]);
+  const packFile = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  check(packFile.content?.downtimeEvents?.['pre-cellar']?.some((e) => e.title === 'A cellar ghost'), 'the shared pack has the imported event');
+  check(!packFile.content.downtimeEvents['pre-cellar'].some((e) => e.pack), 'the shared pack leaves out other packs\' events');
+  note(`dm: pack events shown, imported one, shared ${dl.suggestedFilename()}`);
 } catch (e) {
   problems.push(`stopped: ${e.message.split('\n').slice(0, 3).join(' ')}`);
   if (process.env.FAIL_SHOTS) for (const [i, p] of pages.entries()) await p.screenshot({ path: path.join(process.env.FAIL_SHOTS, `fail-${i}.png`) }).catch(() => {});

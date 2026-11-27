@@ -16,7 +16,7 @@ import { featureSetting } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { changeVitals, vitalsOf } from '../sheet/vitals.ts';
 import { NO_REWARD, checkOutcome, hasOutcome, type EventDef, type Outcome } from './catalog.ts';
-import { generalEvents } from './library.ts';
+import { generalEvents, packEvents, withPack } from './library.ts';
 import { PARTY, activities, addWork, dayHours, roundDayMin, taskRow, tx, worldSettings, writeLog, type DayPick } from './store.ts';
 
 export const EVENTS_SCHEMA = `
@@ -67,12 +67,12 @@ type Rng = (lo: number, hi: number) => number;
 const rand: Rng = (lo, hi) => randomInt(lo, hi + 1);
 
 /** The events a task can have: its activity's, MANA/Codex spell work borrows "Study a spell"'s, anything else the general list. */
-function eventsFor(acts: Map<string, ReturnType<typeof activities>[number]>, t: any): { events: EventDef[]; chance: number | null } {
+function eventsFor(acts: Map<string, ReturnType<typeof activities>[number]>, t: any, general: () => EventDef[]): { events: EventDef[]; chance: number | null } {
   const a = t.activity_id ? acts.get(t.activity_id) : undefined;
   if (a?.events.length) return { events: a.events, chance: a.eventChance };
   const link = parseJson<{ kind?: string } | null>(t.link, null);
   if (link?.kind?.startsWith('spell-')) { const st = acts.get('pre-study-spell'); if (st?.events.length) return { events: st.events, chance: a?.eventChance ?? st.eventChance }; }
-  return { events: generalEvents(), chance: a?.eventChance ?? null };
+  return { events: general(), chance: a?.eventChance ?? null };
 }
 
 /**
@@ -87,11 +87,13 @@ export function rollForPick(d: { db: DB; hub: EventHub }, w: string, round: any 
   const share = round ? roundDayMin(s, round) / (dayHours(s) * 60) : 1;
   const acts = new Map(activities(db, w).map((a) => [a.id, a]));
   const made: DtEvent[] = [];
+  let gen: EventDef[] | null = null;
+  const general = () => (gen ??= withPack(generalEvents(), packEvents(db, w).get('_general')));
   for (const p of picks) {
     const t = taskRow(db, w, p.taskId);
     if (!t) continue;
     if (round && one(db, "SELECT 1 FROM downtime_events WHERE world_id = ? AND round_id = ? AND task_id = ? AND account_id = ? AND status != 'cancelled'", w, round.id, t.id, aid)) continue;
-    const { events, chance: own } = eventsFor(acts, t);
+    const { events, chance: own } = eventsFor(acts, t, general);
     if (!events.length) continue;
     const chance = (own ?? base) * share;
     if (chance <= 0) continue;
