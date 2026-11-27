@@ -1,0 +1,7 @@
+/* Alexandria Bridge: the GM's connection tag, bottom left. */
+#alexandria-status {
+  position: fixed; left: 8px; bottom: 8px; z-index: 100; padding: 3px 9px; border-radius: 6px;
+  font: 12px/1.4 var(--font-primary, sans-serif); color: #ede3cf; background: rgba(18, 22, 31, 0.85);
+  border: 1px solid #a33; pointer-events: none;
+}
+#alexandria-status[data-ok='true'] { border-color: #3fa66b; }

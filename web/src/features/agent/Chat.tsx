@@ -61,9 +61,11 @@ export interface ChatProps {
   /** Phone: one-tap prompts, and the button that edits them. */
   quickPrompts?: { label: string; text: string }[];
   onEditQuick?: () => void;
+  /** Text put in the box for the user to check and send (the quick helper's handoff). A new `n` fills it again. */
+  prefill?: { text: string; n: number } | null;
 }
 
-export default function Chat({ harness, page, placeholder, mode, phone, header, context, attachable, quickPrompts, onEditQuick }: ChatProps) {
+export default function Chat({ harness, page, placeholder, mode, phone, header, context, attachable, quickPrompts, onEditQuick, prefill }: ChatProps) {
   const { w, info, on, isDM } = useWorld();
   const { world = '' } = useParams();
   const navigate = useNavigate();
@@ -173,6 +175,12 @@ export default function Chat({ harness, page, placeholder, mode, phone, header, 
     window.addEventListener(PREFILL_EVENT, onFill);
     return () => window.removeEventListener(PREFILL_EVENT, onFill);
   }, [harness]);
+  useEffect(() => {
+    const t = prefill?.text ?? '';
+    if (!t) return;
+    setText(t);
+    setTimeout(() => { box.current?.focus(); box.current?.setSelectionRange(t.length, t.length); }, 30);
+  }, [prefill?.text, prefill?.n]);
   const loadCombat = useCallback(() => { if (isDM) w.call<any>('GET', '/live/combat').then((c) => setCombat({ active: !!c.active, round: c.round })).catch(() => {}); }, [w, isDM]);
   useEffect(() => { loadCombat(); return on(['combat'], loadCombat); }, [on, loadCombat]);
 

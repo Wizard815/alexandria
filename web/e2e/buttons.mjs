@@ -31,6 +31,9 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   const { ctx, page } = await signIn(browser, base, user, PASS[user], viewport, mobile);
   await ctx.addInitScript(INIT);
   await ctx.addInitScript((v) => { try { localStorage.setItem('alx.thoughts.prefs', v); } catch { /* blocked */ } }, THOUGHTS_FOLDED);
+  // The DM crawl runs at the same time and sends quick events from the Table and the Quick events page; on a player they pop up
+  // as a modal over whatever page is under test. The player crawl tests pages, so it sees no quick events (tablenight.mjs tests the prompt).
+  if (user !== 'dm') await ctx.route(/\/api\/worlds\/[^/]+\/quick-events(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.continue()));
   let reqs = 0, dialogs = 0, downloads = 0, popups = 0;
   let here = '';
   const bad = (m) => problems.push(`${tag} ${here}: ${m}`);

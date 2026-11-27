@@ -24,7 +24,7 @@ import type { Feature } from '../types.ts';
 import { VERSION } from '../../version.ts';
 import { MAX_PACKAGE, MOD_API, PERMISSIONS, commandActions, impliedPermissions, toFile, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
 import {
-  SCHEMA, act, counters, enabledMods, getMod, getModRaw, importMod, listMods, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
+  MAX_OWN, SCHEMA, act, tx as storeTx, counters, enabledMods, getMod, getModRaw, importMod, listMods, roomFor, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
   type Actor, type Installed,
 } from './store.ts';
 
@@ -252,7 +252,10 @@ function routes(d: Deps) {
     if (!mods.length) throw new HttpError(400, `This house rule has problems: ${errors.join('; ')}`);
     const shipped = mods.filter((m) => listMods(db, W(res)).some((x) => x.mod.id === m.id && x.source === 'shipped'));
     if (shipped.length) throw new HttpError(409, `${shipped.map((m) => m.id).join(', ')} ${shipped.length > 1 ? 'are ids' : 'is the id'} of a house rule that comes with Alexandria; give yours another id`);
-    const out = mods.map((m) => importMod(db, W(res), toFile(m), me(res)));
+    // A package goes in whole or not at all: room for every new rule first.
+    const fresh = mods.filter((m) => !listMods(db, W(res)).some((x) => x.mod.id === m.id)).length;
+    if (fresh > roomFor(db, W(res))) throw new HttpError(409, `A world holds at most ${MAX_OWN} imported house rules: this adds ${fresh} and there is room for ${Math.max(0, roomFor(db, W(res)))}`);
+    const out = storeTx(db, () => mods.map((m) => importMod(db, W(res), toFile(m), me(res))));
     for (const o of out) audit(db, W(res), me(res), o.updated ? 'mods.update' : 'mods.import', o.mod.id);
     changedList(W(res));
     const views = out.map((o) => view(getMod(db, W(res), o.mod.id), true));

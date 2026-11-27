@@ -27,7 +27,7 @@ import { backendOf, inspect, isHosted, load, ping, providerSettings, release, ty
 
 export type Policy = 'hold' | 'ondemand';
 /** Defaults: the models a table actually waits on stay loaded; voice and rerank load when needed. */
-export const POLICY_DEFAULTS: Record<Job, Policy> = { chat: 'hold', audit: 'hold', audio: 'hold', extra: 'hold', voice: 'ondemand', rerank: 'ondemand', dm: 'hold', player: 'hold', bible: 'ondemand' };
+export const POLICY_DEFAULTS: Record<Job, Policy> = { chat: 'hold', audit: 'hold', audio: 'hold', extra: 'hold', voice: 'ondemand', rerank: 'ondemand', dm: 'hold', player: 'hold', bible: 'ondemand', helper: 'hold' };
 
 export function getPolicy(db: DB, job: Job): Policy {
   const v = metaGet(db, `policy:${job}`);

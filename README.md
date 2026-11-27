@@ -95,7 +95,25 @@ See [docs/CONNECTORS.md](docs/CONNECTORS.md) for writing a new connector.
 See [librarian/docs/MCP_SOURCES.md](librarian/docs/MCP_SOURCES.md) for
 what was learned from the live LegendKeeper and Kanka servers.
 
+## Virtual tabletops
+
+**Foundry VTT:** install the Alexandria Bridge module in Foundry from its
+manifest URL (DM → Setup → Foundry VTT). Maps, tokens, fog of war, HP,
+conditions, rolls and journal entries move both ways. See
+[docs/FOUNDRY.md](docs/FOUNDRY.md).
+
 The full API is in [docs/API.md](docs/API.md).
+
+## Roll20
+
+A Roll20 game can stay in step with a world: HP, conditions (as token
+markers), rolls and handouts move both ways. Set it up under DM → Setup →
+Roll20, with Roll20 Pro (a Mod script in the game) or without it (the bridge
+alone). See [docs/ROLL20.md](docs/ROLL20.md).
+
+## Online play on Owlbear Rodeo
+
+Alexandria serves an Owlbear Rodeo extension: the table screen's map picture and this world's fog of war on an Owlbear table, with the fog led from either side. DM → Setup → Owlbear Rodeo; see [docs/OWLBEAR.md](docs/OWLBEAR.md).
 
 ## Models
 

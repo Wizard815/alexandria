@@ -1,0 +1,113 @@
+{
+  "kit": 2,
+  "id": "party-inspiration",
+  "name": "Party inspiration pool",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Inspiration goes into one shared pool. Any player can draw a point for advantage, at most once a round.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "sheet"
+    ],
+    "worksWith": [
+      "chat",
+      "table",
+      "assistant"
+    ]
+  },
+  "records": {
+    "pool": {
+      "label": "Pool",
+      "plural": "Pools",
+      "title": "name",
+      "fields": {
+        "name": "text",
+        "points": {
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 10,
+          "label": "Points"
+        }
+      },
+      "seed": [
+        {
+          "name": "Party inspiration",
+          "points": 0
+        }
+      ]
+    }
+  },
+  "recordActions": [
+    {
+      "id": "add",
+      "label": "Add or take points",
+      "by": "dm",
+      "record": "pool",
+      "do": "add",
+      "field": "points",
+      "amount": "ask",
+      "effect": {
+        "chat": "The party's inspiration pool now holds {points}."
+      }
+    },
+    {
+      "id": "draw",
+      "label": "Draw a point",
+      "by": "player",
+      "record": "pool",
+      "do": "add",
+      "field": "points",
+      "amount": -1,
+      "effect": {
+        "chat": "{name} draws on the party's inspiration ({points} left). {note}"
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": "pool",
+      "title": "Party inspiration",
+      "record": "pool",
+      "place": "sheet",
+      "columns": [
+        "points"
+      ],
+      "actions": [
+        "draw"
+      ]
+    },
+    {
+      "id": "dm",
+      "title": "Party inspiration",
+      "record": "pool",
+      "place": "dm",
+      "columns": [
+        "name",
+        "points"
+      ],
+      "actions": [
+        "add"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "term": "Party inspiration (house rule)",
+      "text": "The DM puts inspiration into **one pool the whole party shares** (up to 10). Any player may **draw a point** to gain advantage on a roll they are about to make. Only one point can be drawn each round."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "inspiration",
+      "inspiration pool",
+      "party pool"
+    ],
+    "dm": "Reward good roleplay or teamwork by adding a point to the pool with the add action and a note saying why. Only one point can be drawn per round.",
+    "player": "The party shares one inspiration pool. If they want advantage on a roll they are about to make, they can draw a point with the draw action, at most one per round for the whole party. Say how many points are left."
+  },
+  "conflicts": [
+    "inspiration-rerolls"
+  ]
+}
