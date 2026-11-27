@@ -306,6 +306,7 @@ const ARGS: Record<string, Maker> = {
   add_map_mark: () => ({ kind: 'pin', x: 40, y: 50, label: 'The dark lighthouse' }),
   hide_map_mark: async () => ({ markId: await mark('A'), hidden: true }),
   delete_map_mark: async () => ({ markId: await mark('B') }),
+  remove_someday_event: async () => ({ id: (await dm('POST', '/clock/someday', { title: 'The dragon wakes' })).id }),
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),

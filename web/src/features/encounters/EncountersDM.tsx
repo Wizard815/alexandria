@@ -441,27 +441,3 @@ function Settings({ cfg, reload }: { cfg: EncounterConfig; reload: () => Promise
     </section>
   );
 }
-
-// ---------------- the Table page card ----------------
-
-/** On the DM's Table page: who is talking to which NPC right now, with a way in. Hidden when nobody is. */
-export function EncountersNow() {
-  const { w, isDM, info } = useWorld();
-  const list = useLoad<Encounter[]>(() => (isDM ? w.call('GET', '/encounters', undefined, { status: 'open' }) : Promise.resolve([])), [w, isDM], ['encounter']);
-  const open = (list.data ?? []).filter((e) => e.status === 'open');
-  if (!isDM || !open.length) return null;
-  return (
-    <section className="card gold" aria-labelledby="enc-now-h" data-testid="enc-now">
-      <div className="card-head"><h2 id="enc-now-h"><i className="fa-solid fa-person-walking" aria-hidden="true" /> Encounters now</h2><Link to={`/w/${info.slug}/dm/encounters`} className="small">Watch &amp; reply →</Link></div>
-      {open.slice(0, 5).map((e) => {
-        const last = [...e.log].reverse().find((l) => l.who !== 'npc' && l.who !== 'dm');
-        return (
-          <div key={e.id} className="row between" style={{ gap: 8 }}>
-            <span><strong>{e.player}</strong> <span className="muted">with</span> {e.npc.name}{e.source === 'wander' && <span className="chip teal" style={{ marginLeft: 6 }}>Wandered</span>}</span>
-            <span className="small muted" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{last ? last.text : 'Just started'}</span>
-          </div>
-        );
-      })}
-    </section>
-  );
-}

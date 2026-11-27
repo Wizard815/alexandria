@@ -86,7 +86,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(pages?|save|write|draft|create|make a note|note|lore|wiki|library|folder|rewrite|edit|update|summari[sz]e|summary|outline)\b/i, tools: ['save_page', 'list_pages', 'list_relations'] },
   { re: /\b(people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote', 'update_person', 'add_recall'] },
   { re: /\b(requests?|approve|approvals?|change request|reject)\b/i, tools: ['list_approvals', 'decide_approval', 'list_requests', 'decide_request'] },
-  { re: /\b(date|time|day|days|week|month|calendar|clock|long rest|short rest|rest|dawn|dusk|midnight|holiday|festival|deadline)\b/i, tools: ['get_world_date', 'advance_world_time', 'list_world_events', 'add_world_event'] },
+  { re: /\b(date|time|day|days|week|month|calendar|clock|long rest|short rest|rest|dawn|dusk|midnight|holiday|festival|deadline|someday|no date)\b/i, tools: ['get_world_date', 'advance_world_time', 'list_world_events', 'add_world_event', 'list_someday_events', 'add_someday_event', 'remove_someday_event'] },
   { re: /\b(broker|offer|offers|information for sale|rumou?rs?)\b/i, tools: ['list_broker_requests', 'list_broker_offers', 'ask_broker_quote', 'send_broker_offer', 'add_broker_note', 'broker_answer', 'broker_deliver', 'broker_refuse'] },
   { re: /\b(game night|schedule|rsvp|next game|real[- ]life)\b/i, tools: ['list_calendar', 'schedule_session'] },
   { re: /\b(stage|spotlight|handout|show (it |this |that |the )?(to |on )?(the )?(table|players|screen|party)|put (it |this |that )?on (the )?(stage|screen|board))\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card', 'sculpt', 'speak'] },
