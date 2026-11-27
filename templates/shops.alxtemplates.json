@@ -1,0 +1,178 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter shop templates",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "shop",
+      "name": "Blacksmith",
+      "description": "Weapons, armour and repairs.",
+      "triggers": [
+        "blacksmith"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "A working forge: mostly mundane weapons and armour, repairs, and one fine piece the smith is proud of.",
+        "stock": [
+          "Longsword",
+          "Shield",
+          "Chain mail",
+          "Handaxe",
+          "Arrows (20)",
+          "Repairs"
+        ],
+        "priceNotes": "Book prices; fine pieces +50%.",
+        "shopType": "Blacksmith"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "Alchemist",
+      "description": "Potions and odd reagents.",
+      "triggers": [
+        "alchemist"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "Potions, antitoxin and reagents; one experimental potion with a side effect.",
+        "stock": [
+          "Potion of healing",
+          "Antitoxin",
+          "Alchemist's fire",
+          "Acid (vial)",
+          "Herbalism kit"
+        ],
+        "priceNotes": "Potions of healing 50 gp; experimental ones cheaper but risky.",
+        "shopType": "Alchemist"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "General store",
+      "description": "Everything for the road.",
+      "triggers": [
+        "general store"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "Adventuring gear, rations and rope; the keeper knows the local gossip.",
+        "stock": [
+          "Rations (1 day)",
+          "Rope (50 ft)",
+          "Torch",
+          "Bedroll",
+          "Tinderbox",
+          "Backpack"
+        ],
+        "priceNotes": "Book prices; small towns run out of things.",
+        "shopType": "General store"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "Magic shop",
+      "description": "A few rare wonders.",
+      "triggers": [
+        "magic shop"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "A small, careful stock: common and uncommon items, one rare item at a high price, and spell scrolls.",
+        "stock": [
+          "Spell scroll (1st level)",
+          "Potion of climbing",
+          "Bag of holding",
+          "+1 weapon",
+          "Driftglobe"
+        ],
+        "priceNotes": "Common 50-100 gp, uncommon 200-500 gp, rare 2,000+ gp.",
+        "shopType": "Magic shop"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "Fletcher and bowyer",
+      "description": "Bows and arrows.",
+      "triggers": [
+        "fletcher"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "Bows, arrows and bolts; special arrows on request.",
+        "stock": [
+          "Shortbow",
+          "Longbow",
+          "Light crossbow",
+          "Arrows (20)",
+          "Bolts (20)"
+        ],
+        "priceNotes": "Book prices; silvered ammunition 100 gp for 10.",
+        "shopType": "Fletcher"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "Temple",
+      "description": "Healing and blessings for a donation.",
+      "triggers": [
+        "temple"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "Healing spells and holy water for donations; the priests may ask a favour instead of gold.",
+        "stock": [
+          "Cure wounds (spell)",
+          "Lesser restoration (spell)",
+          "Holy water",
+          "Healer's kit"
+        ],
+        "priceNotes": "Spell services: 10 gp per spell level squared; a favour can replace gold.",
+        "shopType": "Temple"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "Stables",
+      "description": "Mounts and tack.",
+      "triggers": [
+        "stables"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "Horses, ponies, mules, saddles and feed; one unusual mount.",
+        "stock": [
+          "Riding horse",
+          "Pony",
+          "Mule",
+          "Saddle",
+          "Feed (1 day)"
+        ],
+        "priceNotes": "Book prices; the unusual mount costs double.",
+        "shopType": "Stables"
+      }
+    },
+    {
+      "kind": "shop",
+      "name": "Black market",
+      "description": "Illegal goods, no questions.",
+      "triggers": [
+        "black market"
+      ],
+      "enabled": true,
+      "spec": {
+        "guide": "Poisons, stolen goods and forged papers; prices change with the risk and the guard's mood.",
+        "stock": [
+          "Basic poison",
+          "Thieves' tools",
+          "Forged papers",
+          "Disguise kit",
+          "Stolen jewellery"
+        ],
+        "priceNotes": "Double book price; haggling works with Deception.",
+        "shopType": "Black market"
+      }
+    }
+  ]
+}

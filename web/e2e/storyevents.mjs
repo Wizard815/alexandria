@@ -121,7 +121,10 @@ try {
   // ---- templates: starters, a story event and a spell from them, a template chat ----
   await page.goto(`${W}/dm/templates`);
   await page.getByRole('tab', { name: 'Starters' }).click();
-  await page.locator('[data-testid=tpl-starter][data-name="Town & city temptations"]').getByRole('button').click();
+  await page.getByTestId('tpl-pack-events').locator('li', { hasText: 'Town & city temptations' }).getByRole('button', { name: 'Add' }).click();
+  await page.getByText('Added Town & city temptations', { exact: false }).waitFor();
+  await page.getByRole('tab', { name: 'Templates', exact: true }).click();
+  await page.locator('[data-testid=tpl-item][data-name="Town & city temptations"]').getByRole('button', { name: 'Edit' }).click();
   await page.getByTestId('tpl-editor').waitFor();
   check(await page.getByTestId('tpl-chat').isVisible(), 'no template chat on a saved template');
   await page.getByRole('button', { name: 'Cancel' }).click();
@@ -138,9 +141,9 @@ try {
   note('a story event from the quick event template');
 
   await page.getByRole('tab', { name: 'Starters' }).click();
-  await page.locator('[data-testid=tpl-starter][data-name="Balanced homebrew spell"]').getByRole('button').click();
-  await page.getByTestId('tpl-editor').waitFor();
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByTestId('tpl-pack-spells').locator('li', { hasText: 'Balanced homebrew spell' }).getByRole('button', { name: 'Add' }).click();
+  await page.getByText('Added Balanced homebrew spell', { exact: false }).waitFor();
+  await page.getByRole('tab', { name: 'Templates', exact: true }).click();
   await page.locator('[data-testid=tpl-item][data-name="Balanced homebrew spell"]').getByRole('button', { name: 'Make a spell' }).click();
   await page.getByTestId('tpl-spell-prompt').fill('Frost Pin: pins one foe’s feet to the ground');
   await page.getByTestId('tpl-spell-go').click();

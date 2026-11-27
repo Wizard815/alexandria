@@ -1,0 +1,32 @@
+{
+  "kit": 2,
+  "id": "brutal-crits",
+  "name": "Brutal critical hits",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "A critical hit deals the dice's maximum plus a normal roll, so crits always feel big.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "combat",
+      "chat",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Brutal crits (house rule)",
+      "text": "On a **critical hit**, the damage dice that would be doubled are instead **maximum + one roll**: take the highest each die can show, then roll them once more and add it. Modifiers are added once."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "critical hit",
+      "crit",
+      "natural 20"
+    ],
+    "dm": "Brutal crits are on: on a critical hit, the doubled dice deal their maximum plus one normal roll (e.g. 2d6 on a crit is 12 + 2d6), modifiers once. Apply it to monsters too unless the DM says otherwise.",
+    "player": "At this table a critical hit deals the dice's maximum plus a normal roll (2d6 becomes 12 + 2d6), with modifiers added once."
+  }
+}

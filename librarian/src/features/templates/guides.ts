@@ -10,7 +10,6 @@ import type { Viewer } from '../../core/policy.ts';
 import { parseJson } from '../../core/util.ts';
 import { fillQuery, matchGuides, nameIn, nearIn, referenceIn } from './match.ts';
 import { guideText, KIND_LABEL, type Step, type StepKind } from './spec.ts';
-import { starterTemplate } from './starters.ts';
 import { listTemplates, webConfig, type Template } from './store.ts';
 import { blockedQuery, blockedText, type WebResult } from './web.ts';
 
@@ -58,15 +57,12 @@ function earlierSearch(d: Deps, chatId: string, guideId: string, query: string):
 /** "this template", "change the template", "add a step": the DM is working on the template itself. */
 const ABOUT_TEMPLATE = /\b(templates?|guides?|this (?:one|spec)|add (?:a |another )?(?:step|section|place|trigger)|(?:change|edit|improve|update|rename|tweak) (?:it|this))\b/i;
 
-/** The template a chat was started from (agent_chats.template), from the world's or the built-in starters. */
-function pinnedTemplate(d: Deps, chatId: string, worldId: string, list: Template[]): Template | null {
+/** The template a chat was started from (agent_chats.template), from the world's templates. */
+function pinnedTemplate(d: Deps, chatId: string, list: Template[]): Template | null {
   let tid = '';
   try { tid = String(one<{ template: string }>(d.db, 'SELECT template FROM agent_chats WHERE id = ?', chatId)?.template ?? ''); } catch { return null; }
   if (!tid) return null;
-  const own = list.find((t) => t.id === tid);
-  if (own) return own;
-  const st = starterTemplate(tid);
-  return st ? { ...st, worldId, version: 0, createdAt: '', updatedAt: '' } : null;
+  return list.find((t) => t.id === tid) ?? null;
 }
 
 /** Run the guides this request calls for. Null when none does. */
@@ -77,10 +73,10 @@ export async function applyGuides(d: Deps, r: GuideRun): Promise<Applied | null>
   // A template chat (started from one template, kept apart from the main chats) always has its template at hand:
   // asked about the template itself, the assistant gets its content to change it; asked to make something, the
   // template is followed as if the DM had named it.
-  const pinned = pinnedTemplate(d, r.chatId, r.worldId, list);
+  const pinned = pinnedTemplate(d, r.chatId, list);
   let about = '';
   if (pinned) {
-    if (ABOUT_TEMPLATE.test(r.text)) about = `TEMPLATE CHAT: this chat is about the DM's ${KIND_LABEL[pinned.kind].toLowerCase()} "${pinned.name}" (id ${pinned.id}${pinned.id.startsWith('starter:') ? ', a built-in starter not yet in this world: save a copy with create_dm_template, with the changes' : ': change it with update_dm_template'}). It is now:\n${JSON.stringify({ name: pinned.name, description: pinned.description, triggers: pinned.triggers, spec: pinned.spec }).slice(0, 4000)}`;
+    if (ABOUT_TEMPLATE.test(r.text)) about = `TEMPLATE CHAT: this chat is about the DM's ${KIND_LABEL[pinned.kind].toLowerCase()} "${pinned.name}" (id ${pinned.id}: change it with update_dm_template). It is now:\n${JSON.stringify({ name: pinned.name, description: pinned.description, triggers: pinned.triggers, spec: pinned.spec }).slice(0, 4000)}`;
     else if (pinned.enabled && !matched.some((m) => m.t.id === pinned.id)) matched = [{ t: pinned, why: 'named' as const, hits: [pinned.name] }, ...matched].slice(0, 2);
   }
   // Like a guide: a template that would carry classified words is never sent.

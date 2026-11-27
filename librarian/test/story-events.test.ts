@@ -11,7 +11,7 @@ import { all, run } from '../src/core/db.ts';
 import { balance } from '../src/core/coin.ts';
 import { EVENT_STARTERS, parseScript } from '../src/features/encounters/index.ts';
 import { cleanPlaces, PLACES, pickDc, play } from '../src/features/encounters/script.ts';
-import { STARTER_TEMPLATES } from '../src/features/templates/starters.ts';
+import { starterPacks } from '../src/features/templates/starters.ts';
 import { cleanTemplate, EVENT_PLACES, guideText } from '../src/features/templates/spec.ts';
 import { heuristicDraft } from '../src/features/templates/draft.ts';
 import { spellSkeleton } from '../src/features/templates/spell.ts';
@@ -358,29 +358,32 @@ test('TestTemplates_SpellSkeletonIsACodexSpell', () => {
 });
 
 test('TestTemplates_StartersCopyIn', async () => {
-  assert.ok(STARTER_TEMPLATES.length >= 10);
-  const kinds = new Set(STARTER_TEMPLATES.map((t) => t.kind));
-  for (const k of ['event', 'spell', 'library', 'guide', 'generator', 'shop', 'macro', 'assist']) assert.ok(kinds.has(k as any), `a ${k} starter`);
-  for (const t of STARTER_TEMPLATES) assert.match(t.id, /^starter:/);
-  const l = await ok('GET', TP(), T.dm);
-  assert.equal(l.starters.length, STARTER_TEMPLATES.length);
-  const made = await ok('POST', `${TP()}/starters/starter:events-town`, T.dm, {});
+  // The quick event and spell starters ship as packs in templates/, 8 of each, and add like any other.
+  const packs = starterPacks();
+  const of = (k: string) => packs.flatMap((p) => p.templates).filter((t) => t.kind === k);
+  assert.equal(of('event').length, 8);
+  assert.equal(of('spell').length, 8);
+  const st = await ok('GET', `${TP()}/starters`, T.dm);
+  assert.ok(st.packs.some((p: any) => p.id === 'events' && p.templates.length === 8));
+  const add = await ok('POST', `${TP()}/starters/add`, T.dm, { pack: 'events', names: ['Town & city temptations'] });
+  assert.deepEqual(add.created, ['Town & city temptations']);
+  assert.equal((await call('POST', `${TP()}/starters/add`, T.jess, { pack: 'events' })).status, 403);
+  const made = (await ok('GET', TP(), T.dm)).templates.find((t: any) => t.name === 'Town & city temptations');
   assert.equal(made.kind, 'event');
   assert.equal(made.version, 1);
   assert.ok((made.spec.places as string[]).includes('market'));
-  assert.equal((await call('POST', `${TP()}/starters/starter:nope`, T.dm, {})).status, 404);
-  assert.equal((await call('POST', `${TP()}/starters/starter:events-town`, T.jess, {})).status, 403);
   // The quick event template drafts an event (no model here: a plain draft) with its places.
   const r = await ok('POST', `${TP()}/${made.id}/event`, T.dm, { prompt: '' });
   assert.equal(r.draft.kind, 'event');
   assert.ok(r.draft.places.includes('town'));
   // And steers the Encounters draft too.
   const d = await ok('POST', `${P()}/templates/draft`, T.dm, { prompt: 'A drunk spills ale', kind: 'event', guide: made.id });
-  assert.ok(d.places.includes('tavern'));
+  assert.ok(d.places.includes('market'));
 });
 
 test('TestTemplates_SpellTemplateDraftsAndSaves', async () => {
-  const st = await ok('POST', `${TP()}/starters/starter:spell-cantrip`, T.dm, {});
+  await ok('POST', `${TP()}/starters/add`, T.dm, { pack: 'spells', names: ['Cantrip'] });
+  const st = (await ok('GET', TP(), T.dm)).templates.find((t: any) => t.kind === 'spell' && t.name === 'Cantrip');
   assert.equal((await call('POST', `${TP()}/${st.id}/spell`, T.dm, { prompt: '' })).status, 400);
   const r = await ok('POST', `${TP()}/${st.id}/spell`, T.dm, { prompt: 'Spark Flick: a tiny jolt that makes a foe drop what they hold' });
   assert.equal(r.draft.spell.level, 0);

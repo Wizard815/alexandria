@@ -1,0 +1,136 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter assist panels",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "assist",
+      "name": "Session prep",
+      "description": "Library and assistant side by side to prep a session.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "cols",
+        "panes": [
+          "library",
+          "assistant"
+        ],
+        "prompt": "Help me prep next session: list open threads, then suggest three scenes."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Combat night",
+      "description": "Combat tracker, sound and assistant.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "side",
+        "panes": [
+          "combat",
+          "sound",
+          "assistant"
+        ],
+        "prompt": "Help me run this fight: track turns and suggest monster tactics."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Worldbuilding",
+      "description": "Library, generators and assistant.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "grid",
+        "panes": [
+          "library",
+          "generators",
+          "assistant",
+          "minerva"
+        ],
+        "prompt": "Help me build out this region: places, people and rumours."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Game night",
+      "description": "Everything for running the table.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "grid",
+        "panes": [
+          "stage",
+          "combat",
+          "sound",
+          "assistant"
+        ],
+        "prompt": "Stay ready: when I say a scene, set the stage and music."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Between sessions",
+      "description": "Inbox, clock and assistant.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "cols",
+        "panes": [
+          "inbox",
+          "clock",
+          "assistant"
+        ],
+        "prompt": "Go through player requests and messages since last session, and propose answers."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Live transcript",
+      "description": "The transcript next to the assistant.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "cols",
+        "panes": [
+          "transcript",
+          "assistant"
+        ],
+        "prompt": "Listen with me: suggest NPC names and rules lookups as we play."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Scene builder",
+      "description": "Scenes, sound and the stage.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "rows",
+        "panes": [
+          "scenes",
+          "sound",
+          "stage"
+        ],
+        "prompt": "Help me set up scenes for tonight with music and images."
+      }
+    },
+    {
+      "kind": "assist",
+      "name": "Macro workshop",
+      "description": "Minerva macros and the assistant.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "layout": "cols",
+        "panes": [
+          "minerva",
+          "assistant"
+        ],
+        "prompt": "Help me write macros for things I do every session."
+      }
+    }
+  ]
+}

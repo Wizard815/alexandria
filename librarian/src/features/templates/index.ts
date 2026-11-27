@@ -9,6 +9,8 @@
 //   POST /templates/derive     a guide from example library pages (their common structure)
 //   GET/PUT /templates/web, POST /templates/web/check, POST /templates/web/search
 //   POST /templates/:id/shop   a shop draft from the shop generator, with this template's guide
+//   GET /templates/starters, POST /templates/starters/add { pack, names? }   the starter templates (starters.ts)
+//   GET /templates/export?ids=a,b&kind=k   a package (.alxtemplates.json); POST /templates/import { file }  (share.ts)
 //   MCP  list_dm_templates, get_dm_template, create_dm_template, update_dm_template, web_research
 import { Router } from 'express';
 import type { Feature, McpTool } from '../types.ts';
@@ -24,7 +26,9 @@ import { deriveGuide, draftTemplate } from './draft.ts';
 import { blockedQuery, blockedText, cleanQueries, webSearch } from './web.ts';
 import { generateShopWithTemplate } from './shop.ts';
 import { draftSpell } from './spell.ts';
-import { STARTER_TEMPLATES, starterTemplate } from './starters.ts';
+import { importTemplates, makePackage, readPackage } from './share.ts';
+import { starterPacks } from './starters.ts';
+import { VERSION } from '../../version.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string | null, action: string, detail = '') =>
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -44,20 +48,8 @@ function routes(d: Deps) {
 
   r.get('/', (req, res) => {
     const kind = typeof req.query.kind === 'string' && (KINDS as readonly string[]).includes(req.query.kind) ? req.query.kind as Kind : undefined;
-    res.json({ templates: listTemplates(d.db, W(res), kind), kinds: KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), model: hasJob(d, 'chat'), starters: STARTER_TEMPLATES.filter((t) => !kind || t.kind === kind) });
+    res.json({ templates: listTemplates(d.db, W(res), kind), kinds: KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), model: hasJob(d, 'chat') });
   });
-  // A built-in starter into this world, as a normal new template the DM can change.
-  r.post('/starters/:sid', (req, res) => {
-    const st = starterTemplate(String(req.params.sid));
-    if (!st) throw new HttpError(404, 'Starter not found');
-    const { id: _id, ...input } = st;
-    const t = cleanTemplate({ ...input, name: typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name : input.name });
-    refuseClassified(d, W(res), t);
-    const made = createTemplate(d.db, W(res), t, me(res));
-    audit(d, W(res), me(res), 'templates.create', `${made.kind} ${made.name} (from ${st.id})`);
-    res.status(201).json(made);
-  });
-
   // ---- web research (before /:id) ----
   r.get('/web', async (_req, res) => {
     let providers: { id: string; name: string }[] = [];
@@ -99,6 +91,42 @@ function routes(d: Deps) {
     const ids = (Array.isArray(req.body?.pageIds) ? req.body.pageIds : []).filter((x: unknown) => typeof x === 'string').slice(0, 8);
     if (!ids.length) throw new HttpError(400, 'Pick one or more example pages');
     res.json(await deriveGuide(d, W(res), ctx(res).viewer, ids, typeof req.body?.name === 'string' ? req.body.name.slice(0, 80) : ''));
+  });
+
+  // ---- starter templates that ship in templates/ (before /:id) ----
+  r.get('/starters', (_req, res) => {
+    const have = new Set(listTemplates(d.db, W(res)).map((t) => `${t.kind}:${t.name.toLowerCase()}`));
+    res.json({ packs: starterPacks().map((p) => ({ id: p.id, name: p.name, templates: p.templates.map((t) => ({ kind: t.kind, name: t.name, description: t.description, added: have.has(`${t.kind}:${t.name.toLowerCase()}`) })) })) });
+  });
+  r.post('/starters/add', (req, res) => {
+    const pack = starterPacks().find((p) => p.id === req.body?.pack);
+    if (!pack) throw new HttpError(404, 'No such starter pack');
+    const names = Array.isArray(req.body?.names) ? new Set(req.body.names.map((n: unknown) => String(n).toLowerCase())) : null;
+    const picked = pack.templates.filter((t) => !names || names.has(t.name.toLowerCase()));
+    if (!picked.length) throw new HttpError(404, 'None of those templates are in the pack');
+    // One the world already has (perhaps changed by the DM) is left alone.
+    const have = new Set(listTemplates(d.db, W(res)).map((t) => `${t.kind}:${t.name.toLowerCase()}`));
+    const list = picked.filter((t) => !have.has(`${t.kind}:${t.name.toLowerCase()}`));
+    const out = list.length ? importTemplates(d.db, W(res), list, me(res), (t) => refuseClassified(d, W(res), t)) : { created: [], updated: [], unchanged: [] };
+    out.unchanged.push(...picked.filter((t) => !list.includes(t)).map((t) => t.name));
+    audit(d, W(res), me(res), 'templates.starters', `${pack.id}: ${[...out.created, ...out.updated].join(', ')}`);
+    res.json(out);
+  });
+
+  // ---- sharing: a package file to take to another world or table (before /:id) ----
+  r.get('/export', (req, res) => {
+    const ids = typeof req.query.ids === 'string' && req.query.ids ? req.query.ids.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 300) : null;
+    const kind = typeof req.query.kind === 'string' && (KINDS as readonly string[]).includes(req.query.kind) ? req.query.kind as Kind : undefined;
+    const list = ids ? ids.map((x) => found(res, x)) : listTemplates(d.db, W(res), kind);
+    if (!list.length) throw new HttpError(404, 'There are no templates to export');
+    res.json(makePackage(list, { alexandria: VERSION, name: typeof req.query.name === 'string' ? req.query.name.slice(0, 80) : '' }));
+  });
+  r.post('/import', (req, res) => {
+    const list = readPackage(req.body?.file ?? req.body);
+    if (req.body?.check === true) { for (const t of list) refuseClassified(d, W(res), t); res.json({ ok: true, templates: list.map((t) => ({ kind: t.kind, name: t.name, description: t.description })) }); return; }
+    const out = importTemplates(d.db, W(res), list, me(res), (t) => refuseClassified(d, W(res), t));
+    audit(d, W(res), me(res), 'templates.import', `${out.created.length} new, ${out.updated.length} updated: ${[...out.created, ...out.updated].join(', ')}`);
+    res.json(out);
   });
 
   // ---- the templates ----
@@ -172,7 +200,7 @@ const enc = encodeURIComponent;
 const tools: McpTool[] = [
   {
     name: 'list_dm_templates', dmOnly: true,
-    description: "DM: the DM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop, library page, quick event and spell templates): id, kind, name, triggers, on or off, version. Also the built-in starters (ids starter:...) the DM can copy in.",
+    description: "DM: the DM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop, library page, quick event and spell templates): id, kind, name, triggers, on or off, version.",
     props: { kind: { type: 'string', enum: [...KINDS], description: 'Only this kind' } },
     call: (a) => ({ method: 'GET', path: `/templates${a?.kind ? `?kind=${enc(a.kind)}` : ''}` }),
   },

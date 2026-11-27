@@ -9,6 +9,8 @@ import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '
 import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { ConditionChip, useConditions } from './conditions.tsx';
 import { RerollMod } from './rerolls.tsx';
+import { DowntimeModule } from '../downtime/Player.tsx';
+import { TradeOffers } from '../sessionchat/TradeDialog.tsx';
 import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -56,7 +58,7 @@ const withRerolls = (list: Module[], on: boolean): Module[] => {
   return [...list.slice(0, at), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(at)];
 };
 /** The default order, most used first; "Sort like the default" puts a player's own modules in it (their data stays). */
-const RANK: ModuleType[] = ['vitals', 'mana', 'rerolls', 'counters', 'dm', 'notes', 'list', 'inventory', 'contacts', 'text', 'recent'];
+const RANK: ModuleType[] = ['vitals', 'mana', 'rerolls', 'counters', 'dm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
 const byRank = (list: Module[]) => [...list].sort((a, b) => RANK.indexOf(a.type) - RANK.indexOf(b.type));
 
 /** `page`: the player's own page, where the character's name is the page title. */
@@ -165,6 +167,7 @@ export default function Sheet({ account, page = false }: { account: string; page
               : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} name={pool} /> : <p className="tiny muted">{pool} is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
+              : m.type === 'downtime' ? <DowntimeModule account={own ? 'me' : account} />
               : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? (x) => setAdding1(x) : undefined} onAsk={own && canAsk ? setAsking : undefined} />
               : m.type === 'contacts' ? <PeopleMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries) => update(m.id, { data: { entries } }, 0)} onAsk={own && canAsk ? setAsking : undefined} />
               : <Editable m={m} readOnly={!own} onData={(data, wait) => update(m.id, { data }, wait)} />
@@ -286,7 +289,7 @@ export function ManaMod({ s, onChange, busy, name = 'Mana' }: { s: SheetT; onCha
   );
 }
 
-// ---- inventory (read from the pack) ----
+// ---- inventory (read from the pack; on my own sheet, open trades on top) ----
 
 function Inventory({ account, own }: { account: string; own: boolean }) {
   const { w } = useWorld();
@@ -295,6 +298,7 @@ function Inventory({ account, own }: { account: string; own: boolean }) {
   const items = (inv.data?.items ?? []).filter((it: any) => it.status !== 'pending');
   return (
     <div className="stack tight">
+      {own && <TradeOffers compact />}
       {items.length ? <ul className="sht-list">{items.slice(0, 30).map((it: any) => <li key={it.id}><span className="grow small">{it.name}</span>{it.qty !== 1 && <span className="tiny muted">×{it.qty}</span>}</li>)}</ul> : <span className="tiny muted">Nothing in the pack.</span>}
       {items.length > 30 && <span className="tiny faint">and {items.length - 30} more</span>}
       {own && <Link className="tiny" to="../inventory">Open inventory</Link>}

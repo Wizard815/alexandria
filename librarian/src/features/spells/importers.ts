@@ -8,7 +8,7 @@ import { all } from '../../core/db.ts';
 import { redactMarkdown } from '../../core/policy.ts';
 import { normLevel } from '../../core/levels.ts';
 import { HttpError, parseJson } from '../../core/util.ts';
-import { moduleDoc } from '../modules/store.ts';
+import { leftOut, moduleDoc } from '../modules/store.ts';
 import { LIMITS, normalizeSpell, parseCsv, type Spell } from './format.ts';
 import { duplicateOf, saveCustom } from './store.ts';
 
@@ -47,7 +47,8 @@ export function readImport(d: Deps, worldId: string, b: any): ImportRead {
     const m = moduleDoc(d.db, worldId, String(b.moduleId ?? ''));
     if (!m) throw new HttpError(404, 'Module not found');
     const source = cleanSource(b.source, m.doc.name);
-    const rows = m.doc.terms.filter((t) => t.kind === 'spell').map((t) => ({ ...(t.data && typeof t.data === 'object' ? t.data : {}), name: t.term, text: stripHead(t.text) }));
+    const skip = leftOut(d.db, worldId, m.doc.id);
+    const rows = m.doc.terms.filter((t) => t.kind === 'spell' && !skip.has(t.id)).map((t) => ({ ...(t.data && typeof t.data === 'object' ? t.data : {}), name: t.term, text: stripHead(t.text) }));
     if (!rows.length) throw new HttpError(400, `${m.doc.name} has no spells`);
     return { source, attribution: m.doc.attribution ?? '', spells: fromRows(rows, source, warnings), warnings };
   }

@@ -295,6 +295,16 @@ function checkFeatureSetting(k: string, spec: SettingSpec, v: unknown) {
   }
 }
 
+/** Settings only the DM reads: where the WorldLore folder lives and what the DM's agent may do without asking. */
+const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove', 'agentAuto', 'agentName'] as const;
+/** The settings as a viewer may read them (a player, a guest or a model asking as one gets no DM-only key). */
+export function settingsFor<T extends object>(s: T, role: string): Partial<T> {
+  if (role === 'dm') return s;
+  const out: Record<string, unknown> = { ...(s as Record<string, unknown>) };
+  for (const k of DM_ONLY_SETTINGS) delete out[k];
+  return out as Partial<T>;
+}
+
 /** Merge a settings patch, keeping only known keys with the right type. */
 export function mergeSettings(cur: WorldSettings, patch: Record<string, unknown>): WorldSettings {
   const out: any = { ...cur };
