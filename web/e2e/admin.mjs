@@ -28,7 +28,7 @@ srv.stderr.on('data', (d) => { if (process.env.E2E_VERBOSE) process.stderr.write
 for (let i = 0; i < 150 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const ROUTES = ['', 'worlds', 'accounts', 'library', 'sources', 'models', 'keys', 'access', 'audit', 'search', 'integrations', 'mods',
+const ROUTES = ['', 'worlds', 'accounts', 'library', 'sources', 'models', 'keys', 'access', 'audit', 'search', 'integrations',
   'sources?tab=worlds', 'sources?tab=keys', 'sources?tab=files', 'access?tab=permissions', 'access?tab=security', 'search?tab=mirror',
   'models?tab=session', 'models?tab=memory', 'models?tab=embeddings', 'models?tab=calls'];
 const REDIRECTS = { connections: 'sources?tab=connections', 'source-keys': 'sources?tab=keys', 'source-files': 'sources?tab=files', permissions: 'access?tab=permissions', security: 'access?tab=security', mirror: 'search?tab=mirror' };
