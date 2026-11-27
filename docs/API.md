@@ -73,6 +73,8 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Whiteboard | `GET/PUT /whiteboard` (send `baseVersion`), `POST /whiteboard/wipe`, `GET /whiteboard/history[/:v]` |
 | Broker | `/broker/*`: see below |
 | Approvals | `/approvals/*`: see below |
+| Downtime | `/downtime/*`: activities, tasks, Downtime rounds and picks, time, rewards, the log, suggest and decide; see [DOWNTIME.md](DOWNTIME.md) |
+| House rules | `/mods/*`: house rules (mods) on and off, options, counters, actions and rerolls, import and export; see [MODS.md](MODS.md) |
 | Spells | `/spells/*`: the Codex (search every field), mana, spell crafting; see [SPELLS.md](SPELLS.md) |
 
 ### Information broker (`/api/worlds/:world/broker`)

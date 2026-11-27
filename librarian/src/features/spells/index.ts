@@ -701,6 +701,8 @@ const feature: Feature = {
   },
   worldMount: 'spells',
   worldRoutes: routes,
+  // House rules (World → House rules): each one switches this feature's settings as a set. The rule files are in the repo's mods/ folder.
+  houseRules: ['spell-points', 'mana-pool', 'spell-crafting'],
   mcpTools: [
     {
       name: 'list_spells',

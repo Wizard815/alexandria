@@ -162,6 +162,18 @@ World settings → Game module → Import → **Open5e** or **5e SRD API**.
   download (kept 15 minutes). The credit line names each book, its
   publisher and licence (OGL 1.0a or CC-BY-4.0) and is shown in Credits.
 
+### Open5e is a house rule
+
+Open5e and the 5e SRD API ship as a house rule, `mods/open5e.alxmod.json`.
+Each world turns it on under **House rules** (its preset sets the world
+setting `open5e`). While it is off, the Open5e and 5e SRD API tabs leave
+World settings → Game module, and the `open5e` and `dnd5eapi` import types
+and `GET /modules/sources` answer 403 ("turn it on under House rules"), so
+the assistant's `list_content_books` and `import_content` cannot pull either.
+The server's content library below is not a mod: books the admin keeps there
+are offered to every world under Available either way. The code is
+`features/open5e`; the converters stay in `features/modules`.
+
 ### The server content library (admins)
 
 Admin → Sources → **Content library** pulls a book once onto the server and

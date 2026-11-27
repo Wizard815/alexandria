@@ -18,6 +18,7 @@ export const DM_GROUPS: { id: DMGroupId; label: string; icon: string }[] = [
 export const DM_NAMES: Record<string, DMName> = {
   '': { group: 'run', label: 'Table', icon: 'fa-table-cells-large', desc: 'Everything live in the world, at a glance.' },
   combat: { group: 'run', label: 'Combat', icon: 'fa-khanda', desc: 'Initiative, conditions and monster health.' },
+  downtime: { group: 'run', label: 'Downtime', icon: 'fa-hourglass-half', desc: 'Downtime activities: press Downtime when days pass, track tasks from common to legendary, give rewards.' },
   quick: { group: 'run', label: 'Quick events', icon: 'fa-bolt', desc: 'Timed prompts on the players’ screens.' },
   scenes: { group: 'run', label: 'Scenes', icon: 'fa-clapperboard', desc: 'One button sets the TV, sound, lights and map.' },
   stage: { group: 'run', label: 'Stage', icon: 'fa-image', desc: 'Prepare cards, then show them to the table.' },
@@ -42,6 +43,7 @@ export const DM_NAMES: Record<string, DMName> = {
   relations: { group: 'world', label: 'Relations', icon: 'fa-diagram-project', desc: 'Who is related to, or a member of, whom.' },
   map: { group: 'world', label: 'Map', icon: 'fa-map', desc: 'Pins and notes on the map; hide or erase any.' },
   rules: { group: 'world', label: 'Rules', icon: 'fa-scroll', desc: 'Spells, conditions and monsters from the game module.' },
+  'house-rules': { group: 'world', label: 'House rules', icon: 'fa-dice', desc: 'Your table’s own rules: rerolls, hero points, spell points and more. Grant and track them here.' },
   items: { group: 'world', label: 'Items', icon: 'fa-box-open', desc: 'The item database shops stock from: SRD items, your own and imports.' },
   codex: { group: 'world', label: 'Codex', icon: 'fa-book-journal-whills', desc: 'Every spell, mana, and spells players learn by combining others.' },
   whiteboard: { group: 'world', label: 'Whiteboard', icon: 'fa-chalkboard', desc: 'One shared board that stays between sessions.' },

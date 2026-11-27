@@ -406,6 +406,12 @@ export async function seedContent(h: H, S: Seed) {
   const rid = (await jess('GET', '/spells/recipes')).recipes.find((x: any) => x.result.name === 'Scorching Ray')?.id;
   if (rid) await jess('POST', '/spells/learn', { recipeId: rid, note: mark('spell_learn_note', ['dm', 'jess'], "jess's note on her request to learn a spell") });
 
+  // ---- downtime: the DM's note and a hidden reward on jess's task; jess's own task and its log are hers and the DM's ----------------
+  await dm('PUT', '/mods/downtime/enabled', { on: true });
+  await dm('POST', '/downtime/tasks', { player: ID.jess, activityId: 'pre-research', dmNote: mark('downtime_dm_note', ['dm'], "the DM's private note on a player's downtime task"),
+    reward: { text: mark('downtime_hidden_reward', ['dm'], 'a hidden downtime reward the player has not earned yet'), hidden: true } });
+  await jess('POST', '/downtime/tasks', { activity: { name: `Letters home ${mark('downtime_jess_task', ['dm', 'jess'], "jess's own downtime activity, waiting for the DM")}`, tier: 'common' } });
+
   // ---- source keys: a per-user key's page, a blanket key's page, the keys' own secrets ---------------------------------------------
   // jess's key sees her own private page; tom's sees his; a blanket key (tom's, claimed so) sees everything, and nothing it returns may reach a player.
   const jessKey = mark('key_secret_jess', [], "the secret of jess's source key (never returned to anyone)");
