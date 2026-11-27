@@ -6,6 +6,7 @@
 // and the assistant carries on with them. A DM-only name in a search is refused before anything is sent. The page
 // works at phone width with no sideways scrolling, and players cannot open it.
 // Run from web/: npm run build && node e2e/templates.mjs
+import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, signIn, quiet } from './lib.mjs';
 
@@ -106,6 +107,28 @@ try {
   await box.fill('Make a town based on Velmira near Saltmarsh');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=ag-guide] li[data-kind=web]')].some((l) => l.getAttribute('data-status') === 'blocked'), null, { timeout: 15000 }).catch(() => problems.push('a search for a DM-only name should show as blocked'));
+
+  // ---- share: export a file, change it, import it back as a new version ----
+  await page.keyboard.press('Escape');
+  await page.goto(`${W}/dm/templates`);
+  await page.locator('[data-testid=tpl-item][data-name="Towns"]').waitFor({ timeout: 8000 });
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('tpl-export').click()]);
+  check(/\.alxtemplates\.json$/.test(dl.suggestedFilename()), `the export should be a .alxtemplates.json file (got ${dl.suggestedFilename()})`);
+  const pkg = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  check(pkg.type === 'alexandria-templates' && pkg.templates.some((t) => t.name === 'Towns'), 'the exported file holds the Towns guide');
+  pkg.templates.find((t) => t.name === 'Towns').description = 'Towns, shared from another table';
+  const shared = path.join(tmpDir('tpl-share'), 'towns.alxtemplates.json');
+  fs.writeFileSync(shared, JSON.stringify(pkg));
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('tpl-import').click()]);
+  await chooser.setFiles(shared);
+  const checkBox = page.getByTestId('tpl-import-check');
+  await checkBox.waitFor({ timeout: 8000 });
+  check(/Towns/.test(await checkBox.innerText()), 'the import lists what is in the file before saving');
+  await checkBox.getByRole('button', { name: /^Import/ }).click();
+  await page.locator('.toast').filter({ hasText: 'updated' }).waitFor({ timeout: 8000 }).catch(() => problems.push('the import did not say it updated the guide'));
+  const after = (await api('GET', '/templates')).body.templates?.find((t) => t.name === 'Towns');
+  check(after?.version === 2 && after.description === 'Towns, shared from another table', 'the imported copy should be version 2 of Towns, not a second template');
+  note('shared: exported a file, imported a changed copy as version 2');
 
   // ---- players cannot open it ----
   const ptok = await login('jess', 'player pass 123');

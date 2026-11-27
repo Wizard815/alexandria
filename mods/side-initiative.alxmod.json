@@ -1,0 +1,31 @@
+{
+  "kit": 2,
+  "id": "side-initiative",
+  "name": "Side initiative",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Each side rolls one initiative and acts together, for faster fights.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "combat",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Side initiative (house rule)",
+      "text": "At the start of combat **one player and the DM each roll a d20**; the higher side goes first. On a side's turn **its creatures act in any order** they agree on. Reroll each round if the table wants more swing."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "initiative",
+      "turn order",
+      "who goes first"
+    ],
+    "dm": "Side initiative is on: one player and the DM each roll d20, the higher side acts first, and each side's creatures act in any order they like. If the combat tracker needs a number, give every creature on a side that side's roll.",
+    "player": "At this table each side rolls one initiative and acts together, so the party can plan turns in any order."
+  }
+}
