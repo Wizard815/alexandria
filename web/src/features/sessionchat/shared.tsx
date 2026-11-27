@@ -18,6 +18,7 @@ export interface Trade {
   id: string; from: string; to: string; status: 'open' | 'accepted' | 'declined' | 'cancelled'; note: string;
   offer: { itemId: string | null; item: string | null; qty: number; cp: number };
   want: { item: string | null; qty: number; cp: number };
+  reason?: string | null; at?: string; decidedAt?: string | null;
 }
 
 /** The current session and my unread counts, live. */
