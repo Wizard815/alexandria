@@ -12,31 +12,16 @@ import { dmAnd } from '../core/events.ts';
 import type { Viewer } from '../core/policy.ts';
 import { HttpError, id, int, now, oneOf, parseJson, str } from '../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
+import { answerQuick, audienceOf, CHECKS, viewOf } from '../core/quickAnswer.ts';
+export { answerQuick, isCheck } from '../core/quickAnswer.ts';
 
 const KINDS = ['recall', 'notice', 'save', 'read', 'group', 'contest', 'choice', 'vote', 'reaction', 'twist'] as const;
-const CHECKS: string[] = ['recall', 'notice', 'save', 'read', 'group', 'contest'];
 
 export default function quickRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
-
-  const audienceIds = (ev: any, worldId: string): string[] => {
-    const a = parseJson<string[] | 'party'>(ev.audience, []);
-    return a === 'party' ? memberIds(db, worldId, ['player']) : a;
-  };
-
-  function view(ev: any, v: Viewer, worldId: string) {
-    const responses = all<any>(db, 'SELECT * FROM quick_responses WHERE event_id = ? ORDER BY at', ev.id);
-    const base = { id: ev.id, kind: ev.kind, title: ev.title, prompt: ev.prompt, options: parseJson(ev.options, []), skill: ev.skill, timer_s: ev.timer_s, closes_at: ev.closes_at, status: ev.status, created_at: ev.created_at };
-    if (v.role === 'dm') return { ...base, audience: audienceIds(ev, worldId), dc: ev.dc, success_text: ev.success_text, fail_text: ev.fail_text, public_votes: !!ev.public_votes, responses };
-    if (!audienceIds(ev, worldId).includes(v.accountId)) return null;
-    const mine = responses.find((x) => x.account_id === v.accountId) ?? null;
-    const out: any = { ...base, mine: mine && { choice: mine.choice, roll: mine.roll, total: mine.total, result: ev.status === 'resolved' ? mine.result : null } };
-    if (ev.kind === 'vote' && ev.public_votes) out.tally = parseJson<string[]>(ev.options, []).map((_, i) => responses.filter((x) => x.choice === i).length);
-    if (ev.status === 'resolved' && mine?.result) out.outcome = mine.result === 'success' ? ev.success_text : ev.fail_text;
-    return out;
-  }
-
+  const audienceIds = (ev: any, worldId: string): string[] => audienceOf(d, ev, worldId);
+  const view = (ev: any, v: Viewer, worldId: string) => viewOf(d, ev, v, worldId);
   const push = (ev: any, worldId: string) => d.hub.emitPer(worldId, 'quick-event', (v) => view(ev, v, worldId));
   const load = (res: any, eid: string) => {
     const ev = one<any>(db, 'SELECT * FROM quick_events WHERE id = ? AND world_id = ?', eid, ctx(res).world.id);
@@ -82,23 +67,7 @@ export default function quickRoutes(d: Deps) {
   // librarian rolls a d20.
   r.post('/:eid/respond', requirePlayerOrDM, (req, res) => {
     const c = ctx(res);
-    const ev = load(res, String(req.params.eid));
-    if (!audienceIds(ev, c.world.id).includes(me(res))) throw new HttpError(404, 'Event not found');
-    if (ev.status !== 'open') throw new HttpError(409, 'This event is closed');
-    // Small grace period for slow phones.
-    if (ev.closes_at && Date.parse(ev.closes_at) + 2000 < Date.now()) throw new HttpError(409, 'Time ran out');
-    const options = parseJson<string[]>(ev.options, []);
-    let choice: number | null = null, roll: number | null = null, total: number | null = null;
-    if (CHECKS.includes(ev.kind)) {
-      // { pass: true } lets someone else try; otherwise it is a roll.
-      if (req.body?.pass !== true) {
-        roll = int(req.body?.roll, 'roll', { min: 1, max: 20, optional: true }) ?? randomInt(1, 21);
-        total = roll + (int(req.body?.modifier, 'modifier', { min: -10, max: 30, optional: true }) ?? 0);
-      }
-    } else if (options.length) choice = int(req.body?.choice, 'choice', { min: 0, max: options.length - 1 });
-    run(db, `INSERT INTO quick_responses (event_id, account_id, choice, roll, total, at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT (event_id, account_id) DO UPDATE SET choice = excluded.choice, roll = excluded.roll, total = excluded.total, at = excluded.at`, ev.id, me(res), choice, roll, total, now());
-    push(ev, c.world.id);
+    const ev = answerQuick(d, c.world.id, me(res), String(req.params.eid), req.body);
     res.json(view(ev, c.viewer, c.world.id));
   });
 

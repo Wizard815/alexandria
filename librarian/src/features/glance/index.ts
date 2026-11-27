@@ -23,6 +23,7 @@ import { getClock } from '../clock/api.ts';
 import { character } from '../spells/store.ts';
 import { DEFAULT_POOL, poolMax, poolNow } from '../spells/mana.ts';
 import { kindsFor } from '../notify/store.ts';
+import { answerQuick, isCheck } from '../../core/quickAnswer.ts';
 
 export const WIDGET_LABEL = 'Home-screen widget';
 /** Widget keys kept per account and world; making another revokes the oldest. */
@@ -33,7 +34,7 @@ const safe = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { re
 const count = (d: Deps, sql: string, ...args: unknown[]): number => safe(() => one<{ n: number }>(d.db, sql, ...args)?.n ?? 0, 0);
 
 /** Something worth a notification: shown once per id, opens path when tapped. */
-export interface Alert { id: string; kind: 'turn' | 'quick' | 'night' | 'reply' | 'request'; title: string; body: string; path: string }
+export interface Alert { id: string; kind: 'turn' | 'quick' | 'night' | 'reply' | 'request'; title: string; body: string; path: string; actions?: { id: string; label: string }[] }
 
 interface QuickRow { id: string; kind: string; title: string; audience: string; closes_at: string | null; created_at: string }
 
@@ -99,14 +100,14 @@ export function glance(d: Deps, res: any) {
 
   // ---- quick events: open ones for me (the DM sees every open one and how many answered) ----
   const players = memberIds(d.db, w, ['player']);
-  const open = all<QuickRow>(d.db, `SELECT id, kind, title, audience, closes_at, created_at FROM quick_events WHERE world_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 20`, w);
+  const open = all<QuickRow & { options: string }>(d.db, `SELECT id, kind, title, audience, options, closes_at, created_at FROM quick_events WHERE world_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 20`, w);
   const quick = open.map((ev) => {
     const aud = parseJson<string[] | 'party'>(ev.audience, []);
     const ids = aud === 'party' ? players : aud;
     const answered = all<{ account_id: string }>(d.db, 'SELECT account_id FROM quick_responses WHERE event_id = ?', ev.id).map((r) => r.account_id);
     if (dm) return { id: ev.id, kind: ev.kind, title: ev.title, closesAt: ev.closes_at, answers: answered.filter((a) => ids.includes(a)).length, of: ids.length };
     if (!ids.includes(self)) return null;
-    return { id: ev.id, kind: ev.kind, title: ev.title, closesAt: ev.closes_at, answered: answered.includes(self) };
+    return { id: ev.id, kind: ev.kind, title: ev.title, closesAt: ev.closes_at, answered: answered.includes(self), options: parseJson<string[]>(ev.options, []) };
   }).filter(Boolean).slice(0, 5);
 
   // ---- what waits for me ----
@@ -128,7 +129,10 @@ export function glance(d: Deps, res: any) {
   const alerts: Alert[] = [];
   if (combat.myTurn && cur) alerts.push({ id: `turn:${w}:${st.round}:${cur.id}`, kind: 'turn', title: 'Your turn', body: `Round ${st.round} in ${c.world.name}${mine ? `: ${mine.name}` : ''}`, path: `${base}/${dm ? 'combat' : 'live'}` });
   for (const q of quick as any[]) {
-    if (!dm && !q.answered) alerts.push({ id: `quick:${q.id}`, kind: 'quick', title: q.title || 'Quick event', body: `${c.world.name}: your DM is asking you`, path: `/w/${c.world.slug}/` });
+    if (dm || q.answered) continue;
+    // Buttons for an Android notification: roll, or the first three choices.
+    const actions = isCheck(q.kind) ? [{ id: 'roll', label: 'Roll for me' }] : (q.options as string[]).slice(0, 3).map((o, i) => ({ id: `choice:${i}`, label: String(o).slice(0, 30) }));
+    alerts.push({ id: `quick:${q.id}`, kind: 'quick', title: q.title || 'Quick event', body: `${c.world.name}: your DM is asking you`, path: `/w/${c.world.slug}/`, actions });
   }
   if (next && !next.happening) {
     const mins = (Date.parse(next.startsAt) - Date.now()) / 60000;
@@ -168,6 +172,17 @@ const feature: Feature = {
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
     r.get('/', (_req, res) => { res.json(glance(d, res)); });
+
+    // Answer a quick event from an Android notification's button: { action: 'roll' | 'choice:N' }.
+    // The one write a widget key can make (core/auth.ts isGlanceAnswer); a session may use it too.
+    r.post('/answer/:eid', requirePlayerOrDM, (req, res) => {
+      const c = ctx(res);
+      const a = String(req.body?.action ?? '');
+      const m = /^choice:(\d)$/.exec(a);
+      if (a !== 'roll' && !m) throw new HttpError(400, 'action must be roll or choice:N');
+      answerQuick(d, c.world.id, me(res), String(req.params.eid), m ? { choice: Number(m[1]) } : {});
+      res.json({ ok: true });
+    });
 
     // Made from the app (More, Home-screen widget): a widget key for this world, shown once.
     r.post('/link', requirePlayerOrDM, (_req, res) => {

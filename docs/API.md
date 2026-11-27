@@ -194,6 +194,7 @@ One small read for the Android home-screen widgets and the player's "You" card.
 |---|---|---|
 | GET | `/glance` | `{world, role, name, date, combat: {active, round, myTurn, turnName, me: {hp, maxHp, tempHp, conditions} \| null}, mana: {now, max} \| null, session: {live, title, since, recording, here}, next, quick, waiting, at}`. A player gets their own HP and mana, quick events meant for them (`answered`) and `waiting: {offers, replies}`; the DM gets every open quick event (`answers`/`of`) and `waiting: {requests, approvals, broker}`. `turnName` is never a hidden foe for players. |
 | GET | `/glance` alerts | The glance also has `alerts: [{id, kind, title, body, path}]`: what is worth a notification now (your turn, a quick event for you, game night within the hour, an answer to your request; for the DM, a new request), filtered by the person's choices. Each id is stable, so each app shows it once. |
+| POST | `/glance/answer/:eid` | `{action: 'roll' \| 'choice:N'}`: answer a quick event from an Android notification's button. The one write a widget key may make (`core/auth.ts`, `isGlanceAnswer`); only for an event the person was asked. |
 | POST | `/glance/link` | A player or the DM, signed in (not with a key; guests get 403). A widget key (`alx_wdg_…`, shown once) that opens only `GET /glance` of this world. Keeps the newest four per account and world. |
 
 ### Approvals (`/api/worlds/:world/approvals`)

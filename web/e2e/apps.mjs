@@ -200,9 +200,66 @@ try {
     if (got) {
       const f = new URLSearchParams(new URL(page.url()).hash.slice(1));
       check(f.get('t') === 'Footsteps behind you' && (f.get('p') ?? '').startsWith(`/w/${W.slug}`), `with its title and page (${f.get('t')}, ${f.get('p')})`);
+      const acts = JSON.parse(f.get('a') ?? '[]');
+      check(acts.length === 1 && acts[0].id === 'roll' && acts[0].label === 'Roll for me', `and a "Roll for me" button (${f.get('a')})`);
     }
     check(!errors.length, `no console errors (${errors.join(' | ')})`);
     await ctx.close();
+  }
+
+  console.log('Share to Alexandria, from the Android app');
+  {
+    const { ctx, page, errors } = await open(ANDROID, () => { window.__TAURI_INTERNALS__ = {}; });
+    await api('POST', `/api/worlds/${W.id}/sessionchat/sessions/start`, tokDM, {}).catch(() => {});
+    await page.goto(`${base}/share`);
+    await page.getByTestId('share-page').waitFor();
+    // What MainActivity.shareIntoPage does once the page is ready.
+    await page.waitForFunction(() => window.__alxShareReady === true);
+    await page.evaluate(() => { window.__alxShare = { text: 'https://example.com/a-map-of-the-coast', subject: 'Look at this map' }; });
+    const box = page.getByTestId('share-text');
+    await box.waitFor();
+    check((await box.inputValue()).includes('a-map-of-the-coast'), 'the shared text arrives in the page');
+    await page.getByTestId('share-send').click();
+    const done = await page.getByTestId('share-done').waitFor({ timeout: 8000 }).then(() => true, () => false);
+    check(done, `sent to the table chat (${done ? '' : await page.locator('.error, [role=alert]').first().textContent().catch(() => '')})`);
+    check(await noSideways(page), 'no sideways scroll');
+    await shot(page, 'android-share');
+    check(!errors.length, `no console errors (${errors.join(' | ')})`);
+    await ctx.close();
+  }
+
+  console.log('Invites: QR code and opening in the app');
+  {
+    const inv = await api('POST', `/api/worlds/${W.id}/invites`, tokDM, { role: 'player' });
+    const ctx = await browser.newContext(ANDROID);
+    const page = await ctx.newPage();
+    await page.goto(`${base}/join?code=${inv.body.code}`);
+    const btn = page.getByTestId('open-in-app').getByRole('link', { name: /Open in the Alexandria app/ });
+    await btn.waitFor({ timeout: 8000 });
+    const href = (await btn.getAttribute('href')) ?? '';
+    const u = new URL(href);
+    check(u.protocol === 'alexandria:' && u.searchParams.get('code') === inv.body.code && u.searchParams.get('server') === base, `the Join page offers the app (${href})`);
+    await ctx.close();
+    const app = await browser.newContext(ANDROID);
+    await app.addInitScript(() => { window.__TAURI_INTERNALS__ = {}; });
+    const p2 = await app.newPage();
+    await p2.goto(`${base}/join?code=${inv.body.code}`);
+    await p2.getByRole('heading', { name: 'Join a world' }).waitFor();
+    check(!(await p2.getByTestId('open-in-app').count()), 'not inside the app itself');
+    await app.close();
+    // The DM makes an invite: a QR code of the link, for phones at the table.
+    const dmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const dp = await dmCtx.newPage();
+    await dp.goto(base + '/login');
+    await dp.getByLabel(/username/i).fill('dm');
+    await dp.getByLabel(/password/i).fill('dungeon master 123');
+    await dp.getByRole('button', { name: /sign in|log in/i }).click();
+    await dp.waitForURL(/\/w\//, { timeout: 15000 });
+    await dp.goto(`${base}/w/${W.slug}/dm/sharing?tab=invite`);
+    await dp.getByRole('button', { name: 'Make an invite code' }).click();
+    check(await dp.getByTestId('qr').waitFor({ timeout: 8000 }).then(() => true, () => false), 'a new invite shows a QR code of its link');
+    await shot(dp, 'dm-invite-qr');
+    await dmCtx.close();
   }
 
   console.log('Get the app, signed out');

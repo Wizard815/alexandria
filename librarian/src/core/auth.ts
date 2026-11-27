@@ -159,15 +159,18 @@ const gateOf = (req: Request) => req.app.locals.adminGate as AdminGate | undefin
 const isAdminPath = (req: Request) => /^\/api\/admin(-auth)?(\/|\?|$)/.test(req.originalUrl);
 /** The one route a widget key opens: reading a world's glance. */
 const isGlanceRead = (req: Request) => req.method === 'GET' && /^\/api\/worlds\/[^/?#]+\/glance\/?(\?|$)/.test(req.originalUrl);
+/** The one write a widget key may make: answering a quick event from an Android notification's button. */
+const isGlanceAnswer = (req: Request) => req.method === 'POST' && /^\/api\/worlds\/[^/?#]+\/glance\/answer\/[A-Za-z0-9_-]+\/?(\?|$)/.test(req.originalUrl);
 
 export function authenticate(db: DB) {
   return (req: Request, res: Response, next: NextFunction) => {
     const onAdmin = isAdminPath(req);
     if (onAdmin) gateOf(req)?.checkIp(req);
     const tok = bearer(req);
-    const auth = tok ? resolveToken(db, tok, { adminSession: onAdmin, widget: isGlanceRead(req) }) : null;
+    const answer = isGlanceAnswer(req);
+    const auth = tok ? resolveToken(db, tok, { adminSession: onAdmin, widget: isGlanceRead(req) || answer }) : null;
     if (!auth) throw new HttpError(tok?.startsWith('alx_ads_') && !onAdmin ? 403 : 401, tok?.startsWith('alx_ads_') && !onAdmin ? 'Admin sessions only work on admin pages' : 'Sign in first');
-    if (auth.access === 'read' && !READ_METHODS.has(req.method)) throw new HttpError(403, 'This key is read-only');
+    if (auth.access === 'read' && !READ_METHODS.has(req.method) && !(answer && tok!.startsWith(WIDGET_PREFIX))) throw new HttpError(403, 'This key is read-only');
     res.locals.auth = auth;
     next();
   };

@@ -213,3 +213,31 @@ test('Glance_alerts: each person gets their own alerts, with stable ids', async 
   await ok('POST', `/api/worlds/${W}/quick-events/${ev.id}/cancel`, T.dm).catch(() => {});
   deps.db.prepare(`DELETE FROM cal_sessions WHERE id = 'cs_alert'`).run();
 });
+
+test('Glance_answer: a widget key answers a quick event from a notification, and nothing more', async () => {
+  const roll = await ok('POST', `/api/worlds/${W}/quick-events`, T.dm, { kind: 'notice', title: 'Listen', prompt: 'Roll Perception', audience: [ID.jess], timerS: 120 });
+  const vote = await ok('POST', `/api/worlds/${W}/quick-events`, T.dm, { kind: 'vote', title: 'Which way?', prompt: 'Pick', options: ['North', 'South'], audience: 'party', timerS: 120 });
+  const key = (await ok('POST', `${G()}/link`, T.jess)).key;
+  const g = await ok('GET', G(), key);
+  const a = g.alerts.find((x: any) => x.id === `quick:${roll.id}`);
+  assert.deepEqual(a.actions, [{ id: 'roll', label: 'Roll for me' }]);
+  assert.deepEqual(g.alerts.find((x: any) => x.id === `quick:${vote.id}`).actions.map((x: any) => x.label), ['North', 'South']);
+
+  assert.equal((await call('POST', `${G()}/answer/${roll.id}`, key, { action: 'roll' })).status, 200);
+  assert.equal((await call('POST', `${G()}/answer/${vote.id}`, key, { action: 'choice:1' })).status, 200);
+  const dmView = await ok('GET', `/api/worlds/${W}/quick-events`, T.dm);
+  const list = Array.isArray(dmView) ? dmView : dmView.events ?? dmView.items ?? [];
+  const r1 = list.find((e: any) => e.id === roll.id).responses.find((x: any) => x.account_id === ID.jess);
+  assert.ok(r1.roll >= 1 && r1.roll <= 20, 'rolled a d20');
+  assert.equal(list.find((e: any) => e.id === vote.id).responses.find((x: any) => x.account_id === ID.jess).choice, 1);
+  assert.ok(!(await ok('GET', G(), key)).alerts.some((x: any) => x.id === `quick:${roll.id}`), 'answered: the alert is gone');
+
+  assert.equal((await call('POST', `${G()}/answer/${vote.id}`, key, { action: 'choice:9' })).status, 400);
+  assert.equal((await call('POST', `${G()}/answer/${vote.id}`, key, { action: 'drop tables' })).status, 400);
+  assert.equal((await call('POST', `/api/worlds/${W}/quick-events/${vote.id}/respond`, key, { choice: 0 })).status, 401, 'the normal route still refuses a widget key');
+  assert.equal((await call('POST', `${G()}/link`, key)).status, 401);
+  assert.equal((await call('POST', `/api/worlds/${W2}/glance/answer/${vote.id}`, key, { action: 'choice:0' })).status, 403, 'not in another world');
+  const kipVote = await call('POST', `${G()}/answer/${roll.id}`, (await ok('POST', `${G()}/link`, T.kip)).key, { action: 'roll' });
+  assert.equal(kipVote.status, 404, 'Kip was not asked');
+  for (const e of [roll, vote]) await ok('POST', `/api/worlds/${W}/quick-events/${e.id}/cancel`, T.dm).catch(() => {});
+});

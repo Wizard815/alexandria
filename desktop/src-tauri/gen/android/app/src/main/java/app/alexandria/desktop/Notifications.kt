@@ -4,7 +4,10 @@ import android.Manifest
 import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.app.PendingIntent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.FileObserver
@@ -21,7 +24,10 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import app.alexandria.desktop.widget.Glance
+import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -63,7 +69,7 @@ object Notifications {
 
   /** Show an alert unless it was shown before (by the page or the background check). */
   @Synchronized
-  fun post(ctx: Context, id: String, title: String, body: String, path: String?) {
+  fun post(ctx: Context, id: String, title: String, body: String, path: String?, actions: JSONArray? = null) {
     if (id.isEmpty() || title.isEmpty()) return
     val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val seen = try { JSONObject(p.getString("seen", "{}")!!) } catch (_: Exception) { JSONObject() }
@@ -76,7 +82,7 @@ object Notifications {
     if (!allowed(ctx)) return
     channel(ctx)
     val safePath = path?.takeIf { it.startsWith("/w/") && !it.contains("..") && !it.contains("//") } ?: ""
-    val n = NotificationCompat.Builder(ctx, CHANNEL)
+    val b = NotificationCompat.Builder(ctx, CHANNEL)
       .setSmallIcon(R.drawable.ic_notify)
       .setContentTitle(title.take(80))
       .setContentText(body.take(240))
@@ -85,8 +91,64 @@ object Notifications {
       .setCategory(NotificationCompat.CATEGORY_EVENT)
       .setAutoCancel(true)
       .setContentIntent(Glance.openApp(ctx, safePath, 9000 + (id.hashCode() and 0xfff)))
-      .build()
+    // Buttons to answer a quick event right here. They need the widget's link for that world,
+    // the one key that may answer (POST /glance/answer); without it a tap opens the app.
+    val link = Glance.link(ctx)
+    val eid = id.removePrefix("quick:").takeIf { id.startsWith("quick:") && Regex("^[A-Za-z0-9_-]+$").matches(it) }
+    if (actions != null && eid != null && link != null && safePath.startsWith("/w/${link.world}/")) {
+      for (i in 0 until minOf(actions.length(), 3)) {
+        val a = actions.optJSONObject(i) ?: continue
+        val act = a.optString("id")
+        if (act != "roll" && !Regex("^choice:[0-9]$").matches(act)) continue
+        val intent = Intent(ctx, AnswerReceiver::class.java).putExtra("id", id).putExtra("event", eid).putExtra("action", act).putExtra("title", title)
+        val pi = PendingIntent.getBroadcast(ctx, (id + act).hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        b.addAction(0, a.optString("label").take(30), pi)
+      }
+    }
+    val n = b.build()
     try { NotificationManagerCompat.from(ctx).notify(id.hashCode(), n) } catch (_: SecurityException) {}
+  }
+
+  /** Replace a notification with a short line (after a button was used). */
+  fun replace(ctx: Context, id: String, title: String, text: String) {
+    if (!allowed(ctx)) return
+    channel(ctx)
+    val n = NotificationCompat.Builder(ctx, CHANNEL).setSmallIcon(R.drawable.ic_notify).setContentTitle(title.take(80)).setContentText(text)
+      .setPriority(NotificationCompat.PRIORITY_LOW).setAutoCancel(true).setTimeoutAfter(60_000).build()
+    try { NotificationManagerCompat.from(ctx).notify(id.hashCode(), n) } catch (_: SecurityException) {}
+  }
+
+  /** A notification button: answer the quick event with the widget's key, then say how it went. */
+  class AnswerReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+      val id = intent.getStringExtra("id") ?: return
+      val eid = intent.getStringExtra("event") ?: return
+      val act = intent.getStringExtra("action") ?: return
+      val title = intent.getStringExtra("title") ?: "Quick event"
+      val l = Glance.link(ctx) ?: return
+      val done = goAsync()
+      Thread {
+        val text = try {
+          val c = URL("${l.server}/api/worlds/${l.world}/glance/answer/$eid").openConnection() as HttpURLConnection
+          c.requestMethod = "POST"
+          c.connectTimeout = 8000
+          c.readTimeout = 8000
+          c.doOutput = true
+          c.setRequestProperty("Authorization", "Bearer ${l.key}")
+          c.setRequestProperty("Content-Type", "application/json")
+          c.outputStream.use { it.write(JSONObject().put("action", act).toString().toByteArray()) }
+          val code = c.responseCode
+          c.disconnect()
+          when (code) {
+            200 -> if (act == "roll") "Rolled. Your DM sees the result." else "Answered."
+            409 -> "Too late: this one is closed."
+            else -> "Could not answer ($code). Open the app to answer."
+          }
+        } catch (_: Exception) { "No connection. Open the app to answer." }
+        replace(ctx, id, title, text)
+        done.finish()
+      }.start()
+    }
   }
 
   /** Every alert in a glance answer. */
@@ -94,7 +156,7 @@ object Notifications {
     val list = glance.optJSONArray("alerts") ?: return
     for (i in 0 until list.length()) {
       val a = list.optJSONObject(i) ?: continue
-      post(ctx, a.optString("id"), a.optString("title"), a.optString("body"), a.optString("path"))
+      post(ctx, a.optString("id"), a.optString("title"), a.optString("body"), a.optString("path"), a.optJSONArray("actions"))
     }
   }
 
@@ -110,7 +172,7 @@ object Notifications {
         f.delete()
         if (o != null) {
           askOnce(a)
-          post(a, o.optString("id"), o.optString("title"), o.optString("body"), if (o.isNull("path")) null else o.optString("path"))
+          post(a, o.optString("id"), o.optString("title"), o.optString("body"), if (o.isNull("path")) null else o.optString("path"), o.optJSONArray("actions"))
         }
       }
     }

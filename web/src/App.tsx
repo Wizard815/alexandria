@@ -41,6 +41,7 @@ import PanelRoute from './features/screens/PanelRoute.tsx';
 import SideScreen from './features/screens/SideScreen.tsx';
 import TableScreen from './features/screens/TableScreen.tsx';
 import GetApp, { AppLinkFallback } from './features/apps/GetApp.tsx';
+import SharePage from './features/apps/SharePage.tsx';
 
 export function App() {
   const { ready } = useAuth();
@@ -52,6 +53,7 @@ export function App() {
       <Route path="/join" element={<Join />} />
       <Route path="/reset" element={<Reset />} />
       <Route path="/get-app" element={<GetApp />} />
+      <Route path="/share" element={<SharePage />} />
       <Route path="/app-link/*" element={<AppLinkFallback />} />
       <Route path="/" element={<Worlds />} />
       <Route path="/admin" element={<AdminLayout />}>

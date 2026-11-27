@@ -5,7 +5,7 @@
 import type { AlexandriaClient } from '@alx/client';
 import { appInfo } from './nativeApp.ts';
 
-export interface Alert { id: string; kind: string; title: string; body: string; path: string }
+export interface Alert { id: string; kind: string; title: string; body: string; path: string; actions?: { id: string; label: string }[] }
 
 const SEEN = 'alx.notified';
 export function seenIds(): Set<string> {
@@ -20,7 +20,8 @@ export function markSeen(ids: Iterable<string>) {
 export async function showAlert(a: Alert): Promise<boolean> {
   if (appInfo()) {
     const q = (s: string) => encodeURIComponent(s).slice(0, 600);
-    window.location.assign(`/app-link/notify#i=${q(a.id)}&t=${q(a.title)}&b=${q(a.body)}&p=${q(a.path)}`);
+    const acts = a.actions?.length ? `&a=${q(JSON.stringify(a.actions))}` : '';
+    window.location.assign(`/app-link/notify#i=${q(a.id)}&t=${q(a.title)}&b=${q(a.body)}&p=${q(a.path)}${acts}`);
     return true;
   }
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return false;

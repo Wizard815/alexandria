@@ -118,6 +118,23 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
   checks every 15 minutes when the app is closed (WorkManager), for the linked world. Android 13+
   asks once for permission. Browsers and the iPhone home-screen app get web push from the server
   instead (`librarian/src/features/notify`).
+- **Answer from the notification** (Android): a quick event's notification has "Roll for me" or its
+  first three choices. A tap answers with the widget's key (`POST /glance/answer`, its one allowed
+  write), so it needs the widget link for that world; without it, a tap opens the app.
+- **Tray** (desktop, `src/tray.rs`): closing the window keeps Alexandria in the tray (menu bar on
+  macOS), so notifications keep coming. The tray menu: Open, Show Assistant, Keep running when the
+  window is closed, Start with the computer (autostart plugin, starts in the tray), Quit.
+- **Invites open in the app:** `alexandria://join?server=<origin>&code=<code>` (deep-link plugin; one
+  running copy on Windows and Linux via single-instance). The Join page offers "Open in the
+  Alexandria app" for an invite link, and the DM's invite shows a QR code of the link. An invite for
+  another server goes to the first-run screen first, with the address filled in.
+- **Recording with the screen locked** (Android, `Recording.kt`): while this phone records as a table
+  mic, the page sends `/app-link/recording#on=1`; a microphone foreground service (with its
+  "Recording the session" notification) and a CPU wake lock keep it going, and the web view is kept
+  running when the screen goes off.
+- **Share to Alexandria** (Android): text, links and pictures from any app's Share menu open
+  `/share`, where the person picks the world and where it goes: the table or party chat, or for the
+  DM the library's files or the stage. Pictures up to 12 MB in all.
 - **Getting builds onto the server:** Admin, App builds. "Fetch the latest release" copies every
   platform's build from GitHub (the release workflow builds macOS on GitHub's own Macs, so no Mac
   is needed); "Upload a build" takes a file from any computer, for example a macOS build someone

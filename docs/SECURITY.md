@@ -89,7 +89,10 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
   four per world; they are listed with the other keys and can be revoked.
   The Android app keeps the key in its own data folder, and the web app hands
   it over in a `#fragment`, which never reaches the server (`Glance_widgetKey` in
-  `librarian/test/glance.test.ts`, `web/e2e/apps.mjs`).
+  `librarian/test/glance.test.ts`, `web/e2e/apps.mjs`). The one write a widget
+  key can make is answering a quick event its owner was asked
+  (`POST /glance/answer/:eid`, from an Android notification's buttons); the
+  normal quick-event routes still refuse it (`Glance_answer`).
 - Notifications: web push text is encrypted for the one browser (RFC 8291) and
   signed with this server's VAPID key (kept in the database), so the push
   service can't read it. A subscription is accepted only for the browsers'

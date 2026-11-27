@@ -6,6 +6,7 @@ import { when } from '../../lib/format.ts';
 import { type ApprovalSettings, extra } from '../broker/shared.tsx';
 import { CopyButton } from '../../lib/copy.tsx';
 import * as F from '../../features/registry.ts';
+import QrCode from '../../ui/QrCode.tsx';
 
 type K = keyof WorldSettings | keyof ApprovalSettings;
 type Row =
@@ -148,6 +149,10 @@ export function Invites() {
             <span className="small">Or send this link: <span className="mono" style={{ userSelect: 'all', overflowWrap: 'anywhere' }}>{link}</span></span>
             <span className="tiny">{made.role} · expires in {made.days} days</span>
             <div className="row"><CopyButton text={link} label="Copy link" /></div>
+            <div className="row" style={{ alignItems: 'center', gap: 12 }}>
+              <QrCode text={link} size={168} label="QR code of the invite link" />
+              <span className="small">At the table, a player points their phone's camera here. It opens the Join page, which offers to open the Alexandria app if they have it.</span>
+            </div>
           </div>
         )}
       </section>
