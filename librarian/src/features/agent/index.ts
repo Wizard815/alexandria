@@ -22,7 +22,7 @@ import { think } from '../active/thoughts.ts';
 import { speakable } from './speakable.ts';
 import { logAgentCall, logAgentCommand } from '../active/log.ts';
 import { tryChatCommand } from '../active/commands.ts';
-import { addMessage, actionView, chatView, newChat, ownChat, SCHEMA } from './store.ts';
+import { addMessage, actionView, chatFolder, chatView, dropIncognito, newChat, ownChat, SCHEMA } from './store.ts';
 import { researchNote } from '../templates/web.ts';
 import { getTemplate } from '../templates/store.ts';
 import { buildStatblock, mod, normalizeStatblock, rollInitiative, saveStatblockPage, statblockFromBody, type Statblock } from './statblock.ts';
@@ -58,18 +58,44 @@ function routes(d: import('../../app.ts').Deps) {
     caller(req, res);
     // Only the chats of the role asking: a DM who was once a player (or the reverse) is not shown the other role's chats.
     // And only the chats of the voice asked for: the broker's ('') or the table helper's (?mode=helper).
+    // Template chats are kept apart: no ?template lists the main chats, ?template=only every template chat,
+    // ?template=<id> the chats started from one template.
     const mode = req.query.mode === 'helper' ? 'helper' : '';
-    const rows = all<any>(d.db, 'SELECT id, harness, title, created_at, updated_at FROM agent_chats WHERE world_id = ? AND account_id = ? AND harness = ? AND mode = ? ORDER BY updated_at DESC LIMIT 100', W(res), me(res), caller(req, res).harness, mode);
-    res.json({ chats: rows.map((c) => ({ id: c.id, harness: c.harness, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at })) });
+    const t = typeof req.query.template === 'string' ? req.query.template.slice(0, 80) : '';
+    const [tWhere, tArgs] = t === 'only' ? ["template <> ''", []] : t ? ['template = ?', [t]] : ["template = ''", []];
+    // Incognito chats are never listed; one left open too long (its screen closed) is cleared away here.
+    dropIncognito(d.db, W(res), me(res), caller(req, res).harness);
+    const rows = all<any>(d.db, `SELECT id, harness, title, folder, template, created_at, updated_at FROM agent_chats WHERE world_id = ? AND account_id = ? AND harness = ? AND mode = ? AND incognito = 0 AND ${tWhere} ORDER BY updated_at DESC LIMIT 500`, W(res), me(res), caller(req, res).harness, mode, ...tArgs);
+    res.json({ chats: rows.map((c) => ({ id: c.id, harness: c.harness, title: c.title, folder: c.folder, template: c.template, createdAt: c.created_at, updatedAt: c.updated_at })) });
   });
   r.post('/chats', (req, res) => {
     const c = caller(req, res);
-    const chat = newChat(d.db, c.worldId, c.accountId, c.harness, str(req.body?.title, 'title', { max: 120, optional: true }));
+    const chat = newChat(d.db, c.worldId, c.accountId, c.harness, str(req.body?.title, 'title', { max: 120, optional: true }), {
+      folder: req.body?.folder === undefined ? '' : chatFolder(req.body.folder),
+      template: str(req.body?.template, 'template', { max: 80, optional: true }).trim(),
+      incognito: req.body?.incognito === true,
+    });
+    // An incognito chat is not saved: it is never listed, and starting another one ends the last.
+    if (req.body?.incognito === true) dropIncognito(d.db, c.worldId, c.accountId, c.harness, { all: true, keep: chat.id });
     if (req.body?.mode === 'helper' && c.harness === 'player') {
       if (featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The DM has turned the table helper off');
       run(d.db, "UPDATE agent_chats SET mode = 'helper' WHERE id = ?", chat.id);
     }
     res.status(201).json(chatView(d.db, chat.id));
+  });
+  // Rename a folder of chats (and every folder inside it), or move it under another one. Folders exist only as the
+  // paths chats carry, so this moves the chats.
+  r.post('/chats/folders/rename', (req, res) => {
+    const c = caller(req, res);
+    const from = chatFolder(req.body?.from);
+    const to = chatFolder(req.body?.to);
+    if (!from) throw new HttpError(400, 'from is required');
+    if (to === from || to.startsWith(`${from}/`)) throw new HttpError(400, 'A folder cannot be moved into itself');
+    // Only the list the folder was seen in: the broker's or the helper's chats (a player keeps two lists).
+    const mode = req.body?.mode === 'helper' ? 'helper' : '';
+    const rows = all<{ id: string; folder: string }>(d.db, "SELECT id, folder FROM agent_chats WHERE world_id = ? AND account_id = ? AND harness = ? AND mode = ? AND template = '' AND (folder = ? OR substr(folder, 1, ?) = ?)", c.worldId, c.accountId, c.harness, mode, from, from.length + 1, `${from}/`);
+    for (const r0 of rows) run(d.db, 'UPDATE agent_chats SET folder = ? WHERE id = ?', chatFolder(to + r0.folder.slice(from.length)), r0.id);
+    res.json({ moved: rows.length });
   });
   r.get('/chats/:id', (req, res) => {
     caller(req, res);
@@ -81,15 +107,21 @@ function routes(d: import('../../app.ts').Deps) {
     caller(req, res);
     const c = ownChat(d.db, W(res), me(res), String(req.params.id));
     if (!c) throw new HttpError(404, 'Chat not found');
-    const title = str(req.body?.title, 'title', { max: 120 }).trim();
-    if (!title) throw new HttpError(400, 'title is required');
-    // Renaming is not new activity, so the chat keeps its place in the list.
-    run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', title, c.id);
+    // Renaming or moving is not new activity, so the chat keeps its place in the list.
+    if (req.body?.title === undefined && req.body?.folder === undefined) throw new HttpError(400, 'title or folder is required');
+    if (req.body?.title !== undefined) {
+      const title = str(req.body.title, 'title', { max: 120 }).trim();
+      if (!title) throw new HttpError(400, 'title is required');
+      run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', title, c.id);
+    }
+    if (req.body?.folder !== undefined) run(d.db, 'UPDATE agent_chats SET folder = ? WHERE id = ?', chatFolder(req.body.folder), c.id);
     res.json(chatView(d.db, c.id));
   });
   r.delete('/chats/:id', (req, res) => {
     const c = ownChat(d.db, W(res), me(res), String(req.params.id));
     if (!c) throw new HttpError(404, 'Chat not found');
+    // Leaving an incognito chat mid-reply deletes it too: the reply is stopped first.
+    stopRun(c.id);
     run(d.db, 'DELETE FROM agent_chats WHERE id = ?', c.id);
     res.json({ ok: true });
   });
@@ -350,6 +382,11 @@ const feature: Feature = {
     if (!ccols.includes('summary_upto')) db.exec('ALTER TABLE agent_chats ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0');
     // A player's chat is with the broker ('') or with their table helper ('helper').
     if (!ccols.includes('mode')) db.exec(`ALTER TABLE agent_chats ADD COLUMN mode TEXT NOT NULL DEFAULT ''`);
+    // Chats sit in folders (a path like "Bloodearth/Session 3", '' = top level) and template chats are kept apart.
+    if (!ccols.includes('folder')) db.exec(`ALTER TABLE agent_chats ADD COLUMN folder TEXT NOT NULL DEFAULT ''`);
+    if (!ccols.includes('template')) db.exec(`ALTER TABLE agent_chats ADD COLUMN template TEXT NOT NULL DEFAULT ''`);
+    // Incognito chats: never listed, deleted when the user leaves them (or after INCOGNITO_IDLE_MS without a word).
+    if (!ccols.includes('incognito')) db.exec('ALTER TABLE agent_chats ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0');
   },
   settings: {
     agentAutoApprove: {
