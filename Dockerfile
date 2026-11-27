@@ -31,7 +31,7 @@ FROM ${NODE_IMAGE} AS runtime
 LABEL org.opencontainers.image.title="Alexandria" \
       org.opencontainers.image.description="D&D campaign app: library, live table and MCP gateway" \
       org.opencontainers.image.source="https://github.com/Wizard815/alexandria" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="LicenseRef-PolyForm-Shield-1.0.0"
 # git: for git sources (cloned read-only into /data). tini: clean shutdown.
 RUN apk add --no-cache git tini ffmpeg su-exec \
  && mkdir -p /data /vaults \
