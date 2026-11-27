@@ -1,7 +1,10 @@
 // Trade offers between players: offer an item and/or coin for an item and/or
 // coin. TradeButton opens the dialog (used from the Inventory page and the
-// chat panel); TradeOffers lists offers waiting for me with Accept / Decline.
-import { useState } from 'react';
+// chat panel); TradeOffers lists open trades with Accept / Decline (Inventory,
+// the chat panel and the sheet's Inventory box); TradeAlert pops up anywhere
+// in the app when an offer arrives or one of mine is answered.
+import { useEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins } from '../../lib/format.ts';
 import { Modal, Field, ErrorBox, useAction, useToast } from '../../ui/index.tsx';
@@ -68,26 +71,107 @@ function TradeDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function TradeOffers() {
+/** My trades (players only), live. Anyone else gets an empty list without a request. */
+export function useTrades() {
+  const { w, info } = useWorld();
+  const player = info.role === 'player';
+  return useLoad(() => (player ? w.call<Trade[]>('GET', '/sessionchat/trades') : Promise.resolve([] as Trade[])), [w, player], ['trade']);
+}
+
+/** How many offers are waiting for me to accept or decline. */
+export const waitingForMe = (list: Trade[] | null | undefined, me: string) => (list ?? []).filter((t) => t.status === 'open' && t.to === me).length;
+
+const RECENT_MS = 3 * 24 * 3600 * 1000;
+const OUTCOME: Record<string, string> = { accepted: 'accepted', declined: 'declined', cancelled: 'withdrew' };
+
+/**
+ * Open trades with Accept / Decline (offers to me first) or Cancel (mine).
+ * `recent` also lists trades settled in the last few days, so a player who was
+ * away sees what happened to their offers. `compact` drops the Trade button
+ * and renders nothing when there is nothing open (the sheet's Inventory box).
+ */
+export function TradeOffers({ recent = false, compact = false, heading }: { recent?: boolean; compact?: boolean; heading?: boolean }) {
   const { w, me, nameOf, info } = useWorld();
-  const trades = useLoad(() => w.call<Trade[]>('GET', '/sessionchat/trades'), [w], ['trade']);
+  const trades = useTrades();
   const act = useAction();
   if (info.role !== 'player') return null;
-  const open = (trades.data ?? []).filter((t) => t.status === 'open');
+  const list = trades.data ?? [];
+  const open = list.filter((t) => t.status === 'open').sort((a, b) => Number(b.to === me) - Number(a.to === me));
+  const done = recent ? list.filter((t) => t.status !== 'open' && t.decidedAt && Date.now() - new Date(t.decidedAt).getTime() < RECENT_MS).slice(0, 5) : [];
+  const waiting = waitingForMe(list, me);
+  if (compact && !open.length) return null;
+  if (heading && !open.length && !done.length) return null;
+  const mode = info.settings.coins;
   const decide = (t: Trade, verb: 'accept' | 'decline' | 'cancel') => void act.run(async () => { await w.call('POST', `/sessionchat/trades/${t.id}/${verb}`, {}); await trades.reload(); });
-  return (
-    <div className="stack tight">
+  const body = (
+    <div className="stack tight" data-testid="trade-offers">
       <ErrorBox error={act.error} />
       {open.map((t) => (
-        <div key={t.id} className="sc-trade">
-          <div>{t.to === me ? <><strong>{nameOf(t.from)}</strong> offers</> : <>You offered <strong>{nameOf(t.to)}</strong></>} {describe(t.offer, info.settings.coins) || 'nothing'} for {describe(t.want, info.settings.coins) || 'nothing'}{t.note && <span className="muted"> · {t.note}</span>}</div>
+        <div key={t.id} className={`sc-trade${t.to === me ? ' incoming' : ''}`} data-testid={t.to === me ? 'trade-incoming' : 'trade-outgoing'}>
+          <div>{t.to === me ? <><strong>{nameOf(t.from)}</strong> offers</> : <>You offered <strong>{nameOf(t.to)}</strong></>} {describe(t.offer, mode) || 'nothing'} for {describe(t.want, mode) || 'nothing'}{t.note && <span className="muted"> · {t.note}</span>}</div>
           <div className="row">
             {t.to === me ? <><button type="button" className="btn small primary" disabled={act.busy} onClick={() => decide(t, 'accept')}>Accept</button><button type="button" className="btn small" disabled={act.busy} onClick={() => decide(t, 'decline')}>Decline</button></>
-              : <button type="button" className="btn small" disabled={act.busy} onClick={() => decide(t, 'cancel')}>Cancel offer</button>}
+              : <><span className="tiny muted grow">Waiting for {nameOf(t.to)}</span><button type="button" className="btn small" disabled={act.busy} onClick={() => decide(t, 'cancel')}>Cancel offer</button></>}
           </div>
         </div>
       ))}
-      <div className="row"><TradeButton /></div>
+      {done.length > 0 && (
+        <ul className="sc-trade-done" aria-label="Recent trades">
+          {done.map((t) => {
+            const mine = t.from === me;
+            const who = mine ? nameOf(t.to) : nameOf(t.from);
+            const text = t.status === 'cancelled'
+              ? (mine ? <>You withdrew your offer to <strong>{who}</strong></> : <><strong>{who}</strong> withdrew their offer</>)
+              : mine ? <><strong>{who}</strong> {OUTCOME[t.status]} your offer</> : <>You {OUTCOME[t.status]} <strong>{who}</strong>’s offer</>;
+            return <li key={t.id} className={`tiny${t.status === 'accepted' ? '' : ' muted'}`}><i className={`fa-solid ${t.status === 'accepted' ? 'fa-handshake' : 'fa-xmark'}`} aria-hidden="true" /> {text}: {describe(t.offer, mode) || 'nothing'} for {describe(t.want, mode) || 'nothing'}</li>;
+          })}
+        </ul>
+      )}
+      {!compact && <div className="row"><TradeButton /></div>}
+    </div>
+  );
+  if (!heading) return body;
+  return (
+    <section className="card stack tight sc-trades-card" aria-labelledby="trades-h" style={{ borderColor: waiting ? 'var(--accent)' : undefined }}>
+      <div className="row between"><h2 id="trades-h" style={{ margin: 0 }}>Trades</h2>{waiting > 0 && <span className="chip gold">{waiting} waiting for you</span>}</div>
+      {body}
+    </section>
+  );
+}
+
+/**
+ * A pop-up when a trade needs me or one of mine was settled, wherever I am in
+ * the app (the person acting never gets one: the offer goes to the other side,
+ * the answer back to the one who offered). Links to Inventory.
+ */
+export function TradeAlert() {
+  const { me, nameOf, info, on } = useWorld();
+  const [alert, setAlert] = useState<{ id: string; text: string } | null>(null);
+  const loc = useLocation();
+  useEffect(() => {
+    if (info.role !== 'player') return;
+    return on(['trade'], (e) => {
+      const t = e.data as Trade;
+      if (!t?.id) return;
+      let text = '';
+      if (t.status === 'open' && t.to === me) text = `${nameOf(t.from)} offers you a trade`;
+      else if (t.status === 'cancelled' && t.to === me) text = `${nameOf(t.from)} withdrew their trade offer`;
+      else if ((t.status === 'accepted' || t.status === 'declined') && t.from === me) text = `${nameOf(t.to)} ${t.status} your trade`;
+      if (text) setAlert({ id: t.id, text });
+    });
+  }, [on, me, nameOf, info.role]);
+  useEffect(() => {
+    if (!alert) return;
+    const t = setTimeout(() => setAlert(null), 8000);
+    return () => clearTimeout(t);
+  }, [alert]);
+  if (!alert) return null;
+  const inv = `/w/${info.slug}/inventory`;
+  return (
+    <div className="toast sc-trade-toast" role="status" data-testid="trade-alert">
+      <i className="fa-solid fa-handshake" aria-hidden="true" /> <span className="grow">{alert.text}</span>
+      {loc.pathname !== inv && <Link to={inv} onClick={() => setAlert(null)}>Open inventory</Link>}
+      <button type="button" className="btn ghost small" aria-label="Dismiss" onClick={() => setAlert(null)}>✕</button>
     </div>
   );
 }

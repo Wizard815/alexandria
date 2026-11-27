@@ -5,13 +5,14 @@ import { useState, type FormEvent } from 'react';
 import { ErrorBox, Empty, Loading, Field, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins } from '../../lib/format.ts';
-import { ItemImage } from '../inventory/giving.tsx';
+import { ItemImage, QuietToggle } from '../inventory/giving.tsx';
 
 interface Line { id: string; name: string; qty: number; note: string; image: string | null; status: string; dm_note?: string; weight?: number | null }
 interface Card { id?: string; character?: string; player?: string; cp: number | null; items: Line[]; waiting: number; purse?: boolean }
 interface Overview { coins: 'gsc' | 'all' | 'gold'; trackWeight: boolean; dmEdits: boolean; partyPurse: boolean; dmChangeReason: boolean; players: (Card & { id: string; character: string; player: string })[]; party: Card }
 
 const QUICK = [-100, 100, 1000];
+
 
 export function PlayersCards() {
   const { w, nameOf } = useWorld();
@@ -43,35 +44,38 @@ function OwnerCard({ o, owner, card, title, sub, presence, reload }: { o: Overvi
   const [name, setName] = useState('');
   const [qty, setQty] = useState('1');
   const [why, setWhy] = useState('');
+  // Quiet: the DM's item changes here don't alert the owner (a secret for the story). Off by default.
+  const [quiet, setQuiet] = useState(false);
   const isParty = owner === 'party';
   const locked = !isParty && !o.dmEdits;
   const showCoin = !isParty || o.partyPurse;
   const parsed = parseCoins(amount);
   const reason = (what: string): string | null => {
-    if (isParty || !o.dmChangeReason) return '';
+    if (quiet || isParty || !o.dmChangeReason) return '';
     const r = window.prompt(`Why? The owner sees this. (${what})`);
     if (r === null) return null;
     if (!r.trim()) { window.alert('A reason is needed. Change Settings to turn this off.'); return null; }
     return r.trim();
   };
+  const q = quiet ? { quiet: true } : {};
   const coin = (cp: number, note?: string) => act.run(async () => { await w.addCoin(owner, cp, note); setAmount(''); await reload(); });
   const take = (it: Line) => act.run(async () => {
     const r = reason(`take ${it.name}`);
     if (r === null) return;
-    if (it.qty > 1) await w.updateItem(it.id, { qty: it.qty - 1, reason: r });
-    else await w.call('DELETE', `/inventory/${it.id}`, undefined, r ? { reason: r } : undefined);
+    if (it.qty > 1) await w.updateItem(it.id, { qty: it.qty - 1, reason: r, ...q });
+    else await w.call('DELETE', `/inventory/${it.id}`, undefined, { ...(r ? { reason: r } : {}), ...(quiet ? { quiet: '1' } : {}) });
     await reload();
   });
   const more = (it: Line) => act.run(async () => {
     const r = reason(`one more ${it.name}`);
     if (r === null) return;
-    await w.updateItem(it.id, { qty: it.qty + 1, reason: r });
+    await w.updateItem(it.id, { qty: it.qty + 1, reason: r, ...q });
     await reload();
   });
   const give = (e: FormEvent) => { e.preventDefault(); void act.run(async () => {
     const r = reason(`give ${name}`);
     if (r === null) return;
-    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, reason: r || why.trim() });
+    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, reason: r || why.trim(), ...q });
     setName(''); setQty('1'); setWhy(''); setAdding(false);
     await reload();
   }); };
@@ -120,10 +124,11 @@ function OwnerCard({ o, owner, card, title, sub, presence, reload }: { o: Overvi
             <Field label="Give item"><input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Potion of healing" /></Field>
             <Field label="Qty"><input inputMode="numeric" style={{ width: 64 }} value={qty} onChange={(e) => setQty(e.target.value.replace(/[^\d]/g, ''))} /></Field>
           </div>
-          {!isParty && o.dmChangeReason && <span className="tiny muted">You will be asked why, as Settings require.</span>}
+          {!isParty && o.dmChangeReason && !quiet && <span className="tiny muted">You will be asked why, as Settings require.</span>}
           <div className="row end"><button type="button" className="btn small" onClick={() => setAdding(false)}>Cancel</button><button type="submit" className="btn small primary" disabled={act.busy || !name.trim()}>Give</button></div>
         </form>
       ) : <div className="row"><button type="button" className="btn small" onClick={() => setAdding(true)}>＋ Give item</button></div>)}
+      {!locked && <QuietToggle on={quiet} set={setQuiet} party={isParty} />}
       {locked && <span className="tiny faint">DM edits to packs are off in Settings.</span>}
     </section>
   );

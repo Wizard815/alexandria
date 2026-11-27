@@ -95,19 +95,19 @@ const feature: Feature = {
     {
       name: 'lore_write', write: true,
       description: 'Write to WorldLore, your own wiki. It runs at once, with no confirmation, and only inside WorldLore. Give an id to change a page, or a path (folders separated by /) or title to make one. Keep facts only the information broker knows at level broker. Never use it to change anything outside WorldLore.',
-      props: { id: S('Page id to change (omit to create)'), path: S('Where to create it, e.g. npcs/Odda'), title: S('Page title'), markdown: S('The whole page in Markdown (replaces the old text)'), level: LEVEL, parent: S('LegendKeeper and Kanka: parent page id inside WorldLore (omit for the top)') },
+      props: { id: S('Page id to change (omit to create)'), path: S('Where to create it, e.g. npcs/Odda'), title: S('Page title'), markdown: S('The whole page in Markdown (replaces the old text)'), level: LEVEL, parent: S('LegendKeeper, Kanka and World Anvil: parent page id inside WorldLore (omit for the top)') },
       required: ['markdown'],
       call: (a) => ({ method: 'POST', path: '/worldlore/pages', body: { id: a.id, path: a.path, title: a.title, markdown: a.markdown, level: a.level, parent: a.parent, by: 'agent' } }),
     },
     {
       name: 'lore_move', write: true,
-      description: 'Move a WorldLore page. Runs at once, only inside WorldLore. `to` is a new parent page id (LegendKeeper, Kanka), or a new path (Markdown folder or library).',
+      description: 'Move a WorldLore page. Runs at once, only inside WorldLore. `to` is a new parent page id (LegendKeeper, Kanka, World Anvil), or a new path (Markdown folder or library).',
       props: { id: S('Page id'), to: S('New parent id or new path') }, required: ['id', 'to'],
       call: (a) => ({ method: 'POST', path: `/worldlore/pages/${enc(a.id)}/move`, body: { to: a.to, by: 'agent' } }),
     },
     {
       name: 'lore_delete', write: true,
-      description: 'Delete a WorldLore page. Runs at once, only inside WorldLore; LegendKeeper keeps it in its trash; Kanka does not.',
+      description: 'Delete a WorldLore page. Runs at once, only inside WorldLore; LegendKeeper keeps it in its trash; Kanka and World Anvil do not.',
       props: { id: S('Page id') }, required: ['id'],
       call: (a) => ({ method: 'DELETE', path: `/worldlore/pages/${enc(a.id)}?by=agent` }),
     },
