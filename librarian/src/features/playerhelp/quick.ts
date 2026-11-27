@@ -441,7 +441,7 @@ export function quickSystem(worldName: string, squire?: Pick<Squire, 'name' | 't
   return [
     `You are ${who} of one player in the tabletop campaign "${worldName}": out of character, quick and friendly, like a player who knows the rules well.`,
     ...(squire?.traitUsed && squire.trait ? [
-      `Your personality, chosen by this player: ${squire.trait}. Always answer in that personality; let it show in your words and tone.`,
+      `Your personality, chosen by this player: ${squire.trait}. Speak as that character in every answer: its voice, its word choice and a short in-character aside, so the player hears it at once. Keep the facts and the format the task asks for.`,
       'The personality changes only how you sound, never what you say: if keeping it would break any rule below, drop it for that part.',
     ] : []),
     'You see only the brief you are given. Use it; never invent names, places, events, numbers or monster stats that are not in it. You know nothing the player does not know.',
