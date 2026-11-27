@@ -41,6 +41,7 @@ every world.
 | Simple mana pool | magic | Alexandria's own mana numbers (4 per level plus the casting modifier). |
 | MANA spell system | magic | Wizard's MANA rules. Needs the MANA engine (`spellRulesOn`); until it is on this server the rule shows but cannot be turned on. |
 | Spell crafting (Codex) | | Learn new spells by combining known ones, with the DM's approval or automatically. |
+| DownTime | | Downtime activities from common to legendary: the DM presses Downtime when days pass and each player picks what to work on. See [DOWNTIME.md](DOWNTIME.md). |
 
 Table rules, the house rules D&D tables use most (from house-rule surveys and
 threads on EN World, TheGamer, ScreenRant and GamersDecide). Each one is off

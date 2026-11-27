@@ -12,6 +12,7 @@ for the format.
 | `mana-pool.alxmod.json` | Simple mana pool | Alexandria's own mana numbers (spells feature) |
 | `mana-system.alxmod.json` | MANA spell system | Wizard's MANA rules; needs the MANA engine |
 | `spell-crafting.alxmod.json` | Spell crafting (Codex) | Learning spells by combining known ones (spells feature) |
+| `downtime.alxmod.json` | DownTime | Downtime activities from common to legendary, the DM's Downtime button and the players' popup (downtime feature); the ready-made activities are data in its `presets.downtimePremade` |
 | `potion-bonus-action.alxmod.json` | Potions as a bonus action | Rule text and assistant guidance |
 | `flanking-bonus.alxmod.json` | Flanking: +2, not advantage | Rule text, an option for the bonus |
 | `skill-check-crits.alxmod.json` | Criticals on ability checks | Rule text and assistant guidance |
