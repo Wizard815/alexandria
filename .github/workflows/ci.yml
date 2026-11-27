@@ -41,5 +41,6 @@ jobs:
           node e2e/thoughts.mjs
           node e2e/sheet.mjs
           node e2e/foundry.mjs
+          node e2e/roll20.mjs
           node e2e/trades.mjs
           node e2e/owlbear.mjs
