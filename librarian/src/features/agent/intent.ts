@@ -15,6 +15,7 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\bwhat('?s| is| has been)? new\b|\bwhat (have|did) (i|we|you) (just |recently )?(add|import|install|made|make)\w*|\b(added|imported|installed) (lately|recently)\b|\b(recently|lately) added\b|\bnew (house ?rules?|mods?|items?|templates?|guides?|modules?|stuff)\b(?! (for|to|called|named))/i, tools: ['whats_new', 'house_rules', 'search_items', 'list_dm_templates'] },
   { re: /\b(make|write|build|create|draft|design|add|change|edit|fix|copy|import)\b.{0,40}\b(house ?rules?|mods?|rule files?|homebrew (rule|system)s?|variant rules?|table rules?)\b|\b(house ?rule|mod) (file|studio|kit)\b/i, tools: ['house_rule_guide', 'house_rule_file', 'house_rule_check', 'house_rule_save', 'house_rules'] },
   { re: /\b(house ?rules?|table rules?|variant rules?|re-?rolls?|inspiration|hero points?|luck (tokens?|points?)|reward (the |their |good )?(rp|roleplay|role-play))\b/i, tools: ['house_rule_grant', 'house_rules', 'house_rule_counters', 'house_rule_spend', 'house_rule_check', 'house_rule_save'] },
   // DownTime (the feature) and a house rule's own data system can both answer "downtime": a plain mention offers the core of each.

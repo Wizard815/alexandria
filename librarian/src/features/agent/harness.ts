@@ -57,6 +57,7 @@ import { setGuideNotes } from './store.ts';
 import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
 import { saveProblem } from '../mods/drafts.ts';
 import { ruleHints } from '../mods/assist.ts';
+import { heldItemFacts, itemHints } from '../shop/assist.ts';
 import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
 export const MAX_TOOL_ROUNDS = 8;
@@ -459,11 +460,12 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const dm = c.harness === 'dm';
   const { text } = input;
   const ctxIn = input.context;
-  const [combat, inv, brk, ppl] = await Promise.all([
+  const [combat, inv, brk, ppl, partyInv] = await Promise.all([
     dm ? get(d, c, '/live/combat') : null,
     !dm && (c.mode === 'helper' || WANTS_ITEMS.test(text)) ? get(d, c, '/inventory?owner=me') : null,
     !dm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
     !dm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
+    !dm && c.mode === 'helper' ? get(d, c, '/inventory?owner=party') : null,
   ]);
   const opts = agentOptions(d);
   let hits = opts.retrieval === 'hybrid' ? await prefetchHybrid(d, c, text, hasJob(d, 'rerank') ? 20 : 5) : prefetchLibrary(d, c, text, hasJob(d, 'rerank') ? 20 : 5);
@@ -514,6 +516,11 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
   if (!dm) {
     if (inv?.items?.length) L.push(`This player's items: ${inv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1500)}`);
+    if (partyInv?.items?.length) L.push(`The party pouch (shared by the whole party): ${partyInv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1000)}`);
+    // What the items they hold are, from the item database (a DM's new item has a description no model knows).
+    const held = [...(inv?.items ?? []), ...(partyInv?.items ?? [])].map((i: any) => String(i.name ?? ''));
+    const facts = held.length ? heldItemFacts(d.db, c.worldId, held) : new Map();
+    if (facts.size) L.push(`What these items are (from the world's item database):\n${[...facts.values()].map((f) => `- ${f}`).join('\n').slice(0, 2000)}`);
     // The helper says an empty pack is empty, rather than that it has no list.
     else if (c.mode === 'helper' && inv) L.push("This player's items: none (their own inventory is empty; the party pouch is separate).");
     const bought = (brk?.requests ?? []).filter((q: any) => q.answer && ['answered', 'noted'].includes(q.status)).slice(0, 12);
@@ -843,6 +850,15 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         built.text += `\n\n${hr.text}`;
         for (const n of hr.tools) if (byName.has(n)) picked.add(n);
         if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `House rules this is about: ${hr.mods.join(', ')}.` });
+      }
+    }
+    // Items from the world's item database that the DM's message names (a new homebrew item has no word in the tool picker).
+    if (dmHarness) {
+      const ih = itemHints(d.db, c.worldId, `${input.text} ${input.context.selection ?? ''}`);
+      if (ih.text) {
+        built.text += `\n\n${ih.text}`;
+        for (const n of ih.tools) if (byName.has(n)) picked.add(n);
+        think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `Items this is about: ${ih.items.join(', ')}.` });
       }
     }
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
