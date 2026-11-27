@@ -20,7 +20,7 @@ import type { Feature } from '../types.ts';
 import { ABILITIES, ABILITY_NAMES, componentsText, normalizeSpell, spellLine, toCsv, type Ability } from './format.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST, castCost, checkCosts, checkMaxLevel, checkPool, checkRest, maxCastLevel, poolMax, poolNow, restGain, type ManaRules, type RestGain } from './mana.ts';
 import { STUDY_SOURCES, checkSpellRules, complexity, dailyProgress, extraRecipeSpells, finalCheckDC, gradeFinalCheck, isHybrid, learnGates, lineMastery, preview, quoteCast, quoteDual, resolveRules, scroll as scrollRule, studyCoin, studyDays, studyPoints, type LearnMissing, type StudySource } from './rules.ts';
-import { STUDY_SCHEMA, openStudy, proficiency, saveStudy, studies, studyById, studyLongRest, type Study } from './study.ts';
+import { STUDY_DAY_MIN, STUDY_SCHEMA, migrateStudy, openStudy, proficiency, saveStudy, studies, studyById, studyLongRest, type Study } from './study.ts';
 import { randomInt } from 'node:crypto';
 import { STATE_SCHEMA, castMemory, normalizeCasterLevels, restMemory, saveMemory } from './castState.ts';
 import { LINES_SCHEMA, MAX_LINES, PROFILE_FORMAT, PROFILE_SETTINGS, linesOfSpells, deleteLine, forgetSpell, lineById, lineByName, lines, normalizeLine, readProfile, saveLine, setLineSpells, setSpellLines } from './lines.ts';
@@ -87,6 +87,27 @@ function routes(d: Deps) {
     if (type !== 'rest' || (data?.kind !== 'long' && data?.kind !== 'short')) return;
     const rules = manaRules(settingsOf(db, worldId));
     if (rules.on) applyRest(worldId, data.kind, rules, null);
+  });
+
+  // A DownTime task linked to a study ({kind: 'spell-study', ref: study id or spell id, or none}) earns study days as it is worked:
+  // every 8 hours of downtime is one study day, however many days pass at once; the leftover minutes carry over.
+  d.hub.tap((worldId, type, data: any) => {
+    if (type !== 'downtime-day' || data?.link?.kind !== 'spell-study' || !data.accountId || !(data.minutes > 0)) return;
+    const rules = manaRules(settingsOf(db, worldId));
+    if (!rules.engine) return;
+    const ref = String(data.link.ref ?? '');
+    // No ref (DownTime's ready-made "Study a spell"): the study they worked on last.
+    const open_ = studies(db, worldId, data.accountId).filter((s) => s.status === 'studying');
+    const x = ref ? open_.find((s) => s.id === ref || s.spellId === ref) : [...open_].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    if (!x) return;
+    const total = x.carryMin + Math.round(data.minutes);
+    const n = Math.floor(total / STUDY_DAY_MIN);
+    const sp = spellById(db, worldId, x.spellId);
+    const per = dailyProgress(x.source, x.lab, rules.engine, !!sp && ownClass(sp, character(db, worldId, x.accountId).class));
+    const banked = Math.min(x.needed, x.banked + n * per);
+    saveStudy(db, worldId, x.id, { carryMin: total % STUDY_DAY_MIN, ...(n ? { banked, days: x.days + n, status: banked >= x.needed ? 'ready' : 'studying' } : {}) });
+    if (n) logEntry(db, worldId, x.accountId, 'study', null, { spellId: x.spellId, note: `${n} downtime day${n === 1 ? '' : 's'} of study (DownTime)` });
+    d.hub.emit(worldId, 'spells-study', { accountId: x.accountId }, dmAnd(x.accountId));
   });
 
   function applyRest(worldId: string, kind: 'long' | 'short', rules: ManaRules, by: string | null, only?: string[]): { accountId: string; before: number | null; after: number | null }[] {
@@ -896,12 +917,13 @@ function routes(d: Deps) {
 
   /** Everything about studying a spell for a character: the recipe, what is missing, the points, days and gold. */
   /** A spell's school as its teacher: the known spells of the same school or of one of its lines. */
-  /** Whether a spell is on the class list of a character's class text ("Wizard", "Wizard 6 / Paladin 4"). No class, or a spell with no list, passes. */
-  function onClassList(sp: WorldSpell, cls: string) {
-    const lists = (sp.classes ?? []).map((x) => String(x).toLowerCase());
+  /** Whether a spell is on the class list of a character's class text ("Wizard", "Wizard 6 / Paladin 4"): a multiclass has both lists. */
+  function ownClass(sp: WorldSpell, cls: string) {
     const text = String(cls ?? '').toLowerCase();
-    return !text.trim() || !lists.length || lists.some((x) => new RegExp(`\\b${x.replace(/[^a-z ]/g, '')}\\b`).test(text));
+    return !!text.trim() && (sp.classes ?? []).some((x) => { const w = String(x).toLowerCase().replace(/[^a-z ]/g, ''); return !!w && new RegExp(`\\b${w}\\b`).test(text); });
   }
+  /** Study points a day for a study, with the class bonus when the spell is on their class list. */
+  const studyRate = (res: Response, x: Study) => { const sp = spellById(db, W(res), x.spellId); return dailyProgress(x.source, x.lab, R(res).engine!, !!sp && ownClass(sp, character(db, W(res), x.accountId).class)); };
 
   function schoolPath(res: Response, sp: WorldSpell, known: Set<string>) {
     const lof = linesOfSpells(db, W(res));
@@ -933,8 +955,8 @@ function routes(d: Deps) {
     let arcanaDC: number | null = null;
     if (known.has(sp.id)) missing.push('already known');
     if (!rc && !school) missing.push('no recipe teaches this spell yet (ask the DM)');
-    // A school only teaches the spells on the character's class list (spellClassLists, on by default); a recipe or the DM opens the rest.
-    if (school && !onClassList(sp, c.class) && featureSetting<boolean>(S(res), 'spellClassLists') !== false) missing.push(`not on the ${c.class} spell list (a recipe or the DM can open it)`);
+    // Any class may study any spell; one on their own class list goes faster (learning.classBonus a day).
+    const onList = ownClass(sp, c.class);
     const own = sp.manaOverride ?? sp.manaCost ?? null;
     const cx = complexity(sp.level, rules.costs, own);
     const spellLines = linesOfSpells(db, W(res)).get(sp.id) ?? [];
@@ -958,13 +980,13 @@ function routes(d: Deps) {
         missing.push(gateText(g));
       }
     }
-    const per = dailyProgress(source, lab, e);
-    const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e))]));
+    const per = dailyProgress(source, lab, e, onList);
+    const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e, onList))]));
     const bonus = (() => { const sc = castingScore(c); return (sc === null ? 0 : Math.floor((sc - 10) / 2)) + proficiency(c.level); })();
-    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : school ? { id: school.id, prereqs: [school.text] } : null, source, lab, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
+    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : school ? { id: school.id, prereqs: [school.text] } : null, source, lab, ownClass: onList, classBonus: onList ? e.learning.classBonus ?? 0 : 0, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
   }
 
-  const studyOut = (res: Response, x: Study) => ({ ...x, name: nameOf(res)(x.spellId), perDay: dailyProgress(x.source, x.lab, R(res).engine!), daysLeft: studyDays(x.needed, x.banked, dailyProgress(x.source, x.lab, R(res).engine!)) });
+  const studyOut = (res: Response, x: Study) => ({ ...x, name: nameOf(res)(x.spellId), perDay: studyRate(res, x), daysLeft: studyDays(x.needed, x.banked, studyRate(res, x)) });
   const studyMine = (res: Response, sid: string): Study => {
     const x = studyById(db, W(res), sid);
     if (!x || (!isDM(res) && x.accountId !== me(res))) throw new HttpError(404, 'Study not found');
@@ -1036,7 +1058,7 @@ function routes(d: Deps) {
   });
 
   function applyDays(res: Response, x: Study, n: number) {
-    const per = dailyProgress(x.source, x.lab, R(res).engine!);
+    const per = studyRate(res, x);
     const banked = Math.min(x.needed, x.banked + n * per);
     saveStudy(db, W(res), x.id, { banked, days: x.days + n, status: banked >= x.needed ? 'ready' : 'studying' });
   }
@@ -1140,8 +1162,7 @@ function routes(d: Deps) {
         // Taught by its school. Out of reach (dark) when it is over a level beyond what they cast, or nothing they know leads there.
         const p = studyPlan(res, aid, sp, {});
         missing = p.missing;
-        const ch = character(db, W(res), aid);
-        const far = sp.level > (maxCastLevel(ch, rules) ?? 9) + 1 || (sp.level > 0 && schoolPath(res, sp, known).levels.length === 0) || (!onClassList(sp, ch.class) && featureSetting<boolean>(S(res), 'spellClassLists') !== false);
+        const far = sp.level > (maxCastLevel(character(db, W(res), aid), rules) ?? 9) + 1 || (sp.level > 0 && schoolPath(res, sp, known).levels.length === 0);
         status = p.canStart ? 'learn' : far ? 'dark' : 'locked';
       } else if (!made.length) status = 'dark';
       else if (!seen.length) status = dm ? 'hidden' : 'dark';
@@ -1260,6 +1281,7 @@ const qs = (a: Record<string, unknown>) => Object.entries(a).filter(([, v]) => v
 const feature: Feature = {
   id: 'spells',
   schema: SCHEMA + LINES_SCHEMA + STATE_SCHEMA + STUDY_SCHEMA,
+  migrate: (db) => migrateStudy(db),
   settings: {
     spellMana: { type: 'boolean', default: false },
     spellManaCosts: { type: 'json', default: DEFAULT_COSTS, validate: checkCosts },
@@ -1276,7 +1298,6 @@ const feature: Feature = {
     spellPlayerStats: { type: 'boolean', default: true },
     spellsPublicSrd: { type: 'boolean', default: false },
     spellSchoolPaths: { type: 'boolean', default: true },
-    spellClassLists: { type: 'boolean', default: true },
   },
   worldMount: 'spells',
   worldRoutes: routes,

@@ -29,11 +29,21 @@ CREATE TABLE IF NOT EXISTS spells_study (
   wait_long_rest INTEGER NOT NULL DEFAULT 0,
   attempts INTEGER NOT NULL DEFAULT 0,
   last_check TEXT NOT NULL DEFAULT '',
+  carry_min INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS spells_study_who ON spells_study(world_id, account_id, status);
 `;
+
+/** Older databases: the minutes of downtime short of a whole study day (added 2026-11). */
+export function migrateStudy(db: DB) {
+  const cols = all<any>(db, 'PRAGMA table_info(spells_study)').map((c) => c.name);
+  if (cols.length && !cols.includes('carry_min')) db.exec('ALTER TABLE spells_study ADD COLUMN carry_min INTEGER NOT NULL DEFAULT 0');
+}
+
+/** The 8-hour study day, in minutes of downtime. */
+export const STUDY_DAY_MIN = 480;
 
 export type StudyStatus = 'studying' | 'ready' | 'learned' | 'stopped';
 
@@ -57,6 +67,8 @@ export interface Study {
   waitLongRest: boolean;
   attempts: number;
   lastCheck: string;
+  /** Downtime minutes short of a whole study day, carried to the next. */
+  carryMin: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -64,7 +76,7 @@ export interface Study {
 export const rowToStudy = (r: any): Study => ({
   id: r.id, accountId: r.account_id, spellId: r.spell_id, recipeId: r.recipe_id, source: r.source, lab: !!r.lab, research: !!r.research,
   needed: r.needed, banked: r.banked, pendingDays: r.pending_days, days: r.days, materials: r.materials, mentorFee: r.mentor_fee, scrollHelp: !!r.scroll_help,
-  status: r.status, waitLongRest: !!r.wait_long_rest, attempts: r.attempts, lastCheck: r.last_check ?? '', createdAt: r.created_at, updatedAt: r.updated_at,
+  status: r.status, waitLongRest: !!r.wait_long_rest, attempts: r.attempts, lastCheck: r.last_check ?? '', carryMin: r.carry_min ?? 0, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export const studies = (db: DB, worldId: string, accountId?: string): Study[] =>
@@ -82,7 +94,7 @@ export const openStudy = (db: DB, worldId: string, accountId: string, spellId: s
 
 const COLS: Record<string, string> = {
   recipeId: 'recipe_id', source: 'source', lab: 'lab', research: 'research', needed: 'needed', banked: 'banked', pendingDays: 'pending_days', days: 'days',
-  materials: 'materials', mentorFee: 'mentor_fee', scrollHelp: 'scroll_help', status: 'status', waitLongRest: 'wait_long_rest', attempts: 'attempts', lastCheck: 'last_check',
+  materials: 'materials', mentorFee: 'mentor_fee', scrollHelp: 'scroll_help', status: 'status', waitLongRest: 'wait_long_rest', attempts: 'attempts', lastCheck: 'last_check', carryMin: 'carry_min',
 };
 
 export function saveStudy(db: DB, worldId: string, sid: string, patch: Partial<Study>) {

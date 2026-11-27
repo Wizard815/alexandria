@@ -158,11 +158,11 @@ the highest tier among its prerequisites. The DM's recipe editor shows recipes
 by tier (and as a list).
 
 **School paths and class lists.** With the rules engine on, a spell no recipe
-teaches is taught by its school (`spellSchoolPaths`, on by default). A school
-only teaches spells on the character's class list (`spellClassLists`, on by
-default): a wizard can't study Eldritch Blast unless a recipe or the DM opens
-it. A multiclass character ("Wizard 6 / Paladin 4") gets both lists. Spells off
-the list show dark. Turn the setting off to let any class study any spell.
+teaches is taught by its school (`spellSchoolPaths`, on by default). Any class
+may study any spell. A spell on the character's own class list earns
+`learning.classBonus` more study points a day (1 by default; 0 turns it off),
+and there is no penalty for the rest. A multiclass character ("Wizard 6 /
+Paladin 4") gets the bonus on both lists.
 
 **The player's Codex** shows the spells they know (cast them), the recipes they
 can learn now (all met, highlighted), the next ones with what is missing (a

@@ -190,6 +190,7 @@ test('SpellRules: the setting is validated and laid over the defaults', () => {
 let base = '';
 let server: any;
 let tmp = '';
+let hub: any;
 const T: Record<string, string> = {};
 let W = '';
 let W2 = '';
@@ -204,6 +205,7 @@ async function call(method: string, url: string, token?: string, body?: unknown)
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-spellrules-'));
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0' } });
+  hub = made.deps.hub;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -429,17 +431,28 @@ test('SpellRules: studying a spell: the plan, days, DM approval, the final check
   assert.ok(!('schools' in flat));
   const named = await ok('GET', `${SP()}/tree?compact=1&q=hypnotic`, T.jess);
   assert.deepEqual(named.spells.map((s: any) => [s.name, s.status]), [['Hypnotic Pattern', 'studying']]);
-  // A school only teaches spells on the character's class list (spellClassLists): a wizard can't study Eldritch Blast.
+  // Any class may study any spell; one on their own class list earns a point a day more (learning.classBonus).
   const cls0 = (await ok('GET', `${SP()}/characters/me`, T.jess)).class ?? '';
   await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: 'Wizard' });
-  const open = async () => (await ok('GET', `${SP()}/tree?compact=1&status=learn&limit=500`, T.jess)).spells.map((s: any) => s.name);
-  let names = await open();
-  assert.ok((names.includes('Mage Hand') || names.includes('Ray of Frost')) && !names.includes('Eldritch Blast') && !names.includes('Sacred Flame'), names.join(', '));
-  assert.match((await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:eldritch-blast' })).missing.join(' '), /not on the Wizard spell list/);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellClassLists: false });
-  names = await open();
-  assert.ok(names.includes('Eldritch Blast'), 'the setting off: every school spell is open');
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellClassLists: true });
+  const names = (await ok('GET', `${SP()}/tree?compact=1&status=learn&limit=500`, T.jess)).spells.map((s: any) => s.name);
+  assert.ok(names.includes('Eldritch Blast') && names.includes('Sacred Flame'), 'other classes\' cantrips are open too');
+  const off = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:eldritch-blast', source: 'alone' });
+  const on = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:ray-of-frost', source: 'alone' });
+  assert.deepEqual([off.ownClass, off.perDay, off.missing], [false, 1, []], 'no penalty off the list');
+  assert.deepEqual([on.ownClass, on.perDay, on.classBonus], [true, 2, 1]);
+  const misty = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' });
+  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: 'Paladin 4 / Wizard 6' });
+  assert.equal((await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' })).perDay, 3, 'a multiclass has both lists');
+  assert.equal(misty.perDay, 3);
+  // A DownTime task linked to the study: each 8 hours worked is a study day, the rest carries over.
+  const eb = await ok('POST', `${SP()}/study`, T.jess, { spellId: 'srd:eldritch-blast', source: 'alone' });
+  hub.emit(W, 'downtime-day', { accountId: ID.jess, minutes: 200, link: { kind: 'spell-study', ref: eb.id } }, () => false);
+  let ebs = (await ok('GET', `${SP()}/study`, T.jess)).studies.find((x: any) => x.id === eb.id);
+  assert.deepEqual([ebs.banked, ebs.carryMin, ebs.status], [0, 200, 'studying']);
+  hub.emit(W, 'downtime-day', { accountId: ID.jess, minutes: 300, link: { kind: 'spell-study' } }, () => false);
+  ebs = (await ok('GET', `${SP()}/study`, T.jess)).studies.find((x: any) => x.id === eb.id);
+  assert.deepEqual([ebs.banked, ebs.days, ebs.carryMin, ebs.status], [1, 1, 20, 'ready']);
+  await ok('POST', `${SP()}/study/${eb.id}/stop`, T.jess);
   await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: cls0 });
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellRulesOn: false, spellMana: false, spellCraftApproval: 'dm' });
 });
