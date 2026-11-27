@@ -32,7 +32,7 @@ export function readPackage(raw: unknown): TemplateInput[] {
   if (items.length > MAX_IMPORT) throw new HttpError(400, `A package holds at most ${MAX_IMPORT} templates`);
   const out: TemplateInput[] = [];
   items.forEach((x, i) => {
-    if (!x || typeof x !== 'object' || typeof (x as any).kind !== 'string') throw new HttpError(400, `Template ${i + 1}: it needs a kind (guide, generator, macro, assist, shop or library)`);
+    if (!x || typeof x !== 'object' || typeof (x as any).kind !== 'string') throw new HttpError(400, `Template ${i + 1}: it needs a kind (guide, generator, macro, assist, shop, library, event or spell)`);
     try { out.push(portable(cleanTemplate(x))); } catch (e: any) { throw new HttpError(400, `Template ${i + 1}${(x as any).name ? ` (${String((x as any).name).slice(0, 60)})` : ''}: ${e?.message ?? e}`); }
   });
   const seen = new Set<string>();

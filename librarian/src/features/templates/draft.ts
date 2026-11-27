@@ -79,6 +79,20 @@ export function heuristicDraft(kind: Kind, description: string): Draft {
   } else if (kind === 'shop') {
     spec = { shopType: task.noun === 'shop' ? 'general store' : task.noun, guide: text, stock: [], priceNotes: '' };
     questions.push('What should every shop like this stock?', 'Are prices higher or lower than the book?');
+  } else if (kind === 'event') {
+    const low = text.toLowerCase();
+    const places = ['town', 'city', 'village', 'market', 'tavern', 'road', 'woods', 'cave', 'dungeon', 'ruins', 'coast', 'mountains', 'swamp'].filter((p) => new RegExp(`\\b${p}`, 'i').test(low) || (p === 'woods' && /\bforest/.test(low)));
+    spec = { places, theme: text.split(/[.\n]/)[0].slice(0, 200), instructions: text, tone: '', choices: 3, checks: true, maxRewardCp: 100, consequences: 'Note what each choice leads to for the DM: who saw it, who might remember.' };
+    questions.push('Which places should these events fit (town, road, woods, cave, dungeon...)?', 'How much coin may one event give or take?', 'Should every event have a skill check?');
+    return { template: { kind, name: (head || (places.length ? `${titleCase(places[0])} events` : 'Quick events')).slice(0, 80), description: text.slice(0, 500), triggers: ['quick event', 'event', 'happens'], enabled: true, spec: cleanSpec(kind, spec) }, questions, notes: [], usedModel: false };
+  } else if (kind === 'spell') {
+    const lv = /\bcantrips?\b/i.test(text) ? [0, 0] : (() => { const m = text.match(/\blevel\s*(\d)(?:\s*(?:-|to)\s*(\d))?/i) ?? text.match(/\b(\d)(?:st|nd|rd|th)[- ]level/i); return m ? [Number(m[1]), Number(m[2] ?? m[1])] : [0, 9]; })();
+    const schools = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation'].filter((x) => new RegExp(x.slice(0, 6), 'i').test(text));
+    const classes = ['Bard', 'Cleric', 'Druid', 'Paladin', 'Ranger', 'Sorcerer', 'Warlock', 'Wizard'].filter((x) => new RegExp(`\\b${x}`, 'i').test(text));
+    const lines = ['Fire', 'Frost', 'Lightning', 'Healing', 'Shadow', 'Water', 'Earth', 'Air', 'Light', 'Blood'].filter((x) => new RegExp(`\\b${x}`, 'i').test(text));
+    spec = { minLevel: lv[0], maxLevel: lv[1], schools, classes, lines, balance: 'Match the damage, area and duration of SRD spells of the same level; a rider costs damage.', mana: '', naming: '', instructions: text, higherLevels: true };
+    questions.push('Which levels and schools should new spells be?', 'Which classes (or spell lines) get them?', 'Any rule for their mana cost?');
+    return { template: { kind, name: (head || (lines[0] ? `${lines[0]} spells` : 'New spells')).slice(0, 80), description: text.slice(0, 500), triggers: ['spell', 'cantrip'], enabled: true, spec: cleanSpec(kind, spec) }, questions, notes: [], usedModel: false };
   } else {
     const body = [`# {name}`, '', ...task.sections.flatMap((s) => (/secret/i.test(s) ? [`## ${s.replace(/\s*\(DM\)/i, '')}`, '> [!secret] DM', '> ', ''] : [`## ${s}`, '', '']))].join('\n');
     spec = { folder: task.folder, titlePattern: '{name}', sections: task.sections, tags: task.noun === 'page' ? [] : [task.noun.toLowerCase()], body };
@@ -97,6 +111,8 @@ const SPEC_SHAPE: Record<Kind, string> = {
   assist: '{"layout": "one|cols|rows|grid|side", "panes": ["library", "assistant"], "prompt": "what to ask the assistant"}',
   shop: '{"shopType": "...", "guide": "how shops like this are stocked and run", "stock": ["..."], "priceNotes": "..."}',
   library: '{"folder": "...", "titlePattern": "{name}", "sections": ["..."], "tags": ["..."], "body": "the page skeleton in Markdown"}',
+  event: '{"places": ["town|city|village|market|tavern|road|woods|cave|dungeon|ruins|coast|mountains|swamp"], "theme": "...", "instructions": "how these quick events go", "tone": "...", "choices": 3, "checks": true, "maxRewardCp": 100, "consequences": "how the DM notes what a choice leads to"}',
+  spell: '{"minLevel": 0, "maxLevel": 3, "schools": ["Evocation"], "classes": ["Wizard"], "lines": ["Fire"], "balance": "how strong a spell of each level is", "mana": "a mana cost note", "naming": "...", "instructions": "...", "higherLevels": true}',
 };
 
 const SYSTEM = (kind: Kind) => [

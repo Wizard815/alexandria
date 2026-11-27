@@ -1,0 +1,198 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter spell templates",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "spell",
+      "name": "Balanced homebrew spell",
+      "description": "A new spell of any level that sits beside the SRD spells of its level.",
+      "triggers": [
+        "spell",
+        "new spell",
+        "homebrew spell"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 0,
+        "maxLevel": 9,
+        "schools": [],
+        "classes": [],
+        "lines": [],
+        "balance": "Match the damage dice, area, range and duration of SRD spells of the same level. A rider (a condition, a push) costs about one damage die. Concentration for anything that lasts.",
+        "mana": "",
+        "naming": "Plain and evocative; no real-world names.",
+        "instructions": "Write the text fresh, never copied. Say who saves and what happens on a success.",
+        "higherLevels": true
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Cantrip",
+      "description": "A small at-will spell that grows at levels 5, 11 and 17.",
+      "triggers": [
+        "cantrip"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 0,
+        "maxLevel": 0,
+        "schools": [],
+        "classes": [],
+        "lines": [],
+        "balance": "One target, 1d10 damage at most (1d6 to 1d8 with a rider), or a small utility effect.",
+        "mana": "Cantrips cost no mana.",
+        "naming": "",
+        "instructions": "Say what it does at character levels 5, 11 and 17.",
+        "higherLevels": true
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Ritual utility spell",
+      "description": "A spell that solves a problem outside combat and can be cast as a ritual.",
+      "triggers": [
+        "ritual",
+        "utility spell"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 1,
+        "maxLevel": 5,
+        "schools": [],
+        "classes": [],
+        "lines": [],
+        "balance": "No damage. Its value is time saved or a door opened; compare with Detect Magic, Comprehend Languages and Water Breathing.",
+        "mana": "",
+        "naming": "Practical names.",
+        "instructions": "Mark it as a ritual. Say how long it lasts and what it cannot do.",
+        "higherLevels": false
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Healing or support spell",
+      "description": "Heals, protects or helps allies.",
+      "triggers": [
+        "healing spell",
+        "buff",
+        "support spell"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 1,
+        "maxLevel": 9,
+        "schools": [
+          "Abjuration",
+          "Evocation",
+          "Necromancy"
+        ],
+        "classes": [],
+        "lines": [],
+        "balance": "Healing matches Cure Wounds and Healing Word for its level; a buff matches Bless or Aid. Concentration for buffs that last.",
+        "mana": "",
+        "naming": "Warm, hopeful names.",
+        "instructions": "Say who it can target and how it scales with a higher slot.",
+        "higherLevels": true
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Battlefield control spell",
+      "description": "Walls, zones and conditions that change a fight.",
+      "triggers": [
+        "control spell",
+        "area spell",
+        "zone"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 1,
+        "maxLevel": 9,
+        "schools": [
+          "Conjuration",
+          "Transmutation",
+          "Enchantment"
+        ],
+        "classes": [],
+        "lines": [],
+        "balance": "An area that hinders rather than kills: compare with Web, Entangle and Slow. Concentration always. A save each turn to end it.",
+        "mana": "",
+        "naming": "Names that say what the ground does.",
+        "instructions": "Give the area size and shape and what a creature does to escape.",
+        "higherLevels": true
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Reaction spell",
+      "description": "A spell cast as a reaction to something that happens.",
+      "triggers": [
+        "reaction spell",
+        "counter"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 1,
+        "maxLevel": 5,
+        "schools": [],
+        "classes": [],
+        "lines": [],
+        "balance": "Compare with Shield, Feather Fall and Absorb Elements: small, immediate, once a round.",
+        "mana": "",
+        "naming": "Snappy names.",
+        "instructions": "State the trigger exactly (\"which you take when ...\").",
+        "higherLevels": true
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Summoning spell",
+      "description": "Calls a creature or spirit to fight or help.",
+      "triggers": [
+        "summon",
+        "summoning spell",
+        "conjure"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 2,
+        "maxLevel": 9,
+        "schools": [
+          "Conjuration"
+        ],
+        "classes": [],
+        "lines": [],
+        "balance": "Use the 2024 summon pattern: one stat block that scales with the slot level. Concentration, 1 hour.",
+        "mana": "",
+        "naming": "Name the creature the spell calls.",
+        "instructions": "Give the stat block in short form (AC, HP by level, one or two attacks).",
+        "higherLevels": true
+      }
+    },
+    {
+      "kind": "spell",
+      "name": "Spell line spell (MANA)",
+      "description": "A spell for a MANA spell line, with its mana cost.",
+      "triggers": [
+        "mana spell",
+        "spell line"
+      ],
+      "enabled": true,
+      "spec": {
+        "minLevel": 0,
+        "maxLevel": 9,
+        "schools": [],
+        "classes": [],
+        "lines": [],
+        "balance": "Balanced as an SRD spell of its level.",
+        "mana": "Cost in mana follows the world's mana rule; a cantrip costs none.",
+        "naming": "Fits the line's theme (Fire, Frost ...).",
+        "instructions": "Name the lines it belongs to.",
+        "higherLevels": true
+      }
+    }
+  ]
+}
