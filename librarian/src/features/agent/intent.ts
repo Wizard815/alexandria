@@ -15,6 +15,9 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\b(make|write|build|create|draft|design|add|change|edit|fix|copy|import)\b.{0,40}\b(house ?rules?|mods?|rule files?|homebrew (rule|system)s?|variant rules?|table rules?)\b|\b(house ?rule|mod) (file|studio|kit)\b/i, tools: ['house_rule_guide', 'house_rule_file', 'house_rule_check', 'house_rule_save', 'house_rules'] },
+  { re: /\b(house ?rules?|table rules?|variant rules?|re-?rolls?|inspiration|hero points?|luck (tokens?|points?)|reward (the |their |good )?(rp|roleplay|role-play))\b/i, tools: ['house_rule_grant', 'house_rules', 'house_rule_counters', 'house_rule_spend', 'house_rule_check', 'house_rule_save'] },
+  { re: /\b(down ?time|activit(y|ies)|tasks?|projects?|crafting queue|reputation|a (downtime )?day passes|house rule (list|records?))\b/i, tools: ['house_rules', 'house_rule_records', 'house_rule_record_act', 'house_rule_prompt', 'house_rule_my_record'] },
   { re: /\bfoundry\b|\bvtt\b|\b(move|drag|put) (the |my |our )?[\w' -]{0,30}token\b|\btokens?\b.*\b(scene|map)\b/i, tools: ['foundry_status', 'foundry_move_token', 'foundry_send_map', 'foundry_send_handout', 'foundry_say', 'list_pages'] },
   { re: /\broll ?20\b/i, tools: ['roll20_status', 'roll20_send_handout', 'roll20_say', 'list_pages'] },
   { re: /\bowlbear\b|\bvtt\b|\bvirtual table(top)?\b/i, tools: ['owlbear_status', 'owlbear_link'] },

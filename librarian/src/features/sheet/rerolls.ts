@@ -6,11 +6,20 @@
 //   dm:       make the DM re-roll one of their rolls.
 // The DM gives and takes them back; a player spends their own. Every change
 // is logged in sheet_log (kind "reroll").
+//
+// The counts are the "Inspiration as rerolls" house rule's counters
+// (features/mods): one store, so a re-roll spent here, in chat (/reroll) or
+// by the assistant is the same token. The house rule switches sheetRerolls
+// and sheetRerollCap on through its presets. Kind "party" is the house
+// rule's "everyone".
 import type { DB } from '../../core/db.ts';
-import { all, run } from '../../core/db.ts';
 import { featureSetting, type WorldSettings } from '../../core/policy.ts';
-import { HttpError, now } from '../../core/util.ts';
+import { HttpError } from '../../core/util.ts';
 import { logVitals } from './vitals.ts';
+import { readCounter, writeCounter } from '../mods/store.ts';
+
+const MOD = 'inspiration-rerolls';
+export const RESOURCE: Record<Reroll, string> = { personal: 'personal', party: 'everyone', dm: 'dm' };
 
 export const REROLLS = ['personal', 'party', 'dm'] as const;
 export type Reroll = (typeof REROLLS)[number];
@@ -22,7 +31,7 @@ export function rerollsOf(db: DB, s: WorldSettings, worldId: string, aid: string
   const r = rerollRules(s);
   if (!r.on) return { on: false as const };
   const counts: Record<Reroll, number> = { personal: 0, party: 0, dm: 0 };
-  for (const x of all<any>(db, 'SELECT kind, count FROM sheet_rerolls WHERE world_id = ? AND account_id = ?', worldId, aid)) if (x.kind in counts) counts[x.kind as Reroll] = x.count;
+  for (const k of REROLLS) counts[k] = readCounter(db, worldId, MOD, aid, RESOURCE[k]);
   return { on: true as const, cap: r.cap, ...counts };
 }
 
@@ -39,13 +48,14 @@ export function changeReroll(db: DB, s: WorldSettings, worldId: string, aid: str
   if (cur + d < 0) throw new HttpError(409, `No ${REROLL_LABEL[k].toLowerCase()} left`);
   const next = Math.min(r.cap, cur + d);
   if (next === cur) throw new HttpError(409, `Already at the most (${r.cap})`);
-  run(db, `INSERT INTO sheet_rerolls (world_id, account_id, kind, count, updated_at) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT (world_id, account_id, kind) DO UPDATE SET count = excluded.count, updated_at = excluded.updated_at`, worldId, aid, k, next, now());
+  const what0 = next < cur ? (dm ? 'take' : `use-${RESOURCE[k]}`) : 'grant';
+  writeCounter(db, worldId, MOD, aid, RESOURCE[k], next, what0, by, note || 'from the player sheet');
   const what = next < cur ? (dm ? 'taken back' : 'used') : 'given';
   logVitals(db, worldId, aid, 'reroll', cur, next, [`${REROLL_LABEL[k]} ${what}`, note].filter(Boolean).join(' · '), dm ? 'dm' : 'sheet', by);
   return { kind: k, before: cur, now: next, used: !dm && next < cur };
 }
 
+/** The table counts lived in before the house rule held them; read once by the mods feature's migration. */
 export const REROLL_SCHEMA = `
   CREATE TABLE IF NOT EXISTS sheet_rerolls (
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,

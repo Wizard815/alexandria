@@ -28,6 +28,7 @@ const feature: Feature = {
   mcpTools: [{ name: 'get_world_date', description: '…', props: {}, call: () => ({ method: 'GET', path: '/clock' }) }],
   start: (d) => { const t = setInterval(() => {}, 60_000); return () => clearInterval(t); },
   dataDirs: ['audio'],                      // under ALX_DATA_DIR; included in backups
+  houseRules: ['night-watch'],             // rule files in the repo's mods/ folder; see MODS.md
 };
 export default feature;
 ```
@@ -39,6 +40,10 @@ export default feature;
 - **Settings:** read them with `featureSetting(settings(res), 'key')`. The
   DM changes them through the normal `PATCH /settings`, which validates
   them from your spec.
+- **House rules:** a system a DM may switch on (a variant rule, a whole
+  subsystem) puts a rule file in the repo's `mods/` folder and claims it by
+  id in `houseRules`, so it shows under World → House rules next to the DMs'
+  own. See [MODS.md](MODS.md).
 - **Live updates:** `d.hub.emit(worldId, 'type', payload, filter)`. Use a
   filter for anything not everyone may see.
 - **Models:** always go through `librarian/src/core/ai.ts`: `chat`,

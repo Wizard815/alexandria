@@ -727,6 +727,10 @@ const PLAYER_ROUTES = [
   'POST /libshare/seen',
   'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel', 'POST /shop/shops/:sid/haggle',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
+  // House rules: a player spends their own counters (the server checks who may run each action).
+  'POST /mods/:id/act',
+  // Data systems: a player runs record actions the rule gives them and answers the DM's prompts (checked per action).
+  'POST /mods/:id/records/:action', 'POST /mods/:id/prompts/round/:round/answer',
   // The quick helper: a question to the small model (it reads only what this player may see and changes nothing).
   'POST /helper/quick',
   // Discord: a player gets their own one-time link code and unlinks their own Discord account.
