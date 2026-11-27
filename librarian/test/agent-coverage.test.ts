@@ -322,6 +322,7 @@ const ARGS: Record<string, Maker> = {
   send_encounter: () => ({ accountIds: [ID.jess], templateId: 'builtin:coin' }),
   encounter_say: async () => ({ id: await encounter('say'), text: 'Lovely weather.', answers: ['It is'] }),
   end_encounter: async () => ({ id: await encounter('end') }),
+  save_encounter_template: () => ({ kind: 'event', name: 'Thieving crow', places: ['woods'], script: { start: 'a', nodes: [{ id: 'a', text: 'A crow steals a button.', options: [{ label: 'Shoo it', next: null }] }] } }),
   lore_read: async () => ({ id: await lorePage('Read') }),
   lore_write: () => ({ path: 'Test/Written', title: 'Written', markdown: '# Written\nBy the agent.', level: 'party' }),
   create_dm_template: () => ({ kind: 'guide', name: 'Coverage towns', triggers: ['town'], spec: { sections: ['Overview'] } }),

@@ -2,19 +2,24 @@
 // answers come in, then resolve. Players never see the DC or the outcome
 // text until you resolve, and then only their own.
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHead, ErrorBox, Empty, Loading, Field, Switch, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
 import { CHECK_KINDS, OPTION_KINDS, QUICK_KINDS, usePlayers } from './shared.tsx';
 
 export default function DMQuickEvents() {
-  const { w } = useWorld();
+  const { w, info } = useWorld();
   const events = useLoad<any[]>(() => w.quickEvents(), [w], ['quick-event', 'quick-event-cancelled']);
   const open = (events.data ?? []).filter((e) => e.status === 'open');
   const past = (events.data ?? []).filter((e) => e.status !== 'open');
   return (
     <div className="page wide">
       <PageHead title="Quick events" lead="Timed prompts on players' screens; answers appear here." />
+      <p className="small muted" data-testid="story-events-link">
+        <i className="fa-solid fa-bolt" aria-hidden="true" /> Want something to <em>happen</em> to a player instead, by place (a pickpocket in town, a rotten bridge on the road, a trap in a dungeon)?{' '}
+        <Link to={`/w/${info.slug}/dm/encounters?tab=events`}>Story events →</Link>
+      </p>
       <ErrorBox error={events.error} />
       <div className="cols">
         <section className="col-1" style={{ maxWidth: 480 }}><Compose /></section>

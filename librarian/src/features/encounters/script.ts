@@ -7,9 +7,39 @@ import { HttpError } from '../../core/util.ts';
 
 export type Effect =
   | { kind: 'gold'; cp: number }
-  | { kind: 'item'; name: string; qty: number }
+  /** note: a line on the item card ("Worth about 10 gp to a jeweller"); "From <NPC>" when empty. */
+  | { kind: 'item'; name: string; qty: number; note?: string }
   /** shopId '' means "the shop picked when the encounter is sent", else any open shop. */
-  | { kind: 'shop'; shopId: string };
+  | { kind: 'shop'; shopId: string }
+  /** The player pays (buying something): the option is refused when they cannot afford it. */
+  | { kind: 'pay'; cp: number }
+  /** The player loses coin (a thief, a spill): up to what they have, never below nothing. */
+  | { kind: 'lose'; cp: number }
+  /** A note only the DM sees (and Minerva's session notes): "kept the stranger's purse". */
+  | { kind: 'dmnote'; text: string };
+
+/** An NPC who walks up and talks, or a quick event: something that happens to the player. */
+export const KINDS = ['npc', 'event'] as const;
+export type EncounterKind = (typeof KINDS)[number];
+
+/** Where a quick event can happen. A template lists the places it fits; the DM picks a place to get one. */
+export const PLACES = ['town', 'city', 'village', 'market', 'tavern', 'road', 'woods', 'cave', 'dungeon', 'ruins', 'coast', 'mountains', 'swamp'] as const;
+export type Place = (typeof PLACES)[number];
+export const PLACE_LABEL: Record<Place, string> = {
+  town: 'Town', city: 'City', village: 'Village', market: 'Market', tavern: 'Tavern', road: 'Open road', woods: 'Woods', cave: 'Cave',
+  dungeon: 'Dungeon', ruins: 'Ruins', coast: 'Coast', mountains: 'Mountains', swamp: 'Swamp',
+};
+/** A list of places from a request or the database: known ones only, each once, in PLACES order. */
+export const cleanPlaces = (v: unknown): Place[] => {
+  const raw = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,\s]+/) : [];
+  const want = new Set(raw.map((x) => String(x).toLowerCase().trim()));
+  // "open road", "forest" and the like, as a DM or a model writes them.
+  if (want.has('forest') || want.has('wilderness')) want.add('woods');
+  if (want.has('open road') || want.has('open-road') || want.has('roads')) want.add('road');
+  if (want.has('caves')) want.add('cave');
+  if (want.has('dungeons')) want.add('dungeon');
+  return PLACES.filter((p) => want.has(p));
+};
 
 export interface Option { label: string; next: string | null; effects: Effect[] }
 
@@ -23,15 +53,25 @@ export interface Game {
   stakeCp: number;
   /** Coin paid on a win (on top of getting the stake back). */
   winCp: number;
-  /** check only. */
+  /** check only: the DC, or the low end of a range when dcMax is set. */
   dc: number | null;
+  /** check only: the high end of a DC range. The DC is picked from dc..dcMax when the player sends their roll. */
+  dcMax: number | null;
   skill: string | null;
   /** Where the story goes after a win or a loss. */
   win: string;
   lose: string;
 }
 
-export interface Node { id: string; text: string; options: Option[]; game: Game | null }
+/**
+ * A step the player must answer quickly. secs: how long they get, counted from when they first see the step.
+ * fallback: the answer (option index) picked for them when time runs out; -1 on a step with a game means the
+ * check (or game) fails.
+ */
+export interface Timer { secs: number; fallback: number }
+export const TIMER_SECS = { min: 5, max: 600 };
+
+export interface Node { id: string; text: string; options: Option[]; game: Game | null; timer?: Timer | null }
 export interface Script { start: string; nodes: Node[] }
 
 export const LIMITS = { nodes: 40, options: 6, effects: 3, text: 1000, label: 120, cp: 100_000, qty: 20, steps: 60 };
@@ -57,11 +97,34 @@ function parseEffect(v: any, at: string): Effect {
   if (!v || typeof v !== 'object') throw bad(`${at} must be an object`);
   switch (v.kind) {
     case 'gold': return { kind: 'gold', cp: whole(v.cp, `${at}.cp`, 1, LIMITS.cp, 0) || (() => { throw bad(`${at}.cp is required`); })() };
-    case 'item': return { kind: 'item', name: text(v.name, `${at}.name`, LIMITS.label), qty: whole(v.qty, `${at}.qty`, 1, LIMITS.qty, 1) };
+    case 'item': {
+      const note = text(v.note, `${at}.note`, 200, true);
+      return { kind: 'item', name: text(v.name, `${at}.name`, LIMITS.label), qty: whole(v.qty, `${at}.qty`, 1, LIMITS.qty, 1), ...(note ? { note } : {}) };
+    }
     case 'shop': return { kind: 'shop', shopId: text(v.shopId, `${at}.shopId`, 60, true) };
-    default: throw bad(`${at}.kind must be gold, item or shop`);
+    case 'pay': case 'lose': return { kind: v.kind, cp: whole(v.cp, `${at}.cp`, 1, LIMITS.cp, 0) || (() => { throw bad(`${at}.cp is required`); })() };
+    case 'dmnote': return { kind: 'dmnote', text: text(v.text, `${at}.text`, 300) };
+    default: throw bad(`${at}.kind must be gold, item, shop, pay, lose or dmnote`);
   }
 }
+
+/** A check's DC: one number, or a range ("dc": 10, "dcMax": 14; also "dc": [10, 14] or "10-14" from a model). */
+function checkDc(g: any, gat: string): { dc: number | null; dcMax: number | null } {
+  if (g.kind !== 'check') return { dc: null, dcMax: null };
+  let lo: unknown = g.dc, hi: unknown = g.dcMax;
+  if (Array.isArray(lo)) [lo, hi] = [lo[0], lo[1] ?? hi];
+  else if (typeof lo === 'string' && /^\s*\d+\s*[-–]\s*\d+\s*$/.test(lo)) [lo, hi] = lo.split(/[-–]/).map((x) => Number(x.trim()));
+  let dc = whole(lo, `${gat}.dc`, 1, 40, 12);
+  let max = hi === undefined || hi === null || hi === '' ? null : whole(hi, `${gat}.dcMax`, 1, 40, 0);
+  if (max !== null && max < dc) [dc, max] = [max, dc];
+  return { dc, dcMax: max !== null && max > dc ? max : null };
+}
+
+/** The DC to beat this time: the fixed DC, or one picked from the range. */
+export const pickDc = (g: Game, rnd: (n: number) => number = d): number => (g.dcMax && g.dc !== null && g.dcMax > g.dc ? g.dc + rnd(g.dcMax - g.dc + 1) - 1 : g.dc ?? 10);
+
+/** "DC 12" or "DC 10–14", for the DM. */
+export const dcLabel = (g: { dc: number | null; dcMax?: number | null }): string => (g.dc === null ? '' : `DC ${g.dc}${g.dcMax ? `–${g.dcMax}` : ''}`);
 
 /** Check and normalise a script from a request or the database. Throws 400 on anything wrong. */
 export function parseScript(v: any): Script {
@@ -90,12 +153,24 @@ export function parseScript(v: any): Script {
       if (!(GAMES as readonly string[]).includes(g.kind)) throw bad(`${gat}.kind must be one of: ${GAMES.join(', ')}`);
       game = {
         kind: g.kind, stakeCp: whole(g.stakeCp, `${gat}.stakeCp`, 0, LIMITS.cp, 0), winCp: whole(g.winCp, `${gat}.winCp`, 0, LIMITS.cp, 0),
-        dc: g.kind === 'check' ? whole(g.dc, `${gat}.dc`, 1, 40, 12) : null,
+        ...checkDc(g, gat),
         skill: g.kind === 'check' ? text(g.skill, `${gat}.skill`, 40, true) || null : null,
         win: text(g.win, `${gat}.win`, 40), lose: text(g.lose, `${gat}.lose`, 40),
       };
     }
-    return { id, text: text(n.text, `${at}.text`, LIMITS.text), options, game };
+    let timer: Timer | null = null;
+    if (n.timer !== undefined && n.timer !== null && n.timer !== false && n.timer !== 0) {
+      const tv = typeof n.timer === 'number' || typeof n.timer === 'string' ? { secs: n.timer } : n.timer;
+      if (!tv || typeof tv !== 'object') throw bad(`${at}.timer must be an object`);
+      const secs = whole(tv.secs, `${at}.timer.secs`, TIMER_SECS.min, TIMER_SECS.max, 0);
+      if (!secs) throw bad(`${at}.timer.secs is required`);
+      if (!options.length && !game) throw bad(`${at} has a timer but no answers to pick when time runs out`);
+      const dflt = game ? -1 : options.length - 1;
+      // An answer that is no longer there (removed in the editor) falls back to the default.
+      const fallback = whole(tv.fallback, `${at}.timer.fallback`, -1, LIMITS.options, dflt);
+      timer = { secs, fallback: (fallback === -1 && !game) || fallback >= options.length ? dflt : fallback };
+    }
+    return { id, text: text(n.text, `${at}.text`, LIMITS.text), options, game, ...(timer ? { timer } : {}) };
   });
   const ids = new Set<string>();
   for (const n of nodes) { if (ids.has(n.id)) throw bad(`Two nodes are called ${n.id}`); ids.add(n.id); }
@@ -116,7 +191,7 @@ export const quickScript = (line: string, answers: string[]): Script => parseScr
 
 // ---------------- the games ----------------
 
-export interface GameResult { won: boolean; text: string; roll?: number; total?: number }
+export interface GameResult { won: boolean; text: string; roll?: number; total?: number; dc?: number; crit?: 'high' | 'low' }
 
 const FACES = ['heads', 'tails'];
 const SHELLS = ['left', 'middle', 'right'];
@@ -124,10 +199,13 @@ const d = (n: number) => randomInt(1, n + 1);
 
 /**
  * Play a game on the server, so the odds are the odds whatever the phone
- * says. pick: coin 0/1, shells 0/1/2. check: roll (1-20, from real dice) and
- * modifier; the app rolls when roll is missing. Dice ties go to the NPC.
+ * says. pick: coin 0/1, shells 0/1/2. check: total (the player's roll with
+ * their bonuses, from real dice), or roll (1-20) and modifier; the app rolls
+ * when neither is given. The DC is picked from its range here. Dice ties go to
+ * the NPC. crit: 'high' (a natural 20) or 'low' (a natural 1) passes or fails a
+ * check whatever the total.
  */
-export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?: unknown }, rnd: (n: number) => number = d): GameResult {
+export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?: unknown; total?: unknown; crit?: unknown }, rnd: (n: number) => number = d): GameResult {
   switch (g.kind) {
     case 'coin': {
       const pick = whole(input.pick, 'pick', 0, 1, -1);
@@ -147,17 +225,28 @@ export function play(g: Game, input: { pick?: unknown; roll?: unknown; modifier?
       return { won: you > them, text: `You roll ${a[0]} + ${a[1]} = ${you}. They roll ${b[0]} + ${b[1]} = ${them}.${you === them ? ' Ties go to the house.' : ''}` };
     }
     case 'check': {
+      const dc = pickDc(g, rnd);
+      // The player says they rolled a natural 20 (high) or a natural 1 (low): it passes or fails whatever the total.
+      if (input.crit === 'high' || input.crit === 'low') {
+        const hi = input.crit === 'high';
+        const t = input.total === undefined || input.total === null || input.total === '' ? undefined : whole(input.total, 'total', -10, 60, 0);
+        return { won: hi, dc, crit: input.crit, ...(t !== undefined ? { total: t } : {}), text: `Natural ${hi ? '20' : '1'}${g.skill ? ` on ${g.skill}` : ''}${t !== undefined ? ` (${t})` : ''}! ${hi ? 'A critical success.' : 'A critical failure.'}` };
+      }
+      if (input.total !== undefined && input.total !== null && input.total !== '') {
+        const total = whole(input.total, 'total', -10, 60, 0);
+        return { won: total >= dc, total, dc, text: `You rolled ${total}${g.skill ? ` for ${g.skill}` : ''}.` };
+      }
       const roll = whole(input.roll, 'roll', 1, 20, 0) || rnd(20);
       const mod = whole(input.modifier, 'modifier', -10, 30, 0);
       const total = roll + mod;
-      return { won: total >= (g.dc ?? 10), roll, total, text: `You roll ${roll}${mod ? ` ${mod > 0 ? '+' : '-'} ${Math.abs(mod)} = ${total}` : ''}${g.skill ? ` (${g.skill})` : ''}.` };
+      return { won: total >= dc, roll, total, dc, text: `You roll ${roll}${mod ? ` ${mod > 0 ? '+' : '-'} ${Math.abs(mod)} = ${total}` : ''}${g.skill ? ` (${g.skill})` : ''}.` };
     }
   }
 }
 
 // ---------------- built-in starters ----------------
 
-export interface Starter { id: string; name: string; npcName: string; npcBlurb: string; script: Script }
+export interface Starter { id: string; name: string; npcName: string; npcBlurb: string; script: Script; kind?: EncounterKind; places?: Place[] }
 
 /** Ready to send in any world. ids start with "builtin:" and cannot be edited (copy one to change it). */
 export const STARTERS: Starter[] = [

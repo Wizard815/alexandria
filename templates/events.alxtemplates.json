@@ -1,0 +1,204 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter quick event templates",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "event",
+      "name": "Town & city temptations",
+      "description": "Small moments in streets and markets that test a character: a thief, a find, a stranger in need.",
+      "triggers": [
+        "quick event",
+        "town event",
+        "city event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "town",
+          "city",
+          "market",
+          "village"
+        ],
+        "theme": "petty crime, honest or greedy choices, small kindnesses",
+        "instructions": "One moment, one choice. Start in the middle of it (\"A hand brushes your belt\"). The greedy choice pays a little more now; the honest one earns a friend or a favour. A chase or a quick grab gets a timer of 15 to 30 seconds.",
+        "tone": "Light and quick, second person.",
+        "choices": 3,
+        "checks": true,
+        "maxRewardCp": 100,
+        "consequences": "Every choice that matters gets a dmnote: who saw it and who might remember."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Wilderness hazards & finds",
+      "description": "Things that happen on the road and in the wild: a rotten bridge, a strange plant, an abandoned camp.",
+      "triggers": [
+        "road event",
+        "wilderness event",
+        "travel event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "road",
+          "woods",
+          "mountains"
+        ],
+        "theme": "hazards, finds and signs of others on the road",
+        "instructions": "A hazard gets a skill check with a DC range and a small cost on a failure (a few coins lost, an hour lost, a minor wound in a dmnote). A find gets a simple item with a note on what it is worth.",
+        "tone": "Vivid, one or two sentences a step.",
+        "choices": 2,
+        "checks": true,
+        "maxRewardCp": 50,
+        "consequences": "Wounds, lost time and conditions go in a dmnote so the DM applies them."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Underground moments",
+      "description": "Caves, dungeons and ruins: traps, echoes, odd things in the dark.",
+      "triggers": [
+        "dungeon event",
+        "cave event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "cave",
+          "dungeon",
+          "ruins"
+        ],
+        "theme": "traps, eerie signs and small treasures",
+        "instructions": "Keep it tense. A trap is a save or check with a timer; a strange sign is a clue the DM explains later (put the real meaning in a dmnote, never in what the player reads).",
+        "tone": "Tense and quiet.",
+        "choices": 2,
+        "checks": true,
+        "maxRewardCp": 50,
+        "consequences": "Damage and clues go in a dmnote."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Tavern trouble",
+      "description": "A spilled drink, a card sharp, a stranger who knows too much.",
+      "triggers": [
+        "tavern event",
+        "inn event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "tavern"
+        ],
+        "theme": "brawls brewing, gambling, gossip and offers",
+        "instructions": "Something happens at the bar or a table. Offer a social way out and a physical one. A bet or a game can cost or win a few coins.",
+        "tone": "Warm and rowdy.",
+        "choices": 3,
+        "checks": true,
+        "maxRewardCp": 100,
+        "consequences": "Grudges, debts and rumours learned go in a dmnote."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Shore & sea",
+      "description": "Tides, wrecks and what the sea gives up.",
+      "triggers": [
+        "coast event",
+        "sea event",
+        "beach event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "coast"
+        ],
+        "theme": "wreckage, tides, smugglers and sea creatures",
+        "instructions": "The sea is the danger: a rising tide is a timer, a slippery rock a check. Finds are small and salt-worn.",
+        "tone": "Windy and bright.",
+        "choices": 2,
+        "checks": true,
+        "maxRewardCp": 50,
+        "consequences": "Lost gear, wet supplies and smugglers seen go in a dmnote."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Swamp & bog",
+      "description": "Sucking mud, will-o-wisps and things that live in still water.",
+      "triggers": [
+        "swamp event",
+        "marsh event",
+        "bog event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "swamp",
+          "woods"
+        ],
+        "theme": "mud, insects, lights in the mist, sickness",
+        "instructions": "A misstep is a check with a small cost; a light in the mist is a choice to follow or not. Sickness or leeches go in a dmnote.",
+        "tone": "Humid and uneasy.",
+        "choices": 2,
+        "checks": true,
+        "maxRewardCp": 30,
+        "consequences": "Sickness, lost boots and followed lights go in a dmnote."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Night streets",
+      "description": "After dark in a city: watchmen, cutpurses, doors left open.",
+      "triggers": [
+        "night event",
+        "street event",
+        "alley event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "city",
+          "town"
+        ],
+        "theme": "crime, the watch, secrets glimpsed through windows",
+        "instructions": "Choices between minding your business and getting involved. Being caught somewhere is a check or a coin to pay.",
+        "tone": "Shadowy and close.",
+        "choices": 3,
+        "checks": true,
+        "maxRewardCp": 100,
+        "consequences": "Who they helped, crossed or were seen by goes in a dmnote."
+      }
+    },
+    {
+      "kind": "event",
+      "name": "Shrines & holy places",
+      "description": "Offerings, omens and quiet roadside gods.",
+      "triggers": [
+        "shrine event",
+        "temple event",
+        "omen event"
+      ],
+      "enabled": true,
+      "spec": {
+        "places": [
+          "road",
+          "woods",
+          "mountains",
+          "ruins",
+          "village"
+        ],
+        "theme": "offerings, omens, small blessings and curses",
+        "instructions": "Taking from a shrine is the greedy choice; leaving something is the kind one. An omen is a line the DM explains later.",
+        "tone": "Hushed and strange.",
+        "choices": 2,
+        "checks": false,
+        "maxRewardCp": 30,
+        "consequences": "Blessings, curses and omens go in a dmnote for the DM to apply."
+      }
+    }
+  ]
+}
