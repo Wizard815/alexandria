@@ -67,7 +67,7 @@
   .player .tabs { margin-inline: 0; padding-inline: 0; }
 
   /* Pop-ups: still slide up from the bottom, but no wider than a phone's. */
-  .player .modal-back { justify-content: center; padding: 0 16px; }
+  .player .modal-back { justify-content: center; padding: 0 16px 0 calc(var(--rail-w) + 16px + env(safe-area-inset-left, 0px)); }
   .player .modal { max-width: 640px; border-bottom: 1px solid var(--line-strong); }
 
   /* DM: the left rail stays on the left (the phone layout would move it to the bottom), touch-sized. */
@@ -87,6 +87,8 @@
   .dmx .page { padding: 14px 18px var(--dock-reserve); }
   .dmx .cols > .col-2 { flex: 2 1 340px; } .dmx .cols > .col-3 { flex: 3 1 440px; }
   .dmx .lib-tree { height: calc(100dvh - 260px); }
+  .dmx-end .dmx-phone-btn { display: inline-flex; }
+  .dmx-phone-btn span { display: inline; }
   /* Workspace layouts (panes side by side) work here, unlike on a phone. */
   .dmx-ws { display: inline-flex; }
   .dmx .main.main-ws { height: calc(100dvh - 56px - var(--safe-top) - 53px); min-height: 0; }
@@ -113,6 +115,10 @@
   :root:is([data-nav-side=left], [data-nav-side=right]) .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   :root[data-nav-side=left] .player { padding-left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); padding-right: 0; }
   :root[data-nav-side=left] .player .bottomnav { left: 0; right: auto; border-left: 0; border-right: 1px solid var(--line-strong); padding-left: calc(6px + env(safe-area-inset-left, 0px)); }
+  /* Pop-ups sit beside the rail, never under it. */
+  :root[data-nav-side=left] .player .modal-back { padding-left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); padding-right: 0; }
+  :root[data-nav-side=right] .player .modal-back { padding-right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); padding-left: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .modal-back { padding-left: 0; padding-right: 0; }
   :root[data-nav-side=left] .player .sheet-backdrop .sheet.more { left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); right: auto; border-right: 1px solid var(--line-strong); border-left: 0; border-radius: 0 16px 16px 0; }
   :root[data-nav-side=right] .player { padding-right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); padding-left: 0; }
   :root[data-nav-side=right] .player .bottomnav { right: 0; left: auto; width: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); border-right: 0; border-left: 1px solid var(--line-strong); padding-right: calc(6px + env(safe-area-inset-right, 0px)); }

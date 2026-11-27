@@ -7,7 +7,7 @@ import { useAction } from '../../ui/index.tsx';
 import { loadSpeakers, saveSpeakers } from '../sound/engine.ts';
 import { Err } from './Sheet.tsx';
 import { InstallHint } from '../../lib/install.tsx';
-import { buzz, useFlash } from './hooks.ts';
+import { START_KEY, buzz, lsSet, startsInPhone, useFlash } from './hooks.ts';
 import { useScenes } from '../scenes/useScenes.ts';
 import { OutcomeView } from '../scenes/ScenePanel.tsx';
 import { NavSidePicker } from '../../lib/navSide.tsx';
@@ -23,6 +23,7 @@ export default function RemoteTab() {
   const [dot, setDot] = useState<{ x: number; y: number } | null>(null);
   const mood = useRef<HTMLDivElement>(null);
   const [tableSound, setTableSound] = useState(() => loadSpeakers().tableOn);
+  const [startPhone, setStartPhone] = useState(startsInPhone);
 
   // The actions feature is built separately. Without it (404) the section is hidden.
   const macros = useLoad<any[] | null>(() => safe(w.call<any>('GET', '/actions/macros').then((r) => (Array.isArray(r) ? r : r?.macros ?? [])), null), [w], ['actions']);
@@ -147,6 +148,8 @@ export default function RemoteTab() {
         <h3>This phone</h3>
         <button type="button" className={`b${tableSound ? ' on' : ''}`} aria-pressed={tableSound} onClick={() => { const s = loadSpeakers(); saveSpeakers({ ...s, tableOn: !tableSound }); setTableSound(!tableSound); }}>{tableSound ? 'Table sound plays on this phone' : 'Table sound stays off this phone'}</button>
         <span className="tiny">Pads and music play where the desktop is. Turn this on only if this phone is the table speaker.</span>
+        <button type="button" className={`b${startPhone ? ' on' : ''}`} aria-pressed={startPhone} data-testid="start-phone" onClick={() => { lsSet(START_KEY, startPhone ? '' : '1'); setStartPhone(!startPhone); }}>{startPhone ? 'This device opens in phone mode' : 'This device opens in the full DM view'}</button>
+        <span className="tiny">Where the app lands when it starts here. Switch any time: Full DM at the top left, Phone mode in the DM's top bar.</span>
         <span className="sub">Where the tabs sit</span>
         <NavSidePicker />
       </section>

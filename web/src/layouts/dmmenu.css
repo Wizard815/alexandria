@@ -81,3 +81,9 @@
 }
 
 body.ws-hidden .dmx-beside { display: none; }
+
+/* Phone mode (the pocket assistant): a button in the top bar on phones and foldables (fold.css shows it). */
+.dmx-phone-btn { display: none; text-decoration: none; align-items: center; gap: 6px; }
+@media (max-width: 760px) { .dmx-end .dmx-phone-btn { display: inline-flex; } .dmx-phone-btn span { display: none; } }
+/* A narrow phone: the session button keeps only its dot or play icon, so Phone mode and the inbox still fit. */
+@media (max-width: 430px) { .dmx-session { position: relative; } .dmx-session > span:not(.live-dot):not(.au-rec-dot) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .dmx-session { padding: 0 10px; } .dmx-top { gap: 4px; } }

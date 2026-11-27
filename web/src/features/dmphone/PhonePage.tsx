@@ -90,7 +90,7 @@ export default function PhonePage() {
     <div ref={rootRef} className={`dmp${shape.wide ? ' wide' : ''}${kb ? ' kb' : ''}`} style={kb ? { bottom: kb } : undefined} data-testid="dmphone" data-layout={shape.wide ? 'two-pane' : 'one-pane'}>
       <div className="dmp-col">
         <header className="dmp-top">
-          <Link to={`/w/${info.slug}/dm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
+          <Link to={`/w/${info.slug}/dm`} className="b dmp-full" style={{ padding: '0 12px', textDecoration: 'none' }} aria-label="Full DM view" data-testid="to-full"><i className="fa-solid fa-table-columns" aria-hidden="true" /> <span>Full DM</span></Link>
           <span className="brand">{info.name}</span>
           <ModeBadge phone />
           <span className="date" data-testid="phone-date"><span className={`live-dot${connected ? '' : ' off'}`} style={{ marginRight: 6 }} />{sum.data?.date.label ?? ''}</span>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, Navigate, Link, useLocation } from 'react-router-dom';
+import { Outlet, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
+import { startsInPhone } from '../features/dmphone/hooks.ts';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
@@ -18,6 +19,15 @@ export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
   const inWorkspace = /\/dm\/ws\/?$/.test(useLocation().pathname);
   const top = useRef<HTMLElement>(null);
+  const nav = useNavigate();
+  const path = useLocation().pathname;
+  // A device set to start in phone mode goes to the assistant once per app launch, from the DM's landing page only.
+  useEffect(() => {
+    let done = false;
+    try { done = sessionStorage.getItem('alx.dmphone.started') === '1'; sessionStorage.setItem('alx.dmphone.started', '1'); } catch { /* private mode */ }
+    if (!done && startsInPhone() && /\/dm\/?$/.test(path)) nav(`${path.replace(/\/$/, '')}/phone`, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useTopHeight(top);
   useNavSide();
   const requests = useLoad(() => w.requests(), [w], ['request']);
@@ -37,6 +47,7 @@ export function DMLayout() {
           <i className="fa-solid fa-magnifying-glass" aria-hidden="true" /><span>Find any page, person or setting</span><kbd aria-hidden="true">/</kbd>
         </button>
         <span className="dmx-end">
+          <Link to={`${base}/phone`} className="btn small dmx-phone-btn" aria-label="Phone mode: the pocket assistant" title="Phone mode" data-testid="to-phone"><i className="fa-solid fa-mobile-screen" aria-hidden="true" /> <span>Phone mode</span></Link>
           {TOPBARS.map((C, i) => <C key={i} />)}
           <button type="button" className="btn small" onClick={() => openShare()} data-testid="share-open"><i className="fa-solid fa-share-nodes" aria-hidden="true" /> <span>Share</span></button>
           <Link to={`${base}/inbox`} className="icon-btn" aria-label={waiting ? `Inbox, ${waiting} waiting` : 'Inbox'} title="Inbox"><i className="fa-solid fa-inbox" aria-hidden="true" />{waiting > 0 && <span className="nav-badge">{waiting}</span>}</Link>

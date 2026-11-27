@@ -175,6 +175,13 @@ for (const f of FOLDS) {
       note(`${bad.length ? 'FAIL' : 'ok  '} dm /${r || '(table)'}${bad.length ? '  ' + bad.join('; ') : ''}`);
       await shot(page, `${f.name}-dm-${r || 'table'}`);
     }
+    // Phone mode and back, one tap each way.
+    await page.goto(`${base}/w/saltreach/dm`);
+    await page.getByTestId('to-phone').click();
+    await page.getByTestId('dmphone').waitFor();
+    await page.getByTestId('to-full').click();
+    check(await page.locator('.dmx-rail').waitFor({ timeout: 8000 }).then(() => true, () => false), `${f.name} DM: Full DM did not go back`);
+    note('dm: phone mode and back');
     // Workspace layouts: two pages side by side, picked from the strip like on a desktop.
     check(await page.getByTestId('menu-workspace').isVisible(), `${f.name} DM: no Workspace in the strip`);
     await page.goto(`${base}/w/saltreach/dm/ws?l=cols&p=combat,sound&s=50,50&f=0`);
@@ -234,9 +241,27 @@ for (const vp of [{ width: 700, height: 850 }, { width: 390, height: 844 }, { wi
       check(got === side, `${vp.width}x${vp.height} ${who}: panel set to ${side} sits ${got}`);
       const a = await page.evaluate(AUDIT);
       check(a.scrollW <= a.vw, `${vp.width}x${vp.height} ${who} ${side}: sideways scroll`);
+      if (user === 'dm') {
+        const ib = await box(page, '.dmx-end a[href$="/inbox"]');
+        check(ib && ib.x + ib.width <= vp.width + 1, `${vp.width}x${vp.height} DM: the top bar runs off the screen (inbox at ${ib && Math.round(ib.x + ib.width)})`);
+        check(await page.getByTestId('to-phone').isVisible(), `${vp.width}x${vp.height} DM: no Phone mode button`);
+      }
       // Nothing of the page hides under the panel: the first heading is clear of it.
       const h = await page.locator('main h1, main h2').first().boundingBox();
       if (h && b) check(!(h.x < b.x + b.width && h.x + h.width > b.x && h.y < b.y + b.height && h.y + h.height > b.y), `${vp.width}x${vp.height} ${who} ${side}: the panel covers the page heading`);
+      // A pop-up sits beside a rail, not under it.
+      if (user === 'jess' && vp.width === 700 && (side === 'left' || side === 'right')) {
+        await dm('POST', '/quick-events', { kind: 'notice', title: 'A gull cries', prompt: 'Look up.', skill: 'Perception', dc: 10 });
+        const m = page.locator('.modal[role=dialog]').first();
+        if (check(await m.waitFor({ timeout: 8000 }).then(() => true, () => false), `${side}: quick event did not appear`)) {
+          await sleep(400); // the slide-up animation
+          const mb = await m.boundingBox();
+          check(mb.x + mb.width <= b.x + 1 || mb.x >= b.x + b.width - 1, `${vp.width}x${vp.height} ${side}: the pop-up goes under the rail (${JSON.stringify(mb)})`);
+          await shot(page, `side-${vp.width}-${side}-${user}-popup`);
+          await closeQuick(page);
+        }
+      }
+      await closeQuick(page);
       await shot(page, `side-${vp.width}-${side}-${user}`);
       await ctx.close();
     }
@@ -274,8 +299,15 @@ for (const vp of [{ width: 700, height: 850 }, { width: 390, height: 844 }, { wi
   await sleep(200);
   const tr = await box(d.page, '.dmp-tabs');
   check(tr && tr.x + tr.width >= 699 && tr.height > 400, `phone assistant: Right did not move the tabs (${JSON.stringify(tr)})`);
+  // This device opens in phone mode: the next launch lands on the assistant, once.
+  await d.page.getByTestId('start-phone').click();
+  const d2 = await d.ctx.newPage();
+  await d2.goto(`${base}/w/saltreach/dm`);
+  check(await d2.getByTestId('dmphone').waitFor({ timeout: 8000 }).then(() => true, () => false), 'start in phone mode: the app did not open the assistant');
+  await d2.getByTestId('to-full').click();
+  check(await d2.locator('.dmx-rail').waitFor({ timeout: 8000 }).then(() => true, () => false), 'start in phone mode: Full DM bounced back to the assistant');
   await d.ctx.close();
-  note('picked from More and from the DM world menu');
+  note('picked from More and from the DM world menu; start in phone mode');
 }
 
 await browser.close();
