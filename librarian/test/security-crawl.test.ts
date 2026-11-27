@@ -806,7 +806,7 @@ test('TestSecurityAuth_RevokedAndSignedOutCredentialsStopWorking', async () => {
 
 test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
   const bad: string[] = [];
-  const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media|^\/api\/trigger|^\/api\/roll20\/bridge|^\/api\/owlbear\//.test(r.path));
+  const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media|^\/api\/trigger|^\/api\/roll20\/bridge|^\/api\/owlbear\/|^\/api\/foundry\/bridge/.test(r.path));
   for (const [label, key] of [['jess read key', S.K.jessRead], ['dm read key', S.K.dmRead]] as const) {
     for (const r of writes) for (const url of urlsFor(r).slice(0, 4)) {
       const res = await call(r.method, url, key, {});
@@ -814,6 +814,8 @@ test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
     }
   }
   assert.deepEqual(bad, []);
+  // The Foundry bridge routes take only a Foundry bridge key: any other key is not signed in there.
+  for (const r of routes.filter((x) => x.path.startsWith('/api/foundry/bridge'))) for (const key of [S.K.jessRead, S.K.dmRead]) assert.equal((await call(r.method, r.path.replace(':ref', '1').replace(':id', 'x'), key, r.method === 'GET' ? undefined : {})).status, 401, r.path);
   // The Roll20 bridge routes take only a Roll20 bridge key: any other key is not signed in there.
   for (const r of routes.filter((x) => x.path.startsWith('/api/roll20/bridge'))) for (const key of [S.K.jessRead, S.K.dmRead]) assert.equal((await call(r.method, r.path, key, {})).status, 401, r.path);
   // The Owlbear Rodeo extension's routes take only an Owlbear link key: any other key is not signed in there.
