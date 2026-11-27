@@ -273,9 +273,10 @@
               "gp": 5
             },
             "failure": {
-              "text": "Bitten and chased up the stairs.",
+              "text": "Bitten and chased up the stairs. The job isn't done.",
               "damage": 3,
-              "exhaustion": 1
+              "exhaustion": 1,
+              "noReward": true
             },
             "weight": 3
           },
@@ -416,7 +417,7 @@
             "dc": 12,
             "success": "You pull back in time.",
             "failure": {
-              "text": "A burn and a ruined piece.",
+              "text": "A burn, and the day's work is ruined.",
               "damage": 2,
               "days": -1
             }

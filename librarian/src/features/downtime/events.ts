@@ -15,7 +15,7 @@ import { dmAnd, everyone } from '../../core/events.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { changeVitals, vitalsOf } from '../sheet/vitals.ts';
-import { checkOutcome, hasOutcome, type EventDef, type Outcome } from './catalog.ts';
+import { NO_REWARD, checkOutcome, hasOutcome, type EventDef, type Outcome } from './catalog.ts';
 import { PARTY, activities, addWork, taskRow, tx, worldSettings, writeLog, type DayPick } from './store.ts';
 
 export const EVENTS_SCHEMA = `
@@ -103,7 +103,7 @@ export function cancelPending(db: DB, w: string, roundId: string, aid: string | 
 export const outcomeText = (o: Outcome): string => [
   o.text.replace(/[.!]+$/, ''), o.cp ? `${o.cp > 0 ? '+' : '−'}${Math.abs(o.cp) / 100} gp` : '', o.item ? `${o.qty > 1 ? `${o.qty} × ` : ''}${o.item}` : '',
   o.days ? `${o.days > 0 ? '+' : '−'}${Math.abs(o.days)} day${Math.abs(o.days) === 1 ? '' : 's'} of progress` : '',
-  o.damage ? `${o.damage} damage` : '', o.heal ? `${o.heal} HP back` : '', o.exhaustion ? `${o.exhaustion > 0 ? '+' : '−'}${Math.abs(o.exhaustion)} exhaustion` : '',
+  o.damage ? `${o.damage} damage` : '', o.heal ? `${o.heal} HP back` : '', o.exhaustion ? `${o.exhaustion > 0 ? '+' : '−'}${Math.abs(o.exhaustion)} exhaustion` : '', o.noReward ? 'the job fails, no reward' : '',
 ].filter(Boolean).join(', ');
 
 /** Exhaustion lives on the sheet as the condition "Exhaustion N" (1 to 6). */
@@ -157,6 +157,11 @@ export function resolveEvent(d: { db: DB; hub: EventHub }, w: string, eid: strin
         addWork(d, w, t.id, outcome.days * t.per_day_min, { kind: 'time', by, worker: t.account_id === PARTY ? who : undefined, note: label });
         changed.task = true;
       }
+    }
+    if (outcome.noReward) {
+      // The job fails: the task's reward is lost (unless it was already handed out).
+      const t = taskRow(db, w, r.task_id);
+      if (t && !t.reward_given_at) { run(db, 'UPDATE downtime_tasks SET reward = ?, updated_at = ? WHERE id = ?', JSON.stringify(NO_REWARD), now(), t.id); changed.task = true; }
     }
     if (outcome.damage || outcome.heal || outcome.exhaustion) {
       const ch: any = {};

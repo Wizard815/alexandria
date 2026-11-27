@@ -254,7 +254,7 @@ test('TestDowntime_RandomEventsAreQuickTimeChecks', async () => {
   const cellar = acts.find((a: any) => a.id === 'pre-cellar');
   assert.ok(cellar.events.some((e: any) => e.title === 'Rats in the cellar!' && e.check === 'Athletics' && e.dc === 12));
   // The DM gives the cellar one event only, and every downtime day has one.
-  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Rats in the cellar!', text: 'A swarm of rats.', check: 'Athletics', dc: 12, success: { text: 'Cleared out', gp: 5 }, failure: { text: 'Bitten', damage: 3, exhaustion: 1 } }] });
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Rats in the cellar!', text: 'A swarm of rats.', check: 'Athletics', dc: 12, success: { text: 'Cleared out', gp: 5 }, failure: { text: 'Bitten', damage: 3, exhaustion: 1, noReward: true } }] });
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100 });
   await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
   const p = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
@@ -282,7 +282,9 @@ test('TestDowntime_RandomEventsAreQuickTimeChecks', async () => {
   const p3 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
   const f = await ok('POST', `${D()}/events/${p3.events[0].id}/roll`, T.tom, { total: 4 });
   assert.equal(f.status, 'failure');
-  assert.match(f.note, /Athletics 4 vs DC 12, failure: Bitten, 3 damage, \+1 exhaustion/);
+  assert.match(f.note, /Athletics 4 vs DC 12, failure: Bitten, 3 damage, \+1 exhaustion, the job fails, no reward/);
+  const job = (await ok('GET', `${D()}/tasks?all=1`, T.dm)).tasks.find((x: any) => x.id === p3.events[0].taskId);
+  assert.equal(job.rewardWaiting, false, 'a failed job pays nothing');
   const sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.tom}`, T.tom);
   const v = sheet.vitals ?? sheet;
   assert.equal(v.hp, 17);

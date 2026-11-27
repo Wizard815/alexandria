@@ -19,17 +19,17 @@ export interface Task {
   scope: 'personal' | 'group'; members: string[]; memberNames?: string[];
   contributions: { accountId: string; name?: string; minutes: number; label: string }[];
 }
-export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number }
+export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number; noReward?: boolean }
 export interface EventDef { id?: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight?: number }
 export interface DtEvent extends EventDef {
   id: string; roundId: string | null; taskId: string; task: string; accountId: string; player?: string;
   status: 'pending' | 'success' | 'failure' | 'cancelled'; roll: number | null; total: number | null; note: string; createdAt: string;
 }
-export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0, damage: 0, heal: 0, exhaustion: 0 };
+export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0, damage: 0, heal: 0, exhaustion: 0, noReward: false };
 export const outcomeText = (o: Outcome | undefined): string => (!o ? '' : [
   o.text.replace(/[.!]+$/, ''), o.cp ? `${o.cp > 0 ? '+' : '−'}${Math.abs(o.cp) / 100} gp` : '', o.item ? `${o.qty > 1 ? `${o.qty} × ` : ''}${o.item}` : '',
   o.days ? `${o.days > 0 ? '+' : '−'}${Math.abs(o.days)} day${Math.abs(o.days) === 1 ? '' : 's'} of progress` : '',
-  o.damage ? `${o.damage} damage` : '', o.heal ? `${o.heal} HP back` : '', o.exhaustion ? `${o.exhaustion > 0 ? '+' : '−'}${Math.abs(o.exhaustion)} exhaustion` : '',
+  o.damage ? `${o.damage} damage` : '', o.heal ? `${o.heal} HP back` : '', o.exhaustion ? `${o.exhaustion > 0 ? '+' : '−'}${Math.abs(o.exhaustion)} exhaustion` : '', o.noReward ? 'the job fails, no reward' : '',
 ].filter(Boolean).join(', '));
 
 export interface Answer { accountId: string; name: string; waiting?: boolean; skipped?: boolean; picks?: { taskId: string; days: number; name: string }[]; at?: string }

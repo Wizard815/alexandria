@@ -102,7 +102,9 @@ drinking contest.
   and the server rolls a d20, or they enter the total from their own dice.
   This is an ability check, so a natural 20 or 1 is not automatic.
 - **What an outcome can do:** give or take coin, give an item, add or take
-  away days of progress, deal damage, heal, or add levels of exhaustion.
+  away days of progress (−1 loses that day's work), deal damage, heal, add
+  levels of exhaustion, or fail the job (**no reward**: the task's reward is
+  lost, unless it was already given).
   Exhaustion goes on the sheet as the condition "Exhaustion N". Coin and
   items go to the character who had the event, even on a group task.
 - **What the DM sees:** waiting events under the Downtime button. The DM can

@@ -371,6 +371,7 @@ function EventsEditor({ events, chance, onChange }: { events: EventDef[]; chance
       {bad && <label className="tiny">damage <input className="input" type="number" min={0} style={{ width: 56 }} value={o.damage} onChange={(ev) => f({ ...o, damage: Math.max(0, Math.round(Number(ev.target.value)) || 0) })} aria-label={`${label} damage`} /></label>}
       {bad && <label className="tiny">exhaustion <input className="input" type="number" min={0} max={6} style={{ width: 48 }} value={o.exhaustion} onChange={(ev) => f({ ...o, exhaustion: Math.max(0, Math.min(6, Math.round(Number(ev.target.value)) || 0)) })} aria-label={`${label} exhaustion`} /></label>}
       <input className="input" style={{ width: 120 }} value={o.item} maxLength={120} onChange={(ev) => f({ ...o, item: ev.target.value })} placeholder="Item" aria-label={`${label} item`} />
+      {bad && <label className="tiny"><input type="checkbox" checked={!!o.noReward} onChange={(ev) => f({ ...o, noReward: ev.target.checked })} /> Job fails, no reward</label>}
     </div>
   );
   return (

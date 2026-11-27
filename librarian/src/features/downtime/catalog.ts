@@ -39,8 +39,8 @@ export interface Activity {
 }
 
 /** What an event's result does: a line of story, coin (may be negative), an item, days of progress gained or lost, damage or healing, exhaustion. */
-export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number }
-export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0, damage: 0, heal: 0, exhaustion: 0 };
+export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number; /** The job fails: the task's reward is lost. */ noReward: boolean }
+export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0, damage: 0, heal: 0, exhaustion: 0, noReward: false };
 /**
  * A random event: "Rats in the cellar!" with a check (Athletics, DC 12). Success and failure each have an outcome.
  * With no check it just happens (the success outcome). `weight` makes one likelier than another on the same activity.
@@ -115,7 +115,7 @@ export function checkActivity(raw: any, id: string): Activity {
 export function checkOutcome(v: unknown, at: string): Outcome {
   if (v === undefined || v === null) return { ...NO_OUTCOME };
   if (typeof v === 'string') return { ...NO_OUTCOME, text: text(v, at, 300) };
-  if (typeof v !== 'object' || Array.isArray(v)) throw bad(`${at} must be text or { text, gp, item, qty, days, damage, heal, exhaustion }`);
+  if (typeof v !== 'object' || Array.isArray(v)) throw bad(`${at} must be text or { text, gp, item, qty, days, damage, heal, exhaustion, noReward }`);
   const o = v as any;
   const num = (k: string, lo: number, hi: number) => (o[k] === undefined || o[k] === null || o[k] === '' ? 0 : whole(o[k], `${at}.${k}`, lo, hi));
   return {
@@ -127,6 +127,7 @@ export function checkOutcome(v: unknown, at: string): Outcome {
     damage: num('damage', 0, 500),
     heal: num('heal', 0, 500),
     exhaustion: num('exhaustion', -6, 6),
+    noReward: o.noReward === true,
   };
 }
 
@@ -151,7 +152,7 @@ export function checkEvents(v: unknown): EventDef[] {
     };
   });
 }
-export const hasOutcome = (o: Outcome) => !!(o.text || o.cp || o.item || o.days || o.damage || o.heal || o.exhaustion);
+export const hasOutcome = (o: Outcome) => !!(o.text || o.cp || o.item || o.days || o.damage || o.heal || o.exhaustion || o.noReward);
 
 /**
  * The ready-made activities. They are data in the rule file (mods/downtime.alxmod.json, presets.downtimePremade), so a
