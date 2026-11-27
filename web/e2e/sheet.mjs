@@ -155,7 +155,7 @@ try {
   const prr = pl.getByTestId('mod-rerolls');
   await prr.waitFor({ timeout: 8000 });
   await prr.getByRole('button', { name: 'Use a GM re-roll' }).click();
-  await dm.getByText('Jessamine used a dm re-roll').waitFor({ timeout: 8000 });
+  await dm.getByText('Jessamine used a GM re-roll').waitFor({ timeout: 8000 });
   note('re-rolls: GM gives one, the player spends it, the GM is told');
   await quick.getByRole('link', { name: 'Open the whole sheet' }).click();
   await dm.getByTestId('sheet').waitFor({ timeout: 8000 });

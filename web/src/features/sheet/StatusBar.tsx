@@ -23,7 +23,7 @@ export default function PartyStatusBar() {
   useEffect(() => {
     for (const p of players) {
       const was = last.current.get(p.accountId), r = p.rerolls;
-      if (was?.on && r?.on) for (const k of ['personal', 'party', 'dm'] as RerollKind[]) if (r[k] < was[k]) toast(`${p.name} used a ${REROLL[k].label.toLowerCase()}`);
+      if (was?.on && r?.on) for (const k of ['personal', 'party', 'dm'] as RerollKind[]) if (r[k] < was[k]) toast(`${p.name} used a ${REROLL[k].label.replace(/^(Personal|Everyone)/, (w) => w.toLowerCase())}`);
       last.current.set(p.accountId, r);
     }
   }, [party.data]); // eslint-disable-line react-hooks/exhaustive-deps

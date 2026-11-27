@@ -45,7 +45,7 @@ export function changeReroll(db: DB, s: WorldSettings, worldId: string, aid: str
   if (!Number.isInteger(d) || d === 0 || Math.abs(d) > 20) throw new HttpError(400, 'delta must be a whole number from -20 to 20, not 0');
   if (!dm && d > 0) throw new HttpError(403, 'Only the GM gives re-rolls');
   const cur = (rerollsOf(db, s, worldId, aid) as any)[k] as number;
-  if (cur + d < 0) throw new HttpError(409, `No ${REROLL_LABEL[k].toLowerCase()} left`);
+  if (cur + d < 0) throw new HttpError(409, `No ${REROLL_LABEL[k].replace(/^(Personal|Everyone)/, (w) => w.toLowerCase())} left`);
   const next = Math.min(r.cap, cur + d);
   if (next === cur) throw new HttpError(409, `Already at the most (${r.cap})`);
   const what0 = next < cur ? (dm ? 'take' : `use-${RESOURCE[k]}`) : 'grant';
