@@ -51,6 +51,12 @@ never been a release under another license.
 "Alexandria" as the name of this app belongs to its maker. A fork or a rebuild
 must use a different name and must not suggest it is the official Alexandria.
 
+Alexandria is not affiliated with Wizards of the Coast. It doesn't use their
+trademarks, such as "D&D", "Dungeons & Dragons" or "Dungeon Master", to name
+itself or its features. It says Game Master (GM), tabletop roleplaying game
+(TTRPG) and 5e instead. The SRD credit lines stay exactly as the SRD license
+requires.
+
 ## Mods
 
 Mods are meant to be free.
@@ -74,7 +80,9 @@ Mods are meant to be free.
 
 Material from the System Reference Document 5.1 and 5.2, Open5e and other
 sources keeps its own license (usually CC-BY-4.0) and its attribution. The
-Shield license covers only Alexandria's own code.
+Shield license covers only Alexandria's own code. A server that serves
+Open5e books under the Open Game License shows the OGL 1.0a text and each
+book's Section 15 copyright notice on its credits page.
 
 ## Third-party software
 
@@ -83,7 +91,9 @@ and, in its Docker image, system tools such as ffmpeg. Each keeps its own
 license; the Shield license covers only Alexandria's own code. As of the
 switch, every dependency is under a permissive license (MIT, Apache-2.0, BSD,
 ISC, Zlib, Unicode) or a file-level one (MPL-2.0, used unmodified). None is
-GPL, AGPL, share-alike or noncommercial. Font Awesome Free's icons are
+GPL, AGPL, share-alike or noncommercial. Optional outside tools, such as ffmpeg or Obsidian's official Sync
+client, come from their makers' own sites under their own terms, and users set
+them up themselves. Font Awesome Free's icons are
 CC-BY-4.0 and its fonts are OFL-1.1; the credit comments in its files must be
 kept.
 
