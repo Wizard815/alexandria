@@ -133,6 +133,6 @@ Alexandria is source-available under the
 [PolyForm Shield License 1.0.0](LICENSE). You can read, run, change and share
 it for free, including at a table where you're paid to DM. You can't sell it
 or offer it as a competing product or hosted service without permission. The
-built-in house rules in `mods/` are MIT. Versions released before the switch
-stay MIT. [docs/LICENSING.md](docs/LICENSING.md) explains it in plain English,
-including the free-mods policy.
+built-in house rules in `mods/` are MIT.
+[docs/LICENSING.md](docs/LICENSING.md) explains it in plain English, including
+the free-mods policy.
