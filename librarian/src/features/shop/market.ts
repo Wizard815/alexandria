@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS shop_towns (
   size TEXT NOT NULL DEFAULT 'town',
   price_pct INTEGER NOT NULL DEFAULT 0,
   description TEXT NOT NULL DEFAULT '',
-  dm_notes TEXT NOT NULL DEFAULT '',
+  gm_notes TEXT NOT NULL DEFAULT '',
   location_page_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -72,7 +72,7 @@ export function migrate(db: DB) {
   if (!oc.includes('list_cp')) db.exec('ALTER TABLE shop_orders ADD COLUMN list_cp INTEGER');
 }
 
-export interface TownRow { id: string; world_id: string; name: string; size: string; price_pct: number; description: string; dm_notes: string; location_page_id: string | null; created_at: string; updated_at: string }
+export interface TownRow { id: string; world_id: string; name: string; size: string; price_pct: number; description: string; gm_notes: string; location_page_id: string | null; created_at: string; updated_at: string }
 export interface RepRow { shop_id: string; account_id: string; world_id: string; rep: number; spent_cp: number; sold_cp: number; purchases: number; haggles_won: number; haggles_lost: number; note: string; last_at: string | null }
 export interface DealRow { id: string; shop_id: string; world_id: string; account_id: string; stock_id: string | null; pct: number; status: string; source: string; note: string; asked_pct: number | null; created_min: number; expires_min: number | null; order_id: string | null; created_at: string }
 
@@ -156,7 +156,7 @@ export const activeDeals = (db: DB, shopId: string, accountId: string) =>
 export const bestDeal = (db: DB, shopId: string, accountId: string, stockId: string): DealRow | null =>
   one<DealRow>(db, `SELECT * FROM shop_deals WHERE shop_id = ? AND account_id = ? AND status = 'active' AND (stock_id = ? OR stock_id IS NULL) ORDER BY pct DESC, created_at LIMIT 1`, shopId, accountId, stockId) ?? null;
 
-export function addDeal(db: DB, s: Pick<ShopRow, 'id' | 'world_id'>, d: { accountId: string; stockId: string | null; pct: number; source: 'haggle' | 'counter' | 'dm' | 'refused'; minutes: number | null; note?: string; askedPct?: number; status?: string }): DealRow {
+export function addDeal(db: DB, s: Pick<ShopRow, 'id' | 'world_id'>, d: { accountId: string; stockId: string | null; pct: number; source: 'haggle' | 'counter' | 'gm' | 'refused'; minutes: number | null; note?: string; askedPct?: number; status?: string }): DealRow {
   const nowMin = getClock(db, s.world_id).minutes;
   const did = newId('dl_');
   run(db, 'INSERT INTO shop_deals (id, shop_id, world_id, account_id, stock_id, pct, status, source, note, asked_pct, created_min, expires_min, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -185,7 +185,7 @@ export function presentShop(d: Deps, worldId: string, shopId: string, o: Present
     run(db, `UPDATE shops SET status = 'open', updated_at = ? WHERE id = ?`, now(), s.id);
     opened = true;
     s = one<ShopRow>(db, 'SELECT * FROM shops WHERE id = ?', s.id)!;
-    d.hub.emit(worldId, 'shop', { id: s.id }, (v) => v.role === 'dm' || v.role === 'player');
+    d.hub.emit(worldId, 'shop', { id: s.id }, (v) => v.role === 'gm' || v.role === 'player');
   }
   const players = all<{ account_id: string }>(db, `SELECT account_id FROM members WHERE world_id = ? AND role = 'player'`, worldId).map((r) => r.account_id);
   const sentTo = o.to === 'all' ? players : [...new Set(o.to)].filter((a) => players.includes(a));

@@ -2,7 +2,7 @@
 import { Icon } from '../library/Blocks.tsx';
 import type { Pt } from '../player/mapParts.tsx';
 
-export interface SourcePin { id: string; name: string; icon: string | null; color: string | null; dm: boolean; pageId: string | null; x: number; y: number }
+export interface SourcePin { id: string; name: string; icon: string | null; color: string | null; gm: boolean; pageId: string | null; x: number; y: number }
 export interface Scale { width: number; unit: string }
 
 /** Distance along the points, in picture widths (so a tall map measures right: y counts by the picture's own shape). */
@@ -22,7 +22,7 @@ export function SourcePins({ pins, selected, onPick, labels, active }: { pins: S
   return (
     <>
       {pins.map((p) => (
-        <button key={p.id} type="button" data-mark={active ? p.id : undefined} data-testid="source-pin" className="map-spin" aria-label={`${p.name}${p.dm ? ' (GM only)' : ''}`} title={`${p.name}${p.dm ? ' (GM only)' : ''}`} aria-pressed={selected === p.id}
+        <button key={p.id} type="button" data-mark={active ? p.id : undefined} data-testid="source-pin" className="map-spin" aria-label={`${p.name}${p.gm ? ' (GM only)' : ''}`} title={`${p.name}${p.gm ? ' (GM only)' : ''}`} aria-pressed={selected === p.id}
           style={{ left: `${p.x}%`, top: `${p.y}%`, pointerEvents: active ? 'auto' : 'none', zIndex: selected === p.id ? 3 : 1 }} onClick={(e) => { e.stopPropagation(); onPick(p); }}>
           <span className={`map-spin-dot${selected === p.id ? ' on' : ''}`}><Icon icon={{ glyph: p.icon ?? 'location-dot', color: p.color ?? undefined }} size={13} /></span>
           {(labels || selected === p.id) && <span className="map-spin-name">{p.name}</span>}

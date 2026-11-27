@@ -38,7 +38,7 @@
 .ws-body .lib-tree { height: min(70vh, 520px); }
 /* A page drawn as a full-screen overlay (the GM phone page) is held inside its pane. */
 .ws-body[data-page=phone] { transform: translateZ(0); }
-.ws-body[data-page=phone] .dmp { position: absolute; }
+.ws-body[data-page=phone] .gmp { position: absolute; }
 .ws-body .ag-ask { height: auto; min-height: 300px; }
 
 .ws-divider { background: var(--side); display: flex; align-items: center; justify-content: center; touch-action: none; z-index: 5; }

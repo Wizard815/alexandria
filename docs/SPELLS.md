@@ -79,10 +79,10 @@ its `manaCost` (see Mana). `GET /spells/facets` lists the values of the menus.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/spells/s` | A homebrew spell (the format above; source defaults to `Homebrew`). Also `public`, `manaOverride`, `dmNotes`. |
+| POST | `/spells/s` | A homebrew spell (the format above; source defaults to `Homebrew`). Also `public`, `manaOverride`, `gmNotes`. |
 | PUT | `/spells/s/:id` | Edit a homebrew or imported spell. SRD spells are not edited. |
 | DELETE | `/spells/s/:id` | Not while a recipe uses it. |
-| PUT | `/spells/s/:id/meta` | Any spell: `public`, `manaOverride` (null for the table), `dmNotes`. |
+| PUT | `/spells/s/:id/meta` | Any spell: `public`, `manaOverride` (null for the table), `gmNotes`. |
 | POST | `/spells/public` | `{ids, public}` for many at once. |
 | POST | `/spells/import/preview`, `/spells/import` | See below; preview saves nothing. |
 | GET | `/spells/export` | The world's own spells as JSON, or `?format=csv`. |
@@ -166,7 +166,7 @@ holding the number, or a block titled `Abilities` / `Ability scores` / `Stats`
 with `STR 10, INT 13, ...`. Only blocks the GM may read count (never "only me").
 
 **Learning.** The player asks (`POST /spells/learn {recipeId}`); with
-`spellCraftApproval: dm` (default) the GM approves or rejects it on the Codex's
+`spellCraftApproval: gm` (default) the GM approves or rejects it on the Codex's
 Requests tab, with `auto` it happens at once. On approval everything is checked
 again; then the consumed items are taken from the character's pack (the owner
 gets the usual "the GM changed your things" alert), the mana is paid, the spell
@@ -174,7 +174,7 @@ is added (`how: crafted`) and it is logged. The GM may "Approve anyway" when
 something is missing.
 
 **Import and export.** `GET /spells/recipes/export` gives recipes by spell name
-(`{result, prereqs, items, stats, minLevel, manaCost, visibility, dmNotes,
+(`{result, prereqs, items, stats, minLevel, manaCost, visibility, gmNotes,
 draft}`); `POST /spells/recipes/import {recipes, replace?}` takes the same and
 skips one that is already there (same result and prerequisites).
 
@@ -226,7 +226,7 @@ carries content.
 | `spellManaMaxLevel` | off | `{on, table[20]}` |
 | `spellManaOverdraw` | false | |
 | `spellCrafting` | false | |
-| `spellCraftApproval` | `dm` | or `auto` |
+| `spellCraftApproval` | `gm` | or `auto` |
 | `spellCraftHidden` | `mystery` | or `hide` |
 
 ## Tests

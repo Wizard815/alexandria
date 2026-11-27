@@ -4,12 +4,12 @@
 // and the GM agent get a 403 and never a live event.
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { all, one, run, type DB } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { HttpError, int, now, str } from '../../core/util.ts';
-import { ctx, isDM, me, names, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, names, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import {
   EDIT_WINDOW_MS, MAX_BODY, addMessage, canRead, canWrite, checkLinks, currentSession, endSession, isChannel, purgeChat, readable,
@@ -143,7 +143,7 @@ const feature: Feature = {
       })));
     });
 
-    r.post('/sessions/start', requireDM, (req, res) => {
+    r.post('/sessions/start', requireGM, (req, res) => {
       const w = W(res);
       const cur = currentSession(db, w);
       // The assistant asked to open the table and it is open: that is done, not a failure.
@@ -156,7 +156,7 @@ const feature: Feature = {
       res.status(201).json(sessionOut(s));
     });
 
-    r.post('/sessions/end', requireDM, (_req, res) => {
+    r.post('/sessions/end', requireGM, (_req, res) => {
       const w = W(res);
       const cur = currentSession(db, w);
       if (!cur) throw new HttpError(409, 'No session is running');
@@ -182,11 +182,11 @@ const feature: Feature = {
       res.json({ session: sessionOut(one<any>(db, 'SELECT * FROM sessionchat_sessions WHERE id = ?', sid)), messages: rows.map((m) => viewMessage(db, m, v, w)) });
     });
 
-    r.post('/chat/:channel', requirePlayerOrDM, (req, res) => {
+    r.post('/chat/:channel', requirePlayerOrGM, (req, res) => {
       const ch = channelOf(res, req.params.channel, true);
       const w = W(res);
       const s = currentSession(db, w);
-      if (!s) throw new HttpError(409, isDM(res) ? 'No session is running: press Start session' : 'No session is running yet');
+      if (!s) throw new HttpError(409, isGM(res) ? 'No session is running: press Start session' : 'No session is running yet');
       if (typeof req.body?.body !== 'string') throw new HttpError(400, 'body must be text');
       const replyTo = typeof req.body?.replyTo === 'string' ? req.body.replyTo : null;
       // A house rule's chat word ("/reroll personal") runs its action; what it returns is posted as the caller's message.
@@ -196,7 +196,7 @@ const feature: Feature = {
       res.status(201).json(viewMessage(db, row, viewer(res), w));
     });
 
-    r.patch('/messages/:mid', requirePlayerOrDM, (req, res) => {
+    r.patch('/messages/:mid', requirePlayerOrGM, (req, res) => {
       const m = messageFor(res, String(req.params.mid));
       if (m.author_id !== me(res)) throw new HttpError(403, 'You can only edit your own messages');
       openSession(m);
@@ -214,7 +214,7 @@ const feature: Feature = {
       res.json(viewMessage(db, row, viewer(res), W(res)));
     });
 
-    r.delete('/messages/:mid', requirePlayerOrDM, (req, res) => {
+    r.delete('/messages/:mid', requirePlayerOrGM, (req, res) => {
       const m = messageFor(res, String(req.params.mid));
       if (m.author_id !== me(res)) throw new HttpError(403, 'You can only delete your own messages');
       openSession(m);
@@ -226,7 +226,7 @@ const feature: Feature = {
     });
 
     // Moderation: the GM hides a table-chat message. Party chat is not theirs to moderate.
-    r.post('/messages/:mid/hide', requireDM, (req, res) => {
+    r.post('/messages/:mid/hide', requireGM, (req, res) => {
       const m = messageFor(res, String(req.params.mid));
       if (m.channel !== 'table') throw new HttpError(403, 'Only table chat can be moderated');
       const hide = req.body?.hidden !== false;
@@ -237,11 +237,11 @@ const feature: Feature = {
       res.json(viewMessage(db, row, viewer(res), W(res)));
     });
 
-    r.post('/messages/:mid/react', requirePlayerOrDM, (req, res) => {
+    r.post('/messages/:mid/react', requirePlayerOrGM, (req, res) => {
       const m = messageFor(res, String(req.params.mid));
       openSession(m);
       const emoji = str(req.body?.emoji, 'emoji', { max: 16 });
-      if (m.deleted_at || (m.hidden_at && !isDM(res))) throw new HttpError(404, 'Message not found');
+      if (m.deleted_at || (m.hidden_at && !isGM(res))) throw new HttpError(404, 'Message not found');
       const has = one(db, 'SELECT 1 FROM sessionchat_reactions WHERE message_id = ? AND account_id = ? AND emoji = ?', m.id, me(res), emoji);
       if (has && req.body?.on !== true) run(db, 'DELETE FROM sessionchat_reactions WHERE message_id = ? AND account_id = ? AND emoji = ?', m.id, me(res), emoji);
       else if (!has) {
@@ -273,7 +273,7 @@ const feature: Feature = {
       res.json(all<any>(db, 'SELECT * FROM sessionchat_trades WHERE world_id = ? AND (from_id = ? OR to_id = ?) ORDER BY created_at DESC LIMIT 100', W(res), me(res), me(res)).map(tradeOut));
     });
 
-    r.post('/trades', requirePlayerOrDM, (req, res) => {
+    r.post('/trades', requirePlayerOrGM, (req, res) => {
       playerOnly(res);
       tradingOn(res);
       const w = W(res);
@@ -296,7 +296,7 @@ const feature: Feature = {
       res.status(201).json(tradeOut(t));
     });
 
-    r.post('/trades/:tid/accept', requirePlayerOrDM, (req, res) => {
+    r.post('/trades/:tid/accept', requirePlayerOrGM, (req, res) => {
       playerOnly(res);
       tradingOn(res);
       const w = W(res);
@@ -312,7 +312,7 @@ const feature: Feature = {
       res.json(tradeOut(t));
     });
     for (const [verb, how] of [['decline', 'declined'], ['cancel', 'cancelled']] as const) {
-      r.post(`/trades/:tid/${verb}`, requirePlayerOrDM, (req, res) => {
+      r.post(`/trades/:tid/${verb}`, requirePlayerOrGM, (req, res) => {
         playerOnly(res);
         const t = closeTrade(db, W(res), String(req.params.tid), me(res), how);
         emitTrade(W(res), t);

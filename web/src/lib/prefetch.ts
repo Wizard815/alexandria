@@ -19,7 +19,7 @@ const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((res) => {
 
 /** Screens to keep, as the screens themselves ask for them (same cache keys). */
 function lists(w: WorldClient, role: string, worldId: string): (() => Promise<unknown>)[] {
-  const dm = role === 'dm';
+  const gm = role === 'gm';
   let maps = ['world'];
   try { const m = JSON.parse(localStorage.getItem(`alx.maps.${worldId}`) ?? '[]'); if (Array.isArray(m) && m.length) maps = m.map(String); } catch { /* default */ }
   const get = (p: string) => () => w.call('GET', p);
@@ -30,7 +30,7 @@ function lists(w: WorldClient, role: string, worldId: string): (() => Promise<un
     () => w.inventory('me'), () => w.inventory('party'),
     get('/broker'), get('/broker/config'), get('/broker/offers'),
     get('/inventory/transfers'), get('/inventory/coin-requests'), get('/sessionlog'), get('/clock'),
-    ...(dm ? [get('/broker/notes'), get('/broker/rules'), get('/approvals'), () => w.settings(), () => w.combat()] : [get('/approvals/mine')]),
+    ...(gm ? [get('/broker/notes'), get('/broker/rules'), get('/approvals'), () => w.settings(), () => w.combat()] : [get('/approvals/mine')]),
     ...maps.map((m) => () => w.marks(m)),
   ];
 }

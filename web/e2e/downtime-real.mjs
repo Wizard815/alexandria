@@ -27,31 +27,31 @@ try {
     chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } },
     player: { providerId: pid, model: PLAYER, enabled: true, options: { reasoning: 'off', reasoningModel: false, contextTokens: 4096 } },
   } });
-  const dm = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
+  const gm = (await j('POST', '/api/auth/login', null, { username: 'gm', password: 'game master 123' })).x.token;
   const jess = (await j('POST', '/api/auth/login', null, { username: 'jess', password: 'player pass 123' })).x.token;
-  const WID = (await j('GET', '/api/worlds', dm)).x[0].id;
+  const WID = (await j('GET', '/api/worlds', gm)).x[0].id;
   const P = `/api/worlds/${WID}`;
-  await j('PUT', `${P}/mods/downtime/enabled`, dm, { on: true });
-  const sh = (await j('POST', `${P}/downtime/tasks`, dm, { player: 'Tomas', activityId: 'pre-stronghold' })).x;
-  await j('POST', `${P}/downtime/tasks/${sh.id}/work`, dm, { days: 10 });
+  await j('PUT', `${P}/mods/downtime/enabled`, gm, { on: true });
+  const sh = (await j('POST', `${P}/downtime/tasks`, gm, { player: 'Tomas', activityId: 'pre-stronghold' })).x;
+  await j('POST', `${P}/downtime/tasks/${sh.id}/work`, gm, { days: 10 });
 
   // ---- the GM's assistant (chat model) ----
-  const chat = (await j('POST', `${P}/agent/chats`, dm, {})).x;
+  const chat = (await j('POST', `${P}/agent/chats`, gm, {})).x;
   const ask = async (tok, chatId, text) => {
     await j('POST', `${P}/agent/chats/${chatId}/messages`, tok, { text });
     let c;
     for (let i = 0; i < 800; i++) { c = (await j('GET', `${P}/agent/chats/${chatId}`, tok)).x; if (!c.busy) break; await new Promise((r) => setTimeout(r, 150)); }
     return c;
   };
-  const approveAll = async (c) => { for (const a of c.actions.filter((x) => x.status === 'pending')) { const r = await j('POST', `${P}/agent/actions/${a.id}`, dm, { decision: 'approve' }); console.log(`    ${a.tool} ${JSON.stringify(a.args)} -> ${r.x.status} ${String(r.x.result ?? '').slice(0, 160)}`); } return c.actions.filter((x) => x.status === 'pending').map((x) => x.tool); };
+  const approveAll = async (c) => { for (const a of c.actions.filter((x) => x.status === 'pending')) { const r = await j('POST', `${P}/agent/actions/${a.id}`, gm, { decision: 'approve' }); console.log(`    ${a.tool} ${JSON.stringify(a.args)} -> ${r.x.status} ${String(r.x.result ?? '').slice(0, 160)}`); } return c.actions.filter((x) => x.status === 'pending').map((x) => x.tool); };
   const prompts = [
-    ['Start a downtime round: 2 days resting in Saltmarsh.', 'downtime_round', async () => !!(await j('GET', `${P}/downtime/rounds/current`, dm)).x.round],
-    ['Tomas lost two days on his stronghold to a fever, take them off.', 'downtime_time', async () => (await j('GET', `${P}/downtime/tasks?player=Tomas`, dm)).x.tasks.find((t) => t.name === 'Build a stronghold')?.doneMin === 8 * 8 * 60],
-    ['Give Jessamine a rare downtime task: research the lighthouse keeper\'s past. Reward 20 gp when she finishes.', 'downtime_assign', async () => (await j('GET', `${P}/downtime/tasks?player=Jessamine`, dm)).x.tasks.some((t) => /lighthouse/i.test(t.name) && t.tier === 'rare' && t.reward?.cp === 2000)],
+    ['Start a downtime round: 2 days resting in Saltmarsh.', 'downtime_round', async () => !!(await j('GET', `${P}/downtime/rounds/current`, gm)).x.round],
+    ['Tomas lost two days on his stronghold to a fever, take them off.', 'downtime_time', async () => (await j('GET', `${P}/downtime/tasks?player=Tomas`, gm)).x.tasks.find((t) => t.name === 'Build a stronghold')?.doneMin === 8 * 8 * 60],
+    ['Give Jessamine a rare downtime task: research the lighthouse keeper\'s past. Reward 20 gp when she finishes.', 'downtime_assign', async () => (await j('GET', `${P}/downtime/tasks?player=Jessamine`, gm)).x.tasks.some((t) => /lighthouse/i.test(t.name) && t.tier === 'rare' && t.reward?.cp === 2000)],
   ];
   let good = 0;
   for (const [text, tool, verify] of prompts) {
-    const c = await ask(dm, chat.id, text);
+    const c = await ask(gm, chat.id, text);
     const tools = await approveAll(c);
     const ok = tools.includes(tool) && await verify();
     if (ok) good++;

@@ -10,7 +10,7 @@ import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { one, run, tx } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { everyone } from '../../core/events.ts';
 import { compact, readFog, withoutLastStroke, type FogOp, type FogState } from '../../core/fog.ts';
 import { HttpError, now, str } from '../../core/util.ts';
@@ -102,7 +102,7 @@ const feature: Feature = {
 
     // ---- the table display ----
     r.get('/table', (_req, res) => res.json(tableOf(d, W(res))));
-    r.put('/table', requireDM, (req, res) => {
+    r.put('/table', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const cur = tableOf(d, w);
@@ -121,7 +121,7 @@ const feature: Feature = {
     const target = (req: any, res: any) => ({ w: W(res), mapId: mapKey(req.params.mapId), pic: picKey(req.body?.pic) });
 
     // Turning fog on starts fully fogged; off keeps the strokes, so turning it on again picks up where it was.
-    r.put('/map/:mapId/enabled', requireDM, (req, res) => {
+    r.put('/map/:mapId/enabled', requireGM, (req, res) => {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       const enabled = !!req.body?.enabled;
@@ -130,7 +130,7 @@ const feature: Feature = {
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 
-    r.post('/map/:mapId/ops', requireDM, (req, res) => {
+    r.post('/map/:mapId/ops', requireGM, (req, res) => {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       if (!cur.enabled) throw new HttpError(409, 'Turn fog on for this map picture first');
@@ -141,7 +141,7 @@ const feature: Feature = {
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 
-    r.post('/map/:mapId/undo', requireDM, (req, res) => {
+    r.post('/map/:mapId/undo', requireGM, (req, res) => {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       if (!cur.ops.length) throw new HttpError(409, 'Nothing to undo');
@@ -150,7 +150,7 @@ const feature: Feature = {
     });
 
     // Put a whole fog state back (a scene's saved fog, or an undo of one).
-    r.put('/map/:mapId/state', requireDM, (req, res) => {
+    r.put('/map/:mapId/state', requireGM, (req, res) => {
       const t = target(req, res);
       const b = req.body ?? {};
       const ops = Array.isArray(b.ops) ? b.ops.slice(0, 400).map(cleanOp) : [];

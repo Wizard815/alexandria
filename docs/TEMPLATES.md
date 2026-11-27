@@ -42,7 +42,7 @@ the assistant's chat list under **Templates**, and all of them on the
 **Template chats** tab). In a template chat the template is always at
 hand: ask about the template itself ("add a step that…", "change this
 template so…") and the assistant gets its content to change it
-(`update_dm_template`); ask it to make something ("make one where…") and
+(`update_gm_template`); ask it to make something ("make one where…") and
 it follows the template as if you had named it.
 
 ## Making one with the assistant
@@ -61,8 +61,8 @@ it follows the template as if you had named it.
   length. The pages are read as the assistant reads them (the AI copy), so a
   classified page is left out and named in the notes. A chat model, when set, only
   words the instructions and tone; the structure comes from the pages.
-- **In the chat**: the assistant has `list_dm_templates`, `get_dm_template`,
-  `create_dm_template` and `update_dm_template`. Creating or changing one is a
+- **In the chat**: the assistant has `list_gm_templates`, `get_gm_template`,
+  `create_gm_template` and `update_gm_template`. Creating or changing one is a
   card the GM approves (or runs at once in Auto).
 
 ## How a guide is used
@@ -209,8 +209,8 @@ All under `/api/worlds/:world/templates`:
 | `GET /export?ids=a,b&kind=` | a package of those templates (or every one, or one kind) |
 | `POST /import` `{file, check?}` | import a package or one template, all or none; `check: true` lists them and saves nothing. Returns `{created, updated, unchanged}` |
 
-MCP (GM only): `list_dm_templates`, `get_dm_template`, `create_dm_template`
-(write), `update_dm_template` (write), `web_research` (write),
+MCP (GM only): `list_gm_templates`, `get_gm_template`, `create_gm_template`
+(write), `update_gm_template` (write), `web_research` (write),
 `save_homebrew_spell` (write).
 
 ## Code

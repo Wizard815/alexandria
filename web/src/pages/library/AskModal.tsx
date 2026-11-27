@@ -12,7 +12,7 @@ export function AskModal({ kind, page, onClose, onSent }: { kind: 'edit' | 'ques
   const [k, setK] = useState(kind);
   const [title, setTitle] = useState(page ? (kind === 'edit' ? `Edit: ${page.title}` : `About ${page.title}`) : '');
   const [body, setBody] = useState('');
-  const [vis, setVis] = useState<'dm' | 'party'>(info.settings.requestDefault);
+  const [vis, setVis] = useState<'gm' | 'party'>(info.settings.requestDefault);
   const canEdit = !!page;
   const submit = () => act.run(async () => {
     await w.request({ kind: k === 'edit' && !canEdit ? 'question' : k, title: title.trim(), body: body.trim(), pageId: k === 'edit' && page ? page.id : undefined, visibility: vis });
@@ -33,7 +33,7 @@ export function AskModal({ kind, page, onClose, onSent }: { kind: 'edit' | 'ques
       </Field>
       <div className="stack tight">
         <span className="small" style={{ fontWeight: 500 }}>Who can see this request</span>
-        <VisibilityPicker value={vis} onChange={setVis} options={['dm', 'party']} labels={{ dm: 'Only the GM', party: 'The party can see it too' }} />
+        <VisibilityPicker value={vis} onChange={setVis} options={['gm', 'party']} labels={{ gm: 'Only the GM', party: 'The party can see it too' }} />
       </div>
       <ErrorBox error={act.error} />
       <div className="row end">

@@ -100,7 +100,7 @@ function NewChat({ members, onClose, onDone }: { members: { id: string; display_
       <div className="row">
         {members.map((m) => (
           <button key={m.id} type="button" role="checkbox" aria-checked={pick.includes(m.id)} className={`btn small${pick.includes(m.id) ? ' on' : ''}`} onClick={() => toggle(m.id)}>
-            {m.character_name || m.display_name}{m.role === 'dm' ? ' (GM)' : ''}
+            {m.character_name || m.display_name}{m.role === 'gm' ? ' (GM)' : ''}
           </button>
         ))}
       </div>

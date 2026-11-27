@@ -48,7 +48,7 @@ export default function AdminOverview() {
 
   const g = gw.data;
   const waiting = g ? g.waiting.questions + g.waiting.brokerDeals : null;
-  const people = g ? (g.roles.dm ?? 0) + (g.roles.player ?? 0) + (g.roles.guest ?? 0) : null;
+  const people = g ? (g.roles.gm ?? 0) + (g.roles.player ?? 0) + (g.roles.guest ?? 0) : null;
 
   return (
     <div className="page">
@@ -71,7 +71,7 @@ export default function AdminOverview() {
         <>
           <div className="tiles">
             <Tile label="Worlds" value={d.worlds} sub={`${conns.data?.length ?? 0} connections · ${d.sources.length} sources`} />
-            <Tile label="Connected now" value={d.liveConnections} sub={g ? `${d.accounts} accounts · ${g.roles.dm ?? 0} GM, ${g.roles.player ?? 0} players, ${g.roles.guest ?? 0} guests in worlds` : `${d.accounts} accounts`} />
+            <Tile label="Connected now" value={d.liveConnections} sub={g ? `${d.accounts} accounts · ${g.roles.gm ?? 0} GM, ${g.roles.player ?? 0} players, ${g.roles.guest ?? 0} guests in worlds` : `${d.accounts} accounts`} />
             <Tile label="Waiting on the GM" value={waiting ?? '…'} tone={waiting ? 'warn' : ''} sub={g ? `${g.waiting.questions} question${g.waiting.questions === 1 ? '' : 's'} · ${g.waiting.brokerDeals} broker deal${g.waiting.brokerDeals === 1 ? '' : 's'}` : undefined} />
             <Tile label="Guard, last 7 days" value={g ? g.guard.blocked7d : '…'} tone={g?.guard.blocked7d ? 'warn' : 'ok'} sub={g ? (g.guard.blocked7d ? `stopped; latest ${when(g.guard.last)}` : 'nothing had to be stopped') : undefined} />
             <Tile label="Library pages" value={d.pages.toLocaleString()} sub={people !== null ? `${people} people with a seat` : undefined} />
@@ -146,7 +146,7 @@ export default function AdminOverview() {
                   <tr key={r.id}>
                     <td>{r.source}</td><td>{r.world}</td><td className="small">{when(r.started_at)}</td>
                     <td><Pill tone={RUN[r.status] ?? ''}>{r.status}</Pill>{r.error && <span className="tiny" style={{ color: 'var(--danger-text)' }}>{r.error}</span>}</td>
-                    <td className="small">{r.stats.pages ?? 0} · {r.stats.shared ?? 0} shared · {r.stats.dmOnly ?? 0} GM-only{r.stats.removed ? ` · ${r.stats.removed} removed` : ''}</td>
+                    <td className="small">{r.stats.pages ?? 0} · {r.stats.shared ?? 0} shared · {r.stats.gmOnly ?? 0} GM-only{r.stats.removed ? ` · ${r.stats.removed} removed` : ''}</td>
                   </tr>
                 ))}</tbody>
               </table></div></div>

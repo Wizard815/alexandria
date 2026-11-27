@@ -38,7 +38,7 @@ export interface ShopOpts { kind?: string; size?: string; level?: number | strin
 export interface DraftLine { itemId: string; name: string; type: string; rarity: string; costCp: number | null; priceCp: number | null; qty: number | null; hidden: boolean }
 export interface ShopDraft {
   seed: string; kind: ShopKind; kindLabel: string; size: Size; level: number; theme: string; maxRarity: string;
-  name: string; description: string; keeper: Keeper; markupPct: number; haggle: string; dmNotes: string; stock: DraftLine[];
+  name: string; description: string; keeper: Keeper; markupPct: number; haggle: string; gmNotes: string; stock: DraftLine[];
   /** The keeper's purse in copper (what they can pay for things players sell) and how far they will haggle, in percent. */
   goldCp: number; barterPct: number;
   poolSize: number; enriched: boolean; guided: boolean; notes: string[];
@@ -243,7 +243,7 @@ export async function generateShop(d: Deps, worldId: string, opts: ShopOpts = {}
   const draft: ShopDraft = {
     seed, kind, kindLabel: KIND_LABEL[kind], size, level, theme, maxRarity: cap === 0 ? 'mundane' : MAGIC_ORDER[cap - 1],
     name, description: pick(r, DESC[kind]), keeper, markupPct, haggle: pick(r, HAGGLE[kind]),
-    dmNotes: [`Generated: ${KIND_LABEL[kind].toLowerCase()} in a ${size}, party level ${level}${theme ? `, theme "${theme}"` : ''}, seed ${seed}.`, keeper.secret ? `Keeper's secret: ${keeper.secret}` : ''].filter(Boolean).join('\n'),
+    gmNotes: [`Generated: ${KIND_LABEL[kind].toLowerCase()} in a ${size}, party level ${level}${theme ? `, theme "${theme}"` : ''}, seed ${seed}.`, keeper.secret ? `Keeper's secret: ${keeper.secret}` : ''].filter(Boolean).join('\n'),
     stock, poolSize: pool.length, enriched: false, guided: !!guide?.trim(), notes, goldCp, barterPct,
   };
   if (opts.enrich && hasJob(d, 'chat')) return (await enrich(d, draft, guide)) ?? draft;

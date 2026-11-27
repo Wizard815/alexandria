@@ -7,8 +7,8 @@ import ModeBadge from './ModeBadge.tsx';
 // and the API refuses players too.
 const feature: WebFeature = {
   id: 'active',
-  dmRoutes: [{ path: 'active', element: <ActivePage /> }],
-  dmNav: [{ to: 'active' }],
+  gmRoutes: [{ path: 'active', element: <ActivePage /> }],
+  gmNav: [{ to: 'active' }],
   overlay: ActiveOverlay,
   topbar: ModeBadge,
 };

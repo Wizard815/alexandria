@@ -85,7 +85,7 @@ export function buildHint(db: DB, worldId: string, max = HINT_MAX): string {
  * that is also a player-visible name is left out. Used to catch a GM-only
  * name turning up in a players' line.
  */
-export function dmOnlyTerms(db: DB, worldId: string): string[][] {
+export function gmOnlyTerms(db: DB, worldId: string): string[][] {
   const hidden = new Map<string, string[]>();
   const open = new Set<string>();
   try {

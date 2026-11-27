@@ -96,7 +96,7 @@ const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r,
 
 /** Run a macro as `rc`. A failed step stops the run unless it says continueOnError; the rest are reported as skipped. */
 export async function runMacro(rc: Runner, m: MacroRow, overrides: unknown, via: string): Promise<RunReport> {
-  if (rc.role !== 'dm' && !m.player_run) throw new ActionError('Players cannot run that macro', 403);
+  if (rc.role !== 'gm' && !m.player_run) throw new ActionError('Players cannot run that macro', 403);
   const vals = validateArgs(paramsOf(m), overrides);
   const steps = stepsOf(m);
   const report: StepReport[] = [];
@@ -109,7 +109,7 @@ export async function runMacro(rc: Runner, m: MacroRow, overrides: unknown, via:
     try {
       const a = actionById(s.action);
       if (!a) throw new ActionError(`The action ${s.action} no longer exists`, 404);
-      if (!canRun(a, rc.role)) throw new ActionError(`${rc.role === 'dm' ? 'You' : 'Players'} may not run ${a.id}`, 403);
+      if (!canRun(a, rc.role)) throw new ActionError(`${rc.role === 'gm' ? 'You' : 'Players'} may not run ${a.id}`, 403);
       const result = await a.run(rc, validateArgs(a.args, fill(s.args, vals)));
       report.push({ index: i, action: s.action, status: 'ok', ms: Date.now() - t0, result });
     } catch (e: any) {

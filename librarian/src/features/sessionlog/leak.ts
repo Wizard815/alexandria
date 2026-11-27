@@ -13,7 +13,7 @@ const GAP = '\u0000';
 export interface Overlap {
   /** The overlapping passage, as written in the summary. */
   text: string;
-  /** Where the GM-only text lives, e.g. "GM page: dm/Velmira" or "aside (transcript)". */
+  /** Where the GM-only text lives, e.g. "GM page: gm/Velmira" or "aside (transcript)". */
   source: string;
   /** Overlap with an aside line: asides never publish, not even with force. */
   aside: boolean;
@@ -50,8 +50,8 @@ const jsonText = (s: string | null | undefined) => strings(parseJson<unknown>(s,
 interface Corpus { source: string; aside: boolean; words: string[] }
 
 /** The words of a GM copy that its player copy does not contain (others become gaps). */
-function dmOnlyWords(dm: string, player: string | null): string[] {
-  const ws = wordsOf(dm);
+function gmOnlyWords(gm: string, player: string | null): string[] {
+  const ws = wordsOf(gm);
   const seen = new Set(shingles(wordsOf(player ?? '')));
   const keep = new Array<boolean>(ws.length).fill(false);
   shingles(ws).forEach((s, i) => { if (!seen.has(s)) for (let k = 0; k < SHINGLE; k++) keep[i + k] = true; });
@@ -64,25 +64,25 @@ export function lineIsAside(l: { session_id: string; start_ms: number; end_ms: n
 }
 
 /** GM-only text of a world: what a page's GM copy has and its player copy lacks, GM profile blocks and notes, GM and aside transcript lines. */
-export function dmCorpus(db: DB, worldId: string): Corpus[] {
+export function gmCorpus(db: DB, worldId: string): Corpus[] {
   const out: Corpus[] = [];
   const add = (source: string, aside: boolean, words: string[]) => { if (words.some((w) => w !== GAP)) out.push({ source, aside, words }); };
   for (const p of all<any>(db, 'SELECT id, updated_at, path, body, player_body, blocks, player_blocks, properties, player_properties, frontmatter, player_frontmatter FROM pages WHERE world_id = ?', worldId)) {
     // A vault page the whole party may read: only what its player copy lacks is GM-only.
     const shared = partyBody(db, worldId, p);
-    if (shared !== null) { add(`GM page: ${p.path}`, false, dmOnlyWords(p.body ?? '', shared)); continue; }
-    add(`GM page: ${p.path}`, false, dmOnlyWords(p.body ?? '', p.player_body));
-    add(`GM blocks: ${p.path}`, false, dmOnlyWords(jsonText(p.blocks), p.player_blocks === null ? null : jsonText(p.player_blocks)));
-    add(`GM facts: ${p.path}`, false, dmOnlyWords(jsonText(p.properties), p.player_properties === null ? null : jsonText(p.player_properties)));
-    add(`GM frontmatter: ${p.path}`, false, dmOnlyWords(jsonText(p.frontmatter), p.player_frontmatter === null ? null : jsonText(p.player_frontmatter)));
+    if (shared !== null) { add(`GM page: ${p.path}`, false, gmOnlyWords(p.body ?? '', shared)); continue; }
+    add(`GM page: ${p.path}`, false, gmOnlyWords(p.body ?? '', p.player_body));
+    add(`GM blocks: ${p.path}`, false, gmOnlyWords(jsonText(p.blocks), p.player_blocks === null ? null : jsonText(p.player_blocks)));
+    add(`GM facts: ${p.path}`, false, gmOnlyWords(jsonText(p.properties), p.player_properties === null ? null : jsonText(p.player_properties)));
+    add(`GM frontmatter: ${p.path}`, false, gmOnlyWords(jsonText(p.frontmatter), p.player_frontmatter === null ? null : jsonText(p.player_frontmatter)));
   }
-  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'dm'", worldId)) add(`GM profile block: ${b.title}`, false, wordsOf(b.body));
-  for (const i of all<any>(db, "SELECT name, dm_note FROM items WHERE world_id = ? AND dm_note != ''", worldId)) add(`GM item note: ${i.name}`, false, wordsOf(i.dm_note));
-  for (const r of all<any>(db, "SELECT dm_note FROM broker_requests WHERE world_id = ? AND dm_note IS NOT NULL AND dm_note != ''", worldId)) add('GM broker note', false, wordsOf(r.dm_note));
+  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'gm'", worldId)) add(`GM profile block: ${b.title}`, false, wordsOf(b.body));
+  for (const i of all<any>(db, "SELECT name, gm_note FROM items WHERE world_id = ? AND gm_note != ''", worldId)) add(`GM item note: ${i.name}`, false, wordsOf(i.gm_note));
+  for (const r of all<any>(db, "SELECT gm_note FROM broker_requests WHERE world_id = ? AND gm_note IS NOT NULL AND gm_note != ''", worldId)) add('GM broker note', false, wordsOf(r.gm_note));
 
   const mics = new Map(all<any>(db, 'SELECT id, aside FROM audio_mics WHERE world_id = ?', worldId).map((m) => [m.id as string, m.aside === 1]));
   const holds = all<any>(db, "SELECT h.session_id, h.start_ms, h.end_ms FROM audio_holds h JOIN audio_sessions s ON s.id = h.session_id WHERE s.world_id = ? AND h.kind = 'aside'", worldId);
-  for (const l of all<any>(db, "SELECT session_id, start_ms, end_ms, text, sources FROM audio_lines WHERE world_id = ? AND audience = 'dm'", worldId)) {
+  for (const l of all<any>(db, "SELECT session_id, start_ms, end_ms, text, sources FROM audio_lines WHERE world_id = ? AND audience = 'gm'", worldId)) {
     const aside = lineIsAside(l, mics, holds);
     add(aside ? 'aside (transcript)' : 'GM line (transcript)', aside, wordsOf(l.text));
   }
@@ -101,7 +101,7 @@ export function leakCheck(db: DB, worldId: string, summary: string): Overlap[] {
   }
   if (norm.length < SHINGLE) return [];
   const index = new Map<string, Map<string, boolean>>();
-  for (const c of dmCorpus(db, worldId)) {
+  for (const c of gmCorpus(db, worldId)) {
     for (let i = 0; i + SHINGLE <= c.words.length; i++) {
       const win = c.words.slice(i, i + SHINGLE);
       if (win.includes(GAP)) continue;
@@ -176,7 +176,7 @@ export function partyVocabulary(db: DB, worldId: string): Set<string> {
 }
 
 /** Stems that GM-only text writes as names: capitalized somewhere and never in lower case (so "Sister" in a title is not a name when the notes say "the sister of"). */
-function dmNames(db: DB, worldId: string): Set<string> {
+function gmNames(db: DB, worldId: string): Set<string> {
   const upper = new Set<string>();
   const lower = new Set<string>();
   const scan = (text: string | null | undefined) => {
@@ -186,20 +186,20 @@ function dmNames(db: DB, worldId: string): Set<string> {
     }
   };
   for (const p of all<any>(db, 'SELECT title, body, blocks, properties FROM pages WHERE world_id = ?', worldId)) { scan(p.title); scan(p.body); scan(jsonText(p.blocks)); scan(jsonText(p.properties)); }
-  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'dm'", worldId)) { scan(b.title); scan(b.body); }
-  for (const i of all<any>(db, "SELECT name, dm_note FROM items WHERE world_id = ? AND dm_note != ''", worldId)) { scan(i.name); scan(i.dm_note); }
-  for (const r of all<any>(db, "SELECT dm_note FROM broker_requests WHERE world_id = ? AND dm_note IS NOT NULL AND dm_note != ''", worldId)) scan(r.dm_note);
-  for (const l of all<any>(db, "SELECT text FROM audio_lines WHERE world_id = ? AND audience = 'dm'", worldId)) scan(l.text);
+  for (const b of all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND visibility = 'gm'", worldId)) { scan(b.title); scan(b.body); }
+  for (const i of all<any>(db, "SELECT name, gm_note FROM items WHERE world_id = ? AND gm_note != ''", worldId)) { scan(i.name); scan(i.gm_note); }
+  for (const r of all<any>(db, "SELECT gm_note FROM broker_requests WHERE world_id = ? AND gm_note IS NOT NULL AND gm_note != ''", worldId)) scan(r.gm_note);
+  for (const l of all<any>(db, "SELECT text FROM audio_lines WHERE world_id = ? AND audience = 'gm'", worldId)) scan(l.text);
   return new Set([...upper].filter((w) => !lower.has(w)));
 }
 
 /** Sentences of a summary that carry distinctive terms only GM-only text has. */
 export function rareTermCheck(db: DB, worldId: string, summary: string, phrases: Overlap[] = []): Overlap[] {
   const vocab = partyVocabulary(db, worldId);
-  const names = dmNames(db, worldId);
+  const names = gmNames(db, worldId);
   // Which sources have which stems (all GM-only text: pages, notes, GM and aside lines).
   const sources = new Map<string, Set<string>>();
-  for (const c of dmCorpus(db, worldId)) {
+  for (const c of gmCorpus(db, worldId)) {
     if (c.source.startsWith('GM page: Minerva/players/')) continue; // what one player knows, not a GM secret
     const set = sources.get(c.source) ?? new Set<string>();
     for (const w of c.words) if (w !== GAP) set.add(stemOf(w));
@@ -255,8 +255,8 @@ function candidatePassages(db: DB, worldId: string, summary: string, vocab: Set<
     const text = sentencesOf(p.ai_body ?? '').filter((x) => !theirs.has(x.toLowerCase())).join(' ');
     consider(`GM page: ${p.path}`, text);
   }
-  for (const i of all<any>(db, "SELECT name, dm_note FROM items WHERE world_id = ? AND dm_note != ''", worldId)) consider(`GM item note: ${i.name}`, i.dm_note);
-  for (const r of all<any>(db, "SELECT dm_note FROM broker_requests WHERE world_id = ? AND dm_note IS NOT NULL AND dm_note != ''", worldId)) consider('GM broker note', r.dm_note);
+  for (const i of all<any>(db, "SELECT name, gm_note FROM items WHERE world_id = ? AND gm_note != ''", worldId)) consider(`GM item note: ${i.name}`, i.gm_note);
+  for (const r of all<any>(db, "SELECT gm_note FROM broker_requests WHERE world_id = ? AND gm_note IS NOT NULL AND gm_note != ''", worldId)) consider('GM broker note', r.gm_note);
   return scored.sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
@@ -269,7 +269,7 @@ export async function modelAudit(d: Deps, worldId: string, summary: string): Pro
   if (!passages.length) return { ran: true, overlaps: [] };
   const notes = passages.map((p, i) => `[${i + 1}] ${p.source}\n${p.text}`).join('\n\n');
   // The guard refuses anything classified before it leaves; a refusal comes back as null, like a model that is down.
-  const j = await chatJson<any>(d, 'audit', [{ role: 'system', content: AUDIT_SYSTEM }, { role: 'user', content: `Summary:\n${summary.slice(0, 6000)}\n\nDM notes:\n${notes}` }], undefined, { maxTokens: 700 });
+  const j = await chatJson<any>(d, 'audit', [{ role: 'system', content: AUDIT_SYSTEM }, { role: 'user', content: `Summary:\n${summary.slice(0, 6000)}\n\nGM notes:\n${notes}` }], undefined, { maxTokens: 700 });
   if (!j || !Array.isArray(j.leaks)) return { ran: false, overlaps: [] };
   const overlaps: Overlap[] = [];
   for (const l of j.leaks.slice(0, 8)) {

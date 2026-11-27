@@ -139,7 +139,7 @@ tested with a fake model but were not measured on the real model: off by default
   Everything a world's GM asks through the API (generators, statblocks, the assistant's own
   tool calls) runs at the GM's priority; tracked jobs (imports, crawls, bulk builds) are
   background work, whoever started them.
-- **GM first** (Admin → Models → GPU & queue, `PUT /api/admin/models/dm-first`): how hard the
+- **GM first** (Admin → Models → GPU & queue, `PUT /api/admin/models/gm-first`): how hard the
   GM's calls push in front when players fill a model.
   - *Stop a player's request* (`preempt`, on by default): a GM call that has to wait stops the
     newest player or background call on that model. A call that has shown nothing yet goes

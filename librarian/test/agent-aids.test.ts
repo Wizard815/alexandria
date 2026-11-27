@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../src/app.ts';
 import { agentOptions } from '../src/features/agent/options.ts';
 import { chooseTools, prefetchHybrid, prefetchLibrary, systemPrompt, type Caller } from '../src/features/agent/harness.ts';
-import { selectTools, DM_CORE_TOOLS } from '../src/features/agent/intent.ts';
+import { selectTools, GM_CORE_TOOLS } from '../src/features/agent/intent.ts';
 import { CONCISE } from '../src/features/agent/descriptions.ts';
 import { nearestTools } from '../src/features/agent/toolselect.ts';
 import { syncEmbeddings } from '../src/features/search/embeddings.ts';
@@ -60,10 +60,10 @@ function boot(extra: Record<string, string> = {}, withEmbeddings = true) {
   if (withEmbeddings) { env.ALX_MODEL_EXTRA_URL = 'http://fake.test/v1'; env.ALX_MODEL_EXTRA_MODEL = 'fake-embed'; }
   const made = createApp({ noScheduler: true, fetch: fake, env });
   const wid = 'w_aids';
-  run(made.deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_dm', 'dm', 'GM', 'x', 0, '2025-01-01')`);
+  run(made.deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_gm', 'gm', 'GM', 'x', 0, '2025-01-01')`);
   run(made.deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_p', 'pl', 'Player', 'x', 0, '2025-01-01')`);
   run(made.deps.db, `INSERT INTO worlds (id, slug, name, created_at) VALUES (?, 'aids', 'Aids', '2025-01-01')`, wid);
-  const caller = (harness: 'dm' | 'player'): Caller => ({ worldId: wid, worldName: 'Aids', accountId: harness === 'dm' ? 'a_dm' : 'a_p', viewer: harness === 'dm' ? { accountId: 'a_dm', role: 'dm' } : { accountId: 'a_p', role: 'player' }, harness, token: 't', port: 0, settings: {} as any });
+  const caller = (harness: 'gm' | 'player'): Caller => ({ worldId: wid, worldName: 'Aids', accountId: harness === 'gm' ? 'a_gm' : 'a_p', viewer: harness === 'gm' ? { accountId: 'a_gm', role: 'gm' } : { accountId: 'a_p', role: 'player' }, harness, token: 't', port: 0, settings: {} as any });
   return { ...made, wid, caller };
 }
 
@@ -104,7 +104,7 @@ test('TestAgentTools_ModesOfferWhatTheyShould', async () => {
   const all = await chooseTools(h.deps, opts('all'), text, text, tools, names, true);
   assert.equal(all.length, names.length, 'every GM tool');
   const core = await chooseTools(h.deps, opts('core'), text, text, tools, names, true);
-  assert.deepEqual([...core].sort(), DM_CORE_TOOLS.filter((n) => names.includes(n)).sort());
+  assert.deepEqual([...core].sort(), GM_CORE_TOOLS.filter((n) => names.includes(n)).sort());
   const emb = await chooseTools(h.deps, opts('embed'), text, text, tools, names, true);
   assert.ok(emb.length > core.length, 'the nearest tools were added');
   for (const c of core) assert.ok(emb.includes(c), 'the core always stays');
@@ -145,7 +145,7 @@ test('TestAgentRetrieval_HybridFindsAParaphraseKeywordMisses', async () => {
   h.deps.library.save(h.wid, { path: 'Factions/Harbour Council', title: 'Harbour Council', body: 'Seven captains who set the harbour fees and settle disputes at the quay.', visibility: 'party' }, null);
   h.deps.library.save(h.wid, { path: 'Items/Brass Bell', title: 'Brass Bell', body: 'A small bell that chimes by itself at night.', visibility: 'party' }, null);
   await syncEmbeddings(h.deps, { maxPages: 50 });
-  const c = h.caller('dm');
+  const c = h.caller('gm');
   const q = 'who runs the docks';
   assert.deepEqual(prefetchLibrary(h.deps, c, q, 5).map((x) => x.title), [], 'the keyword search finds nothing for a question that shares no word');
   const hy = await prefetchHybrid(h.deps, c, q, 5);
@@ -158,31 +158,31 @@ test('TestAgentRetrieval_HybridFindsAParaphraseKeywordMisses', async () => {
 test('TestAgentRetrieval_HybridIsKeywordOnlyWithoutAModel', async () => {
   const h = boot({}, false);
   h.deps.library.save(h.wid, { path: 'Factions/Harbour Council', title: 'Harbour Council', body: 'Seven captains who set the harbour fees.', visibility: 'party' }, null);
-  const c = h.caller('dm');
+  const c = h.caller('gm');
   assert.deepEqual((await prefetchHybrid(h.deps, c, 'harbour fees', 5)).map((x) => x.title), prefetchLibrary(h.deps, c, 'harbour fees', 5).map((x) => x.title));
   assert.deepEqual(await prefetchHybrid(h.deps, c, 'who runs the docks', 5), []);
 });
 
 test('TestAgentRetrieval_PlayerNeverGetsADmOnlyPage', async () => {
   const h = boot();
-  h.deps.library.save(h.wid, { path: 'Secrets/Smuggler Queen', title: 'Smuggler Queen', body: 'The hidden mastermind behind the docks: she bribes the harbour council. SECRETBRIBE.', visibility: 'dm' }, null);
+  h.deps.library.save(h.wid, { path: 'Secrets/Smuggler Queen', title: 'Smuggler Queen', body: 'The hidden mastermind behind the docks: she bribes the harbour council. SECRETBRIBE.', visibility: 'gm' }, null);
   h.deps.library.save(h.wid, { path: 'Places/Quay', title: 'Quay', body: 'The wharf where boats tie up.', visibility: 'party' }, null);
   await syncEmbeddings(h.deps, { maxPages: 50 });
-  const dm = await prefetchHybrid(h.deps, h.caller('dm'), 'which hidden mastermind is behind the docks', 5);
-  assert.ok(dm.some((x) => x.title === 'Smuggler Queen'), 'the GM harness can reach it');
+  const gm = await prefetchHybrid(h.deps, h.caller('gm'), 'which hidden mastermind is behind the docks', 5);
+  assert.ok(gm.some((x) => x.title === 'Smuggler Queen'), 'the GM harness can reach it');
   const pl = await prefetchHybrid(h.deps, h.caller('player'), 'which hidden mastermind is behind the docks', 5);
   assert.ok(!pl.some((x) => x.title === 'Smuggler Queen'), 'the player harness cannot');
   assert.ok(!JSON.stringify(pl).includes('SECRETBRIBE'), 'nor its text');
 });
 
 test('TestAgentSystemPrompt_SkillsOffKeepsIdentityAndBrevity', () => {
-  const on = systemPrompt({ harness: 'dm', worldName: 'W' }, '', {}, true);
-  const off = systemPrompt({ harness: 'dm', worldName: 'W' }, '', {}, false);
+  const on = systemPrompt({ harness: 'gm', worldName: 'W' }, '', {}, true);
+  const off = systemPrompt({ harness: 'gm', worldName: 'W' }, '', {}, false);
   assert.ok(off.length < on.length / 3);
   assert.match(off, /Game Master/);
   assert.match(off, /brief/i);
   assert.doesNotMatch(off, /How to work/);
-  const lite = systemPrompt({ harness: 'dm', worldName: 'W' }, '', {}, 'lite');
+  const lite = systemPrompt({ harness: 'gm', worldName: 'W' }, '', {}, 'lite');
   assert.ok(lite.length < on.length && lite.length > off.length);
   assert.match(lite, /call the tool that does exactly that/);
   assert.match(lite, /never invent/i, 'the grounding rule stays');

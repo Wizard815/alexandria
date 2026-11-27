@@ -29,16 +29,16 @@ import { classifiedMatch } from './levels.ts';
 import { run, type DB } from './db.ts';
 import { recordCall } from './modelcalls.ts';
 
-export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'dm' | 'player' | 'bible' | 'helper';
+export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'gm' | 'player' | 'bible' | 'helper';
 /** Jobs that answer in text. */
-export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible' | 'helper';
+export type TextJob = 'chat' | 'audit' | 'gm' | 'player' | 'bible' | 'helper';
 export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
 /**
  * Parts of the chat job that may have a model of their own: the GM's assistant, what players ask, the story bible,
  * and the players' quick helper (a small second model, features/playerhelp/quick.ts). Unset: the chat model
  * (the quick helper: the Players model first).
  */
-export const CHAT_PARTS: Job[] = ['dm', 'player', 'bible', 'helper'];
+export const CHAT_PARTS: Job[] = ['gm', 'player', 'bible', 'helper'];
 export const ALL_JOBS: Job[] = [...JOBS, ...CHAT_PARTS];
 const isPart = (job: Job) => CHAT_PARTS.includes(job);
 const isText = (job: Job) => job === 'chat' || job === 'audit' || isPart(job);
@@ -263,11 +263,11 @@ export const withPriority = <T>(p: number, fn: () => Promise<T>, onWait?: (ahead
 export const currentPriority = (): number | undefined => gateStore.getStore()?.p;
 
 /** The GM's priority: this and above may preempt, use reserved slots, and hold players. */
-export const DM_PRIORITY = 2;
-export interface DmFirst { preempt: boolean; reserve: number; holdPlayers: boolean }
-export const DM_FIRST_DEFAULTS: DmFirst = { preempt: true, reserve: 0, holdPlayers: false };
+export const GM_PRIORITY = 2;
+export interface GmFirst { preempt: boolean; reserve: number; holdPlayers: boolean }
+export const GM_FIRST_DEFAULTS: GmFirst = { preempt: true, reserve: 0, holdPlayers: false };
 /** A stored or sent GM-first setting, with every field checked (anything odd keeps the default). */
-export function normalizeDmFirst(v: unknown, base: DmFirst = DM_FIRST_DEFAULTS): DmFirst {
+export function normalizeGmFirst(v: unknown, base: GmFirst = GM_FIRST_DEFAULTS): GmFirst {
   const o = v && typeof v === 'object' ? v as Record<string, unknown> : {};
   const r = Number(o.reserve);
   return {
@@ -276,9 +276,9 @@ export function normalizeDmFirst(v: unknown, base: DmFirst = DM_FIRST_DEFAULTS):
     holdPlayers: typeof o.holdPlayers === 'boolean' ? o.holdPlayers : base.holdPlayers,
   };
 }
-let dmFirstOf: (d: Deps) => DmFirst = () => DM_FIRST_DEFAULTS;
+let gmFirstOf: (d: Deps) => GmFirst = () => GM_FIRST_DEFAULTS;
 /** The models feature reads the saved setting; null goes back to the defaults. */
-export function setDmFirstResolver(f: ((d: Deps) => DmFirst) | null) { dmFirstOf = f ?? (() => DM_FIRST_DEFAULTS); }
+export function setGmFirstResolver(f: ((d: Deps) => GmFirst) | null) { gmFirstOf = f ?? (() => GM_FIRST_DEFAULTS); }
 
 /** The call was stopped part way so the GM could go first (what was written so far is kept by the caller). */
 export class ModelPreempted extends ModelUnavailable {
@@ -288,10 +288,10 @@ export class ModelPreempted extends ModelUnavailable {
 /** A preempted call goes back in line at most this many times; after that it is left to finish. */
 const MAX_PREEMPTS = 3;
 const PREEMPT = Symbol('preempted for the GM');
-interface Slot { p: number; seq: number; at: number; ctl: AbortController; preemptible: boolean; stopping: boolean; dm: boolean }
+interface Slot { p: number; seq: number; at: number; ctl: AbortController; preemptible: boolean; stopping: boolean; gm: boolean }
 interface Waiter { p: number; seq: number; started: boolean; go: (s: Slot) => void }
 /** GM calls running or waiting on local models (holdPlayers waits for this to be 0). */
-let dmBusyLocal = 0;
+let gmBusyLocal = 0;
 const both = (a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined => (a && b ? AbortSignal.any([a, b]) : a ?? b);
 
 class Gate {
@@ -300,7 +300,7 @@ class Gate {
   seq = 0;
   max: number;
   local: boolean;
-  policy: DmFirst = DM_FIRST_DEFAULTS;
+  policy: GmFirst = GM_FIRST_DEFAULTS;
   /** Calls stopped for the GM since the server started (for the admin). */
   preempted = 0;
   constructor(max: number, local: boolean) { this.max = max; this.local = local; }
@@ -309,9 +309,9 @@ class Gate {
   get reserve() { return this.local ? Math.max(0, Math.min(this.policy.reserve, this.max - 1)) : 0; }
   private fits(p: number): boolean {
     if (this.running.size >= this.max) return false;
-    if (p >= DM_PRIORITY) return true;
+    if (p >= GM_PRIORITY) return true;
     if (this.running.size >= this.max - this.reserve) return false;
-    return !(this.local && this.policy.holdPlayers && dmBusyLocal > 0);
+    return !(this.local && this.policy.holdPlayers && gmBusyLocal > 0);
   }
   /** Start waiting calls, most urgent first, while they fit. (Fitting only gets harder down the line, so the head decides.) */
   pump() {
@@ -322,21 +322,21 @@ class Gate {
     }
   }
   private open(p: number, seq: number): Slot {
-    const s: Slot = { p, seq, at: performance.now(), ctl: new AbortController(), preemptible: false, stopping: false, dm: p >= DM_PRIORITY && this.local };
+    const s: Slot = { p, seq, at: performance.now(), ctl: new AbortController(), preemptible: false, stopping: false, gm: p >= GM_PRIORITY && this.local };
     this.running.add(s);
     return s;
   }
   private leave(s: Slot) {
     this.running.delete(s);
-    if (s.dm && --dmBusyLocal === 0) pumpAll();
+    if (s.gm && --gmBusyLocal === 0) pumpAll();
     this.pump();
   }
   /** A GM call is waiting: stop one player or background call for each GM call that has no slot coming yet. */
   private preemptFor() {
     if (!this.policy.preempt) return;
-    const dmWaiting = this.queue.filter((w) => w.p >= DM_PRIORITY).length;
+    const gmWaiting = this.queue.filter((w) => w.p >= GM_PRIORITY).length;
     const stopping = [...this.running].filter((s) => s.stopping).length;
-    if (dmWaiting <= stopping) return;
+    if (gmWaiting <= stopping) return;
     // The least urgent first, then the one that started last (it has done the least work).
     const victim = [...this.running].filter((s) => s.preemptible && !s.stopping).sort((a, b) => a.p - b.p || b.at - a.at)[0];
     if (!victim) return;
@@ -347,9 +347,9 @@ class Gate {
   /** A slot now when one is free and nobody more urgent waits (no await: the call starts in this same tick), else a promise of one. */
   private enter(p: number, seq: number, signal?: AbortSignal, onWait?: (ahead: number) => void): Slot | Promise<Slot> {
     if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
-    if (p >= DM_PRIORITY && this.local) dmBusyLocal++;
+    if (p >= GM_PRIORITY && this.local) gmBusyLocal++;
     if (!this.queue.some((w) => w.p >= p) && this.fits(p)) return this.open(p, seq);
-    const unbusy = () => { if (p >= DM_PRIORITY && this.local && --dmBusyLocal === 0) pumpAll(); };
+    const unbusy = () => { if (p >= GM_PRIORITY && this.local && --gmBusyLocal === 0) pumpAll(); };
     return new Promise<Slot>((resolve, reject) => {
       const w: Waiter = { p, seq, started: false, go: resolve };
       this.queue.push(w);
@@ -357,7 +357,7 @@ class Gate {
       this.pump();
       if (w.started) return;
       try { onWait?.(Math.max(1, this.queue.indexOf(w) + this.running.size)); } catch { /* a listener's problem is not the call's */ }
-      if (p >= DM_PRIORITY) this.preemptFor();
+      if (p >= GM_PRIORITY) this.preemptFor();
       signal?.addEventListener('abort', () => {
         const i = this.queue.indexOf(w);
         if (i < 0) return;
@@ -376,7 +376,7 @@ class Gate {
     for (let stops = 0; ; stops++) {
       const e = this.enter(p, seq, o.signal, o.onWait);
       const s = e instanceof Promise ? await e : e;
-      s.preemptible = p < DM_PRIORITY && stops < MAX_PREEMPTS;
+      s.preemptible = p < GM_PRIORITY && stops < MAX_PREEMPTS;
       try {
         return await fn(s.ctl.signal);
       } catch (err) {
@@ -404,8 +404,8 @@ export function gateFor(c: JobConfig): Gate {
 /** Requests running and waiting per model (for the admin and tests). */
 export const gateStats = () => [...gates.entries()].map(([k, g]) => ({
   server: k.split('|')[0], model: k.split('|').slice(1).join('|'), max: g.max, running: g.active, waiting: g.queue.length,
-  local: g.local, reserve: g.reserve, dmRunning: [...g.running].filter((s) => s.p >= DM_PRIORITY).length,
-  dmWaiting: g.queue.filter((w) => w.p >= DM_PRIORITY).length, preempted: g.preempted,
+  local: g.local, reserve: g.reserve, gmRunning: [...g.running].filter((s) => s.p >= GM_PRIORITY).length,
+  gmWaiting: g.queue.filter((w) => w.p >= GM_PRIORITY).length, preempted: g.preempted,
 }));
 const JOB_PRIORITY: Partial<Record<Job, number>> = { audio: 3, voice: 2 };
 
@@ -423,7 +423,7 @@ async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobCon
     const c = chain[i];
     const st = gateStore.getStore();
     const g = gateFor(c);
-    g.policy = dmFirstOf(d);
+    g.policy = gmFirstOf(d);
     try { return await g.run(job, st?.p ?? JOB_PRIORITY[job] ?? 1, (gs) => fn(c, both(o.signal, gs)), { signal: o.signal, onWait: st?.onWait, canRestart: mayRetry }); } catch (err) {
       if (i + 1 >= chain.length || !canFallBack(err) || !mayRetry()) throw err;
     }

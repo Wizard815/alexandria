@@ -152,7 +152,7 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
 }
 
 function LogLine({ l, npc }: { l: Line; npc: string }) {
-  const who = l.who === 'npc' || l.who === 'dm' ? npc : l.who === 'you' ? 'You' : '';
+  const who = l.who === 'npc' || l.who === 'gm' ? npc : l.who === 'you' ? 'You' : '';
   return (
     <div className={`enc-line ${l.who}`}>
       {who && <span className="enc-who">{who}</span>}

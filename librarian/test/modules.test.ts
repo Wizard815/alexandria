@@ -92,18 +92,18 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Modland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Modland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' });
   T.jess = j.token;
 });
 
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-const importJson = (mod: any, extra: any = {}) => call('POST', `${M()}/import`, T.dm, { type: 'json', json: mod, ...extra });
+const importJson = (mod: any, extra: any = {}) => call('POST', `${M()}/import`, T.gm, { type: 'json', json: mod, ...extra });
 const termIds = async (q: string, token = T.jess) => (await ok('GET', `${M()}/terms?q=${encodeURIComponent(q)}`, token)).terms as any[];
 
 test('Modules: the 2024 SRD is on by default, with its attribution', async () => {
@@ -121,7 +121,7 @@ test('Modules: the 2024 SRD is on by default, with its attribution', async () =>
   const spell = await ok('GET', `${M()}/terms/${encodeURIComponent(fireball.id)}`, T.jess);
   assert.equal(spell.data.level, 3);
   const dragonId = encodeURIComponent((await termIds('Adult Blue Dragon'))[0].id);
-  const dragon = await ok('GET', `${M()}/terms/${dragonId}`, T.dm);
+  const dragon = await ok('GET', `${M()}/terms/${dragonId}`, T.gm);
   assert.equal(dragon.data.abilities.str, 25);
   assert.ok(Array.isArray(dragon.data.actions) && dragon.data.actions.length > 0);
   // A player's card has the actions but no AC, HP, ability scores or CR (the world shows monster health in words).
@@ -135,41 +135,41 @@ test('Modules: the 2024 SRD is on by default, with its attribution', async () =>
   assert.ok(!/ · (CR|AC|HP) \d/.test(seen.summary), seen.summary);
   const card = await ok('GET', `${M()}/card/module/${dragonId}`, T.jess);
   assert.ok(!/\*\*AC\*\*|\| STR \|/.test(card.text) && card.data.abilities === undefined);
-  assert.match((await ok('GET', `${M()}/card/module/${dragonId}`, T.dm)).text, /\*\*AC\*\*/);
+  assert.match((await ok('GET', `${M()}/card/module/${dragonId}`, T.gm)).text, /\*\*AC\*\*/);
   const conds = await ok('GET', `${M()}/terms?kind=condition&limit=100`, T.jess);
   assert.ok(conds.total >= 14, 'all conditions are bundled');
 });
 
 test('Modules: only a GM changes which modules are on', async () => {
   assert.equal((await call('PUT', `${M()}/enabled`, T.jess, { ids: ['dnd-2014'] })).status, 403);
-  assert.equal((await call('PUT', `${M()}/enabled`, T.dm, { ids: ['nope'] })).status, 400);
+  assert.equal((await call('PUT', `${M()}/enabled`, T.gm, { ids: ['nope'] })).status, 400);
   assert.equal((await call('POST', `${M()}/import/preview`, T.jess, { type: 'json', json: {} })).status, 403);
   assert.equal((await call('POST', `${M()}/import`, T.jess, { type: 'json', json: {} })).status, 403);
 });
 
 test('Modules: earlier modules win on a clash, and order can change', async () => {
   const home = { id: 'house', name: 'House rules', terms: [{ term: 'Grapple', kind: 'rule', summary: 'House: grapple is a bonus action.', text: 'House rule grapple text.' }, { term: 'Fireball', kind: 'spell', summary: 'House fireball.', text: 'House fireball text.' }] };
-  await ok('POST', `${M()}/import`, T.dm, { type: 'json', json: home, enable: false });
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['house', 'dnd-2024'] });
+  await ok('POST', `${M()}/import`, T.gm, { type: 'json', json: home, enable: false });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['house', 'dnd-2024'] });
   let g = (await termIds('Grapple')).filter((t: any) => t.kind === 'rule' && t.term === 'Grapple');
   assert.equal(g.length, 1, 'one Grapple, the clash is resolved');
   assert.equal(g[0].moduleId, 'house');
   const f = (await termIds('Fireball')).filter((t: any) => t.term === 'Fireball');
   assert.equal(f.length, 1);
   assert.equal(f[0].moduleId, 'house');
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2024', 'house'] });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2024', 'house'] });
   g = (await termIds('Grapple')).filter((t: any) => t.term === 'Grapple');
   assert.equal(g.length, 1);
   assert.equal(g[0].moduleId, 'dnd-2024');
   // Both SRDs on: the 2024 one first, and Fireball appears once.
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2024', 'dnd-2014'] });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2024', 'dnd-2014'] });
   const both = (await termIds('Fireball')).filter((t: any) => t.term === 'Fireball');
   assert.equal(both.length, 1);
   assert.equal(both[0].moduleId, 'dnd-2024');
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2014', 'dnd-2024'] });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2014', 'dnd-2024'] });
   assert.equal((await termIds('Fireball')).filter((t: any) => t.term === 'Fireball')[0].moduleId, 'dnd-2014');
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2024'] });
-  await ok('DELETE', `${M()}/imported/house`, T.dm);
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2024'] });
+  await ok('DELETE', `${M()}/imported/house`, T.gm);
 });
 
 test('Modules: rules search ranks the right rule first, with citations', async () => {
@@ -189,11 +189,11 @@ test('Modules: rules search ranks the right rule first, with citations', async (
   const many = await top('grapple', 5);
   assert.ok(many.length > 1 && many[0].score >= many[1].score, 'sorted by score');
   // The same questions against the 2014 module cite it.
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2014'] });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2014'] });
   const old = (await top('cover'))[0];
   assert.equal(old.term, 'Cover');
   assert.match(old.citation, /SRD 5\.1/);
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2024'] });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2024'] });
 });
 
 test('Modules: match finds the longest whole-word phrase, case-insensitively', async () => {
@@ -218,19 +218,19 @@ test('Modules: match finds the longest whole-word phrase, case-insensitively', a
   const card = await ok('GET', `${M()}/card/module/${encodeURIComponent(s[0].id)}`, T.jess);
   assert.equal(card.title, 'Blinded');
   assert.match(card.attribution, /SRD 5\.2/);
-  await ok('DELETE', `${M()}/imported/ash`, T.dm);
+  await ok('DELETE', `${M()}/imported/ash`, T.gm);
 });
 
 test('Modules: players never match GM-only page titles, aliases or cards', async () => {
-  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
+  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown })).id;
   const pub = await page('places/Saltmarsh', 'party', '---\naliases: [The Marsh Town]\n---\n# Saltmarsh\nA fishing town.\n\n> [!secret] GM\n> The council answers to Velmira.\n');
-  const secret = await page('dm/Velmira the Smuggler', 'dm', '---\naliases: [Queen of Salt]\n---\n# Velmira the Smuggler\nKeeps her treasury beneath the lighthouse.\n');
+  const secret = await page('gm/Velmira the Smuggler', 'gm', '---\naliases: [Queen of Salt]\n---\n# Velmira the Smuggler\nKeeps her treasury beneath the lighthouse.\n');
   const text = 'In Saltmarsh the Marsh Town folk whisper of Velmira the Smuggler, the Queen of Salt. Velmira the Smuggler waits.';
-  const dm = (await call('POST', `${M()}/match`, T.dm, { text })).body as any[];
+  const gm = (await call('POST', `${M()}/match`, T.gm, { text })).body as any[];
   const pl = (await call('POST', `${M()}/match`, T.jess, { text })).body as any[];
   const names = (ms: any[]) => ms.map((m) => text.slice(m.start, m.end));
-  assert.deepEqual(names(dm), ['Saltmarsh', 'the Marsh Town', 'Velmira the Smuggler', 'Queen of Salt', 'Velmira the Smuggler']);
-  assert.ok(dm.every((m) => m.source === 'library'));
+  assert.deepEqual(names(gm), ['Saltmarsh', 'the Marsh Town', 'Velmira the Smuggler', 'Queen of Salt', 'Velmira the Smuggler']);
+  assert.ok(gm.every((m) => m.source === 'library'));
   assert.deepEqual(names(pl), ['Saltmarsh', 'the Marsh Town']);
   assert.equal(pl[0].id, pub);
   const flat = JSON.stringify(pl);
@@ -240,13 +240,13 @@ test('Modules: players never match GM-only page titles, aliases or cards', async
   const pc = await ok('GET', `${M()}/card/library/${pub}`, T.jess);
   assert.match(pc.text, /fishing town/);
   assert.ok(!JSON.stringify(pc).includes('Velmira'), 'secret callout is not in the player card');
-  assert.match((await ok('GET', `${M()}/card/library/${secret}`, T.dm)).text, /treasury/);
+  assert.match((await ok('GET', `${M()}/card/library/${secret}`, T.gm)).text, /treasury/);
   // Hiding a shared page removes it for players at once (the index follows the page).
-  await page('places/Saltmarsh', 'dm', '# Saltmarsh\nA fishing town.\n');
+  await page('places/Saltmarsh', 'gm', '# Saltmarsh\nA fishing town.\n');
   const after = (await call('POST', `${M()}/match`, T.jess, { text })).body as any[];
   assert.deepEqual(names(after), []);
   // And sharing a page adds it.
-  await page('dm/Velmira the Smuggler', 'party', '# Velmira the Smuggler\nA known rogue.\n');
+  await page('gm/Velmira the Smuggler', 'party', '# Velmira the Smuggler\nA known rogue.\n');
   assert.deepEqual(names((await call('POST', `${M()}/match`, T.jess, { text })).body), ['Velmira the Smuggler', 'Velmira the Smuggler']);
 });
 
@@ -264,22 +264,22 @@ test('Modules: match stays fast with 10,000 terms', async () => {
   const second = performance.now() - t1;
   assert.equal(ms.length, 1200);
   assert.ok(first < 3000 && second < 1000, `slow: ${first.toFixed(0)}ms then ${second.toFixed(0)}ms`);
-  await ok('DELETE', `${M()}/imported/big`, T.dm);
+  await ok('DELETE', `${M()}/imported/big`, T.gm);
 });
 
 test('Modules: import a zip of Markdown files (preview, then save)', async () => {
   const zip = makeZip({ 'mymod/module.json': JSON.stringify({ name: 'Ember Tales', version: '1', license: 'CC0', attribution: 'By nobody.' }), ...Object.fromEntries(Object.entries(FILES).map(([k, v]) => ['mymod/' + k, v])) });
   const entries = readZip(zip);
   assert.equal(entries.length, 5);
-  const pre = await call('POST', `${M()}/import/preview`, T.dm, undefined, { type: 'application/zip', data: zip });
+  const pre = await call('POST', `${M()}/import/preview`, T.gm, undefined, { type: 'application/zip', data: zip });
   assert.equal(pre.status, 200, JSON.stringify(pre.body));
   assert.equal(pre.body.module.id, 'ember-tales');
   assert.deepEqual(pre.body.counts, { spell: 1, rule: 1, condition: 1 });
   assert.equal(pre.body.total, 3);
   assert.ok(pre.body.samples.length <= 5 && pre.body.samples.length === 3);
   assert.equal(pre.body.module.attribution, 'By nobody.');
-  assert.equal((await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'ember-tales'), false, 'preview does not save');
-  const saved = await call('POST', `${M()}/import`, T.dm, undefined, { type: 'application/zip', data: zip });
+  assert.equal((await ok('GET', `${M()}/`, T.gm)).available.some((m: any) => m.id === 'ember-tales'), false, 'preview does not save');
+  const saved = await call('POST', `${M()}/import`, T.gm, undefined, { type: 'application/zip', data: zip });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   const info = await ok('GET', `${M()}/`, T.jess);
   assert.deepEqual(info.modules.map((m: any) => m.id), ['dnd-2024', 'ember-tales'], 'new modules go last');
@@ -292,38 +292,38 @@ test('Modules: import a zip of Markdown files (preview, then save)', async () =>
   const full = await ok('GET', `${M()}/terms/${encodeURIComponent(slow.id)}`, T.jess);
   assert.match(full.text, /60 feet per round/);
   assert.ok(!full.text.startsWith('# '), 'the H1 became the term name');
-  assert.equal((await call('POST', `${M()}/import`, T.dm, undefined, { type: 'application/zip', data: zip })).status, 409, 'saving again needs replace');
-  assert.equal((await call('POST', `${M()}/import?replace=1`, T.dm, undefined, { type: 'application/zip', data: zip })).status, 200);
-  await ok('DELETE', `${M()}/imported/ember-tales`, T.dm);
+  assert.equal((await call('POST', `${M()}/import`, T.gm, undefined, { type: 'application/zip', data: zip })).status, 409, 'saving again needs replace');
+  assert.equal((await call('POST', `${M()}/import?replace=1`, T.gm, undefined, { type: 'application/zip', data: zip })).status, 200);
+  await ok('DELETE', `${M()}/imported/ember-tales`, T.gm);
   assert.deepEqual((await ok('GET', `${M()}/`, T.jess)).modules.map((m: any) => m.id), ['dnd-2024']);
 });
 
 test('Modules: zip limits and bad zips are refused', async () => {
   const bomb = makeZip({ 'a.md': 'a'.repeat(3_000_000) });
-  const r = await call('POST', `${M()}/import/preview`, T.dm, undefined, { type: 'application/zip', data: bomb });
+  const r = await call('POST', `${M()}/import/preview`, T.gm, undefined, { type: 'application/zip', data: bomb });
   assert.equal(r.status, 413);
   const lying = makeZip({ 'a.md': 'a'.repeat(5000) }, { fakeSize: 10 });
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, undefined, { type: 'application/zip', data: lying })).status, 400);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, undefined, { type: 'application/zip', data: Buffer.from('definitely not a zip file at all') })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, undefined, { type: 'application/zip', data: lying })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, undefined, { type: 'application/zip', data: Buffer.from('definitely not a zip file at all') })).status, 400);
   // A zip sent as base64 in JSON works too.
   const small = makeZip({ 'x.md': '# Zed\n\nA letter.\n' });
-  const j = await call('POST', `${M()}/import/preview`, T.dm, { type: 'zip', zip: small.toString('base64'), module: { name: 'Zed pack' } });
+  const j = await call('POST', `${M()}/import/preview`, T.gm, { type: 'zip', zip: small.toString('base64'), module: { name: 'Zed pack' } });
   assert.equal(j.status, 200, JSON.stringify(j.body));
   assert.equal(j.body.total, 1);
 });
 
 test('Modules: import files picked from a folder', async () => {
   const files = Object.entries(FILES).map(([p, text]) => ({ path: 'Pack/' + p, text }));
-  const pre = await ok('POST', `${M()}/import/preview`, T.dm, { type: 'folder', files, module: { name: 'Folder pack' } });
+  const pre = await ok('POST', `${M()}/import/preview`, T.gm, { type: 'folder', files, module: { name: 'Folder pack' } });
   assert.equal(pre.module.id, 'folder-pack');
   assert.deepEqual(pre.counts, { spell: 1, rule: 1, condition: 1 });
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'folder', files: [] })).status, 400);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'folder', files: [{ path: 'a.txt', text: 'nope' }], module: { name: 'x' } })).status, 400, 'no Markdown files, no module');
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'folder', files: [] })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'folder', files: [{ path: 'a.txt', text: 'nope' }], module: { name: 'x' } })).status, 400, 'no Markdown files, no module');
 });
 
 test('Modules: import a JSON module, and refuse junk', async () => {
   const mod = { id: 'tiny', name: 'Tiny', version: '1.0', license: 'MIT', attribution: 'Me', terms: [{ id: 'glim', term: 'Glimmerorb', kind: 'item', summary: 'x'.repeat(500), text: 'A glowing orb.', data: { weight: 1 } }, { term: 'Blip', kind: 'banana', text: 'odd kind' }, { kind: 'rule', text: 'no name' }] };
-  const pre = await ok('POST', `${M()}/import/preview`, T.dm, { type: 'json', json: JSON.stringify(mod) });
+  const pre = await ok('POST', `${M()}/import/preview`, T.gm, { type: 'json', json: JSON.stringify(mod) });
   assert.equal(pre.total, 2);
   assert.equal(pre.counts.item, 1);
   assert.equal(pre.counts.other, 1, 'unknown kinds become other');
@@ -335,28 +335,28 @@ test('Modules: import a JSON module, and refuse junk', async () => {
   assert.deepEqual(orb.data, { weight: 1 });
   assert.equal(orb.attribution, 'Me');
   assert.equal((await importJson({ id: 'dnd-2024', name: 'Evil twin', terms: [{ term: 'x', text: 'y' }] })).status, 400, 'built-in ids are reserved');
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'json', json: { name: 'Empty', terms: [] } })).status, 400);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'json', json: { terms: [{ term: 'a' }] } })).status, 400, 'a name is required');
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'json', json: 'not json {' })).status, 400);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'carrier pigeon' })).status, 400);
-  await ok('DELETE', `${M()}/imported/tiny`, T.dm);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'json', json: { name: 'Empty', terms: [] } })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'json', json: { terms: [{ term: 'a' }] } })).status, 400, 'a name is required');
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'json', json: 'not json {' })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'carrier pigeon' })).status, 400);
+  await ok('DELETE', `${M()}/imported/tiny`, T.gm);
 });
 
 test('Modules: import from a JSON API with a field mapping and paging', async () => {
   const req = { type: 'api', url: 'http://rules.example.test/api', itemsPath: 'data.items', paging: 'page', pageStart: 1, textFormat: 'html', mapping: { term: 'name', id: 'slug', kind: 'type', text: 'desc', aliases: 'alt', data: 'stats' }, module: { name: 'Open rules', license: 'OGL' } };
-  const pre = await ok('POST', `${M()}/import/preview`, T.dm, req);
+  const pre = await ok('POST', `${M()}/import/preview`, T.gm, req);
   assert.equal(pre.total, 3);
   assert.deepEqual(pre.counts, { spell: 2, monster: 1 });
-  await ok('POST', `${M()}/import`, T.dm, req);
+  await ok('POST', `${M()}/import`, T.gm, req);
   const fb = await ok('GET', `${M()}/terms/${encodeURIComponent('open-rules:moonflare')}`, T.jess);
   assert.equal(fb.kind, 'spell');
   assert.match(fb.text, /A \*\*big\*\* boom\./, 'HTML became Markdown');
   assert.deepEqual(fb.aliases, ['Boom']);
-  const gob = await ok('GET', `${M()}/terms/${encodeURIComponent('open-rules:quilloth')}`, T.dm);
+  const gob = await ok('GET', `${M()}/terms/${encodeURIComponent('open-rules:quilloth')}`, T.gm);
   assert.deepEqual(gob.data, { ac: 15 });
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { ...req, itemsPath: 'nothing.here' })).status, 400);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { ...req, url: 'ftp://x.test/a' })).status, 400);
-  await ok('DELETE', `${M()}/imported/open-rules`, T.dm);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { ...req, itemsPath: 'nothing.here' })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { ...req, url: 'ftp://x.test/a' })).status, 400);
+  await ok('DELETE', `${M()}/imported/open-rules`, T.gm);
 });
 
 test('Modules: API imports refuse private addresses unless the host allows them', async () => {
@@ -367,9 +367,9 @@ test('Modules: API imports refuse private addresses unless the host allows them'
   try {
     const post = async (u: string, t: string | undefined, body: unknown) => (await fetch(b + u, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body: JSON.stringify(body) }));
     const setup: any = await (await post('/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).json();
-    const dmAcc: any = await (await post('/api/admin/accounts', setup.token, { username: 'dm', password: 'dm password 123' })).json();
-    const w: any = await (await post('/api/admin/worlds', setup.token, { name: 'Strict', dmAccountId: dmAcc.account.id })).json();
-    const login: any = await (await post('/api/auth/login', undefined, { username: 'dm', password: 'dm password 123' })).json();
+    const gmAcc: any = await (await post('/api/admin/accounts', setup.token, { username: 'gm', password: 'gm password 123' })).json();
+    const w: any = await (await post('/api/admin/worlds', setup.token, { name: 'Strict', gmAccountId: gmAcc.account.id })).json();
+    const login: any = await (await post('/api/auth/login', undefined, { username: 'gm', password: 'gm password 123' })).json();
     for (const url of ['http://127.0.0.1:9/x', 'http://localhost/x', 'http://192.168.1.5/x', 'http://[::1]/x']) {
       const r = await post(`/api/worlds/${w.id}/modules/import/preview`, login.token, { type: 'api', url, mapping: {} });
       assert.equal(r.status, 400, url);
@@ -386,16 +386,16 @@ test('Modules: import from a git repository (cloned read-only, then read as a fo
   fs.writeFileSync(path.join(repo, 'module.json'), JSON.stringify({ name: 'Git pack', id: 'git-pack', attribution: 'From a repo.' }));
   const g = (...a: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.test', '-c', 'user.name=t', ...a], { stdio: 'pipe' });
   g('init', '-q'); g('add', '-A'); g('commit', '-q', '-m', 'init');
-  const pre = await call('POST', `${M()}/import/preview`, T.dm, { type: 'git', url: repo });
+  const pre = await call('POST', `${M()}/import/preview`, T.gm, { type: 'git', url: repo });
   assert.equal(pre.status, 200, JSON.stringify(pre.body));
   assert.equal(pre.body.module.id, 'git-pack');
   assert.deepEqual(pre.body.counts, { spell: 1, rule: 1, condition: 1 });
   assert.equal(pre.body.module.attribution, 'From a repo.');
   assert.ok(!fs.existsSync(path.join(tmp, 'data', 'modules-tmp')) || fs.readdirSync(path.join(tmp, 'data', 'modules-tmp')).length === 0, 'the temporary clone is removed');
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'git', url: repo, ref: '--upload-pack=x' })).status, 400);
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { type: 'git', url: path.join(tmp, 'missing') })).status, 400);
-  assert.equal((await call('POST', `${M()}/import`, T.dm, { type: 'git', url: repo })).status, 200);
-  await ok('DELETE', `${M()}/imported/git-pack`, T.dm);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'git', url: repo, ref: '--upload-pack=x' })).status, 400);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'git', url: path.join(tmp, 'missing') })).status, 400);
+  assert.equal((await call('POST', `${M()}/import`, T.gm, { type: 'git', url: repo })).status, 200);
+  await ok('DELETE', `${M()}/imported/git-pack`, T.gm);
 });
 
 test('Modules: MCP tools lookup_rule and lookup_term', async () => {
@@ -418,5 +418,5 @@ test('Modules: a rules word that is also plain English only lights up capitalise
   const text = 'The fire burned. Fire everywhere, and a cold fire; she cast Fire Bolt, then the Fire spread.';
   const ms = (await call('POST', `${M()}/match`, T.jess, { text })).body as any[];
   assert.deepEqual(ms.map((m) => text.slice(m.start, m.end)), ['Fire Bolt', 'Fire']);
-  await ok('DELETE', `${M()}/imported/plainw`, T.dm);
+  await ok('DELETE', `${M()}/imported/plainw`, T.gm);
 });

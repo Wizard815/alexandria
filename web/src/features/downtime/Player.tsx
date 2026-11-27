@@ -297,8 +297,8 @@ export function PlayerDowntime() {
 /** The sheet's Downtime module: my unfinished tasks and their progress. */
 export function DowntimeModule({ account }: { account: string }) {
   const { w, info } = useWorld();
-  const dm = info.role === 'dm';
-  const tasks = useLoad<{ tasks: Task[] }>(() => w.call('GET', '/downtime/tasks', undefined, dm && account !== 'me' ? { player: account } : undefined), [w, account], ['downtime', 'downtime-done']);
+  const gm = info.role === 'gm';
+  const tasks = useLoad<{ tasks: Task[] }>(() => w.call('GET', '/downtime/tasks', undefined, gm && account !== 'me' ? { player: account } : undefined), [w, account], ['downtime', 'downtime-done']);
   if ((info.settings as any).downtimeOn !== true) return <p className="tiny muted">Downtime is off in this world.</p>;
   if (!tasks.data) return <Loading />;
   return (
@@ -313,7 +313,7 @@ export function DowntimeModule({ account }: { account: string }) {
           {sp.group.slice(0, 3).map((t) => <TaskLine key={t.id} t={t} />)}
         </>;
       })()}
-      <Link className="tiny" to={dm ? `/w/${info.slug}/gm/downtime` : `/w/${info.slug}/downtime`}>All downtime</Link>
+      <Link className="tiny" to={gm ? `/w/${info.slug}/gm/downtime` : `/w/${info.slug}/downtime`}>All downtime</Link>
     </div>
   );
 }

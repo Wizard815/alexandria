@@ -15,7 +15,7 @@ import { ItemImage } from '../../pages/inventory/giving.tsx';
 import { useHoverDelay } from './settings.ts';
 
 export interface CardData {
-  item: { id: string; name: string; image: string | null; qty: number; owner: string; ownerName: string | null; note: string; pageId: string | null; weight?: number | null; dmNote?: string };
+  item: { id: string; name: string; image: string | null; qty: number; owner: string; ownerName: string | null; note: string; pageId: string | null; weight?: number | null; gmNote?: string };
   page: null | { id: string; title: string; kind: string; icon: any; facts: PropertyGroup[]; excerpt: Block[]; truncated: boolean; links: Record<string, string>; openPath: string; visibility?: string };
 }
 
@@ -35,15 +35,15 @@ const CSS = `
 
 /** The card's contents. */
 export function ItemCard({ itemId, onClose }: { itemId: string; onClose?: () => void }) {
-  const { w, isDM } = useWorld();
+  const { w, isGM } = useWorld();
   const navigate = useNavigate();
   const card = useLoad(() => w.call<CardData>('GET', `/itemcards/${encodeURIComponent(itemId)}`), [w, itemId], ['item', 'page', 'item-moved']);
   const d = card.data;
   const pg = d?.page ?? null;
   const ctx: RenderCtx = useMemo(() => ({
-    links: pg?.links ?? {}, isDM, children: [],
+    links: pg?.links ?? {}, isGM, children: [],
     open: (id: string) => { onClose?.(); navigate(`${(pg?.openPath ?? '').split('?')[0]}?page=${encodeURIComponent(id)}`); },
-  }), [pg, isDM, navigate, onClose]);
+  }), [pg, isGM, navigate, onClose]);
   if (card.error && !d) return <ErrorBox error={card.error} />;
   if (!d) return <Loading what="card" />;
   const it = d.item;
@@ -61,19 +61,19 @@ export function ItemCard({ itemId, onClose }: { itemId: string; onClose?: () => 
         {onClose && <button type="button" className="btn small ghost" onClick={onClose} aria-label="Close card">✕</button>}
       </div>
       {it.note && <p className="small" style={{ margin: 0 }}>{it.note}</p>}
-      {it.dmNote && <p className="small" style={{ margin: 0 }}><span className="chip">GM note</span> {it.dmNote}</p>}
+      {it.gmNote && <p className="small" style={{ margin: 0 }}><span className="chip">GM note</span> {it.gmNote}</p>}
       {pg ? (
         <section aria-label={`About ${pg.title}`} className="stack tight" style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
           <div className="row between" style={{ alignItems: 'baseline', gap: 8 }}>
             <h3 style={{ margin: 0, fontSize: 16 }}><Icon icon={pg.icon} size={14} /> {pg.title}</h3>
-            {pg.visibility === 'dm' && <span className="chip">GM only page</span>}
+            {pg.visibility === 'gm' && <span className="chip">GM only page</span>}
           </div>
           {pg.facts.length > 0 && <Facts groups={pg.facts} ctx={ctx} />}
           <div className="lib-page">{pg.excerpt.length ? <Blocks blocks={pg.excerpt} ctx={ctx} /> : null}</div>
           {pg.truncated && <span className="tiny faint">…</span>}
           <Link className="btn small" to={pg.openPath} onClick={onClose}>Open page</Link>
         </section>
-      ) : it.pageId && isDM ? <p className="tiny faint" style={{ margin: 0 }}>The linked page is no longer available.</p> : null}
+      ) : it.pageId && isGM ? <p className="tiny faint" style={{ margin: 0 }}>The linked page is no longer available.</p> : null}
     </div>
   );
 }

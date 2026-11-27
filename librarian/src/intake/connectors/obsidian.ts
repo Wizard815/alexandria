@@ -185,7 +185,7 @@ export const obsidianRest: Connector = {
       if (ctx.signal.aborted) throw new Error('Sync stopped');
       const got = await restRead(cfg, ctx, f);
       if (!got) continue;
-      const e = markdownEntry(f, got.text, cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm', cfg.vaultName);
+      const e = markdownEntry(f, got.text, cfg.defaultShared && ctx.shareVisible ? 'party' : 'gm', cfg.vaultName);
       if (got.mtime) e.updatedAt = got.mtime;
       entries.push(e);
     }
@@ -251,7 +251,7 @@ export const obsidianRestWrite: ConnectorWrite = {
   async readPage(cfg, ctx, a) {
     const p = inRoot(a.root, a.id);
     const got = await restRead(cfg, ctx, p);
-    return got ? markdownEntry(p, got.text, 'dm', cfg.vaultName) : null;
+    return got ? markdownEntry(p, got.text, 'gm', cfg.vaultName) : null;
   },
   async roots(cfg, ctx) {
     const r = await rest(ctx, cfg, 'GET', '/vault/');
@@ -330,7 +330,7 @@ export const obsidianPublish: Connector = {
       const r = await ctx.fetch(`https://${info.host}/access/${info.uid}/${encPath(f)}`, { signal: ctx.signal });
       if (!r.ok) { ctx.log(`Skipped ${f}: ${r.status}`); continue; }
       // Published means public: shared unless the GM keeps the site GM-only. Secret callouts and GM headings are still kept back.
-      const e = markdownEntry(f, await r.text(), cfg.private !== true && ctx.shareVisible ? 'party' : 'dm');
+      const e = markdownEntry(f, await r.text(), cfg.private !== true && ctx.shareVisible ? 'party' : 'gm');
       e.url = `${siteUrl(cfg)}/${encPath(f.replace(/\.md$/i, ''))}`;
       entries.push(e);
     }

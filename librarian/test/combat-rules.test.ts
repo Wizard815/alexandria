@@ -20,9 +20,9 @@ before(async () => {
 after(() => k?.close());
 
 const C = (p = '') => k.w(`/live/combatants${p}`);
-const add = async (b: Record<string, unknown>) => (await k.ok('POST', C(), k.T.dm, b)).id as string;
-const patch = async (id: string, b: Record<string, unknown>) => k.ok('PATCH', C(`/${id}`), k.T.dm, b);
-const view = async (id: string) => (await k.ok('GET', k.w('/live/combat'), k.T.dm)).combatants.find((x: any) => x.id === id);
+const add = async (b: Record<string, unknown>) => (await k.ok('POST', C(), k.T.gm, b)).id as string;
+const patch = async (id: string, b: Record<string, unknown>) => k.ok('PATCH', C(`/${id}`), k.T.gm, b);
+const view = async (id: string) => (await k.ok('GET', k.w('/live/combat'), k.T.gm)).combatants.find((x: any) => x.id === id);
 const fighter = (o: Partial<Fighter> = {}): Fighter => ({ hp: 20, maxHp: 20, tempHp: 0, isPc: false, concentration: null, deathSaves: null, ...o });
 
 test('Combat_TempHp: damage eats temporary HP first and only the rest reaches HP', () => {
@@ -94,7 +94,7 @@ test('Combat_Concentration: marked, damaged, saved or lost through the route', a
   const down = await patch(id, { damage: 99 });
   assert.equal(down.concentration, null, 'falling unconscious ends it');
 });
-const call = (id: string, b: Record<string, unknown>) => k.call('PATCH', C(`/${id}`), k.T.dm, b);
+const call = (id: string, b: Record<string, unknown>) => k.call('PATCH', C(`/${id}`), k.T.gm, b);
 
 test('Combat_DeathSaves: a natural 20 stands them up, a natural 1 is two failures', () => {
   assert.deepEqual([rollDeathSave(null, { roll: 20 }).hp, rollDeathSave(null, { roll: 20 }).deathSaves], [1, null]);
@@ -163,18 +163,18 @@ test('Combat_DeathSaves: only a PC at 0 HP rolls them, through the route', async
 });
 
 test('Combat_Conditions: rounds count down on a new round and expired ones are removed and logged', async () => {
-  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.dm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.dm);
+  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.gm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.gm);
   const a = await add({ name: 'Axel', initiative: 20, hp: 10, maxHp: 10 });
   const b = await add({ name: 'Brin', initiative: 10, hp: 10, maxHp: 10 });
-  await k.ok('PUT', k.w('/live/combat'), k.T.dm, { active: true, round: 1, turn: 0 });
+  await k.ok('PUT', k.w('/live/combat'), k.T.gm, { active: true, round: 1, turn: 0 });
   await patch(b, { effects: [{ name: 'Poisoned', rounds: 2 }, 'Prone'] });
-  const n1 = await k.ok('POST', k.w('/live/combat/next'), k.T.dm); // Brin's turn, same round
+  const n1 = await k.ok('POST', k.w('/live/combat/next'), k.T.gm); // Brin's turn, same round
   assert.equal(n1.ended, undefined);
-  const n2 = await k.ok('POST', k.w('/live/combat/next'), k.T.dm); // new round: 2 -> 1
+  const n2 = await k.ok('POST', k.w('/live/combat/next'), k.T.gm); // new round: 2 -> 1
   assert.equal(n2.round, 2);
   assert.equal(n2.combatants.find((x: any) => x.id === b).effects.find((e: any) => e.name === 'Poisoned').rounds, 1);
-  await k.ok('POST', k.w('/live/combat/next'), k.T.dm);
-  const n4 = await k.ok('POST', k.w('/live/combat/next'), k.T.dm); // round 3: 1 -> 0, gone
+  await k.ok('POST', k.w('/live/combat/next'), k.T.gm);
+  const n4 = await k.ok('POST', k.w('/live/combat/next'), k.T.gm); // round 3: 1 -> 0, gone
   assert.deepEqual(n4.ended.map((e: any) => [e.combatant, e.name]), [['Brin', 'Poisoned']]);
   assert.deepEqual(n4.combatants.find((x: any) => x.id === b).effects.map((e: any) => e.name), ['Prone'], 'an untimed condition stays');
   assert.ok(all<any>(k.deps.db, `SELECT detail FROM audit WHERE action = 'combat.effects_ended'`).some((r) => /Poisoned on Brin/.test(r.detail)), 'what ended is logged');
@@ -182,19 +182,19 @@ test('Combat_Conditions: rounds count down on a new round and expired ones are r
 });
 
 test('Combat_Conditions: until the end of X\'s next turn, and until the start of it', async () => {
-  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.dm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.dm);
+  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.gm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.gm);
   const a = await add({ name: 'Cora', initiative: 20, hp: 10, maxHp: 10 });
   const b = await add({ name: 'Dov', initiative: 10, hp: 10, maxHp: 10 });
-  await k.ok('PUT', k.w('/live/combat'), k.T.dm, { active: true, round: 1, turn: 0 });
+  await k.ok('PUT', k.w('/live/combat'), k.T.gm, { active: true, round: 1, turn: 0 });
   // Set on Cora's own turn: her current turn's end does not count, the next one does.
   await patch(a, { effects: [{ name: 'Stunned', untilEndOf: 'self' }] });
   await patch(b, { effects: [{ name: 'Marked', untilStartOf: 'Cora' }] });
   assert.equal((await view(a)).effects[0].until.skip, true);
-  const n1 = await k.ok('POST', k.w('/live/combat/next'), k.T.dm); // Cora ends, Dov starts
+  const n1 = await k.ok('POST', k.w('/live/combat/next'), k.T.gm); // Cora ends, Dov starts
   assert.equal(n1.ended, undefined, 'the turn it was set on does not count');
-  const n2 = await k.ok('POST', k.w('/live/combat/next'), k.T.dm); // Dov ends, Cora starts: Marked ends
+  const n2 = await k.ok('POST', k.w('/live/combat/next'), k.T.gm); // Dov ends, Cora starts: Marked ends
   assert.deepEqual(n2.ended.map((e: any) => e.name), ['Marked']);
-  const n3 = await k.ok('POST', k.w('/live/combat/next'), k.T.dm); // Cora ends: Stunned ends
+  const n3 = await k.ok('POST', k.w('/live/combat/next'), k.T.gm); // Cora ends: Stunned ends
   assert.deepEqual(n3.ended.map((e: any) => e.name), ['Stunned']);
   assert.equal((await call(a, { effects: [{ name: 'X', untilEndOf: 'Nobody' }] })).status, 400);
   // Sending the plain name again keeps a timer instead of making the condition permanent.
@@ -210,12 +210,12 @@ test('Combat_Conditions: tickEffects drops a timer whose source left the fight',
 });
 
 test('Combat_Conditions: next_turn names a dying PC whose turn it is', async () => {
-  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.dm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.dm);
+  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.gm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.gm);
   await add({ name: 'Warden', initiative: 20, hp: 10, maxHp: 10 });
   const pc = await add({ name: 'Jessa', initiative: 10, hp: 5, maxHp: 5, accountId: k.ID.jess });
-  await k.ok('PUT', k.w('/live/combat'), k.T.dm, { active: true, round: 1, turn: 0 });
+  await k.ok('PUT', k.w('/live/combat'), k.T.gm, { active: true, round: 1, turn: 0 });
   await patch(pc, { damage: 9 });
-  assert.equal((await k.ok('POST', k.w('/live/combat/next'), k.T.dm)).deathSaveDue, 'Jessa');
+  assert.equal((await k.ok('POST', k.w('/live/combat/next'), k.T.gm)).deathSaveDue, 'Jessa');
 });
 
 test('Combat_Initiative: a statblock monster added with no initiative rolls d20 plus its Dexterity', async () => {
@@ -224,19 +224,19 @@ test('Combat_Initiative: a statblock monster added with no initiative rolls d20 
   assert.equal(dexModifier(t!), 2);
   const seen = new Set<number>();
   for (let i = 0; i < 12; i++) {
-    const r = await k.ok('POST', C(), k.T.dm, { name: 'Goblin', hp: 7 });
+    const r = await k.ok('POST', C(), k.T.gm, { name: 'Goblin', hp: 7 });
     assert.equal(r.rolled.dex, 2);
     assert.equal(r.initiative, r.rolled.d20 + 2);
     assert.ok(r.initiative >= 3 && r.initiative <= 22);
     seen.add(r.initiative);
   }
   assert.ok(seen.size > 1, 'it is a roll, not a constant');
-  const none = await k.ok('POST', C(), k.T.dm, { name: 'Mister Nobody' });
+  const none = await k.ok('POST', C(), k.T.gm, { name: 'Mister Nobody' });
   assert.equal(none.initiative, 0, 'no statblock: nothing is made up');
   assert.equal(none.rolled, undefined);
-  const given = await k.ok('POST', C(), k.T.dm, { name: 'Goblin', initiative: 11 });
+  const given = await k.ok('POST', C(), k.T.gm, { name: 'Goblin', initiative: 11 });
   assert.equal(given.initiative, 11, 'a given initiative is kept');
-  const pc = await k.ok('POST', C(), k.T.dm, { name: 'Goblin', accountId: k.ID.jess });
+  const pc = await k.ok('POST', C(), k.T.gm, { name: 'Goblin', accountId: k.ID.jess });
   assert.equal(pc.rolled, undefined, 'a player character never rolls from a monster statblock');
 });
 
@@ -251,25 +251,25 @@ test('Combat_Initiative: Dexterity is read from the module text table, with nega
 test('Combat_Agent: the damage tool result carries the concentration save for the GM', async () => {
   const id = await add({ name: 'Cleric Oran', initiative: 6, hp: 40, maxHp: 40 });
   await patch(id, { concentration: 'Spirit Guardians' });
-  const tools = await harnessTools('dm');
+  const tools = await harnessTools('gm');
   const dmg = tools.find((t) => t.name === 'damage_combatant')!;
   const call = dmg.call({ combatant: id, amount: 30 });
   assert.deepEqual(call.body, { damage: 30, crit: undefined });
-  const r = await k.ok('PATCH', k.w(call.path.replace(/^\/live/, '/live')), k.T.dm, call.body);
+  const r = await k.ok('PATCH', k.w(call.path.replace(/^\/live/, '/live')), k.T.gm, call.body);
   assert.equal(r.concentrationSave.dc, 15);
   for (const n of ['give_temp_hp', 'set_concentration', 'concentration_save', 'death_save', 'set_combatant_state']) assert.ok(tools.find((t) => t.name === n && t.write), n);
   assert.deepEqual(tools.find((t) => t.name === 'death_save')!.call({ combatant: 'x', roll: 20 }).body, { deathSave: { roll: 20 } });
 });
 
 test('Combat_Players: the player view never carries temp HP, concentration, death saves or timer sources', async () => {
-  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.dm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.dm);
+  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.gm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.gm);
   const hidden = await add({ name: 'Shadow', initiative: 5, hp: 30, maxHp: 30, hidden: true });
   const foe = await add({ name: 'Cultist', initiative: 8, hp: 30, maxHp: 30 });
   const pc = await add({ name: 'Jessa', initiative: 9, hp: 10, maxHp: 10, accountId: k.ID.jess });
   await patch(foe, { tempHp: 7, concentration: 'Secret Spell', effects: [{ name: 'Marked', untilEndOf: hidden }, { name: 'Dazed', rounds: 2 }] });
   await patch(pc, { damage: 12 });
-  await k.ok('PUT', k.w('/live/combat'), k.T.dm, { active: true });
-  await k.ok('PATCH', k.w('/settings'), k.T.dm, { initiativeVisible: true, monsterHealth: 'none' });
+  await k.ok('PUT', k.w('/live/combat'), k.T.gm, { active: true });
+  await k.ok('PATCH', k.w('/settings'), k.T.gm, { initiativeVisible: true, monsterHealth: 'none' });
   const pv = await k.ok('GET', k.w('/live/combat'), k.T.jess);
   const text = JSON.stringify(pv);
   assert.ok(!/temp|concentrat|Secret Spell|death|until|skip|Shadow/i.test(text), text);
@@ -282,30 +282,30 @@ test('Combat_Active: cues for concentration, temp HP, death saves and timed cond
     { id: 'm', name: 'Ilsa', hp: 20, effects: [], isPc: false, concentration: { spell: 'Bless', dc: 12 } },
     { id: 't', name: 'Tomas', hp: 0, effects: ['Prone'], isPc: true, accountId: 'a' },
   ] }, party: [], pages: [], sfx: [], initiativeOpen: false };
-  const dm = (text: string) => allCues({ id: 'x', text, speaker: 'dm', role: 'dm', accountId: null, aside: false }, ctx);
-  assert.deepEqual(dm('Ilsa loses concentration.').map((c: any) => [c.kind, c.action]), [['concentration', 'lose']]);
-  assert.deepEqual(dm('Ilsa fails the concentration save.').map((c: any) => [c.kind, c.action]), [['concentration', 'lose']]);
-  assert.deepEqual(dm('Ilsa is concentrating on hold person.').map((c: any) => [c.kind, c.action, c.spell]), [['concentration', 'start', 'Hold Person']]);
-  assert.deepEqual(dm('Tomas gains 8 temporary hit points.').map((c: any) => [c.kind, c.amount]), [['temp_hp', 8]]);
-  assert.deepEqual(dm('Tomas rolls a 14 on his death save.').map((c: any) => [c.kind, c.roll]), [['death_save', 14]]);
-  assert.deepEqual(dm('Tomas rolls a natural 20 on his death save.').map((c: any) => [c.kind, c.roll]), [['death_save', 20]]);
-  const st = dm('The club leaves Tomas stunned until the end of his next turn.');
+  const gm = (text: string) => allCues({ id: 'x', text, speaker: 'gm', role: 'gm', accountId: null, aside: false }, ctx);
+  assert.deepEqual(gm('Ilsa loses concentration.').map((c: any) => [c.kind, c.action]), [['concentration', 'lose']]);
+  assert.deepEqual(gm('Ilsa fails the concentration save.').map((c: any) => [c.kind, c.action]), [['concentration', 'lose']]);
+  assert.deepEqual(gm('Ilsa is concentrating on hold person.').map((c: any) => [c.kind, c.action, c.spell]), [['concentration', 'start', 'Hold Person']]);
+  assert.deepEqual(gm('Tomas gains 8 temporary hit points.').map((c: any) => [c.kind, c.amount]), [['temp_hp', 8]]);
+  assert.deepEqual(gm('Tomas rolls a 14 on his death save.').map((c: any) => [c.kind, c.roll]), [['death_save', 14]]);
+  assert.deepEqual(gm('Tomas rolls a natural 20 on his death save.').map((c: any) => [c.kind, c.roll]), [['death_save', 20]]);
+  const st = gm('The club leaves Tomas stunned until the end of his next turn.');
   assert.equal((st[0] as any).until, 'end');
   const d: any = k.deps;
-  const lose = build(d, k.W, ctx, dm('Ilsa loses concentration.')[0], 'x')!;
+  const lose = build(d, k.W, ctx, gm('Ilsa loses concentration.')[0], 'x')!;
   assert.deepEqual(lose.calls, [{ tool: 'concentration_save', args: { combatant: 'm', result: 'fail' } }], 'a pending save is failed');
-  const tmp = build(d, k.W, ctx, dm('Tomas gains 8 temporary hit points.')[0], 'x')!;
+  const tmp = build(d, k.W, ctx, gm('Tomas gains 8 temporary hit points.')[0], 'x')!;
   assert.deepEqual(tmp.calls, [{ tool: 'give_temp_hp', args: { combatant: 't', amount: 8 } }], 'temp HP are never a heal');
   const timed = build(d, k.W, ctx, st[0], 'x')!;
   assert.deepEqual(timed.calls[0].args.conditions, ['Prone', { name: 'Stunned', untilEndOf: 't' }]);
-  const ds = build(d, k.W, ctx, dm('Tomas rolls a 14 on his death save.')[0], 'x')!;
+  const ds = build(d, k.W, ctx, gm('Tomas rolls a 14 on his death save.')[0], 'x')!;
   assert.deepEqual(ds.calls, [{ tool: 'death_save', args: { combatant: 't', roll: 14 } }]);
   const up = { ...ctx, combat: { ...ctx.combat, combatants: [ctx.combat.combatants[0], { ...ctx.combat.combatants[1], hp: 6 }] } };
-  assert.equal(build(d, k.W, up, dm('Tomas rolls a 14 on his death save.')[0], 'x'), null, 'only a downed PC rolls');
+  assert.equal(build(d, k.W, up, gm('Tomas rolls a 14 on his death save.')[0], 'x'), null, 'only a downed PC rolls');
 });
 
 test('Combat_Active: undo puts temp HP, concentration, death saves and timed conditions back', async () => {
-  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.dm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.dm);
+  for (const x of (await k.ok('GET', k.w('/live/combat'), k.T.gm)).combatants) await k.ok('DELETE', C(`/${x.id}`), k.T.gm);
   const id = await add({ name: 'Wren', initiative: 12, hp: 20, maxHp: 20 });
   const pc = await add({ name: 'Tomas', initiative: 11, hp: 6, maxHp: 6, accountId: k.ID.tom });
   await patch(id, { tempHp: 5, concentration: 'Fly', effects: [{ name: 'Slowed', rounds: 3 }] });
@@ -325,7 +325,7 @@ test('Combat_Active: undo puts temp HP, concentration, death saves and timed con
   assert.equal((await view(pc)).death_saves.failures, 0);
   // Turn timers that counted down or ended come back with the turn.
   await patch(id, { effects: [{ name: 'Slowed', rounds: 1 }] });
-  await k.ok('PUT', k.w('/live/combat'), k.T.dm, { active: true, round: 1, turn: 1 });
+  await k.ok('PUT', k.w('/live/combat'), k.T.gm, { active: true, round: 1, turn: 1 });
   const nx = await execCalls(k.deps, k.W, [{ tool: 'next_turn', args: {} }]);
   assert.deepEqual((await view(id)).effects, [], 'it ended on the new round');
   await execCalls(k.deps, k.W, nx.undo!);

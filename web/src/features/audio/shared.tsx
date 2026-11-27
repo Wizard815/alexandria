@@ -7,8 +7,8 @@ import { engine, type MicSetting } from './engine.ts';
 /** Keep the recording engine pointed at the open world. */
 export function useAttach() {
   const { client } = useAuth();
-  const { info, isDM } = useWorld();
-  useEffect(() => { engine.attach({ baseUrl: window.location.origin, token: client.token ?? '', worldId: info.id, isDM }); }, [client.token, info.id, isDM]);
+  const { info, isGM } = useWorld();
+  useEffect(() => { engine.attach({ baseUrl: window.location.origin, token: client.token ?? '', worldId: info.id, isGM }); }, [client.token, info.id, isGM]);
 }
 
 export interface Input { deviceId: string; label: string }

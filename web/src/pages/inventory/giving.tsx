@@ -10,7 +10,7 @@ import { ErrorBox, Field, Modal, useAction } from '../../ui/index.tsx';
 
 export interface Item {
   id: string; owner: string; name: string; qty: number; note: string; link: string | null; pageId?: string | null; image?: string | null; weight?: number | null;
-  updated_at: string; updated_by: string; status?: 'approved' | 'pending'; dm_note?: string;
+  updated_at: string; updated_by: string; status?: 'approved' | 'pending'; gm_note?: string;
   pendingChange?: { id: string; kind: 'add' | 'edit' | 'remove'; by: string; to?: Partial<Item> };
 }
 export interface CoinRequest { id: string; from: string; to: string; amount_cp: number; given_cp: number; note: string; offer_id: string | null; status: 'open' | 'done' | 'declined' | 'cancelled'; at: string }
@@ -99,12 +99,12 @@ function usePeople() {
 // ---- Give coin ----
 
 export function GiveCoinModal({ from = 'me', to: initialTo, onClose, onDone }: { from?: string; to?: string; onClose: () => void; onDone: (msg: string) => void }) {
-  const { w, info, me, isDM } = useWorld();
+  const { w, info, me, isGM } = useWorld();
   const { players, others, label } = usePeople();
   const act = useAction();
-  const fromOptions = isDM ? ['party', ...players.map((p) => p.id)] : ['me', ...(info.settings.partyPurse ? ['party'] : [])];
+  const fromOptions = isGM ? ['party', ...players.map((p) => p.id)] : ['me', ...(info.settings.partyPurse ? ['party'] : [])];
   const [src, setSrc] = useState(from);
-  const toOptions = [...(info.settings.partyPurse ? ['party'] : []), ...(isDM ? players.map((p) => p.id) : ['me', ...others.map((p) => p.id)])].filter((t) => t !== src && !(t === 'me' && src === 'me'));
+  const toOptions = [...(info.settings.partyPurse ? ['party'] : []), ...(isGM ? players.map((p) => p.id) : ['me', ...others.map((p) => p.id)])].filter((t) => t !== src && !(t === 'me' && src === 'me'));
   const [to, setTo] = useState(initialTo ?? toOptions.find((t) => t !== 'party' && t !== 'me') ?? toOptions[0] ?? '');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -137,15 +137,15 @@ export function GiveCoinModal({ from = 'me', to: initialTo, onClose, onDone }: {
 // ---- Move or split an item ----
 
 export function MoveItemModal({ item, onClose, onDone }: { item: Item; onClose: () => void; onDone: (msg: string) => void }) {
-  const { w, me, isDM, info } = useWorld();
+  const { w, me, isGM, info } = useWorld();
   const { players, others, label } = usePeople();
   const act = useAction();
-  const targets = ['party', ...(isDM ? players.map((p) => p.id) : [me, ...others.map((p) => p.id)])].filter((t) => t !== item.owner);
+  const targets = ['party', ...(isGM ? players.map((p) => p.id) : [me, ...others.map((p) => p.id)])].filter((t) => t !== item.owner);
   const [to, setTo] = useState(targets[0] ?? '');
   const [qty, setQty] = useState(item.qty);
   const [reason, setReason] = useState('');
   const [quiet, setQuiet] = useState(false);
-  const needReason = isDM && !quiet && item.owner !== 'party' && (info.settings as { dmChangeReason?: boolean }).dmChangeReason !== false;
+  const needReason = isGM && !quiet && item.owner !== 'party' && (info.settings as { gmChangeReason?: boolean }).gmChangeReason !== false;
   const go = () => act.run(async () => {
     await w.call('POST', `/inventory/${item.id}/move`, { to, qty, reason: reason.trim() || undefined, ...(quiet ? { quiet: true } : {}) });
     onDone(`${qty} × ${item.name} → ${to === 'party' ? 'the party stash' : label(to)}`);
@@ -158,7 +158,7 @@ export function MoveItemModal({ item, onClose, onDone }: { item: Item; onClose: 
         <Field label={`How many (of ${item.qty})`}><input type="number" min={1} max={item.qty} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(item.qty, Number(e.target.value) || 1)))} /></Field>
       </div>
       {item.qty > 1 && <input type="range" min={1} max={item.qty} value={qty} onChange={(e) => setQty(Number(e.target.value))} aria-label="How many" style={{ width: '100%' }} />}
-      {isDM && item.owner !== 'party' && <QuietToggle on={quiet} set={setQuiet} />}
+      {isGM && item.owner !== 'party' && <QuietToggle on={quiet} set={setQuiet} />}
       {needReason && <Field label="Why (the player sees this)"><input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} /></Field>}
       <ErrorBox error={act.error} />
       <div className="row end">
@@ -234,7 +234,7 @@ export function CoinRequestsCard({ onChanged }: { onChanged?: () => void }) {
 
 /** Recent gives: for the GM, everyone's; for players, theirs and the party's. */
 export function TransfersList({ limit = 20, title = 'Given and moved' }: { limit?: number; title?: string }) {
-  const { w, info, nameOf, isDM } = useWorld();
+  const { w, info, nameOf, isGM } = useWorld();
   const list = useLoad(() => w.call<{ transfers: Transfer[]; unseen?: number }>('GET', '/inventory/transfers', undefined, { limit }), [w, limit], ['transfer']);
   const act = useAction();
   const rows = list.data?.transfers ?? [];
@@ -242,14 +242,14 @@ export function TransfersList({ limit = 20, title = 'Given and moved' }: { limit
   return (
     <section className="card" aria-labelledby="trf-h">
       <div className="card-head">
-        <h2 id="trf-h">{title}{isDM && !!list.data?.unseen && <span className="chip gold" style={{ marginLeft: 8 }}>{list.data.unseen} new</span>}</h2>
-        {isDM && !!list.data?.unseen && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', '/inventory/transfers/seen'); await list.reload(); })}>Mark seen</button>}
+        <h2 id="trf-h">{title}{isGM && !!list.data?.unseen && <span className="chip gold" style={{ marginLeft: 8 }}>{list.data.unseen} new</span>}</h2>
+        {isGM && !!list.data?.unseen && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', '/inventory/transfers/seen'); await list.reload(); })}>Mark seen</button>}
       </div>
       <ErrorBox error={list.error ?? act.error} />
       {!rows.length ? <p className="small muted">Nothing given or moved yet.</p> : (
         <ul className="stack tight small" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {rows.map((t) => (
-            <li key={t.id} className="row between" style={{ gap: 6, opacity: isDM && t.seen ? 0.75 : 1 }}>
+            <li key={t.id} className="row between" style={{ gap: 6, opacity: isGM && t.seen ? 0.75 : 1 }}>
               <span className="grow">{who(t.from_owner)} → {who(t.to_owner)}: {t.kind === 'coin' ? coins(t.amount_cp ?? 0, info.settings.coins) : `${t.qty} × ${t.item_name}`}{t.note ? <span className="faint"> · {t.note}</span> : null}</span>
               <span className="tiny faint">{t.by_id !== t.from_owner && t.by_id !== t.to_owner ? `by ${nameOf(t.by_id)} · ` : ''}{when(t.at)}</span>
             </li>
@@ -264,7 +264,7 @@ export function TransfersList({ limit = 20, title = 'Given and moved' }: { limit
 export function QuietToggle({ on, set, party }: { on: boolean; set: (v: boolean) => void; party?: boolean }) {
   return (
     <label className="row tiny muted" style={{ gap: 6, cursor: 'pointer' }} title={party ? 'The players are not told about these item changes' : 'The player is not told about these item changes'}>
-      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} data-testid="dm-quiet" />
+      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} data-testid="gm-quiet" />
       <span><i className="fa-solid fa-eye-slash" aria-hidden="true" /> Don’t tell {party ? 'the players' : 'the player'}{on && ' (they won’t get an alert)'}</span>
     </label>
   );

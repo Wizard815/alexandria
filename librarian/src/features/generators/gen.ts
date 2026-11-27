@@ -23,7 +23,7 @@ export type GenKind = (typeof KINDS)[number];
 export interface Spec {
   kind: GenKind; preset?: string; seed?: string; options?: Record<string, any>; locks?: Record<string, string>; enrich?: boolean;
 }
-export interface Section { key: string; label: string; text: string; dm?: boolean }
+export interface Section { key: string; label: string; text: string; gm?: boolean }
 export interface MapView { kind: string; size: string; flavour: string; title: string; seed: string; key: MapResult['key']; legend: string[]; stats: MapResult['stats']; ftPerCell: number | null; width: number; height: number; svg: string }
 export interface Out {
   kind: GenKind; preset: string; seed: string; title: string; subtitle: string;
@@ -65,7 +65,7 @@ function npcOut(n: NpcResult, enriched: boolean, extra: Partial<Out> = {}): Out 
     fields: n.fields, lockable: ['name', 'race', 'look', 'voice', 'want', 'secret', 'hook', ...(n.fields.tie ? ['tie'] : [])], sections,
     tie: n.tie, enriched, notes: n.tie ? [] : ['No place or faction in the library was found to tie this person to.'], ...extra,
   };
-  if (n.statblock) { out.statblock = n.statblock; out.sections = [...sections, { key: 'statblock', label: 'Statblock', text: `AC ${n.statblock.ac}, HP ${n.statblock.hp}, CR ${n.cr !== undefined ? crLabel(n.cr) : n.statblock.cr}`, dm: true }]; }
+  if (n.statblock) { out.statblock = n.statblock; out.sections = [...sections, { key: 'statblock', label: 'Statblock', text: `AC ${n.statblock.ac}, HP ${n.statblock.hp}, CR ${n.cr !== undefined ? crLabel(n.cr) : n.statblock.cr}`, gm: true }]; }
   return out;
 }
 
@@ -75,9 +75,9 @@ function monsterOut(m: MonsterResult, enriched: boolean, locks: Record<string, s
   const tactics = locks.tactics ?? m.tactics;
   const sections: Section[] = [
     { key: 'description', label: 'Concept', text: description },
-    { key: 'tactics', label: 'Tactics', text: tactics, dm: true },
-    ...(m.lair.length ? [{ key: 'lair', label: 'Lair actions (initiative count 20)', text: m.lair.map((l) => `- ${l}`).join('\n'), dm: true }] : []),
-    { key: 'statblock', label: 'Statblock', text: `AC ${sb.ac}, HP ${sb.hp}, CR ${m.crLabel} (${m.table.xp.toLocaleString('en-US')} XP)`, dm: true },
+    { key: 'tactics', label: 'Tactics', text: tactics, gm: true },
+    ...(m.lair.length ? [{ key: 'lair', label: 'Lair actions (initiative count 20)', text: m.lair.map((l) => `- ${l}`).join('\n'), gm: true }] : []),
+    { key: 'statblock', label: 'Statblock', text: `AC ${sb.ac}, HP ${sb.hp}, CR ${m.crLabel} (${m.table.xp.toLocaleString('en-US')} XP)`, gm: true },
   ];
   return {
     kind: 'monster', preset: m.preset, seed: m.seed, title: sb.name, subtitle: `${sb.size} ${sb.type}, CR ${m.crLabel}${m.boss ? ', boss' : ''}`,
@@ -94,8 +94,8 @@ function tavernOut(t: TavernResult, enriched: boolean): Out {
     { key: 'menu', label: 'Menu', text: t.fields.menu },
     { key: 'rooms', label: 'Rooms', text: t.fields.rooms },
     { key: 'patrons', label: 'Patrons', text: t.fields.patrons },
-    { key: 'owner_dm', label: 'The owner, in secret', text: `${o.fields.want}\n\n${o.fields.secret}\n\n${o.fields.hook}${o.fields.tie ? `\n\n${o.fields.tie}` : ''}`, dm: true },
-    { key: 'rumours', label: 'Rumours', text: t.fields.rumours.split('\n').map((l, i) => `${l} (${t.rumourTruth[i] ?? 'true'})`).join('\n'), dm: true },
+    { key: 'owner_gm', label: 'The owner, in secret', text: `${o.fields.want}\n\n${o.fields.secret}\n\n${o.fields.hook}${o.fields.tie ? `\n\n${o.fields.tie}` : ''}`, gm: true },
+    { key: 'rumours', label: 'Rumours', text: t.fields.rumours.split('\n').map((l, i) => `${l} (${t.rumourTruth[i] ?? 'true'})`).join('\n'), gm: true },
   ];
   return {
     kind: 'tavern', preset: t.flavour, seed: t.seed, title: t.fields.name, subtitle: `${t.flavour} tavern, ${t.size}`,
@@ -105,18 +105,18 @@ function tavernOut(t: TavernResult, enriched: boolean): Out {
 }
 
 function mapView(m: MapResult): MapView {
-  return { kind: m.kind, size: m.size, flavour: m.flavour, title: m.title, seed: m.seed, key: m.key, legend: m.legend, stats: m.stats, ftPerCell: m.ftPerCell, width: m.canvas.w, height: m.canvas.h, svg: toSvg(m.canvas, { dm: true, title: m.title }) };
+  return { kind: m.kind, size: m.size, flavour: m.flavour, title: m.title, seed: m.seed, key: m.key, legend: m.legend, stats: m.stats, ftPerCell: m.ftPerCell, width: m.canvas.w, height: m.canvas.h, svg: toSvg(m.canvas, { gm: true, title: m.title }) };
 }
 
-const DM_LEGEND = /^(?:DM|GM) view only:\s*/i;
+const GM_LEGEND = /^(?:DM|GM) view only:\s*/i;
 
 function mapOut(m: MapResult, enriched: boolean, locks: Record<string, string>): Out {
   const sections: Section[] = [
     ...(locks.flavour ? [{ key: 'flavour', label: 'Read aloud', text: locks.flavour }] : []),
-    { key: 'legend', label: 'Legend', text: m.legend.filter((l) => !DM_LEGEND.test(l)).map((l) => `- ${l}`).join('\n') },
+    { key: 'legend', label: 'Legend', text: m.legend.filter((l) => !GM_LEGEND.test(l)).map((l) => `- ${l}`).join('\n') },
     // What the players cannot see on their copy (secret doors, traps) is explained on the GM's copy only.
-    ...(m.legend.some((l) => DM_LEGEND.test(l)) ? [{ key: 'dmlegend', label: 'GM legend', text: m.legend.filter((l) => DM_LEGEND.test(l)).map((l) => `- ${l.replace(DM_LEGEND, '')}`).join('\n'), dm: true }] : []),
-    { key: 'key', label: 'Key', text: m.key.map((k) => `${k.n}. **${k.name}.** ${k.text}${k.dm ? ` _DM: ${k.dm}_` : ''}`).join('\n'), dm: true },
+    ...(m.legend.some((l) => GM_LEGEND.test(l)) ? [{ key: 'gmlegend', label: 'GM legend', text: m.legend.filter((l) => GM_LEGEND.test(l)).map((l) => `- ${l.replace(GM_LEGEND, '')}`).join('\n'), gm: true }] : []),
+    { key: 'key', label: 'Key', text: m.key.map((k) => `${k.n}. **${k.name}.** ${k.text}${k.gm ? ` _GM: ${k.gm}_` : ''}`).join('\n'), gm: true },
   ];
   return {
     kind: 'map', preset: m.kind, seed: m.seed, title: m.title, subtitle: `${m.kind}, ${m.size}${m.flavour && m.flavour !== m.kind ? `, ${m.flavour}` : ''}${m.ftPerCell ? `, 1 square = ${m.ftPerCell} ft` : ''}`,
@@ -224,14 +224,14 @@ export async function generate(ctx: Ctx, spec: Spec): Promise<Out> {
 const secret = (title: string, text: string) => `> [!secret] ${title}\n${text.split('\n').map((l) => `> ${l}`).join('\n')}`;
 
 /** The page text. GM-only sections are secret callouts, so a page shared later still hides them; `level` party leaves out anything that is not meant for players at all (statblocks). */
-export function renderMd(out: Out, level: 'dm' | 'party'): string {
+export function renderMd(out: Out, level: 'gm' | 'party'): string {
   const L: string[] = [`# ${out.title}`, '', `*${out.subtitle}*`, ''];
   for (const s of out.sections) {
     if (s.key === 'statblock') continue;
-    if (s.dm) L.push(secret(s.label, s.text), '');
+    if (s.gm) L.push(secret(s.label, s.text), '');
     else L.push(`## ${s.label}`, '', s.text, '');
   }
-  if (out.statblock && level === 'dm') L.push(statblockMarkdown(out.statblock).replace(/^# .*$/m, '## Statblock'));
+  if (out.statblock && level === 'gm') L.push(statblockMarkdown(out.statblock).replace(/^# .*$/m, '## Statblock'));
   if (out.map) L.push('', `Map: see the picture attached to this page (seed \`${out.seed}\`, ${out.map.kind}, ${out.map.size}).`, '');
   if (out.attribution) L.push('', `_${out.attribution}_`, '');
   return L.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
@@ -240,7 +240,7 @@ export function renderMd(out: Out, level: 'dm' | 'party'): string {
 /** The text players could see: public sections only. */
 export function publicText(out: Out): string {
   const L: string[] = [`${out.title}`, `${out.subtitle}`, ''];
-  for (const s of out.sections) if (!s.dm) L.push(`${s.label}`, s.text, '');
+  for (const s of out.sections) if (!s.gm) L.push(`${s.label}`, s.text, '');
   return L.join('\n').trim();
 }
 

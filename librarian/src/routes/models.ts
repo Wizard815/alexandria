@@ -22,10 +22,10 @@ export default function modelRoutes(d: Deps) {
   function gate(req: Request, res: Response, next: NextFunction) {
     const auth = res.locals.auth as Auth | undefined;
     if (!auth) throw new HttpError(401, 'Sign in first');
-    const isDm = !!one(d.db, `SELECT 1 FROM members WHERE account_id = ? AND role = 'dm'`, auth.account.id);
+    const isGm = !!one(d.db, `SELECT 1 FROM members WHERE account_id = ? AND role = 'gm'`, auth.account.id);
     const keyRow = auth.via === 'scribe_key' || auth.via === 'admin_key' ? one<any>(d.db, 'SELECT id FROM api_keys WHERE account_id = ? AND key_hash = ?', auth.account.id, sha256(bearer(req) ?? '')) : undefined;
     const a: Allowance = allowanceOf(d.db, {
-      accountId: auth.account.id, keyId: keyRow?.id ?? null, isAdmin: !!auth.account.is_admin && auth.via !== 'scribe_key', isDm: isDm && auth.via === 'session',
+      accountId: auth.account.id, keyId: keyRow?.id ?? null, isAdmin: !!auth.account.is_admin && auth.via !== 'scribe_key', isGm: isGm && auth.via === 'session',
       viaSession: auth.via === 'session', viaScribeKey: auth.via === 'scribe_key',
     }, d.env);
     const job: Job = req.path === '/embeddings' ? 'extra' : 'chat';

@@ -17,7 +17,7 @@ import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-const dmViewer = { accountId: 'a', role: 'dm' as const };
+const gmViewer = { accountId: 'a', role: 'gm' as const };
 
 // ---- an app that has a spec -------------------------------------------------------------------------------------
 
@@ -186,7 +186,7 @@ async function boot(env: Record<string, string> = {}) {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r.body;
   };
-  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
+  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, gmAccountId: a.account.id })).id as string;
   const addPlayer = async (wid: string) => {
     const inv = await ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
     const j = (await call('POST', '/api/join', null, { code: inv.code, username: 'jess' + Math.random().toString(36).slice(2, 6), password: 'player pass 123', characterName: 'Jess' })).body;
@@ -295,19 +295,19 @@ test('CrawlGeneric_ReviewedSetupCrawlsInTiersAndUnusedEndpointsAreNeverCalled', 
   assert.ok(!row.body.includes('CHARBODY'));
   // Visibility fails closed and follows the list's own flag.
   assert.equal(row.visibility, 'party');
-  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', wid, 'Secret Duke').visibility, 'dm');
+  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', wid, 'Secret Duke').visibility, 'gm');
 
   // Opening a page reads its detail path once.
   wiki.calls = [];
-  const id = (t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === 'Odda Fenwick').id;
+  const id = (t.deps.library.list(wid, gmViewer) as any[]).find((p) => p.title === 'Odda Fenwick').id;
   const page = await t.call('GET', `/api/worlds/${wid}/library/pages/${id}`, t.admin);
   assert.ok(page.text.includes('CHARBODY1'));
   assert.deepEqual(wiki.calls, ['/characters/1']);
   assert.equal(one<any>(t.deps.db, 'SELECT depth FROM pages WHERE id = ?', id).depth, 'full');
   // The private one is the GM's only, read or not.
-  const duke = (t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === 'Secret Duke').id;
+  const duke = (t.deps.library.list(wid, gmViewer) as any[]).find((p) => p.title === 'Secret Duke').id;
   await t.call('GET', `/api/worlds/${wid}/library/pages/${duke}`, t.admin);
-  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE id = ?', duke).visibility, 'dm');
+  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE id = ?', duke).visibility, 'gm');
   assert.equal(one<any>(t.deps.db, 'SELECT player_body FROM pages WHERE id = ?', duke).player_body, null);
   for (const never of ['/locations', '/images', '/zzz']) assert.ok(!wiki.calls.some((c) => c.startsWith(never)));
 });
@@ -368,7 +368,7 @@ test('CrawlGeneric_WithoutASpecItSamplesTheBaseUrlAndTheListUrlsGiven', async ()
   assert.equal(res.stats.indexCalls, 1);
   assert.deepEqual(depthCounts(t.deps.db, src.id), { total: 2, index: 0, summary: 0, full: 2, stale: 0 });
   const vault = one<any>(t.deps.db, 'SELECT * FROM pages WHERE world_id = ? AND title = ?', wid, 'The Vault');
-  assert.equal(vault.visibility, 'dm');
+  assert.equal(vault.visibility, 'gm');
   assert.equal(vault.parent_external, 'a-1');
   assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', wid, 'The Harbour').visibility, 'party');
   assert.ok(!(await t.call('GET', `/api/worlds/${wid}/library/search?q=gold`, t.admin)).text.includes('PERSONLEAK'));
@@ -401,7 +401,7 @@ async function mediaWorld(t: Awaited<ReturnType<typeof boot>>, opts: { audience?
   const sync = (body: unknown = {}) => t.ok('POST', `/api/admin/sources/${src.id}/sync?wait=1`, body);
   return { wid, sid: src.id as string, conn, sync };
 }
-const pageByTitle = (t: Awaited<ReturnType<typeof boot>>, wid: string, title: string) => (t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === title).id as string;
+const pageByTitle = (t: Awaited<ReturnType<typeof boot>>, wid: string, title: string) => (t.deps.library.list(wid, gmViewer) as any[]).find((p) => p.title === title).id as string;
 const getPage = (t: Awaited<ReturnType<typeof boot>>, wid: string, token: string, pid: string) => t.call('GET', `/api/worlds/${wid}/library/pages/${pid}`, token);
 const imageRow = (t: Awaited<ReturnType<typeof boot>>, ext: string) => one<any>(t.deps.db, 'SELECT * FROM intake_images WHERE external_id = ?', `img:images:${ext}`);
 
@@ -409,8 +409,8 @@ test('CrawlGeneric_CalendarsBecomeWorldCalendarsWithMonthsWeekdaysDateAndEvents'
   const t = await boot({});
   const w = await mediaWorld(t);
   await w.sync();
-  const dm = { role: 'dm' as const };
-  const cals = calendarsFor(t.deps.db, w.wid, dm);
+  const gm = { role: 'gm' as const };
+  const cals = calendarsFor(t.deps.db, w.wid, gm);
   assert.deepEqual(cals.map((c) => c.name), ['Harptos', 'Hidden calendar'], 'a calendar with no months is skipped');
   const h = cals.find((c) => c.name === 'Harptos')!;
   assert.deepEqual(h.definition.months, [{ name: 'Hammer', days: 30 }, { name: 'Midwinter', days: 1, intercalary: true }, { name: 'Alturiak', days: 30 }]);
@@ -419,17 +419,17 @@ test('CrawlGeneric_CalendarsBecomeWorldCalendarsWithMonthsWeekdaysDateAndEvents'
   assert.deepEqual(h.current, { year: 1492, month: 1, day: 5 });
   assert.equal(h.visibility, 'party');
   // Fail closed: the calendar the app marks private is the GM's, and so is every event with no shared flag of its own.
-  assert.equal(cals.find((c) => c.name === 'Hidden calendar')!.visibility, 'dm');
+  assert.equal(cals.find((c) => c.name === 'Hidden calendar')!.visibility, 'gm');
   const player = { role: 'player' as const };
   assert.deepEqual(calendarsFor(t.deps.db, w.wid, player).map((c) => c.name), ['Harptos']);
-  const tlDm = timelinesFor(t.deps.db, w.wid, dm).find((x: any) => x.name === 'Harptos events');
-  assert.deepEqual(tlDm.groups[0].events.map((e: any) => [e.name, e.visibility]), [['Festival', 'party'], ['SECRETEVENT', 'dm'], ['No flag', 'dm']]);
+  const tlGm = timelinesFor(t.deps.db, w.wid, gm).find((x: any) => x.name === 'Harptos events');
+  assert.deepEqual(tlGm.groups[0].events.map((e: any) => [e.name, e.visibility]), [['Festival', 'party'], ['SECRETEVENT', 'gm'], ['No flag', 'gm']]);
   const tlPlayer = timelinesFor(t.deps.db, w.wid, player);
   assert.deepEqual(tlPlayer.flatMap((x: any) => x.groups.flatMap((g: any) => g.events.map((e: any) => e.name))), ['Festival']);
   assert.ok(!JSON.stringify(tlPlayer).includes('SECRETEVENT'));
   // The source's audience can keep every calendar GM-only.
   const t2 = await boot({});
-  const w2 = await mediaWorld(t2, { audience: 'dm' });
+  const w2 = await mediaWorld(t2, { audience: 'gm' });
   await w2.sync();
   assert.deepEqual(calendarsFor(t2.deps.db, w2.wid, player), []);
 });
@@ -455,9 +455,9 @@ test('CrawlGeneric_PicturesAreDownloadedWithinTheLimitsAndLinkedToTheirPages', a
 
   // The page links to its picture, and the picture is served through a signed address.
   const p1 = pageByTitle(t, w.wid, 'Public page');
-  const dmPage = (await getPage(t, w.wid, t.admin, p1)).body;
-  assert.match(dmPage.banner, /^\/api\/media\/intake\/[\w.-]+$/);
-  const file = await fetch(t.base + dmPage.banner);
+  const gmPage = (await getPage(t, w.wid, t.admin, p1)).body;
+  assert.match(gmPage.banner, /^\/api\/media\/intake\/[\w.-]+$/);
+  const file = await fetch(t.base + gmPage.banner);
   assert.equal(file.status, 200);
   assert.equal(file.headers.get('content-type'), 'image/png');
   assert.equal(file.headers.get('x-content-type-options'), 'nosniff');
@@ -483,7 +483,7 @@ test('CrawlGeneric_PicturesAreDownloadedWithinTheLimitsAndLinkedToTheirPages', a
   assert.ok(!(JSON.stringify(playerPage)).includes(imageRow(t, 'i2').id), 'no id of a private picture reaches a player');
 
   // Hiding the page takes the picture away at once: the ticket stays valid but the permission is checked again.
-  run(t.deps.db, `UPDATE pages SET visibility = 'dm', player_body = NULL WHERE id = ?`, p1);
+  run(t.deps.db, `UPDATE pages SET visibility = 'gm', player_body = NULL WHERE id = ?`, p1);
   assert.equal((await fetch(t.base + playerPage.banner)).status, 404);
 
   // Nothing is downloaded again when nothing changed, and a refused picture is not asked for again.
@@ -516,7 +516,7 @@ test('CrawlGeneric_PicturesAreDownloadedAFewAtATimeAndAnUnusedEndpointDropsThem'
   assert.equal(all<any>(t.deps.db, 'SELECT 1 FROM intake_images').length, 0);
   // A source set to GM-only shows no picture to players at all.
   const t2 = await boot({ ALX_IMAGE_MAX_BYTES: '2000' });
-  const w2 = await mediaWorld(t2, { audience: 'dm' });
+  const w2 = await mediaWorld(t2, { audience: 'gm' });
   await w2.sync();
   const tok = await t2.addPlayer(w2.wid);
   assert.equal((t2.deps.library.list(w2.wid, { accountId: 'p', role: 'player' }) as any[]).length, 0);
@@ -553,23 +553,23 @@ test('CrawlGeneric_AddressesOnPrivateHostsAreNeverFetched', () => {
 
 // ---- several pictures on one page, and maps --------------------------------------------------------------------------------
 
-test('CrawlGeneric_APageShowsAllItsPicturesAndTheSecondOneNeverReachesAPlayerWhenItIsDmOnly', async () => {
+test('CrawlGeneric_APageShowsAllItsPicturesAndTheSecondOneNeverReachesAPlayerWhenItIsGmOnly', async () => {
   const t = await boot({ ALX_IMAGE_MAX_BYTES: '2000' });
   const w = await mediaWorld(t);
   await w.sync();
   const tok = await t.addPlayer(w.wid);
   const p1 = pageByTitle(t, w.wid, 'Public page');
   // Page 1 has two stored pictures (Portrait, Elsewhere); the first by the source's id is the banner.
-  const dm = (await getPage(t, w.wid, t.admin, p1)).body;
-  assert.deepEqual(dm.pictures.map((x: any) => x.name), ['Portrait', 'Elsewhere']);
-  assert.equal(dm.banner, dm.pictures[0].url);
-  assert.deepEqual(dm.pictures.map((x: any) => x.primary), [true, false]);
-  for (const pic of dm.pictures) assert.equal((await fetch(t.base + pic.url)).status, 200);
+  const gm = (await getPage(t, w.wid, t.admin, p1)).body;
+  assert.deepEqual(gm.pictures.map((x: any) => x.name), ['Portrait', 'Elsewhere']);
+  assert.equal(gm.banner, gm.pictures[0].url);
+  assert.deepEqual(gm.pictures.map((x: any) => x.primary), [true, false]);
+  for (const pic of gm.pictures) assert.equal((await fetch(t.base + pic.url)).status, 200);
   const both = (await getPage(t, w.wid, tok.token, p1)).body;
   assert.deepEqual(both.pictures.map((x: any) => x.name), ['Portrait', 'Elsewhere'], 'both are shared with the page');
 
   // The second picture is marked private at the source: the GM still has it, a player has no sign of it.
-  run(t.deps.db, "UPDATE intake_images SET visibility = 'dm' WHERE external_id = 'img:images:i3'");
+  run(t.deps.db, "UPDATE intake_images SET visibility = 'gm' WHERE external_id = 'img:images:i3'");
   const asPlayer = await getPage(t, w.wid, tok.token, p1);
   assert.deepEqual(asPlayer.body.pictures.map((x: any) => x.name), ['Portrait']);
   assert.ok(!asPlayer.text.includes('Elsewhere') && !asPlayer.text.includes(imageRow(t, 'i3').id), 'no name or id of the GM-only picture reaches a player');
@@ -577,13 +577,13 @@ test('CrawlGeneric_APageShowsAllItsPicturesAndTheSecondOneNeverReachesAPlayerWhe
   const forged = mintTicket({ w: w.wid, k: 'intake', f: imageRow(t, 'i3').id, a: tok.accountId });
   assert.equal((await fetch(`${t.base}/api/media/intake/${forged}`)).status, 404);
   // If the first picture is the GM-only one, the player's banner is the next one, never the private one.
-  run(t.deps.db, "UPDATE intake_images SET visibility = 'dm' WHERE external_id = 'img:images:i1'");
+  run(t.deps.db, "UPDATE intake_images SET visibility = 'gm' WHERE external_id = 'img:images:i1'");
   run(t.deps.db, "UPDATE intake_images SET visibility = 'party' WHERE external_id = 'img:images:i3'");
   const swapped = (await getPage(t, w.wid, tok.token, p1)).body;
   assert.deepEqual(swapped.pictures.map((x: any) => x.name), ['Elsewhere']);
   assert.equal(swapped.banner, swapped.pictures[0].url);
   // Hiding the page takes every picture away at once.
-  run(t.deps.db, "UPDATE pages SET visibility = 'dm', player_body = NULL WHERE id = ?", p1);
+  run(t.deps.db, "UPDATE pages SET visibility = 'gm', player_body = NULL WHERE id = ?", p1);
   assert.equal((await getPage(t, w.wid, tok.token, p1)).status, 404);
   assert.equal((await fetch(t.base + swapped.pictures[0].url)).status, 404);
 });
@@ -601,13 +601,13 @@ test('CrawlGeneric_MapEndpointsImportMapsWithTheirOwnSizeCapAndTheMapPageCanPick
   assert.equal(out.stats.indexCalls, 4, 'the map list is one more list call');
   // A map is on its page like any picture: the page's pictures list marks it.
   const p1 = pageByTitle(t, w.wid, 'Public page');
-  const dm = (await getPage(t, w.wid, t.admin, p1)).body;
-  assert.ok(dm.pictures.some((x: any) => x.map && x.name === 'Harbour map'));
-  assert.equal(dm.pictures.filter((x: any) => !x.map).length, 2);
+  const gm = (await getPage(t, w.wid, t.admin, p1)).body;
+  assert.ok(gm.pictures.some((x: any) => x.map && x.name === 'Harbour map'));
+  assert.equal(gm.pictures.filter((x: any) => !x.map).length, 2);
   // The Map page lists imported maps: the GM all of them, a player only maps of pages shared with them.
-  const dmMaps = (await t.call('GET', `/api/worlds/${w.wid}/intake/map-images`, t.admin)).body;
-  assert.deepEqual(dmMaps.map((m: any) => m.name), ['Harbour map', 'Loose map', 'Vault map']);
-  assert.equal(dmMaps.find((m: any) => m.name === 'Harbour map').page.title, 'Public page');
+  const gmMaps = (await t.call('GET', `/api/worlds/${w.wid}/intake/map-images`, t.admin)).body;
+  assert.deepEqual(gmMaps.map((m: any) => m.name), ['Harbour map', 'Loose map', 'Vault map']);
+  assert.equal(gmMaps.find((m: any) => m.name === 'Harbour map').page.title, 'Public page');
   const tok = await t.addPlayer(w.wid);
   const playerMaps = (await t.call('GET', `/api/worlds/${w.wid}/intake/map-images`, tok.token)).body;
   assert.deepEqual(playerMaps.map((m: any) => m.name), ['Harbour map']);

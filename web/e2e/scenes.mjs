@@ -24,8 +24,8 @@ const gone = (loc, ms = 8000) => loc.waitFor({ state: 'detached', timeout: ms })
 const CARD = 'Scene Test Lighthouse Card';
 
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1080, height: 1900 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { ctx, page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1080, height: 1900 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${token}` }, body: raw ? raw : body ? JSON.stringify(body) : undefined });

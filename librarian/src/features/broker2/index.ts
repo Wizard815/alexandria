@@ -17,11 +17,11 @@ const feature: Feature = {
     if (!cols('broker_config').includes('spoiler_topics')) db.exec(`ALTER TABLE broker_config ADD COLUMN spoiler_topics TEXT NOT NULL DEFAULT '[]'`);
     if (!cols('broker_config').includes('clock_migrated')) db.exec('ALTER TABLE broker_config ADD COLUMN clock_migrated INTEGER NOT NULL DEFAULT 0');
     if (!cols('broker_page_rules').includes('spoiler')) db.exec('ALTER TABLE broker_page_rules ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0');
-    // needs_review: held for the GM to approve; dm_written: a person wrote the answer.
+    // needs_review: held for the GM to approve; gm_written: a person wrote the answer.
     if (!cols('broker_requests').includes('needs_review')) db.exec('ALTER TABLE broker_requests ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0');
     // broker_level: the answer used broker-level lines (a held-for-review default, see brokerLevelDelivery).
     if (!cols('broker_requests').includes('broker_level')) db.exec('ALTER TABLE broker_requests ADD COLUMN broker_level INTEGER NOT NULL DEFAULT 0');
-    if (!cols('broker_requests').includes('dm_written')) db.exec('ALTER TABLE broker_requests ADD COLUMN dm_written INTEGER NOT NULL DEFAULT 0');
+    if (!cols('broker_requests').includes('gm_written')) db.exec('ALTER TABLE broker_requests ADD COLUMN gm_written INTEGER NOT NULL DEFAULT 0');
   },
   settings: {
     // Answers that use broker-level content wait for the GM ('review') or follow their tier's delivery ('auto').

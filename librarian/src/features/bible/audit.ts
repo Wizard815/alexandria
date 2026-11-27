@@ -17,7 +17,7 @@ export function auditBible(d: Deps, worldId: string) {
   const titles = new Map(all<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ?', worldId).map((p) => [p.id, p.title as string]));
   for (const f of bibleFailed()) if (titles.has(f.pageId)) out.push({ kind: 'failed', pageId: f.pageId, title: titles.get(f.pageId)!, scope: f.scope, note: `the model gave no usable answer ${f.tries} time${f.tries === 1 ? '' : 's'}` });
   let facts = 0;
-  for (const scope of ['dm', 'broker', 'party'] as const) {
+  for (const scope of ['gm', 'broker', 'party'] as const) {
     const c = SCOPE_COLS[scope];
     // Read, but nothing came of a page that has something to say.
     for (const r of all<any>(d.db, `SELECT p.id, p.title, length(${c.body}) AS len FROM bible_state s JOIN pages p ON p.id = s.page_id WHERE s.world_id = ? AND s.scope = ? AND s.facts = 0 AND length(${c.body}) > 400`, worldId, scope)) {

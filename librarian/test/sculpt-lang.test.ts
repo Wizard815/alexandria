@@ -8,10 +8,10 @@ after(() => { for (const c of cleanups) c(); });
 const env = await boot(true);
 const bare = await boot(false);
 
-const make = (e: typeof env, over: Record<string, unknown>) => e.ok('POST', `${e.S}/templates`, e.T.dm, {
-  name: `T ${Math.random().toString(36).slice(2, 8)}`, description: '', perspective: 'dm', fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}', target: { kind: 'none' }, ...over,
+const make = (e: typeof env, over: Record<string, unknown>) => e.ok('POST', `${e.S}/templates`, e.T.gm, {
+  name: `T ${Math.random().toString(36).slice(2, 8)}`, description: '', perspective: 'gm', fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}', target: { kind: 'none' }, ...over,
 });
-const run = (e: typeof env, t: any, values: Record<string, unknown> = {}, more: Record<string, unknown> = {}) => e.ok('POST', `${e.S}/run`, e.T.dm, { templateId: t.id, values, ...more });
+const run = (e: typeof env, t: any, values: Record<string, unknown> = {}, more: Record<string, unknown> = {}) => e.ok('POST', `${e.S}/run`, e.T.gm, { templateId: t.id, values, ...more });
 
 test('Sculpt language: inline generators, dice and pick render without a model and repeat for the same values', async () => {
   const t = await make(bare, {
@@ -27,7 +27,7 @@ test('Sculpt language: inline generators, dice and pick render without a model a
   assert.match(r.md, /\d+ gp/);
   // The same values (with their seed) always render the same text; Sculpt again rolls fresh ones.
   assert.ok(r.values.__seed);
-  const again = await bare.ok('POST', `${bare.S}/check`, bare.T.dm, { templateId: t.id, values: r.values });
+  const again = await bare.ok('POST', `${bare.S}/check`, bare.T.gm, { templateId: t.id, values: r.values });
   assert.equal(again.md, r.md);
   const other = await run(bare, t, { name: 'Gens' });
   assert.notEqual(other.values.__seed, r.values.__seed);
@@ -42,9 +42,9 @@ test('Sculpt language: world context variables come from the clock, the party an
   assert.match(r.md, /Where: The Quay/);
   // A GM template reads the AI copy of a page, and keeps that line GM-only.
   const pageLine = r.parts.find((p: any) => /gulls/.test(p.md));
-  assert.ok(pageLine?.dm, 'the page excerpt is in a GM-only part');
+  assert.ok(pageLine?.gm, 'the page excerpt is in a GM-only part');
   // The current location falls back to nothing, and a page used as context sets it.
-  const ctx = await bare.ok('GET', `${bare.S}/context?location=Dock`, bare.T.dm);
+  const ctx = await bare.ok('GET', `${bare.S}/context?location=Dock`, bare.T.gm);
   assert.equal(ctx.vars.location, 'Dock');
   assert.ok(ctx.names.includes('world.date'));
 });
@@ -70,9 +70,9 @@ test('Sculpt language: conditionals and lists', async () => {
   const b = await run(bare, t, { name: 'B' }, { lock: ['pets', 'note'] });
   assert.match(b.md, /No note/);
   assert.match(b.md, /No pets/);
-  // #dm still works around inline blocks.
-  const dm = await make(bare, { fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}\n{{#if name}}\n{{#dm}}\nsecret {{dice:1d1}}\n{{/dm}}\n{{/if}}\n' });
-  const d = await run(bare, dm, { name: 'Z' });
+  // #gm still works around inline blocks.
+  const gm = await make(bare, { fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}\n{{#if name}}\n{{#gm}}\nsecret {{dice:1d1}}\n{{/gm}}\n{{/if}}\n' });
+  const d = await run(bare, gm, { name: 'Z' });
   assert.ok(d.md.includes('> [!secret] GM') && d.md.includes('secret 1'));
 });
 
@@ -108,14 +108,14 @@ test('Sculpt language: dice, table, image, pageLink and rollTable fields', async
 });
 
 test('Sculpt language: bad templates are refused with a reason', async () => {
-  const bad = async (over: Record<string, unknown>) => (await bare.call('POST', `${bare.S}/templates`, bare.T.dm, { name: 'Bad', description: '', perspective: 'dm', fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}', target: { kind: 'none' }, ...over })).status;
+  const bad = async (over: Record<string, unknown>) => (await bare.call('POST', `${bare.S}/templates`, bare.T.gm, { name: 'Bad', description: '', perspective: 'gm', fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}', target: { kind: 'none' }, ...over })).status;
   assert.equal(await bad({ body: '{{#if name}}never closed' }), 422);
   assert.equal(await bad({ body: '{{gen:nonsense}}' }), 422);
   assert.equal(await bad({ body: '{{dice:2d6}} {{wat.is.this}}' }), 422);
   assert.equal(await bad({ body: '{{#each nope}}x{{/each}}' }), 422);
   assert.equal(await bad({ fields: [{ key: 'name', label: 'Name', type: 'text', gen: 'gen:coins level=$missing' }] }), 422);
   assert.equal(await bad({ fields: [{ key: 'name', label: 'Name', type: 'weird' }] }), 422);
-  assert.equal(await bad({ perspective: 'player', body: '{{#dm}}x{{/dm}} {{name}}' }), 422);
+  assert.equal(await bad({ perspective: 'player', body: '{{#gm}}x{{/gm}} {{name}}' }), 422);
   assert.equal(await bad({ outputs: { send: true } }), 422, 'only player templates can be sent');
   assert.equal(await bad({ body: '# ok {{name}} {{world.date}} {{pick:a|b}}' }), 201);
 });
@@ -153,7 +153,7 @@ test('Sculpt batch: make N is one model call that returns an array', async () =>
 const NEW_BUILTINS = ['Encounter', 'Loot hoard', 'Rumour table', 'Random travel event', 'Weather', 'Trap', 'Puzzle or riddle', 'Settlement or village', 'Dungeon room', 'Faction', 'Magic item', 'Letter or handout', 'Villain monologue', 'Session prep checklist', 'NPC quick bark'];
 
 test('Sculpt built-ins: every new built-in is seeded, categorised and sculpts with no model, fast', async () => {
-  const { templates, categories } = await bare.ok('GET', `${bare.S}/templates`, bare.T.dm);
+  const { templates, categories } = await bare.ok('GET', `${bare.S}/templates`, bare.T.gm);
   assert.deepEqual(categories, ['Combat', 'NPCs', 'Places', 'Loot', 'Story', 'Prep']);
   for (const n of NEW_BUILTINS) assert.ok(templates.some((t: any) => t.name === n && t.builtin && categories.includes(t.category)), n);
   for (const c of categories) assert.ok(templates.some((t: any) => t.category === c), `a template in ${c}`);
@@ -180,7 +180,7 @@ test('Sculpt built-ins: every new built-in is seeded, categorised and sculpts wi
 });
 
 test('Sculpt built-ins: every built-in sculpts with a fake model in at most one call', async () => {
-  const { templates } = await env.ok('GET', `${env.S}/templates`, env.T.dm);
+  const { templates } = await env.ok('GET', `${env.S}/templates`, env.T.gm);
   env.model.reply = (blank, user) => (user.count > 1 ? { results: [] } : Object.fromEntries(blank.map((f: any) => [f.key, f.type === 'statblock' ? { name: 'X', ac: 12, hp: 9, speed: { walk: '30 ft.' }, abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }, actions: [{ name: 'Hit', text: 'Hit: 3.' }] } : f.type === 'select' ? f.options[0] : f.type === 'list' ? ['a', 'b'] : f.type === 'rollTable' ? Array.from({ length: f.rows }, (_x, i) => `row ${i}`) : f.type === 'number' ? 4 : f.type === 'table' ? [['a']] : `filled ${f.key}`])));
   for (const t of templates.filter((x: any) => x.builtin)) {
     env.model.calls.length = 0;
@@ -191,13 +191,13 @@ test('Sculpt built-ins: every built-in sculpts with a fake model in at most one 
 });
 
 test('Sculpt built-ins: a player template stays clean, and the model never gets classified text', async () => {
-  await env.ok('PUT', `/api/worlds/${env.W}/library/pages`, env.T.dm, { path: 'lore/Vault', visibility: 'classified', markdown: '# Vault\nclassifiedmarker9911 beneath the quay lies a vault of silver bells and drowned crowns.\n' });
+  await env.ok('PUT', `/api/worlds/${env.W}/library/pages`, env.T.gm, { path: 'lore/Vault', visibility: 'classified', markdown: '# Vault\nclassifiedmarker9911 beneath the quay lies a vault of silver bells and drowned crowns.\n' });
   const scene = await tplId(env, 'Scene, player perspective');
   env.model.calls.length = 0;
   env.model.reply = (blank) => Object.fromEntries(blank.map((f: any) => [f.key, `Lanterns glow along the quay ${f.key}`]));
-  await env.ok('POST', `${env.S}/run`, env.T.dm, { templateId: scene, values: { location: 'Saltmarsh' } });
+  await env.ok('POST', `${env.S}/run`, env.T.gm, { templateId: scene, values: { location: 'Saltmarsh' } });
   const npc = await tplId(env, 'NPC for quick RP');
-  await env.ok('POST', `${env.S}/run`, env.T.dm, { templateId: npc, values: { role: 'a keeper of the vault, silver bells, drowned crowns' }, context: { page: 'Vault' } });
+  await env.ok('POST', `${env.S}/run`, env.T.gm, { templateId: npc, values: { role: 'a keeper of the vault, silver bells, drowned crowns' }, context: { page: 'Vault' } });
   const sent = JSON.stringify(env.model.calls);
   assert.ok(!sent.includes('classifiedmarker9911'), 'no classified text in a model request');
   // A player-view sculpt model request has no GM-only text at all.

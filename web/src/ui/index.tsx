@@ -93,13 +93,13 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
-const VIS_LABEL: Record<string, string> = { dm: 'GM only', party: 'Party', me: 'Only me' };
+const VIS_LABEL: Record<string, string> = { gm: 'GM only', party: 'Party', me: 'Only me' };
 export function VisChip({ v }: { v: string }) {
   return <span className={`chip ${v === 'party' ? 'teal' : v === 'me' ? '' : 'red'}`}>{VIS_LABEL[v] ?? v}</span>;
 }
 
 /** Pick who can see something. `options` limits the choices. */
-export function VisibilityPicker({ value, onChange, options = ['dm', 'party'], labels }: { value: string; onChange: (v: any) => void; options?: string[]; labels?: Record<string, string> }) {
+export function VisibilityPicker({ value, onChange, options = ['gm', 'party'], labels }: { value: string; onChange: (v: any) => void; options?: string[]; labels?: Record<string, string> }) {
   return (
     <div className="tabs" role="radiogroup" aria-label="Who can see this">
       {options.map((o) => (

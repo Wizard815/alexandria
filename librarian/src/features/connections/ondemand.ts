@@ -19,7 +19,7 @@ const syncDeps = (d: Deps) => ({ db: d.db, library: d.library, dataDir: d.dataDi
  */
 export async function readOnOpen(d: Deps, worldId: string, pageRef: string, viewer: Viewer): Promise<'ready' | 'fetched' | 'unavailable'> {
   try {
-    if (viewer.role !== 'dm') d.library.get(worldId, String(pageRef), viewer);
+    if (viewer.role !== 'gm') d.library.get(worldId, String(pageRef), viewer);
     return await ensureFull(syncDeps(d), worldId, String(pageRef));
   } catch { return 'unavailable'; }
 }

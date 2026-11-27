@@ -33,7 +33,7 @@ export default function SearchInsights() {
   if (q.loading && !d) return <Loading />;
   if (!d) return <ErrorBox error={q.error} />;
   const hiddenWorlds = d.worlds.filter((w) => w.view === 'counts' && w.searches > 0);
-  const dmWorlds = d.worlds.filter((w) => w.view === 'dm');
+  const gmWorlds = d.worlds.filter((w) => w.view === 'gm');
   const maxPop = Math.max(1, ...d.popular.map((p) => p.count));
   const maxSrc = Math.max(1, ...d.bySource.map((s) => s.count));
   const nothingBy = new Map<string, SearchStats['nothing']>();
@@ -58,7 +58,7 @@ export default function SearchInsights() {
                 <Meter value={p.count} max={maxPop} />
               </li>
             ))}</ul>
-          ) : <p className="muted small">{dmWorlds.length ? 'Nobody has searched yet.' : 'You are not the GM of any world, so no words are shown.'}</p>}
+          ) : <p className="muted small">{gmWorlds.length ? 'Nobody has searched yet.' : 'You are not the GM of any world, so no words are shown.'}</p>}
           {hiddenWorlds.length > 0 && (
             <p className="tiny muted" style={{ marginTop: 10 }}>
               The words searched in {hiddenWorlds.map((w) => `${w.name} (${w.searches})`).join(', ')} are shown only to {hiddenWorlds.length === 1 ? 'its GM' : 'their GMs'}: you see counts.

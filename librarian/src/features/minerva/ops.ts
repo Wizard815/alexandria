@@ -3,7 +3,7 @@
 // GM as a diff, edited, approved (applied) or rejected (docs/MINERVA.md §7-§8).
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import type { FM } from '../../core/frontmatter.ts';
 import { codexUpsert, upsertTarget } from './codex.ts';
@@ -61,7 +61,7 @@ export function applyOp(d: Deps, worldId: string, op: Op, by: string | null): Ap
     case 'level': {
       const p = readPage(d, worldId, op.rel);
       if (!p) throw new HttpError(404, `No such page: ${op.rel}`);
-      if (!['party', 'broker', 'dm', 'classified'].includes(op.level)) throw new HttpError(400, 'level must be party, broker, dm or classified');
+      if (!['party', 'broker', 'gm', 'classified'].includes(op.level)) throw new HttpError(400, 'level must be party, broker, gm or classified');
       writePage(d, worldId, op.rel, { fm: { level: op.level }, by });
       return { rel: op.rel, note: `Level is now ${op.level}` };
     }
@@ -101,12 +101,12 @@ const sectionText = (body: string, heading: string): string => {
 // ---- drafts --------------------------------------------------------------------
 
 export interface Draft { id: string; review: string; kind: string; title: string; op: Op; status: 'pending' | 'approved' | 'rejected' | 'failed'; byAccount: string | null; tool: string; createdAt: string; decidedAt: string | null; note: string }
-const draftOut = (r: any): Draft => ({ id: r.id, review: r.review, kind: r.kind, title: r.title, op: parseJson<Op>(r.op, { op: 'level', rel: '', level: 'dm' }), status: r.status, byAccount: r.by_account, tool: r.tool, createdAt: r.created_at, decidedAt: r.decided_at, note: r.note });
+const draftOut = (r: any): Draft => ({ id: r.id, review: r.review, kind: r.kind, title: r.title, op: parseJson<Op>(r.op, { op: 'level', rel: '', level: 'gm' }), status: r.status, byAccount: r.by_account, tool: r.tool, createdAt: r.created_at, decidedAt: r.decided_at, note: r.note });
 
 export function createDraft(d: Deps, worldId: string, a: { review?: string; kind: string; title: string; op: Op; byAccount?: string | null; tool?: string }): Draft {
   const did = id('md_');
   run(d.db, 'INSERT INTO minerva_drafts (id, world_id, review, kind, title, op, status, by_account, tool, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', did, worldId, a.review ?? '', a.kind, a.title.slice(0, 200), JSON.stringify(a.op), 'pending', a.byAccount ?? null, a.tool ?? '', now());
-  d.hub.emit(worldId, 'minerva', { kind: 'draft', id: did }, dmOnly);
+  d.hub.emit(worldId, 'minerva', { kind: 'draft', id: did }, gmOnly);
   return getDraft(d, worldId, did)!;
 }
 

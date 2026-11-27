@@ -17,22 +17,22 @@ import { createHash } from 'node:crypto';
 import { reconcile } from '../features/search/scopes.ts';
 import { jobsOf } from './jobs.ts';
 import { HttpError, id, now } from './util.ts';
-import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, indexGeneration, indexedPages, unindexPage, unindexRow, type IndexRow } from './pagesearch.ts';
+import { type PageHit, type Scope, gmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, indexGeneration, indexedPages, unindexPage, unindexRow, type IndexRow } from './pagesearch.ts';
 
 const CLEAR_COPIES = ['player', 'broker', 'ai'].flatMap((p) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${p}_${c} = NULL`)).join(', ');
 const everythingOf = (opts: { only?: string[] }) => !opts.only?.length;
 const normClassifiedText = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
-const ALL_SCOPES: Scope[] = ['dm', 'party', 'broker', 'ai'];
+const ALL_SCOPES: Scope[] = ['gm', 'party', 'broker', 'ai'];
 
 /**
- * The level a page of a source gets. `auto`: what the source said. `dm`:
- * never lower than dm, whatever the source says. `party`: the page is
+ * The level a page of a source gets. `auto`: what the source said. `gm`:
+ * never lower than gm, whatever the source says. `party`: the page is
  * shareable unless it carries a broker or classified marker of its own
  * (secret blocks, broker and classified parts inside a page are still cut
  * from the player copy by the copy builders, so `party` never shows them).
  */
-export function levelForAudience(audience: 'auto' | 'dm' | 'party', sourceLevel: Level, markerLevel: Level): Level {
-  if (audience === 'dm') return maxLevel(sourceLevel, 'dm');
+export function levelForAudience(audience: 'auto' | 'gm' | 'party', sourceLevel: Level, markerLevel: Level): Level {
+  if (audience === 'gm') return maxLevel(sourceLevel, 'gm');
   if (audience === 'party') return markerLevel;
   return sourceLevel;
 }
@@ -82,7 +82,7 @@ export function relationsFromFrontmatter(title: string, fm: FM): { to: string; k
   const scan = (obj: FM, secret: boolean) => {
     for (const [k, v] of Object.entries(obj)) {
       const key = k.toLowerCase();
-      if ((key === 'secret' || key === 'secrets' || key === 'dm') && v && typeof v === 'object' && !Array.isArray(v)) {
+      if ((key === 'secret' || key === 'secrets' || key === 'gm') && v && typeof v === 'object' && !Array.isArray(v)) {
         scan(v as FM, true);
         continue;
       }
@@ -91,7 +91,7 @@ export function relationsFromFrontmatter(title: string, fm: FM): { to: string; k
           if (r && typeof r === 'object' && !Array.isArray(r)) {
             const o = r as { [k: string]: FMValue };
             const to = names(o.to ?? o.target ?? null)[0];
-            if (to) out.push({ to, kind: String(o.kind ?? o.type ?? 'related to'), secret: secret || o.secret === true || o.visibility === 'dm' });
+            if (to) out.push({ to, kind: String(o.kind ?? o.type ?? 'related to'), secret: secret || o.secret === true || o.visibility === 'gm' });
           } else {
             const m = /^\s*([^:]+):\s*(.+)$/.exec(String(r));
             if (m) for (const to of names(m[2])) out.push({ to, kind: m[1].trim(), secret });
@@ -112,7 +112,7 @@ const COPY_AUDS = ['player', 'broker', 'ai'] as const;
 type CopyAud = (typeof COPY_AUDS)[number];
 const COPY_SCOPE: Record<CopyAud, Scope> = { player: 'party', broker: 'broker', ai: 'ai' };
 const COPY_PREFIX: Record<CopyAud, string> = { player: 'player_', broker: 'broker_', ai: 'ai_' };
-const scopeOf = (aud: Audience): Scope => (aud === 'player' ? 'party' : aud === 'dm' ? 'dm' : aud);
+const scopeOf = (aud: Audience): Scope => (aud === 'player' ? 'party' : aud === 'gm' ? 'gm' : aud);
 
 interface BuiltCopy { fm: FM; body: string; blocks: Block[]; properties: PropertyGroup[] }
 
@@ -176,8 +176,8 @@ export class Library {
     if (!this.migrationPending) return;
     for (const w of all<{ id: string }>(this.db, 'SELECT id FROM worlds')) await this.rebuildPlayerCopiesAsync(w.id);
     try {
-      run(this.db, `DELETE FROM search_chunks WHERE scope = 'dm'`);
-      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'dm'`);
+      run(this.db, `DELETE FROM search_chunks WHERE scope = 'gm'`);
+      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'gm'`);
     } catch { /* the search tables are made by the search feature: nothing to drop yet */ }
     this.stampLevels();
     this.migrationPending = false;
@@ -214,8 +214,8 @@ export class Library {
     } catch { return; }
     for (const w of all<{ id: string }>(this.db, 'SELECT id FROM worlds')) this.rebuildPlayerCopies(w.id);
     try {
-      run(this.db, `DELETE FROM search_chunks WHERE scope = 'dm'`);
-      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'dm'`);
+      run(this.db, `DELETE FROM search_chunks WHERE scope = 'gm'`);
+      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'gm'`);
     } catch { /* the search tables are made by the search feature: nothing to drop yet */ }
     run(this.db, `INSERT INTO search_meta (key, value) VALUES ('levels_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, LEVELS_VERSION);
   }
@@ -249,7 +249,7 @@ export class Library {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'markdown', ?, ?, ?, ?, ?, ?, ?)`,
           pid, worldId, p, title, visibility, JSON.stringify(fm), body, JSON.stringify(markdownToBlocks(body)), JSON.stringify(tags), JSON.stringify(aliases), ['common', 'local', 'deep'].includes(k) ? k : null, input.sourceId ?? null, JSON.stringify(p.split('/').slice(0, -1)), now(), by);
       }
-      this.reindexDm(worldId, pid, title, body, [...aliases, ...dmOnlyAliases(fm)], '');
+      this.reindexGm(worldId, pid, title, body, [...aliases, ...gmOnlyAliases(fm)], '');
       this.saveRelations(worldId, pid, title, fm, visibility);
     });
     this.changed(worldId, [pid]);
@@ -263,7 +263,7 @@ export class Library {
   }
 
   /**
-   * Change a page's level (party, broker, dm, classified). Only for pages that
+   * Change a page's level (party, broker, gm, classified). Only for pages that
    * live in Alexandria; imported pages take their level from their source (and
    * their tags, which can raise it, never lower it).
    */
@@ -272,7 +272,7 @@ export class Library {
     if (!pg) throw new HttpError(404, 'Page not found');
     if (pg.source_id || pg.origin !== 'markdown') throw new HttpError(409, 'This page comes from a source: change its level there (tag it broker or classified, or hide it)');
     const l = String(level ?? '').toLowerCase();
-    if (!isLevel(l)) throw new HttpError(400, 'level must be party, broker, dm or classified');
+    if (!isLevel(l)) throw new HttpError(400, 'level must be party, broker, gm or classified');
     const fm = { ...(JSON.parse(pg.frontmatter || '{}') as FM), visibility: l };
     // A level change ends the page's shares: a share made at one level must not come back on its own
     // when the page is later lowered again. Sharing it again is one click.
@@ -299,11 +299,11 @@ export class Library {
     const body = isMd ? e.markdown! : blocksToMarkdown(blocks);
     if (body.length > 2_000_000) throw new HttpError(413, `Page too large: ${title}`);
     const fm = e.frontmatter ?? {};
-    // A source says party or dm; a broker or classified tag (or level) raises it. The most secret wins.
+    // A source says party or gm; a broker or classified tag (or level) raises it. The most secret wins.
     const fmLevel = normLevel((fm as any).visibility);
     const marker = (l: unknown): Level | null => (l === 'broker' || l === 'classified' ? l : null);
     const sourceLevel: Level = pageLevel({ visibility: normLevel(e.visibility), tags: e.tags, frontmatter: fm, level: maxLevel(e.level, marker(fmLevel)) });
-    // Only what marks a page secret on its own (broker and classified tags or levels), not the source's party-or-dm flag.
+    // Only what marks a page secret on its own (broker and classified tags or levels), not the source's party-or-gm flag.
     const markerLevel: Level = pageLevel({ visibility: 'party', tags: e.tags, frontmatter: fm, level: maxLevel(marker(e.level), marker(fmLevel)) });
     // A page only listed so far (index depth) says nothing about who may read it: sharing a whole source does not share what was never read.
     const aud = this.audienceOf(sourceId);
@@ -325,7 +325,7 @@ export class Library {
         run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, source_level, marker_level, id, world_id, path, source_id, external_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
-      this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
+      this.reindexGm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
     // A sync saves many pages and then rebuilds the copies and reconciles once (rebuildPlayerCopies calls changed): per page it would be 30 statements each.
@@ -345,18 +345,18 @@ export class Library {
   }
 
   /** The audience a source is set to (auto when it has none, or its column is not there yet). */
-  private audienceOf(sourceId: string): 'auto' | 'dm' | 'party' {
+  private audienceOf(sourceId: string): 'auto' | 'gm' | 'party' {
     try {
       const a = one<any>(this.db, 'SELECT audience FROM sources WHERE id = ?', sourceId)?.audience;
-      return a === 'dm' || a === 'party' ? a : 'auto';
+      return a === 'gm' || a === 'party' ? a : 'auto';
     } catch { return 'auto'; }
   }
 
   /**
    * A source's audience changed: work every page's level out again from what
    * the source said (source_level) and what marks the page secret on its own
-   * (marker_level), then rebuild the copies. `dm` lifts everything to at
-   * least dm; `party` takes the page to party unless it carries a broker or
+   * (marker_level), then rebuild the copies. `gm` lifts everything to at
+   * least gm; `party` takes the page to party unless it carries a broker or
    * classified marker; `auto` goes back to the source's own level.
    */
   applyAudience(worldId: string, sourceId: string): { pages: number; changed: number } {
@@ -375,7 +375,7 @@ export class Library {
         const markers: Level = isLevel(r.marker_level) ? r.marker_level : maxLevel(pageLevel({ visibility: 'party', tags: JSON.parse(r.tags || '[]'), frontmatter: fm }), r.visibility === 'broker' || r.visibility === 'classified' ? r.visibility : null);
         // A page read in full remembers that the source itself called it shared: the source's default visibility lets that through, or not,
         // without reading the page again. Pages the source hid, and pages it said nothing about (only listed), keep the level they have.
-        if (r.source_shared === 1 && r.depth !== 'index') base = maxLevel(defaultParty ? 'party' : 'dm', markers);
+        if (r.source_shared === 1 && r.depth !== 'index') base = maxLevel(defaultParty ? 'party' : 'gm', markers);
         const idx = r.depth === 'index';
         const vis = idx && aud === 'party' ? base : levelForAudience(aud, base, markers);
         if (vis === r.visibility && isLevel(r.source_level) && isLevel(r.marker_level) && base === r.source_level) continue;
@@ -404,16 +404,16 @@ export class Library {
   }
 
   /** The GM index follows every save. The other indexes are dropped until rebuildPlayerCopies re-adds the page. */
-  private reindexDm(worldId: string, pid: string, title: string, body: string, aliases: string[], facts: string) {
+  private reindexGm(worldId: string, pid: string, title: string, body: string, aliases: string[], facts: string) {
     for (const s of ['party', 'broker', 'ai'] as Scope[]) unindexPage(this.db, s, pid);
-    indexPage(this.db, 'dm', pid, worldId, title, aliases, body, facts);
+    indexPage(this.db, 'gm', pid, worldId, title, aliases, body, facts);
   }
 
   private saveRelations(worldId: string, pid: string, title: string, fm: FM, visibility: string) {
     run(this.db, 'DELETE FROM relations WHERE page_id = ?', pid);
     for (const r of relationsFromFrontmatter(title, fm)) {
       run(this.db, 'INSERT INTO relations (id, world_id, from_title, to_title, kind, visibility, page_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        id('rel_'), worldId, title, r.to, r.kind, !r.secret && visibility === 'party' ? 'party' : 'dm', pid);
+        id('rel_'), worldId, title, r.to, r.kind, !r.secret && visibility === 'party' ? 'party' : 'gm', pid);
     }
   }
 
@@ -451,7 +451,7 @@ export class Library {
       const known = idx.memo.get(c);
       if (known !== undefined) { if (known) return true; continue; }
       let hit = false;
-      for (const p of idx.pages) if (p.dm.includes(c) && !p.ai.includes(c)) { hit = true; break; }
+      for (const p of idx.pages) if (p.gm.includes(c) && !p.ai.includes(c)) { hit = true; break; }
       if (idx.memo.size > 20_000) idx.memo.clear();
       idx.memo.set(c, hit);
       if (hit) return true;
@@ -465,16 +465,16 @@ export class Library {
    * words in both, so "in the GM copy and not in the AI copy" is never true).
    * Built once per change of the library, not once per line of a transcript.
    */
-  private classifiedPagesCache = new Map<string, { version: number; pages: { dm: string; ai: string }[]; memo: Map<string, boolean> }>();
+  private classifiedPagesCache = new Map<string, { version: number; pages: { gm: string; ai: string }[]; memo: Map<string, boolean> }>();
   private classifiedPages(worldId: string) {
     const hit = this.classifiedPagesCache.get(worldId);
     if (hit && hit.version === this.cgVersion) return hit;
-    const pages: { dm: string; ai: string }[] = [];
+    const pages: { gm: string; ai: string }[] = [];
     for (const p of all<any>(this.db, 'SELECT visibility, body, blocks, properties, ai_body, ai_blocks, ai_properties FROM pages WHERE world_id = ?', worldId)) {
       const flat = (...xs: (string | null)[]) => normClassifiedText(xs.map((x) => (x ?? '').replace(/"[a-zA-Z]+":/g, ' ')).join(' '));
-      const dm = flat(p.body, p.blocks, p.properties);
+      const gm = flat(p.body, p.blocks, p.properties);
       const ai = normLevel(p.visibility) === 'classified' ? '' : flat(p.ai_body, p.ai_blocks, p.ai_properties);
-      if (dm !== ai) pages.push({ dm, ai });
+      if (gm !== ai) pages.push({ gm, ai });
     }
     const out = { version: this.cgVersion, pages, memo: new Map<string, boolean>() };
     this.classifiedPagesCache.set(worldId, out);
@@ -508,7 +508,7 @@ export class Library {
   classifiedGrams(): ClassifiedIndex {
     if (this.cgBuilt === this.cgVersion) return this.cg;
     const built = this.cgVersion;
-    const dm = new Map<string, string>();
+    const gm = new Map<string, string>();
     const ai = new Set<string>();
     const leaves = (json: string | null, out: string[]) => {
       const walk = (v: unknown) => {
@@ -521,13 +521,13 @@ export class Library {
     for (const p of all<any>(this.db, 'SELECT id, world_id, body, properties, frontmatter, ai_body, ai_properties, ai_frontmatter FROM pages')) {
       const a: string[] = [p.body ?? ''];
       leaves(p.properties, a); leaves(p.frontmatter, a);
-      for (const g of levelWords(a.join('\n'))) if (!dm.has(g)) dm.set(g, `${p.world_id}|${p.id}`);
+      for (const g of levelWords(a.join('\n'))) if (!gm.has(g)) gm.set(g, `${p.world_id}|${p.id}`);
       const b: string[] = [p.ai_body ?? ''];
       leaves(p.ai_properties, b); leaves(p.ai_frontmatter, b);
       for (const g of levelWords(b.join('\n'))) ai.add(g);
     }
     const idx = new ClassifiedIndex();
-    for (const [g, where] of dm) if (!ai.has(g)) idx.put(g, where);
+    for (const [g, where] of gm) if (!ai.has(g)) idx.put(g, where);
     this.cg = idx;
     this.cgBuilt = built;
     return idx;
@@ -689,8 +689,8 @@ export class Library {
     // A page with no AI copy (classified) or no player copy (no longer shared) keeps no chunks of either: they were cut from text those readers may no longer have.
     if (aiBody !== pg.ai_body || aiBody === null) {
       try {
-        run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'dm'`, pg.id);
-        run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'dm'`, pg.id);
+        run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'gm'`, pg.id);
+        run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'gm'`, pg.id);
       } catch { /* no search tables yet */ }
     }
     if (!playerBuilt) {
@@ -824,9 +824,9 @@ export class Library {
         LEFT JOIN pages p ON p.id = s.page_id AND p.world_id = s.world_id WHERE s.world_id = ?`, worldId);
       for (const s of rows) {
         const role = (acc: string) => one<{ role: string }>(this.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, acc)?.role ?? null;
-        let ok = s.visibility !== null && normLevel(s.visibility) === 'dm' && (s.marker_level == null || s.marker_level === 'party');
+        let ok = s.visibility !== null && normLevel(s.visibility) === 'gm' && (s.marker_level == null || s.marker_level === 'party');
         if (ok && s.to_id !== '*' && role(s.to_id) !== 'player') ok = false;
-        if (ok) ok = s.kind === 'dm' ? role(s.from_id) === 'dm' : role(s.from_id) === 'player' && this.liftedInfo(worldId, s.from_id, s.page_id).has(s.page_id);
+        if (ok) ok = s.kind === 'gm' ? role(s.from_id) === 'gm' : role(s.from_id) === 'player' && this.liftedInfo(worldId, s.from_id, s.page_id).has(s.page_id);
         if (ok) continue;
         run(this.db, 'DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? AND from_id = ? AND to_id = ?', worldId, s.page_id, s.from_id, s.to_id);
         n++;
@@ -940,7 +940,7 @@ export class Library {
       // Where the page came from and when it was last read from there.
       ...(pg.source_id ? { source_app: sourceApp(pg.source_kind), synced_at: pg.source_synced_at ?? null } : {}),
     };
-    if (aud === 'dm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, position: pg.position ?? null, frontmatter: copy.frontmatter, body: pg.body };
+    if (aud === 'gm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, position: pg.position ?? null, frontmatter: copy.frontmatter, body: pg.body };
     // The source's own copy may hold more than the player copy, so players get the link only when the GM turned it on for the source.
     if (aud === 'player') return { ...base, ...(pg.url && playersMayOpen(pg.source_config) && !fromKey ? { url: pg.url } : {}), ...(fromKey ? { fromKey: true, via } : {}), frontmatter: copy.frontmatter, body: copy.markdown };
     return { ...base, visibility: pg.visibility, level, frontmatter: copy.frontmatter, body: copy.markdown };
@@ -958,7 +958,7 @@ export class Library {
     if (!viewer.accountId || !pg.source_id || !pg.external_id) return { list: [], local };
     const list: { id: string; name: string; url: string; map: boolean; primary: boolean }[] = [];
     for (const img of imagesForPage(this.db, worldId, pg.source_id, pg.external_id)) {
-      if (!imageVisibleTo(this.db, img, aud === 'dm' ? 'dm' : 'player')) continue;
+      if (!imageVisibleTo(this.db, img, aud === 'gm' ? 'gm' : 'player')) continue;
       const url = `/api/media/intake/${mintTicket({ w: worldId, k: 'intake', f: img.id, a: viewer.accountId })}`;
       const from = imageUrlOf(img);
       if (from && !local.has(from)) local.set(from, url);
@@ -983,8 +983,8 @@ export class Library {
    * that is not `per-user` (blanket and unsure keys never count) or an account
    * that is no longer a player gives nothing. `only` limits the check to one page.
    */
-  liftedInfo(worldId: string, accountId: string, only?: string, depth = 0): Map<string, 'key' | 'dm' | 'share'> {
-    const out = new Map<string, 'key' | 'dm' | 'share'>();
+  liftedInfo(worldId: string, accountId: string, only?: string, depth = 0): Map<string, 'key' | 'gm' | 'share'> {
+    const out = new Map<string, 'key' | 'gm' | 'share'>();
     let rows: any[];
     try {
       rows = all<any>(this.db, `SELECT DISTINCT p.id, p.visibility, p.source_level, p.marker_level, s.audience
@@ -1011,13 +1011,13 @@ export class Library {
         WHERE s.world_id = ? ${only ? 'AND s.page_id = ?' : ''} AND (s.to_id = ? OR s.to_id = '*')`, accountId, worldId, ...(only ? [only] : []), accountId);
     } catch { return out; }
     for (const g of grants) {
-      if (out.has(g.page_id) || normLevel(g.visibility) !== 'dm' || (g.marker_level != null && g.marker_level !== 'party')) continue;
-      if (g.kind === 'dm') {
-        if (one(this.db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", worldId, g.from_id)) out.set(g.page_id, 'dm');
+      if (out.has(g.page_id) || normLevel(g.visibility) !== 'gm' || (g.marker_level != null && g.marker_level !== 'party')) continue;
+      if (g.kind === 'gm') {
+        if (one(this.db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'gm'", worldId, g.from_id)) out.set(g.page_id, 'gm');
       } else if (g.from_id !== accountId && depth < 3 && this.liftedInfo(worldId, g.from_id, g.page_id, depth + 1).has(g.page_id)) out.set(g.page_id, 'share');
     }
     // Pages in a folder the GM shared (a rule that also covers pages added or moved in later).
-    for (const id of folderLifted(this.db, worldId, accountId, only)) if (!out.has(id)) out.set(id, 'dm');
+    for (const id of folderLifted(this.db, worldId, accountId, only)) if (!out.has(id)) out.set(id, 'gm');
     return out;
   }
 
@@ -1066,7 +1066,7 @@ export class Library {
     const aud = audienceOf(viewer);
     // Relations a source gave (Kanka), shown with the ones from page frontmatter.
     const imported = () => { try { return importedRelations(this.db, worldId, viewer); } catch { return []; } };
-    if (aud === 'dm') return [...all(this.db, 'SELECT id, from_title, to_title, kind, visibility FROM relations WHERE world_id = ? ORDER BY from_title', worldId), ...imported()];
+    if (aud === 'gm') return [...all(this.db, 'SELECT id, from_title, to_title, kind, visibility FROM relations WHERE world_id = ? ORDER BY from_title', worldId), ...imported()];
     const hidden = this.hiddenTitles(worldId, aud);
     if (aud !== 'player') {
       // A model or the broker: relations of pages it may read, that name no page above its level.

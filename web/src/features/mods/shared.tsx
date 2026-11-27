@@ -16,10 +16,10 @@ export interface HouseRule {
   source: 'shipped' | 'imported'; feature: string | null; enabled: boolean;
   options: Record<string, unknown>; optionSpecs: Record<string, OptionSpec>;
   resources: { id: string; label: string; icon: string; private: boolean }[];
-  actions: { id: string; label: string; by: 'dm' | 'owner' | 'player' | 'any'; resource: string; askReason: boolean; reroll: 'own' | 'anyPlayer' | 'dm' | null }[];
+  actions: { id: string; label: string; by: 'gm' | 'owner' | 'player' | 'any'; resource: string; askReason: boolean; reroll: 'own' | 'anyPlayer' | 'gm' | null }[];
   commands: string[];
   sheet: { title: string; resources: string[] } | null;
-  dmBand: { chips: string[]; actions: string[] } | null;
+  gmBand: { chips: string[]; actions: string[] } | null;
   table: { title: string; actions: string[] } | null;
   rules: { term: string; text: string }[];
   presets?: Record<string, unknown>; missing?: string[]; waiting?: string[];
@@ -33,9 +33,9 @@ export interface HouseRule {
 }
 export interface FieldSpec { type: 'text' | 'int' | 'bool' | 'enum' | 'ref'; label: string; optional: boolean; values?: string[]; ref?: string; min?: number; max?: number; default?: unknown }
 export interface RecordKindView { id: string; label: string; plural: string; owned: boolean; title: string; fields: Record<string, FieldSpec> }
-export interface RecordActionView { id: string; label: string; by: 'dm' | 'owner' | 'player' | 'any'; record: string; do: 'create' | 'set' | 'add' | 'remove'; ask: string[]; field: string | null; amount: number | string | null; where: Record<string, unknown> }
+export interface RecordActionView { id: string; label: string; by: 'gm' | 'owner' | 'player' | 'any'; record: string; do: 'create' | 'set' | 'add' | 'remove'; ask: string[]; field: string | null; amount: number | string | null; where: Record<string, unknown> }
 export interface PromptView { id: string; button: string; title: string; text: string; choices: { label: string; action?: string; skip?: boolean }[] }
-export interface ViewSpec { id: string; title: string; record: string; place: 'dm' | 'sheet' | 'player'; columns: string[]; where: Record<string, unknown>; actions: string[]; groupByPlayer: boolean }
+export interface ViewSpec { id: string; title: string; record: string; place: 'gm' | 'sheet' | 'player'; columns: string[]; where: Record<string, unknown>; actions: string[]; groupByPlayer: boolean }
 export interface SystemView { records: RecordKindView[]; recordActions: RecordActionView[]; prompts: PromptView[]; views: ViewSpec[] }
 export interface Rec { id: string; kind: string; player: string | null; createdAt: string; updatedAt: string; removed: boolean; [field: string]: unknown }
 export interface Target { id: string; label: string; ok: boolean }
@@ -62,17 +62,17 @@ export function Chip({ c }: { c: Counter }) {
 
 /** Under a chat roll: the rerolls I hold that fit this roll. */
 export function RerollAction({ message, channel }: { message: ChatActionMessage; channel: 'table' | 'party' }) {
-  const { w, me, isDM, members } = useWorld();
+  const { w, me, isGM, members } = useWorld();
   const { list, players } = useHouseRules();
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  if (isDM || message.kind !== 'roll') return null;
+  if (isGM || message.kind !== 'roll') return null;
   const mine = players.find((p) => p.accountId === me);
   if (!mine) return null;
   const authorRole = members.find((m) => m.id === message.authorId)?.role;
-  const fits = (whose: string) => (whose === 'own' ? message.authorId === me : whose === 'anyPlayer' ? authorRole === 'player' : authorRole === 'dm');
+  const fits = (whose: string) => (whose === 'own' ? message.authorId === me : whose === 'anyPlayer' ? authorRole === 'player' : authorRole === 'gm');
   const options = list.flatMap((r) => r.actions
-    .filter((a) => a.reroll && a.by !== 'dm' && fits(a.reroll))
+    .filter((a) => a.reroll && a.by !== 'gm' && fits(a.reroll))
     .map((a) => ({ r, a, have: mine.mods[r.id]?.find((c) => c.id === a.resource)?.value ?? 0 }))
     .filter((x) => x.have > 0));
   if (!options.length) return null;

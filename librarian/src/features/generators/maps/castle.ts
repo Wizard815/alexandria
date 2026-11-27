@@ -92,7 +92,7 @@ export function genCastle(o: MapOpts = {}): MapResult {
   const keepKeys: KeyEntry[] = leaves.map((l, i) => ({
     n: `K${i + 1}`, name: l.id === front.id ? frontName : keepNames[i % keepNames.length],
     text: `${l.id === front.id ? 'The keep\'s only ground-floor entrance, a heavy double door. ' : ''}${l.w * 5} by ${l.h * 5} ft, stone floor and narrow windows.`,
-    dm: chance(r, 0.4) ? `Guard: ${pick(r, ['two sentries', 'a sleepy porter', 'a patrolling man-at-arms', 'nobody until the bell rings'])}.` : undefined,
+    gm: chance(r, 0.4) ? `Guard: ${pick(r, ['two sentries', 'a sleepy porter', 'a patrolling man-at-arms', 'nobody until the bell rings'])}.` : undefined,
   }));
   leaves.forEach((l, i) => {
     c.ops.push({ t: 'circle', x: X(l.x + l.w / 2), y: Y(l.y + l.h / 2), r: 10, fill: '#fffaf0', stroke: pal.line, sw: 1.2 });
@@ -126,7 +126,7 @@ export function genCastle(o: MapOpts = {}): MapResult {
   placed.forEach(({ n, q, name }) => {
     c.ops.push({ t: 'circle', x: X(q.x + q.w / 2), y: Y(q.y + q.h / 2), r: 10, fill: '#fffaf0', stroke: pal.line, sw: 1.2 });
     c.ops.push({ t: 'text', x: X(q.x + q.w / 2), y: Y(q.y + q.h / 2) + 4, s: String(n), size: 12, fill: '#1f1b18', anchor: 'middle', bold: true });
-    key.push({ n: String(n), name, text: CASTLE_BUILDING_NOTE[name] ?? 'A working building of the castle.', dm: chance(r, 0.4) ? `Occupied by: ${pick(r, ['three servants', 'a bored sergeant and two guards', 'a craftsman who talks too much', 'nobody at this hour', 'a stable boy who sees everything'])}.` : undefined });
+    key.push({ n: String(n), name, text: CASTLE_BUILDING_NOTE[name] ?? 'A working building of the castle.', gm: chance(r, 0.4) ? `Occupied by: ${pick(r, ['three servants', 'a bored sergeant and two guards', 'a craftsman who talks too much', 'nobody at this hour', 'a stable boy who sees everything'])}.` : undefined });
   });
 
   // well and training ground in the courtyard
@@ -144,13 +144,13 @@ export function genCastle(o: MapOpts = {}): MapResult {
     c.ops.push({ t: 'circle', x: X(t.x), y: Y(t.y), r: CELL * 3.2, fill: pal.stone, stroke: pal.line, sw: 2.4 });
     c.ops.push({ t: 'circle', x: X(t.x), y: Y(t.y), r: CELL * 1.6, stroke: pal.line, sw: 1 });
     c.ops.push({ t: 'text', x: X(t.x), y: Y(t.y) + 4, s: `T${i + 1}`, size: 11, fill: '#1f1b18', anchor: 'middle', bold: true });
-    key.push({ n: `T${i + 1}`, name: t.name, text: 'Three floors with arrow slits, a spiral stair and a wall-walk door. Battlements on top.', dm: chance(r, 0.5) ? `Held by: ${pick(r, ['two archers', 'a lone lookout', 'a ballista crew of three', 'nobody, and the door is barred from inside'])}.` : undefined });
+    key.push({ n: `T${i + 1}`, name: t.name, text: 'Three floors with arrow slits, a spiral stair and a wall-walk door. Battlements on top.', gm: chance(r, 0.5) ? `Held by: ${pick(r, ['two archers', 'a lone lookout', 'a ballista crew of three', 'nobody, and the door is barred from inside'])}.` : undefined });
     links.push(['court', `T${i + 1}`]);
   });
 
   key.unshift(
-    { n: '1', name: 'Gatehouse', text: 'A drawbridge, a portcullis and a murder-hole passage 40 ft long. The gate is shut at dusk.', dm: `Gate guards: ${pick(r, ['four men-at-arms', 'two sleepy guards and a sergeant', 'a captain and six'])}. Passwords change weekly.` },
-    { n: '2', name: 'Courtyard', text: 'Cobbled, with a well and a mustering ground. Everything in the castle opens onto it.', dm: `Wanderers: ${pick(r, ['servants hauling water', 'a drill under a stern sergeant', 'a merchant arguing about a bill', 'a messenger who looks lost'])}.` },
+    { n: '1', name: 'Gatehouse', text: 'A drawbridge, a portcullis and a murder-hole passage 40 ft long. The gate is shut at dusk.', gm: `Gate guards: ${pick(r, ['four men-at-arms', 'two sleepy guards and a sergeant', 'a captain and six'])}. Passwords change weekly.` },
+    { n: '2', name: 'Courtyard', text: 'Cobbled, with a well and a mustering ground. Everything in the castle opens onto it.', gm: `Wanderers: ${pick(r, ['servants hauling water', 'a drill under a stern sergeant', 'a merchant arguing about a bill', 'a messenger who looks lost'])}.` },
   );
   key.push(...keepKeys);
   links.push(['gate', 'court']);

@@ -26,11 +26,11 @@ async function sweep(world: string, who: string[]) {
 }
 
 test('Audit_EmptyWorld: a brand new world answers every read for its GM, a player and a guest', async () => {
-  assert.deepEqual(await sweep(k.W, ['dm', 'jess', 'visitor']), []);
+  assert.deepEqual(await sweep(k.W, ['gm', 'jess', 'visitor']), []);
 });
 
-test('Audit_NoDm: a world whose GM was removed still answers every read for its players', async () => {
-  await k.ok('DELETE', `/api/admin/worlds/${k.W}/members/${k.ID.dm}`, k.T.admin);
+test('Audit_NoGm: a world whose GM was removed still answers every read for its players', async () => {
+  await k.ok('DELETE', `/api/admin/worlds/${k.W}/members/${k.ID.gm}`, k.T.admin);
   assert.deepEqual(await sweep(k.W, ['jess', 'tom', 'visitor']), []);
   // Nobody is the GM now: GM-only things answer 403/404 rather than leaking or crashing.
   for (const u of ['/library/pages/x/share', '/audit', '/settings']) {

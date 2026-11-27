@@ -13,7 +13,7 @@ test('Audit_Settings: GM-only settings never reach a player, a guest, a model as
   const tap = new EventTap(k.base + k.w('/events'), k.T.jess);
   await settle();
   const root = 'GM Secrets/ZQXLOREROOT';
-  await k.ok('PATCH', k.w('/settings'), k.T.dm, { worldLore: { kind: 'library', root, defaultLevel: 'dm', url: 'https://wiki.example.com/ZQXLOREURL' }, agentAutoApprove: ['ZQXAUTOTOOL'], brokerTopics: ['rumours'] });
+  await k.ok('PATCH', k.w('/settings'), k.T.gm, { worldLore: { kind: 'library', root, defaultLevel: 'gm', url: 'https://wiki.example.com/ZQXLOREURL' }, agentAutoApprove: ['ZQXAUTOTOOL'], brokerTopics: ['rumours'] });
   await settle();
   await tap.close();
   const seen: string[] = [];
@@ -27,6 +27,6 @@ test('Audit_Settings: GM-only settings never reach a player, a guest, a model as
   seen.push(...['ZQXLOREROOT', 'ZQXLOREURL', 'ZQXAUTOTOOL'].filter((t) => tap.text.includes(t)).map((t) => `${t} in jess's event stream`));
   assert.deepEqual(seen, []);
   // The GM still sees everything.
-  const dm = await k.call('GET', k.w('/settings'), k.T.dm);
-  assert.ok(dm.text.includes('ZQXLOREROOT') && dm.text.includes('ZQXAUTOTOOL'));
+  const gm = await k.call('GET', k.w('/settings'), k.T.gm);
+  assert.ok(gm.text.includes('ZQXLOREROOT') && gm.text.includes('ZQXAUTOTOOL'));
 });

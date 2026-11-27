@@ -64,12 +64,12 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Sessionland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Sessionland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.player = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).token;
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Vault', visibility: 'dm', markdown: `# Vault\nThe passphrase is ${SECRET}.\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'gm/Vault', visibility: 'gm', markdown: `# Vault\nThe passphrase is ${SECRET}.\n` });
   argosId = (await ok('POST', `${A}/providers`, T.admin, { name: 'Argos', kind: 'argos', baseUrl: fake.baseUrl })).provider.id;
   cloudId = (await ok('POST', `${A}/providers`, T.admin, { name: 'Cloudy', kind: 'openai-compatible', baseUrl: other.baseUrl, location: 'cloud' })).provider.id;
   localOtherId = (await ok('POST', `${A}/providers`, T.admin, { name: 'Ollama box', kind: 'ollama', baseUrl: other.baseUrl.replace('127.0.0.1', 'localhost') })).provider.id;
@@ -86,8 +86,8 @@ after(async () => {
 const setJobs = (jobs: Record<string, unknown>) => ok('PUT', A, T.admin, { jobs });
 const allOnArgos = () => setJobs(Object.fromEntries(JOBS6.map((j) => [j, { providerId: argosId, model: MODEL[j], enabled: true, fallback: null }])));
 const setSession = (b: Record<string, boolean>) => ok('PUT', `${A}/session`, T.admin, b);
-const startChat = () => ok('POST', `/api/worlds/${W}/sessionchat/sessions/start`, T.dm, { title: 'Test night' });
-const endChat = () => ok('POST', `/api/worlds/${W}/sessionchat/sessions/end`, T.dm, {});
+const startChat = () => ok('POST', `/api/worlds/${W}/sessionchat/sessions/start`, T.gm, { title: 'Test night' });
+const endChat = () => ok('POST', `/api/worlds/${W}/sessionchat/sessions/end`, T.gm, {});
 const modelCalls = (f: FakeModels) => f.requests.filter((r) => r.method === 'POST' && r.path.startsWith('/v1/'));
 const unloads = (f: FakeModels) => f.requests.filter((r) => r.method === 'POST' && r.path.startsWith('/api/models/unload/')).map((r) => decodeURIComponent(r.path.split('/').pop()!));
 const forget = (f: FakeModels) => { f.requests.length = 0; };

@@ -78,7 +78,7 @@ function WorldFiles({ w, onChanged, toast }: { w: SourceFilesWorld; onChanged: (
   const empty = !w.sources.length && !w.library.count;
   return (
     <Section title={<span className="row wrap" style={{ gap: 10 }}>{w.name}{w.view === 'counts' && <Pill>counts and shared names only</Pill>}</span>}
-      lead={empty ? 'No sources and no library files.' : w.view === 'dm' ? 'You are this world’s GM, so every name is shown.' : 'You are not this world’s GM. Files its players cannot see are counted but not named.'}>
+      lead={empty ? 'No sources and no library files.' : w.view === 'gm' ? 'You are this world’s GM, so every name is shown.' : 'You are not this world’s GM. Files its players cannot see are counted but not named.'}>
       <ErrorBox error={a.error} />
       {w.sources.map((s) => (
         <div key={s.id} className="gws-source">

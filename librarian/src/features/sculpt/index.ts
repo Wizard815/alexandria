@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import type { Deps } from '../../app.ts';
 import type { Feature } from '../types.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one, run } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
@@ -19,7 +19,7 @@ import { BUILTINS, CATEGORIES, type Field, type Outputs, type Target } from './t
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sculpt_templates (
   id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-  builtin_key TEXT, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', perspective TEXT NOT NULL DEFAULT 'dm',
+  builtin_key TEXT, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', perspective TEXT NOT NULL DEFAULT 'gm',
   fields TEXT NOT NULL, body TEXT NOT NULL, target TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS sculpt_templates_world ON sculpt_templates(world_id);
 CREATE TABLE IF NOT EXISTS sculpt_history (
@@ -54,7 +54,7 @@ const view = (r: any, prefs?: Map<string, any>) => {
   const target = parseJson<Target>(r.target, { kind: 'none' });
   const p = prefs?.get(r.id);
   return {
-    id: r.id, builtin: !!r.builtin_key, key: r.builtin_key ?? null, name: r.name, description: r.description, perspective: r.perspective as 'dm' | 'player',
+    id: r.id, builtin: !!r.builtin_key, key: r.builtin_key ?? null, name: r.name, description: r.description, perspective: r.perspective as 'gm' | 'player',
     category: (r.category || b?.category || 'Story') as string,
     fields: parseJson<Field[]>(r.fields, []), body: r.body, target, outputs: parseJson<Outputs>(r.outputs, b?.outputs ?? defaultOutputs(target)),
     updatedAt: r.updated_at, favorite: !!p?.fav, uses: p?.uses ?? 0, lastUsedAt: p?.used_at ?? null,
@@ -77,7 +77,7 @@ function contextIn(raw: unknown): CtxIn {
 
 function routes(d: Deps) {
   const r = Router();
-  r.use(requireDM);
+  r.use(requireGM);
   const W = (res: any): string => ctx(res).world.id;
   r.use((_req, res, next) => { seed(d.db, W(res)); next(); });
 
@@ -214,7 +214,7 @@ function routes(d: Deps) {
     const md = extra.md ?? renderMd(renderParts(tpl, v, rc));
     const base = tpl.target;
     const o = override && typeof override === 'object' ? override : {};
-    const visibility: 'dm' | 'party' = tpl.perspective === 'player' ? (o.visibility === 'party' ? 'party' : 'dm') : o.visibility === 'party' ? 'party' : o.visibility === 'dm' ? 'dm' : (base as any).visibility === 'party' ? 'party' : 'dm';
+    const visibility: 'gm' | 'party' = tpl.perspective === 'player' ? (o.visibility === 'party' ? 'party' : 'gm') : o.visibility === 'party' ? 'party' : o.visibility === 'gm' ? 'gm' : (base as any).visibility === 'party' ? 'party' : 'gm';
     if (visibility === 'party' && tpl.perspective !== 'player') requirePublicClean(rc, tpl, v);
     const title = (extra.title || v.title || v.name || v.location || tpl.name).replace(/\s+/g, ' ').trim().slice(0, 120) || tpl.name;
     const pagePath = (pattern: string): string => {
@@ -260,7 +260,7 @@ function routes(d: Deps) {
         const sb = normalizeStatblock(parseJson<any>(f ? v[f.key] : '', null), v.name ?? '');
         const p = saveStatblockPage(d, w, me(res), sb, { kind: 'sculpt', ref: '', title: sb.name });
         audit(d.db, w, me(res), 'sculpt.save', `statblock ${p.path}`);
-        return { kind: 'combat', pageId: p.id, path: p.path, title: p.title, visibility: 'dm' };
+        return { kind: 'combat', pageId: p.id, path: p.path, title: p.title, visibility: 'gm' };
       }
       default: throw bad('This template has no save target. Pick one in the editor.');
     }
@@ -340,7 +340,7 @@ function routes(d: Deps) {
       const text = needs('stage').text;
       const kind = o.stageKind === 'event' ? 'event' : 'text';
       const show = o.stageShow !== false;
-      const imgField = tpl.fields.find((f) => f.type === 'image' && !f.dmOnly);
+      const imgField = tpl.fields.find((f) => f.type === 'image' && !f.gmOnly);
       const img = imgField ? (results[0][imgField.key] ?? '').trim() : '';
       const card = await selfCall(req, w, 'POST', '/stage/cards', { kind, title, text, show, to: Array.isArray(opts.to) ? opts.to : undefined });
       const out: any = { cardId: card.id, kind, shown: show };
@@ -406,7 +406,7 @@ function routes(d: Deps) {
     const rc = rcFor(res, tpl, contextIn(req.body?.context));
     const c = cleanForPlayer(d, W(res), tpl, valuesOf(req.body?.values), rc);
     const parts = renderParts(tpl, c.values, rc);
-    const plainText = parts.filter((p) => !p.dm).map((p) => p.md.replace(/[*_#>`]/g, '').replace(/^\s*-\s+/gm, '').trim()).join('\n\n');
+    const plainText = parts.filter((p) => !p.gm).map((p) => p.md.replace(/[*_#>`]/g, '').replace(/^\s*-\s+/gm, '').trim()).join('\n\n');
     const out: any = { ok: !c.leaks.length, leaks: c.leaks, md: renderMd(parts), parts, text: plainText };
     // Can the public part be shown on the stage, sent or sold? Only worked out when asked: it reads every page.
     if (req.body?.public) { const hit = firstLeak(rc, publicText(parts)); out.publicOk = !hit; out.publicLeak = hit; }
@@ -508,17 +508,17 @@ const feature: Feature = {
     required: ['values'],
     call: (a) => ({ method: 'POST', path: '/sculpt/send', body: { templateId: a.template, values: a.values } }),
   }, {
-    name: 'sculpt_templates', dmOnly: true,
+    name: 'sculpt_templates', gmOnly: true,
     description: 'GM: the sculpting templates for this world, with their fields.',
     props: {},
     call: () => ({ method: 'GET', path: '/sculpt/templates' }),
   }, {
     name: 'create_template', write: true,
-    description: 'GM: draft a new sculpting template; the GM approves it before it is saved. Give name, description, perspective (dm or player), category (Combat, NPCs, Places, Loot, Story or Prep), fields (each: key lowercase_with_underscores, label, type text|longtext|number|select|list|name|item|coins|page|statblock|dice|table|rollTable, options for select, optional gen like "gen:name.human" or "dice:2d6" or "pick:a|b|c", dmOnly, hint) and body (text using {{field_key}}, {{#if key}}...{{/if}}, {{#each key}}...{{/each}}, {{#dm}}...{{/dm}} for GM-only parts, {{gen:...}}, {{dice:...}}, {{pick:a|b}}). Check list_templates first so you do not duplicate one. For a one-off NPC use generate (kind npc), not a template.',
+    description: 'GM: draft a new sculpting template; the GM approves it before it is saved. Give name, description, perspective (gm or player), category (Combat, NPCs, Places, Loot, Story or Prep), fields (each: key lowercase_with_underscores, label, type text|longtext|number|select|list|name|item|coins|page|statblock|dice|table|rollTable, options for select, optional gen like "gen:name.human" or "dice:2d6" or "pick:a|b|c", gmOnly, hint) and body (text using {{field_key}}, {{#if key}}...{{/if}}, {{#each key}}...{{/each}}, {{#gm}}...{{/gm}} for GM-only parts, {{gen:...}}, {{dice:...}}, {{pick:a|b}}). Check list_templates first so you do not duplicate one. For a one-off NPC use generate (kind npc), not a template.',
     props: {
       name: { type: 'string' }, description: { type: 'string' },
-      perspective: { type: 'string', enum: ['dm', 'player'] }, category: { type: 'string', enum: [...CATEGORIES] },
-      fields: { type: 'array', items: { type: 'object' }, description: 'Field objects: {key, label, type, options?, gen?, dmOnly?, hint?, required?, optional?, default?}' },
+      perspective: { type: 'string', enum: ['gm', 'player'] }, category: { type: 'string', enum: [...CATEGORIES] },
+      fields: { type: 'array', items: { type: 'object' }, description: 'Field objects: {key, label, type, options?, gen?, gmOnly?, hint?, required?, optional?, default?}' },
       body: { type: 'string', description: 'The template text' },
       target: { type: 'object', description: 'Optional where results are saved, as the template editor has it' },
       outputs: { type: 'object', description: 'Optional booleans: page, stage, combat, send, broker' },
@@ -526,7 +526,7 @@ const feature: Feature = {
     required: ['name', 'fields', 'body'],
     call: (a) => ({ method: 'POST', path: '/sculpt/templates', body: { name: a.name, description: a.description, perspective: a.perspective, category: a.category, fields: a.fields, body: a.body, target: a.target, outputs: a.outputs } }),
   }, {
-    name: 'list_templates', dmOnly: true,
+    name: 'list_templates', gmOnly: true,
     description: 'GM: find a sculpting template by what you need ("rumour", "trap", "encounter"). Returns a short list: name, category, what it does and its field keys, so you can call sculpt with partial values.',
     props: {
       query: { type: 'string', description: 'Words to look for in the name, description or fields' },

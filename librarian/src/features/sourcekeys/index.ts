@@ -12,7 +12,7 @@
 //   POST   /api/worlds/:w/source-keys/escalations/:eid/{answer,price,refuse}   GM
 //   GET/POST/DELETE /api/worlds/:w/library/pages/:id/share  share a page (routes/library.ts mounts share.ts)
 //
-// World settings: escalation (dm-question | broker-deal), escalationSessions, sourceKeysPlayers.
+// World settings: escalation (gm-question | broker-deal), escalationSessions, sourceKeysPlayers.
 // See docs/CONNECTORS.md.
 import type { Feature } from '../types.ts';
 import { all } from '../../core/db.ts';
@@ -26,7 +26,7 @@ const feature: Feature = {
   id: 'sourcekeys',
   schema: SCHEMA,
   settings: {
-    escalation: { type: 'enum', values: ['dm-question', 'broker-deal'], default: 'broker-deal' },
+    escalation: { type: 'enum', values: ['gm-question', 'broker-deal'], default: 'broker-deal' },
     escalationSessions: { type: 'int', default: 2, min: 0, max: 50 },
     sourceKeysPlayers: { type: 'boolean', default: true },
   },

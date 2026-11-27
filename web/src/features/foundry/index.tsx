@@ -4,7 +4,7 @@ import FoundryPage from './FoundryPage.tsx';
 // GM → Setup → Foundry VTT: connect a Foundry world (see librarian/src/features/foundry).
 const feature: WebFeature = {
   id: 'foundry',
-  dmRoutes: [{ path: 'foundry', element: <FoundryPage /> }],
-  dmNav: [{ to: 'foundry' }],
+  gmRoutes: [{ path: 'foundry', element: <FoundryPage /> }],
+  gmNav: [{ to: 'foundry' }],
 };
 export default feature;

@@ -9,7 +9,7 @@ import { Pill, Section, Tile } from '../../pages/admin/kit.tsx';
 
 interface Mcp {
   url: string | null;
-  tools: { name: string; description: string; write: boolean; dmOnly: boolean; playerOnly: boolean }[];
+  tools: { name: string; description: string; write: boolean; gmOnly: boolean; playerOnly: boolean }[];
   keys: { scribe: number; write: number; admin: number; list: { id: string; owner: string; world: string | null; label: string; scope: string; access: string; createdAt: string; lastUsedAt: string | null }[] };
 }
 
@@ -47,7 +47,7 @@ export default function Access() {
               <tbody>{d.tools.map((t) => (
                 <tr key={t.name}>
                   <td className="mono">{t.name}</td><td className="small">{t.description}</td>
-                  <td>{t.write ? <Pill tone="warn">GM write key</Pill> : t.dmOnly ? <Pill>GM</Pill> : t.playerOnly ? <Pill>Players</Pill> : <Pill tone="ok">Any key</Pill>}</td>
+                  <td>{t.write ? <Pill tone="warn">GM write key</Pill> : t.gmOnly ? <Pill>GM</Pill> : t.playerOnly ? <Pill>Players</Pill> : <Pill tone="ok">Any key</Pill>}</td>
                 </tr>
               ))}</tbody>
             </table></div></div>

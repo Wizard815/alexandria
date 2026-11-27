@@ -104,7 +104,7 @@ function textOf(v: unknown): Inline[] {
  */
 export function kankaProperties(e: any, type: string, lookup: (module: string, id: unknown) => string | undefined): PropertyGroup[] {
   const facts: { key: string; value: Inline[] }[] = [];
-  const dmFacts: { key: string; value: Inline[] }[] = [];
+  const gmFacts: { key: string; value: Inline[] }[] = [];
   if (e.type) facts.push({ key: 'Type', value: [{ text: esc(e.type) }] });
   if (type === 'character') {
     if (e.title) facts.push({ key: 'Title', value: [{ text: esc(e.title) }] });
@@ -118,7 +118,7 @@ export function kankaProperties(e: any, type: string, lookup: (module: string, i
     const v = links(module, e[field]);
     if (v.length) facts.push({ key: label, value: v });
     const pv = privateField ? links(module, e[privateField]) : [];
-    if (pv.length) dmFacts.push({ key: label, value: pv });
+    if (pv.length) gmFacts.push({ key: label, value: pv });
   }
   if (e.location_id && !Array.isArray(e.locations)) { const v = links('locations', e.location_id); if (v.length) facts.push({ key: 'Location', value: v }); }
 
@@ -133,16 +133,16 @@ export function kankaProperties(e: any, type: string, lookup: (module: string, i
   const traitRows = (ts: any[]) => ts.filter((t) => t?.name).map((t) => ({ key: esc(t.name), value: textOf(t.entry ?? t.entry_parsed) }));
   const appearance = traitRows(traits.filter((t: any) => t?.section === 'appearance' && traitShared(t)));
   const personality = traitRows(traits.filter((t: any) => t?.section === 'personality' && traitShared(t)));
-  const dmTraits = traitRows(traits.filter((t: any) => !traitShared(t)));
+  const gmTraits = traitRows(traits.filter((t: any) => !traitShared(t)));
 
   return [
     ...(facts.length ? [{ title: 'Facts', rows: facts }] : []),
     ...(appearance.length ? [{ title: 'Appearance', rows: appearance }] : []),
     ...(personality.length ? [{ title: 'Personality', rows: personality }] : []),
     ...(shared.length ? [{ title: 'Attributes', rows: shared.map(row) }] : []),
-    ...(dmFacts.length ? [{ title: 'Private links', dm: true, rows: dmFacts }] : []),
-    ...(dmTraits.length ? [{ title: 'Private traits', dm: true, rows: dmTraits }] : []),
-    ...(hiddenAttrs.length ? [{ title: 'Private attributes', dm: true, rows: hiddenAttrs.map(row) }] : []),
+    ...(gmFacts.length ? [{ title: 'Private links', gm: true, rows: gmFacts }] : []),
+    ...(gmTraits.length ? [{ title: 'Private traits', gm: true, rows: gmTraits }] : []),
+    ...(hiddenAttrs.length ? [{ title: 'Private attributes', gm: true, rows: hiddenAttrs.map(row) }] : []),
   ];
 }
 
@@ -250,7 +250,7 @@ function kankaEntryOf(cfg: any, ctx: ConnectorContext, kc: ReturnType<typeof kan
     properties: kankaProperties(e, type, kc.lookup),
     blocks: [...kankaBlocks(e.entry ?? e.entry_parsed), ...postBlocks(e.posts ?? [], postShared, (p) => postLevel(p, kc.tagOf))],
     // Kanka's own private flag always wins; a missing flag counts as private.
-    visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'dm', sourceShared: e.is_private === false,
+    visibility: e.is_private === false && ctx.shareVisible ? 'party' : 'gm', sourceShared: e.is_private === false,
     url: (typeof e.urls?.view === 'string' && /^https?:\/\//i.test(e.urls.view) ? e.urls.view : null) ?? kankaEntityUrl(cfg, entityId),
     position: kc.positions.get(entityId) ?? null,
     updatedAt: e.updated_at ?? null,
@@ -329,7 +329,7 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
   }
   // ---- Relations, timelines, calendars and map markers ----
   // A listing that can't be read is marked incomplete, so what was stored before is kept.
-  const share = (shared: boolean) => (shared && ctx.shareVisible ? 'party' : 'dm') as 'dm' | 'party';
+  const share = (shared: boolean) => (shared && ctx.shareVisible ? 'party' : 'gm') as 'gm' | 'party';
   // A name for an unnamed element or marker, only from an entity players may see.
   const publicName = new Map<string, string>(rows.filter(({ e }) => e.is_private === false).map(({ e }) => [String(e.entity_id), esc(e.name)]));
 
@@ -572,7 +572,7 @@ async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Ent
         // are secret unless the admin trusts this server's post visibility.
         blocks: e ? [...kankaBlocks(e.entry), ...postBlocks(e.posts ?? [], (p) => trust && p.is_hidden === false)] : [],
         // Not loaded, or no explicit is_hidden=false: GM-only.
-        visibility: e && e.is_hidden === false && ctx.shareVisible ? 'party' : 'dm', sourceShared: !!e && e.is_hidden === false,
+        visibility: e && e.is_hidden === false && ctx.shareVisible ? 'party' : 'gm', sourceShared: !!e && e.is_hidden === false,
         url: /^\d+$/.test(String(cfg.campaignId ?? '')) && /^https?:\/\/\S+$/.test(appBase) ? `${appBase}/w/${cfg.campaignId}/entities/${id}` : null,
         position: mcpPos.get(String(id)) ?? null,
         updatedAt: e?.updated_at ?? null,

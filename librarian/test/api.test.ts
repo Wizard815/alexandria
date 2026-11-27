@@ -81,22 +81,22 @@ test('TestSetup_FirstAccountIsAdminAndSetupCloses', async () => {
   assert.ok((await ok('POST', '/api/auth/login', undefined, { username: 'wizard', password: 'correct horse battery' })).token);
 });
 
-test('TestAdmin_CreatesWorldDmAndInviteJoin', async () => {
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const w = await ok('POST', '/api/admin/worlds', T.admin, { name: 'BloodEarth', dmAccountId: ID.dm });
+test('TestAdmin_CreatesWorldGmAndInviteJoin', async () => {
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const w = await ok('POST', '/api/admin/worlds', T.admin, { name: 'BloodEarth', gmAccountId: ID.gm });
   W = w.id;
   // Admin flag alone does not open the world.
   assert.equal((await call('GET', `/api/worlds/${W}/library/pages`, T.admin)).status, 404);
 
   for (const [name, char] of [['jess', 'Mira'], ['tom', 'Brannoc']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: char });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   await ok('POST', '/api/join', undefined, { code: inv.code, username: 'reuse1', password: 'player pass 123' });
   assert.equal((await call('POST', '/api/join', undefined, { code: inv.code, username: 'reuse2', password: 'player pass 123' })).status, 400, 'invite codes work once');
   assert.equal((await call('POST', `/api/worlds/${W}/invites`, T.jess, { role: 'player' })).status, 403);
@@ -115,11 +115,11 @@ test('TestLibrary_VaultImportAndPlayerCopy', async () => {
   assert.equal((await call('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'vault', name: 'escape', config: { folder: '../../etc' } })).status, 400);
   assert.equal((await ok('POST', `/api/admin/sources/${src.id}/sync?wait=1`, T.admin)).pages, 2);
 
-  const dmPages = await ok('GET', `/api/worlds/${W}/library/pages`, T.dm);
-  assert.equal(dmPages.length, 2);
+  const gmPages = await ok('GET', `/api/worlds/${W}/library/pages`, T.gm);
+  assert.equal(gmPages.length, 2);
   const pPages = await ok('GET', `/api/worlds/${W}/library/pages`, T.jess);
   assert.deepEqual(pPages.map((p: any) => p.title), ['Lady Ysolde Varn']);
-  const tamsin = dmPages.find((p: any) => p.title === 'Brother Tamsin');
+  const tamsin = gmPages.find((p: any) => p.title === 'Brother Tamsin');
   assert.equal((await call('GET', `/api/worlds/${W}/library/pages/${tamsin.id}`, T.jess)).status, 404);
 
   const pg = await ok('GET', `/api/worlds/${W}/library/pages/${pPages[0].id}`, T.jess);
@@ -128,8 +128,8 @@ test('TestLibrary_VaultImportAndPlayerCopy', async () => {
   for (const leak of ['poisoned', 'not her husband', 'Tamsin', 'secret']) assert.ok(!all.includes(leak), `player page leaked "${leak}"`);
 
   // GM copy keeps everything.
-  const dmCopy = JSON.stringify(await ok('GET', `/api/worlds/${W}/library/pages/${pPages[0].id}`, T.dm));
-  assert.ok(dmCopy.includes('poisoned') && dmCopy.includes('not her husband'));
+  const gmCopy = JSON.stringify(await ok('GET', `/api/worlds/${W}/library/pages/${pPages[0].id}`, T.gm));
+  assert.ok(gmCopy.includes('poisoned') && gmCopy.includes('not her husband'));
 
   // The mirror on disk has a party folder without the secrets.
   const partyFile = fs.readFileSync(path.join(tmp, 'data', 'worlds', 'bloodearth', 'party', 'people', 'Ysolde.md'), 'utf8');
@@ -138,40 +138,40 @@ test('TestLibrary_VaultImportAndPlayerCopy', async () => {
 });
 
 test('TestLibrary_SearchUsesPartyIndexForPlayers', async () => {
-  const dm = await ok('GET', `/api/worlds/${W}/library/search?q=poisoned`, T.dm);
-  assert.equal(dm.length, 1);
+  const gm = await ok('GET', `/api/worlds/${W}/library/search?q=poisoned`, T.gm);
+  assert.equal(gm.length, 1);
   assert.equal((await ok('GET', `/api/worlds/${W}/library/search?q=poisoned`, T.jess)).length, 0);
   assert.equal((await ok('GET', `/api/worlds/${W}/library/search?q=Tamsin`, T.jess)).length, 0);
   assert.equal((await ok('GET', `/api/worlds/${W}/library/search?q=Varn`, T.jess)).length, 1);
 });
 
-test('TestLibrary_RelationsHideSecretsAndDmPages', async () => {
-  const dm = await ok('GET', `/api/worlds/${W}/library/relations`, T.dm);
-  assert.ok(dm.some((r: any) => r.to_title === 'Brother Tamsin' && r.visibility === 'dm'));
+test('TestLibrary_RelationsHideSecretsAndGmPages', async () => {
+  const gm = await ok('GET', `/api/worlds/${W}/library/relations`, T.gm);
+  assert.ok(gm.some((r: any) => r.to_title === 'Brother Tamsin' && r.visibility === 'gm'));
   const pl = await ok('GET', `/api/worlds/${W}/library/relations`, T.jess);
   assert.deepEqual(pl.map((r: any) => [r.from_title, r.kind, r.to_title]), [['Lady Ysolde Varn', 'parent of', 'Aldric Varn']]);
 });
 
-test('TestLibrary_DmHeadingsAndCommentsAreRedacted', async () => {
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Old Kesh', visibility: 'party', markdown: `# Old Kesh\nA port. %%the harbourmaster is a spy%%\n\n## Secrets\nThe smugglers own the docks.\n\n## Markets\nFish and rope.\n<!-- dm -->Trapdoor under the inn.<!-- /dm -->\n` });
+test('TestLibrary_GmHeadingsAndCommentsAreRedacted', async () => {
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'places/Old Kesh', visibility: 'party', markdown: `# Old Kesh\nA port. %%the harbourmaster is a spy%%\n\n## Secrets\nThe smugglers own the docks.\n\n## Markets\nFish and rope.\n<!-- gm -->Trapdoor under the inn.<!-- /gm -->\n` });
   const list = await ok('GET', `/api/worlds/${W}/library/pages`, T.jess);
   const kesh = list.find((p: any) => p.title === 'Old Kesh');
   const body = (await ok('GET', `/api/worlds/${W}/library/pages/${kesh.id}`, T.jess)).body;
   assert.ok(body.includes('Fish and rope'));
   for (const leak of ['spy', 'smugglers', 'Trapdoor']) assert.ok(!body.includes(leak), leak);
   assert.equal((await call('PUT', `/api/worlds/${W}/library/pages`, T.jess, { path: 'x', body: 'hi' })).status, 403);
-  assert.equal((await call('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: '../escape', body: 'hi' })).status, 400);
+  assert.equal((await call('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: '../escape', body: 'hi' })).status, 400);
 });
 
 test('TestRequests_VisibilityAndApply', async () => {
   const list = await ok('GET', `/api/worlds/${W}/library/pages`, T.jess);
   const kesh = list.find((p: any) => p.title === 'Old Kesh');
   const priv = await ok('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'edit', pageId: kesh.id, title: 'Add the Gull inn', body: 'The Gull is an inn on the quay.' });
-  assert.equal(priv.visibility, 'dm', 'default comes from World settings');
+  assert.equal(priv.visibility, 'gm', 'default comes from World settings');
   assert.equal((await ok('GET', `/api/worlds/${W}/requests`, T.tom)).length, 0, 'other players do not see a GM-only request');
-  const tamsinId = (await ok('GET', `/api/worlds/${W}/library/pages`, T.dm)).find((p: any) => p.title === 'Brother Tamsin').id;
+  const tamsinId = (await ok('GET', `/api/worlds/${W}/library/pages`, T.gm)).find((p: any) => p.title === 'Brother Tamsin').id;
   assert.equal((await call('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'edit', pageId: tamsinId, title: 'x', body: 'y' })).status, 404, 'cannot target hidden pages');
-  const dec = await ok('POST', `/api/worlds/${W}/requests/${priv.id}/decide`, T.dm, { decision: 'accepted', apply: { mode: 'append' } });
+  const dec = await ok('POST', `/api/worlds/${W}/requests/${priv.id}/decide`, T.gm, { decision: 'accepted', apply: { mode: 'append' } });
   assert.equal(dec.applied.path, 'places/Old Kesh.md');
   const body = (await ok('GET', `/api/worlds/${W}/library/pages/${kesh.id}`, T.tom)).body;
   assert.ok(body.includes('The Gull is an inn'));
@@ -181,7 +181,7 @@ test('TestRequests_VisibilityAndApply', async () => {
 test('TestMessages_OnlyMembersReadAndOnlyStarterKeeps', async () => {
   const t = await ok('POST', `/api/worlds/${W}/messages`, T.jess, { members: [ID.tom] });
   await ok('POST', `/api/worlds/${W}/messages/${t.id}`, T.jess, { body: 'Don’t tell Sela about the ring.' });
-  assert.equal((await call('GET', `/api/worlds/${W}/messages/${t.id}`, T.dm)).status, 404, 'GM is not in this chat');
+  assert.equal((await call('GET', `/api/worlds/${W}/messages/${t.id}`, T.gm)).status, 404, 'GM is not in this chat');
   assert.equal((await ok('GET', `/api/worlds/${W}/messages/${t.id}`, T.tom)).messages.length, 1);
   assert.equal((await call('POST', `/api/worlds/${W}/messages/${t.id}/keep`, T.tom)).status, 403);
   assert.equal((await ok('POST', `/api/worlds/${W}/messages/${t.id}/keep`, T.jess)).kept, true);
@@ -189,27 +189,27 @@ test('TestMessages_OnlyMembersReadAndOnlyStarterKeeps', async () => {
 });
 
 test('TestQuickEvents_NoDcOrOutcomeLeak', async () => {
-  const ev = await ok('POST', `/api/worlds/${W}/quick-events`, T.dm, { kind: 'recall', title: 'Grey sails', prompt: 'Where have you heard of grey sails?', skill: 'History', dc: 14, successText: 'A ship in mourning.', failText: 'Nothing comes.', audience: [ID.jess], timerS: 60 });
+  const ev = await ok('POST', `/api/worlds/${W}/quick-events`, T.gm, { kind: 'recall', title: 'Grey sails', prompt: 'Where have you heard of grey sails?', skill: 'History', dc: 14, successText: 'A ship in mourning.', failText: 'Nothing comes.', audience: [ID.jess], timerS: 60 });
   const seen = await ok('GET', `/api/worlds/${W}/quick-events`, T.jess);
   const s = JSON.stringify(seen);
   assert.ok(s.includes('Grey sails') && !s.includes('mourning') && !s.includes('"dc"'));
   assert.equal((await ok('GET', `/api/worlds/${W}/quick-events`, T.tom)).length, 0, 'not in audience');
   assert.equal((await call('POST', `/api/worlds/${W}/quick-events/${ev.id}/respond`, T.tom, {})).status, 404);
   await ok('POST', `/api/worlds/${W}/quick-events/${ev.id}/respond`, T.jess, { roll: 13, modifier: 2 });
-  await ok('POST', `/api/worlds/${W}/quick-events/${ev.id}/resolve`, T.dm, {});
+  await ok('POST', `/api/worlds/${W}/quick-events/${ev.id}/resolve`, T.gm, {});
   const after = (await ok('GET', `/api/worlds/${W}/quick-events`, T.jess))[0];
   assert.equal(after.mine.result, 'success');
   assert.equal(after.outcome, 'A ship in mourning.');
   assert.ok(!JSON.stringify(after).includes('Nothing comes'));
 
-  const vote = await ok('POST', `/api/worlds/${W}/quick-events`, T.dm, { kind: 'vote', title: 'Where tonight?', prompt: 'Sleep where?', options: ['The Gull', 'Camp'], publicVotes: true });
+  const vote = await ok('POST', `/api/worlds/${W}/quick-events`, T.gm, { kind: 'vote', title: 'Where tonight?', prompt: 'Sleep where?', options: ['The Gull', 'Camp'], publicVotes: true });
   await ok('POST', `/api/worlds/${W}/quick-events/${vote.id}/respond`, T.jess, { choice: 0 });
   const v = (await ok('GET', `/api/worlds/${W}/quick-events`, T.tom)).find((x: any) => x.id === vote.id);
   assert.deepEqual(v.tally, [1, 0]);
 });
 
 test('TestCalendar_RsvpChatRescheduleAndFeed', async () => {
-  const s = await ok('POST', `/api/worlds/${W}/calendar`, T.dm, { title: 'Session 14', startsAt: new Date(Date.now() + 4 * 864e5).toISOString(), endsAt: new Date(Date.now() + 4 * 864e5 + 4 * 36e5).toISOString(), location: "Wizard's table" });
+  const s = await ok('POST', `/api/worlds/${W}/calendar`, T.gm, { title: 'Session 14', startsAt: new Date(Date.now() + 4 * 864e5).toISOString(), endsAt: new Date(Date.now() + 4 * 864e5 + 4 * 36e5).toISOString(), location: "Wizard's table" });
   assert.equal((await call('POST', `/api/worlds/${W}/calendar`, T.jess, { title: 'x', startsAt: '2026-11-07T19:00:00Z', endsAt: '2026-11-07T23:00:00Z' })).status, 403);
   await ok('PUT', `/api/worlds/${W}/calendar/${s.id}/rsvp`, T.jess, { answer: 'yes' });
   await ok('POST', `/api/worlds/${W}/calendar/${s.id}/chat`, T.tom, { body: 'I’ll bring snacks.' });
@@ -217,7 +217,7 @@ test('TestCalendar_RsvpChatRescheduleAndFeed', async () => {
   const cal = await ok('GET', `/api/worlds/${W}/calendar`, T.tom);
   assert.equal(cal[0].rsvps.length, 1);
   assert.equal(cal[0].reschedules.length, 1);
-  await ok('POST', `/api/worlds/${W}/calendar/${s.id}/reschedule/${rs.id}`, T.dm, { status: 'accepted', moveTo: rs.proposed[0] });
+  await ok('POST', `/api/worlds/${W}/calendar/${s.id}/reschedule/${rs.id}`, T.gm, { status: 'accepted', moveTo: rs.proposed[0] });
   assert.equal((await ok('GET', `/api/worlds/${W}/calendar`, T.tom))[0].rsvps.length, 0, 'moving clears RSVPs');
 
   const key = (await ok('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'phone calendar', worldId: W })).key;
@@ -236,38 +236,38 @@ test('TestKeys_ScribeKeyIsBoundToItsWorldAndNotAdmin', async () => {
   const sk = (await ok('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'mcp', worldId: W })).key;
   assert.ok(sk.startsWith('alx_scr_'));
   assert.equal((await ok('GET', '/api/worlds', sk)).length, 1);
-  const w2 = await ok('POST', '/api/admin/worlds', T.admin, { name: 'Other World', dmAccountId: ID.jess });
+  const w2 = await ok('POST', '/api/admin/worlds', T.admin, { name: 'Other World', gmAccountId: ID.jess });
   assert.equal((await call('GET', `/api/worlds/${w2.id}/library/pages`, sk)).status, 403);
   assert.equal((await call('POST', '/api/keys', sk, { scope: 'scribe', label: 'chain', worldId: W })).status, 403, 'keys cannot mint keys');
 });
 
 test('TestLive_CombatViewHidesHealthAndHidden', async () => {
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Mira', accountId: ID.jess, initiative: 18, hp: 31, maxHp: 38 });
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Dock thug', initiative: 12, hp: 5, maxHp: 11, effects: [{ name: 'Prone', rounds: 1 }] });
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Sniper on the roof', initiative: 20, hp: 20, maxHp: 20, hidden: true });
-  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: true, turn: 1 });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Mira', accountId: ID.jess, initiative: 18, hp: 31, maxHp: 38 });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Dock thug', initiative: 12, hp: 5, maxHp: 11, effects: [{ name: 'Prone', rounds: 1 }] });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Sniper on the roof', initiative: 20, hp: 20, maxHp: 20, hidden: true });
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.gm, { active: true, turn: 1 });
   const v = await ok('GET', `/api/worlds/${W}/live/combat`, T.jess);
   const s = JSON.stringify(v);
   assert.ok(!s.includes('Sniper') && !s.includes('31') && !s.includes('"hp"'));
   assert.equal(v.combatants.find((c: any) => c.name === 'Dock thug').health, 'Bloodied');
   assert.equal(v.combatants.find((c: any) => c.name === 'Mira').health, null, 'no health for the party');
   assert.equal(v.myTurn, true);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { monsterHealth: 'none' });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { monsterHealth: 'none' });
   assert.equal((await ok('GET', `/api/worlds/${W}/live/combat`, T.jess)).combatants.find((c: any) => c.name === 'Dock thug').health, null);
   assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.jess, { monsterHealth: 'exact' })).status, 403);
-  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { bogus: true })).status, 400);
+  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.gm, { bogus: true })).status, 400);
 });
 
 test('TestLive_PresenceAndPurse', async () => {
   await ok('PUT', `/api/worlds/${W}/live/presence`, T.jess, { location: 'At the table' });
   await ok('PUT', `/api/worlds/${W}/live/presence`, T.tom, { location: 'Discord' });
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: 'party', amountCp: 4000, note: 'Odda’s favour', session: 'S14' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: 'party', amountCp: 4000, note: 'Odda’s favour', session: 'S14' });
   // A player's coin change waits for the GM and does not count until approved.
   const req = await ok('POST', `/api/worlds/${W}/live/ledger`, T.tom, { owner: 'party', amountCp: -60, note: 'Room at the Gull', session: 'S14' });
   assert.equal(req.pending, true);
   assert.equal((await ok('GET', `/api/worlds/${W}/live?session=S14`, T.jess)).purse.cp, 4000);
-  await ok('POST', `/api/worlds/${W}/approvals/${req.id}`, T.dm, { action: 'approve' });
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 2700, note: 'Share' });
+  await ok('POST', `/api/worlds/${W}/approvals/${req.id}`, T.gm, { action: 'approve' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: 2700, note: 'Share' });
   const live = await ok('GET', `/api/worlds/${W}/live?session=S14`, T.jess);
   assert.equal(live.here.length, 2);
   assert.equal(live.purse.cp, 3940);
@@ -275,9 +275,9 @@ test('TestLive_PresenceAndPurse', async () => {
   assert.equal((await call('GET', `/api/worlds/${W}/live/ledger?owner=${ID.jess}`, T.tom)).status, 403, 'cannot read another player’s coin');
 });
 
-test('TestInventory_WeightOffAndDmNotesPrivate', async () => {
-  assert.equal((await call('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring' })).status, 400, 'the GM gives a reason when changing a player’s items');
-  const it = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring', weight: 0.1, dmNote: 'It is cursed.', reason: 'Found in the vault' });
+test('TestInventory_WeightOffAndGmNotesPrivate', async () => {
+  assert.equal((await call('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: 'Mother’s ring' })).status, 400, 'the GM gives a reason when changing a player’s items');
+  const it = await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: 'Mother’s ring', weight: 0.1, gmNote: 'It is cursed.', reason: 'Found in the vault' });
   const mine = await ok('GET', `/api/worlds/${W}/inventory?owner=me`, T.jess);
   const s = JSON.stringify(mine);
   assert.equal(mine.trackWeight, false);
@@ -286,9 +286,9 @@ test('TestInventory_WeightOffAndDmNotesPrivate', async () => {
   const move = await ok('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.jess, { owner: 'party' });
   assert.equal(move.pending, true);
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 0, 'moving waits for the GM');
-  await ok('POST', `/api/worlds/${W}/approvals/${move.pendingChange.id}`, T.dm, { action: 'approve' });
+  await ok('POST', `/api/worlds/${W}/approvals/${move.pendingChange.id}`, T.gm, { action: 'approve' });
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 1);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { trackWeight: true });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { trackWeight: true });
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items[0].weight, 0.1);
 });
 
@@ -300,26 +300,26 @@ test('TestMap_MarksRespectVisibilityAndSettings', async () => {
   const s2 = await ok('POST', `/api/worlds/${W}/map/reach/marks`, T.jess, { kind: 'stop', x: 44, y: 62 });
   assert.deepEqual([s1.data.n, s2.data.n], [1, 2]);
   assert.equal((await ok('GET', `/api/worlds/${W}/map/reach/marks`, T.tom)).length, 4, 'Mira’s private pin is hidden');
-  assert.equal((await ok('GET', `/api/worlds/${W}/map/reach/marks`, T.dm)).length, 4, 'even from the GM');
+  assert.equal((await ok('GET', `/api/worlds/${W}/map/reach/marks`, T.gm)).length, 4, 'even from the GM');
   assert.equal((await call('POST', `/api/worlds/${W}/map/reach/marks`, T.tom, { kind: 'pin', x: 120, y: 0 })).status, 400);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { mapDraw: false });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { mapDraw: false });
   assert.equal((await call('POST', `/api/worlds/${W}/map/reach/marks`, T.tom, { kind: 'route', points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] })).status, 403);
 });
 
 test('TestPeople_ProfileBlocksAndPrivateNotes', async () => {
   await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'story', title: 'Backstory', body: 'Grew up on the docks.', visibility: 'party' });
-  await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'story', title: 'What the GM knows', body: 'The letter.', visibility: 'dm' });
+  await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'story', title: 'What the GM knows', body: 'The letter.', visibility: 'gm' });
   await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'goals', title: 'Secret goal', body: 'Revenge on Varn.', visibility: 'me' });
   const titles = async (tok: string) => (await ok('GET', `/api/worlds/${W}/profiles/${ID.jess}`, tok)).blocks.map((b: any) => b.title).sort();
   assert.deepEqual(await titles(T.jess), ['Backstory', 'Secret goal', 'What the GM knows']);
-  assert.deepEqual(await titles(T.dm), ['Backstory', 'What the GM knows']);
+  assert.deepEqual(await titles(T.gm), ['Backstory', 'What the GM knows']);
   assert.deepEqual(await titles(T.tom), ['Backstory']);
 
-  const p = await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Odda', role: 'Harbourmaster', kind: 'neutral' });
-  const hidden = await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'The Grey Widow', visibility: 'dm' });
-  await ok('POST', `/api/worlds/${W}/people/${p.id}/quotes`, T.dm, { text: 'Forty gold, or a favour.' });
-  await ok('POST', `/api/worlds/${W}/people/${p.id}/quotes`, T.dm, { text: 'She works for the Widow.', visibility: 'dm' });
-  await ok('POST', `/api/worlds/${W}/people/${p.id}/recalls`, T.dm, { accountId: ID.jess, text: 'She is afraid, not lying', success: true });
+  const p = await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'Odda', role: 'Harbourmaster', kind: 'neutral' });
+  const hidden = await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'The Grey Widow', visibility: 'gm' });
+  await ok('POST', `/api/worlds/${W}/people/${p.id}/quotes`, T.gm, { text: 'Forty gold, or a favour.' });
+  await ok('POST', `/api/worlds/${W}/people/${p.id}/quotes`, T.gm, { text: 'She works for the Widow.', visibility: 'gm' });
+  await ok('POST', `/api/worlds/${W}/people/${p.id}/recalls`, T.gm, { accountId: ID.jess, text: 'She is afraid, not lying', success: true });
   await ok('PUT', `/api/worlds/${W}/people/${p.id}/note`, T.jess, { body: 'Scared of House Varn.' });
   const tom = await ok('GET', `/api/worlds/${W}/people`, T.tom);
   const s = JSON.stringify(tom);
@@ -333,12 +333,12 @@ test('TestWhiteboard_VersionsAndWipe', async () => {
   const a = await ok('PUT', `/api/worlds/${W}/whiteboard`, T.jess, { baseVersion: 0, doc: { shapes: [{ t: 'line' }] } });
   assert.equal((await call('PUT', `/api/worlds/${W}/whiteboard`, T.tom, { baseVersion: 0, doc: { shapes: [] } })).status, 409);
   assert.equal((await call('POST', `/api/worlds/${W}/whiteboard/wipe`, T.tom, { confirm: true })).status, 403, 'wipe is GM-only by default');
-  assert.equal((await call('POST', `/api/worlds/${W}/whiteboard/wipe`, T.dm, {})).status, 400, 'wipe needs confirm');
-  await ok('POST', `/api/worlds/${W}/whiteboard/wipe`, T.dm, { confirm: true });
+  assert.equal((await call('POST', `/api/worlds/${W}/whiteboard/wipe`, T.gm, {})).status, 400, 'wipe needs confirm');
+  await ok('POST', `/api/worlds/${W}/whiteboard/wipe`, T.gm, { confirm: true });
   assert.deepEqual((await ok('GET', `/api/worlds/${W}/whiteboard/history/${a.version}`, T.tom)).doc, { shapes: [{ t: 'line' }] });
 });
 
-test('TestEvents_PlayerStreamGetsNoDmEvents', async () => {
+test('TestEvents_PlayerStreamGetsNoGmEvents', async () => {
   const ctl = new AbortController();
   const r = await fetch(`${base}/api/worlds/${W}/events`, { headers: { Authorization: `Bearer ${T.tom}` }, signal: ctl.signal });
   const reader = r.body!.getReader();
@@ -352,9 +352,9 @@ test('TestEvents_PlayerStreamGetsNoDmEvents', async () => {
       }
     } catch { /* aborted */ }
   })();
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'secret/Plot', body: 'The Widow is Ysolde.' });
-  await ok('PATCH', `/api/worlds/${W}/live/combatants/${(await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants[0].id}`, T.dm, { damage: 3 });
-  await ok('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'question', title: 'Is Odda lying?', body: 'GM only please', visibility: 'dm' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'secret/Plot', body: 'The Widow is Ysolde.' });
+  await ok('PATCH', `/api/worlds/${W}/live/combatants/${(await ok('GET', `/api/worlds/${W}/live/combat`, T.gm)).combatants[0].id}`, T.gm, { damage: 3 });
+  await ok('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'question', title: 'Is Odda lying?', body: 'GM only please', visibility: 'gm' });
   await new Promise((res) => setTimeout(res, 150));
   ctl.abort();
   await pump;
@@ -367,12 +367,12 @@ test('TestModels_ProxyNeedsAuth', async () => {
   assert.equal((await call('GET', '/v1/models', T.jess)).status, 503, 'no endpoint configured');
 });
 
-test('TestKeys_ReadKeysCannotWriteAndOnlyDmGetsWrite', async () => {
+test('TestKeys_ReadKeysCannotWriteAndOnlyGmGetsWrite', async () => {
   const rk = (await ok('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'phone', worldId: W })).key;
   assert.equal((await call('POST', `/api/worlds/${W}/messages`, rk, { members: [ID.tom] })).status, 403, 'read key cannot post');
   assert.equal((await call('GET', `/api/worlds/${W}/library/pages`, rk)).status, 200);
   assert.equal((await call('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'w', worldId: W, access: 'write' })).status, 403, 'players get read keys only');
-  const wk = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', label: 'dm tools', worldId: W, access: 'write' })).key;
+  const wk = (await ok('POST', '/api/keys', T.gm, { scope: 'scribe', label: 'gm tools', worldId: W, access: 'write' })).key;
   await ok('PUT', `/api/worlds/${W}/library/pages`, wk, { path: 'from-key', body: 'hi' });
 });
 
@@ -382,7 +382,7 @@ test('TestMcpServer_ReadAndWriteTools', async () => {
     return { status: r.status, body: await r.json() as any };
   };
   const rk = (await ok('POST', '/api/keys', T.jess, { scope: 'scribe', label: 'ai', worldId: W })).key;
-  const wk = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', label: 'ai', worldId: W, access: 'write' })).key;
+  const wk = (await ok('POST', '/api/keys', T.gm, { scope: 'scribe', label: 'ai', worldId: W, access: 'write' })).key;
   assert.equal((await rpc(T.jess, 'initialize')).status, 401, 'sessions cannot use /mcp');
   assert.ok((await rpc(rk, 'initialize')).body.result.instructions.includes('read-only'));
   const readTools = (await rpc(rk, 'tools/list')).body.result.tools.map((t: any) => t.name);
@@ -395,11 +395,11 @@ test('TestMcpServer_ReadAndWriteTools', async () => {
   assert.equal(JSON.parse(s.body.result.content[0].text).length, 0, 'player AI search uses the party index');
   const saved = await rpc(wk, 'tools/call', { name: 'save_page', arguments: { path: 'mcp/Note', markdown: 'From the GM AI.' } });
   assert.equal(saved.body.result.isError, false);
-  assert.equal(JSON.parse(saved.body.result.content[0].text).visibility, 'dm');
+  assert.equal(JSON.parse(saved.body.result.content[0].text).visibility, 'gm');
 });
 
 test('TestJoin_AutoReadOnlyMcpKeyAndSignedInJoin', async () => {
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'newbie', password: 'player pass 123' });
   assert.equal(j.mcp.access, 'read');
   assert.ok(j.mcp.key.startsWith('alx_scr_') && j.mcp.url.endsWith('/mcp'));
@@ -408,21 +408,21 @@ test('TestJoin_AutoReadOnlyMcpKeyAndSignedInJoin', async () => {
   const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${j.mcp.key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
   assert.ok(!(await r.json() as any).result.tools.some((t: any) => t.name === 'save_page'));
   // An existing signed-in player joins another world with a code.
-  const w2 = await ok('POST', '/api/admin/worlds', T.admin, { name: 'Second World', dmAccountId: ID.dm });
-  const inv2 = await ok('POST', `/api/worlds/${w2.id}/invites`, T.dm, { role: 'player' });
+  const w2 = await ok('POST', '/api/admin/worlds', T.admin, { name: 'Second World', gmAccountId: ID.gm });
+  const inv2 = await ok('POST', `/api/worlds/${w2.id}/invites`, T.gm, { role: 'player' });
   const j2 = await ok('POST', '/api/join', T.tom, { code: inv2.code });
   assert.equal(j2.account.id, ID.tom);
   assert.equal(j2.token, T.tom);
 });
 
 test('TestPeople_ToolsFindAPersonByNameAsWellAsId', async () => {
-  const p = await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Captain Marrow', role: 'Smuggler', kind: 'rival' });
-  await ok('POST', `/api/worlds/${W}/people/${encodeURIComponent('captain marrow')}/quotes`, T.dm, { text: 'The tide waits for no one.' });
-  await ok('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.dm, { kind: 'ally' });
-  const got = (await ok('GET', `/api/worlds/${W}/people`, T.dm)).find((x: any) => x.id === p.id);
+  const p = await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'Captain Marrow', role: 'Smuggler', kind: 'rival' });
+  await ok('POST', `/api/worlds/${W}/people/${encodeURIComponent('captain marrow')}/quotes`, T.gm, { text: 'The tide waits for no one.' });
+  await ok('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.gm, { kind: 'ally' });
+  const got = (await ok('GET', `/api/worlds/${W}/people`, T.gm)).find((x: any) => x.id === p.id);
   assert.equal(got.kind, 'ally', 'a unique start of the name finds them');
-  await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Captain Mardel', role: 'Harbour', kind: 'neutral' });
-  assert.equal((await call('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.dm, { kind: 'rival' })).status, 404, 'two people start that way: no guess');
+  await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'Captain Mardel', role: 'Harbour', kind: 'neutral' });
+  assert.equal((await call('PATCH', `/api/worlds/${W}/people/${encodeURIComponent('Captain Mar')}`, T.gm, { kind: 'rival' })).status, 404, 'two people start that way: no guess');
 });
 
 test('TestAgentArgs_PlayerNamesPageIdsAndLooseAppliesResolve', async () => {

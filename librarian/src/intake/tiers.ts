@@ -214,7 +214,7 @@ export function storeEntry(d: { db: DB; library: Library }, worldId: string, sou
       const su = e.sourceUpdatedAt ?? e.updatedAt ?? null;
       if (su && su !== ex.source_updated_at) run(d.db, 'UPDATE pages SET source_updated_at = ? WHERE id = ?', su, ex.id);
       if (e.restricted) run(d.db, 'UPDATE pages SET source_shared = 0 WHERE id = ?', ex.id);
-      if (e.restricted && ex.source_level !== 'dm') { run(d.db, "UPDATE pages SET source_level = 'dm' WHERE id = ?", ex.id); return { how: 'demote', id: ex.id }; }
+      if (e.restricted && ex.source_level !== 'gm') { run(d.db, "UPDATE pages SET source_level = 'gm' WHERE id = ?", ex.id); return { how: 'demote', id: ex.id }; }
       return { how: 'kept', id: ex.id };
     }
   }

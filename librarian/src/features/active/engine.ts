@@ -9,7 +9,7 @@ import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable, withPriority } from '../../core/ai.ts';
 import { examplesOn, similarLineExamples } from './examples.ts';
 import { all, one } from '../../core/db.ts';
-import { dmOnly, only } from '../../core/events.ts';
+import { gmOnly, only } from '../../core/events.ts';
 import { parseJson } from '../../core/util.ts';
 import { listSessions } from '../audio/api.ts';
 import { onTranscriptLine } from '../audio/hooks.ts';
@@ -19,7 +19,7 @@ import { PLAYER } from '../stage/cards.ts';
 import { suggestionPass } from '../minerva/live.ts';
 import { ASIDE_OK, build, type Call, type Candidate } from './intents.ts';
 import { allCues, layersOf, norm, wakeCommand, type CueCtx, type Intent, type LineIn, type Scored } from './cues.ts';
-import { execCalls, callOne, dmAuth, portOf } from './exec.ts';
+import { execCalls, callOne, gmAuth, portOf } from './exec.ts';
 import { addLog, addRule, effectiveMode, expireCards, getLog, getState, hasRule, listLog, setLog, undoOf, type LogRow } from './store.ts';
 import { parseCommand, runCommand } from './commands.ts';
 import { think, type Thought } from './thoughts.ts';
@@ -30,7 +30,7 @@ export const MAX_WAIT_MS = 2000;
 export const AUTO_PER_MINUTE = 14;
 const SCAN_EVERY_MS = 2000;
 
-interface LineRow { id: string; session_id: string; world_id: string; start_ms: number; speaker_account: string | null; speaker_label: string; text: string; sources: string; audience: 'players' | 'dm'; updated_at: string }
+interface LineRow { id: string; session_id: string; world_id: string; start_ms: number; speaker_account: string | null; speaker_label: string; text: string; sources: string; audience: 'players' | 'gm'; updated_at: string }
 
 interface Wstate {
   timer?: ReturnType<typeof setTimeout>; first?: number; pending: Set<string>; busy: Promise<void>; seen: Map<string, string>; acted: Map<string, Set<string>>;
@@ -92,12 +92,12 @@ export function loadCtx(d: Deps, worldId: string, initiativeOpen: boolean): CueC
   };
 }
 
-function lineOf(d: Deps, worldId: string, r: LineRow): LineIn & { audience: 'players' | 'dm'; dmMic: boolean; at: string } {
+function lineOf(d: Deps, worldId: string, r: LineRow): LineIn & { audience: 'players' | 'gm'; gmMic: boolean; at: string } {
   const role = r.speaker_account ? (one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, r.speaker_account)?.role ?? 'other') : 'other';
   const mics = parseJson<string[]>(r.sources, []).map((id) => one<any>(d.db, 'SELECT m.room, mem.role FROM audio_mics m LEFT JOIN members mem ON mem.account_id = m.account_id AND mem.world_id = m.world_id WHERE m.id = ?', id));
   // The wake word counts only when no player's own mic is among the sources.
-  const dmMic = role === 'dm' && mics.every((m) => m && (m.role === 'dm' || m.room));
-  return { id: r.id, text: r.text, speaker: r.speaker_label || '', role: role === 'dm' ? 'dm' : role === 'player' ? 'player' : 'other', accountId: r.speaker_account, aside: r.audience === 'dm', audience: r.audience, dmMic, at: r.updated_at };
+  const gmMic = role === 'gm' && mics.every((m) => m && (m.role === 'gm' || m.room));
+  return { id: r.id, text: r.text, speaker: r.speaker_label || '', role: role === 'gm' ? 'gm' : role === 'player' ? 'player' : 'other', accountId: r.speaker_account, aside: r.audience === 'gm', audience: r.audience, gmMic, at: r.updated_at };
 }
 
 // ---- the batch -------------------------------------------------------------------------
@@ -116,18 +116,18 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
   for (const r of rows) {
     const line = lineOf(d, worldId, r);
     // A room mic hears everybody and names no speaker: it counts as the GM's voice only if the GM said so (never for the wake word).
-    if (line.role === 'other' && !line.accountId && state.listen.room) line.role = 'dm';
+    if (line.role === 'other' && !line.accountId && state.listen.room) line.role = 'gm';
     const sig = norm(line.text);
     if (W.seen.get(line.id) === sig) continue;
     W.seen.set(line.id, sig);
     stat.lines++;
     // Classified text is never read by anything here.
     if (d.library.containsClassified(worldId, line.text)) continue;
-    if (line.role === 'dm' && !state.listen.dm) continue;
+    if (line.role === 'gm' && !state.listen.gm) continue;
     if (line.role === 'player' && !state.listen.players) continue;
     const t0 = performance.now();
     // Wake word: the GM's own mic only. The rest of the line is a direct request.
-    const cmd = line.role === 'dm' && line.dmMic ? wakeCommand(line.text, state.wakeWord) : null;
+    const cmd = line.role === 'gm' && line.gmMic ? wakeCommand(line.text, state.wakeWord) : null;
     if (cmd) { hideWake(d, worldId, r); await handleWake(d, worldId, line, cmd, sess.id, mode); continue; }
     if (mode !== 'active') continue;
     think(d, worldId, { source: 'active', kind: 'heard', text: `${line.speaker || 'Table'}${line.aside ? ' (GM aside)' : ''}: “${line.text.slice(0, 160)}”` });
@@ -194,7 +194,7 @@ async function modelJson(d: Deps, worldId: string, system: string, user: string)
   finally { st.modelMs.push(performance.now() - t0); void worldId; }
 }
 
-const recentText = (d: Deps, lines: ReturnType<typeof lineOf>[], upto: number) => lines.slice(Math.max(0, upto - 5), upto + 1).map((l) => `${l.speaker || '?'}${l.role === 'dm' ? ' (GM)' : ''}: ${l.text}`).join('\n');
+const recentText = (d: Deps, lines: ReturnType<typeof lineOf>[], upto: number) => lines.slice(Math.max(0, upto - 5), upto + 1).map((l) => `${l.speaker || '?'}${l.role === 'gm' ? ' (GM)' : ''}: ${l.text}`).join('\n');
 
 async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   const unsure: { it: Item; c: Candidate }[] = [];
@@ -204,7 +204,7 @@ async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   const ctxLines = items.map((x) => x.line);
   const j = await modelJson(d, worldId,
     'You check actions that a tabletop RPG assistant drafted from a transcript line, using simple rules. Say ok:true only when the speaker clearly means this to happen now, at the table. Say ok:false for a question, a hypothetical, a plan, something that already happened, a price or an offer, or something the players only discuss. Reply with JSON only: {"verdicts":[{"i":0,"ok":true}]}',
-    `Transcript (latest last):\n${ctxLines.slice(-8).map((l) => `${l.speaker || '?'}${l.role === 'dm' ? ' (GM)' : ''}: ${l.text}`).join('\n').slice(0, 2500)}\n\nProposed actions:\n${unsure.map((u, i) => `${i}. ${u.c.summary} (from: "${u.c.cue.slice(0, 100)}")`).join('\n')}`);
+    `Transcript (latest last):\n${ctxLines.slice(-8).map((l) => `${l.speaker || '?'}${l.role === 'gm' ? ' (GM)' : ''}: ${l.text}`).join('\n').slice(0, 2500)}\n\nProposed actions:\n${unsure.map((u, i) => `${i}. ${u.c.summary} (from: "${u.c.cue.slice(0, 100)}")`).join('\n')}`);
   const v: any[] = Array.isArray(j?.verdicts) ? j.verdicts : [];
   unsure.forEach((u, i) => {
     const x = v.find((y) => Number(y?.i) === i);
@@ -215,7 +215,7 @@ async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
 }
 
 async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wstate, known: string[][]): Promise<Item[]> {
-  const cand = items.map((x, i) => ({ x, i })).filter(({ x }) => x.line.role === 'dm' && x.line.text.split(/\s+/).length >= 5 && !/\?\s*$/.test(x.line.text.trim()));
+  const cand = items.map((x, i) => ({ x, i })).filter(({ x }) => x.line.role === 'gm' && x.line.text.split(/\s+/).length >= 5 && !/\?\s*$/.test(x.line.text.trim()));
   const out: Item[] = [];
   if (!cand.length) return out;
   if (Date.now() - W.lastScan < SCAN_EVERY_MS) await new Promise((r) => setTimeout(r, SCAN_EVERY_MS - (Date.now() - W.lastScan)));
@@ -238,7 +238,7 @@ Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
   // Labelled lines nearest these ones (embeddings job): how close cases were decided, shown before the lines.
   const shots = examplesOn(d) ? await similarLineExamples(d, batch.map((x) => x.line.text), 6) : null;
   const shotText = shots?.length ? `Examples of similar lines and what a good stage hand picked (no line number; [] means nothing):\n${shots.map((e) => `- "${e.line}" -> ${JSON.stringify(e.actions)}`).join('\n')}\n\n` : '';
-  const j = await modelJson(d, worldId, sys, `${shotText}Earlier context:\n${W.lastLines.slice(-4).join('\n')}\n\nDM lines (the rules already handled the categories in brackets: do not repeat those):\n${batch.map((x, i) => `${i}. ${x.line.text}${known[batchKnown[i]]?.length ? ` [${[...new Set(known[batchKnown[i]])].join(', ')}]` : ''}`).join('\n').slice(0, 3200)}`);
+  const j = await modelJson(d, worldId, sys, `${shotText}Earlier context:\n${W.lastLines.slice(-4).join('\n')}\n\nGM lines (the rules already handled the categories in brackets: do not repeat those):\n${batch.map((x, i) => `${i}. ${x.line.text}${known[batchKnown[i]]?.length ? ` [${[...new Set(known[batchKnown[i]])].join(', ')}]` : ''}`).join('\n').slice(0, 3200)}`);
   W.lastLines = [...W.lastLines, ...batch.map((x) => x.line.text)].slice(-8);
   const acts: any[] = Array.isArray(j?.actions) ? j.actions : [];
   for (const a of acts.slice(0, 6)) {
@@ -355,14 +355,14 @@ export async function markWrong(d: Deps, worldId: string, logId: string): Promis
 
 /** A spoken command to the assistant is for the GM only: take the line out of the players' transcript. */
 function hideWake(d: Deps, worldId: string, r: LineRow) {
-  try { if (r.audience === 'players') engine(d).setAudience(r as any, 'dm', worldId); } catch (e) { console.error('active: could not hide a wake line', e); }
+  try { if (r.audience === 'players') engine(d).setAudience(r as any, 'gm', worldId); } catch (e) { console.error('active: could not hide a wake line', e); }
 }
 
 // ---- the wake word ------------------------------------------------------------------------------
 async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof lineOf>, cmd: string, sessionId: string, mode: 'assistant' | 'active'): Promise<void> {
   const state = getState(d, worldId);
   think(d, worldId, { source: 'wake', kind: 'plan', runId: line.id, text: `You asked me: “${cmd.slice(0, 160)}”` });
-  const log = (summary: string, extra: Partial<Parameters<typeof addLog>[2]> = {}) => addLog(d, worldId, { sessionId, mode, trigger: 'wake', lineId: line.id, speaker: line.speaker, cue: line.text, category: 'command', tool: 'command', summary, status: 'done', visible: 'dm', ...extra });
+  const log = (summary: string, extra: Partial<Parameters<typeof addLog>[2]> = {}) => addLog(d, worldId, { sessionId, mode, trigger: 'wake', lineId: line.id, speaker: line.speaker, cue: line.text, category: 'command', tool: 'command', summary, status: 'done', visible: 'gm', ...extra });
   // A short command first.
   const c = parseCommand(cmd);
   if (c) { log(runCommand(d, worldId, c)); return; }
@@ -371,15 +371,15 @@ async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof line
   if (macro) { log(macro.text, { tool: 'macro', status: macro.ok ? 'done' : 'failed', visible: 'players' }); return; }
   // Rules, explicit: the GM asked, so it runs now.
   const ctx = loadCtx(d, worldId, Date.now() < ws(d, worldId).initiativeUntil);
-  const cues = allCues({ ...line, role: 'dm' }, ctx, { explicit: true });
-  const asked = allCues({ id: line.id, text: cmd, speaker: line.speaker, role: 'dm', accountId: line.accountId, aside: false }, ctx, { explicit: true });
+  const cues = allCues({ ...line, role: 'gm' }, ctx, { explicit: true });
+  const asked = allCues({ id: line.id, text: cmd, speaker: line.speaker, role: 'gm', accountId: line.accountId, aside: false }, ctx, { explicit: true });
   void cues;
   const cands = asked.map((x) => build(d, worldId, ctx, x, cmd)).filter((x): x is Candidate => !!x);
   if (cands.length) { for (const k of cands) await act(d, worldId, sessionId, state, k, { id: line.id, speaker: line.speaker, aside: false, at: line.at }, 'wake', { explicit: true }); return; }
   // Anything else goes to the assistant, which proposes what it would do.
   if (!hasJob(d, 'chat')) { think(d, worldId, { source: 'wake', kind: 'error', runId: line.id, text: 'No chat model is set, so I could not work out that request.' }); log('No chat model is set, so I could not work out that request.', { status: 'failed' }); return; }
   think(d, worldId, { source: 'wake', kind: 'plan', runId: line.id, text: 'No quick rule or macro fits, so I am handing it to the assistant. Anything it wants to change waits for you.' });
-  const a = dmAuth(d, worldId);
+  const a = gmAuth(d, worldId);
   if (!a) return;
   const { runTask } = await import('./task.ts');
   const r = await withPriority(2, () => runTask(d, { worldId, accountId: a.accountId, token: a.token, port: portOf(d) }, { prompt: cmd, mode: 'propose', title: `Spoken: ${cmd.slice(0, 40)}` }));
@@ -400,14 +400,14 @@ async function runMacroByName(d: Deps, worldId: string, cmd: string): Promise<{ 
   const overrides: Record<string, string> = {};
   const first = params.find((p) => p.type === 'string');
   if (tail && first) overrides[first.name] = m[1].slice(m[1].toLowerCase().indexOf(tail)).trim() || tail;
-  const a = dmAuth(d, worldId);
+  const a = gmAuth(d, worldId);
   if (!a) return null;
   const { makeRunner } = await import('../actions/index.ts');
   const { runMacro } = await import('../actions/macros.ts');
   try {
-    const rep = await runMacro(makeRunner(d, { worldId, accountId: a.accountId, role: 'dm', token: a.token, port: portOf(d) }), hit, overrides, 'voice');
+    const rep = await runMacro(makeRunner(d, { worldId, accountId: a.accountId, role: 'gm', token: a.token, port: portOf(d) }), hit, overrides, 'voice');
     return { ok: rep.ok, text: `Ran macro ${hit.name}${tail ? ` (${tail})` : ''}: ${rep.ok ? 'done' : rep.steps.find((s) => s.status === 'failed')?.error ?? 'a step failed'}` };
   } catch (e: any) { return { ok: false, text: `Macro ${hit.name} failed: ${String(e?.message ?? e).slice(0, 160)}` }; }
 }
 
-export { listLog, dmOnly };
+export { listLog, gmOnly };

@@ -101,10 +101,10 @@ export function genCave(o: MapOpts = {}): MapResult {
     for (let t = 0; t < 8 && names.has(room); t++) room = pick(r, CAVE_ROOMS);
     names.add(room);
     const entry = i === 0;
-    const dm = [`Occupants: ${pick(r, CAVE_OCCUPANTS)}.`];
-    if (chance(r, 0.35)) dm.push(`Hazard: ${pick(r, DUNGEON_HAZARD)}.`);
-    if (chance(r, 0.3)) dm.push(`Treasure: ${pick(r, DUNGEON_LOOT)}.`);
-    key.push({ n: String(i + 1), name: entry ? 'Cave mouth' : cap(room.replace(/^(a|an) /, '')), text: `${entry ? 'Daylight fades here as the passage narrows. ' : ''}${cap(room)}; ${pick(r, CAVE_FEATURES)}.`, dm: dm.join(' ') });
+    const gm = [`Occupants: ${pick(r, CAVE_OCCUPANTS)}.`];
+    if (chance(r, 0.35)) gm.push(`Hazard: ${pick(r, DUNGEON_HAZARD)}.`);
+    if (chance(r, 0.3)) gm.push(`Treasure: ${pick(r, DUNGEON_LOOT)}.`);
+    key.push({ n: String(i + 1), name: entry ? 'Cave mouth' : cap(room.replace(/^(a|an) /, '')), text: `${entry ? 'Daylight fades here as the passage narrows. ' : ''}${cap(room)}; ${pick(r, CAVE_FEATURES)}.`, gm: gm.join(' ') });
     const mx = X(x) + CELL / 2, my = Y(y) + CELL / 2;
     c.ops.push({ t: 'circle', x: mx, y: my, r: 10, fill: '#fffaf0', stroke: pal.wall, sw: 1.4 });
     c.ops.push({ t: 'text', x: mx, y: my + 4, s: String(i + 1), size: i > 8 ? 10 : 12, fill: '#1f1b18', anchor: 'middle', bold: true });

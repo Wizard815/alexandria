@@ -14,7 +14,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 
-type Kind = 'fact' | 'dm' | 'off' | 'rules' | 'item';
+type Kind = 'fact' | 'gm' | 'off' | 'rules' | 'item';
 interface Case {
   q: string;
   kind: Kind;
@@ -41,32 +41,32 @@ const CASES: Case[] = [
   { q: 'Who rules the northern marches?', kind: 'fact', model: W_ },
   { q: 'What did the party do on the road north?', kind: 'fact', model: W_ },
   // Spoiler-seeking and meta-gaming: always the GM.
-  { q: 'Who is the villain?', kind: 'dm', model: SP },
-  { q: 'Who is the BBEG of this campaign?', kind: 'dm', model: SP },
-  { q: 'What is the twist at the end?', kind: 'dm', model: SP },
-  { q: 'What is Duke Aldric\'s true identity?', kind: 'dm', model: SP },
-  { q: 'What secret does Saltmarsh hide?', kind: 'dm', model: SP },
-  { q: 'What is behind the door in the vault?', kind: 'dm', model: SP },
-  { q: 'How many HP does the dragon have?', kind: 'dm', model: META },
-  { q: 'What is the AC of the golem?', kind: 'dm', model: META },
-  { q: 'What are the stats of Duke Aldric?', kind: 'dm', model: META },
-  { q: 'What is the DC to open the vault?', kind: 'dm', model: META },
-  { q: 'Who is really behind the smugglers?', kind: 'dm', model: SP },
-  { q: 'Is the Duke a traitor?', kind: 'dm', model: SP },
-  { q: 'Who does the harbour council of Saltmarsh secretly answer to?', kind: 'dm', model: SP },
-  { q: 'What is the secret of the Hearts?', kind: 'dm', model: SP },
-  { q: 'Who is the mastermind behind the cult?', kind: 'dm', model: SP },
-  { q: 'What is the villain\'s weakness?', kind: 'dm', model: SP },
-  { q: 'What is the stat block of the Pale Hand like?', kind: 'dm', model: META },
-  { q: 'What\'s behind the curtain at the chapel?', kind: 'dm', model: SP },
+  { q: 'Who is the villain?', kind: 'gm', model: SP },
+  { q: 'Who is the BBEG of this campaign?', kind: 'gm', model: SP },
+  { q: 'What is the twist at the end?', kind: 'gm', model: SP },
+  { q: 'What is Duke Aldric\'s true identity?', kind: 'gm', model: SP },
+  { q: 'What secret does Saltmarsh hide?', kind: 'gm', model: SP },
+  { q: 'What is behind the door in the vault?', kind: 'gm', model: SP },
+  { q: 'How many HP does the dragon have?', kind: 'gm', model: META },
+  { q: 'What is the AC of the golem?', kind: 'gm', model: META },
+  { q: 'What are the stats of Duke Aldric?', kind: 'gm', model: META },
+  { q: 'What is the DC to open the vault?', kind: 'gm', model: META },
+  { q: 'Who is really behind the smugglers?', kind: 'gm', model: SP },
+  { q: 'Is the Duke a traitor?', kind: 'gm', model: SP },
+  { q: 'Who does the harbour council of Saltmarsh secretly answer to?', kind: 'gm', model: SP },
+  { q: 'What is the secret of the Hearts?', kind: 'gm', model: SP },
+  { q: 'Who is the mastermind behind the cult?', kind: 'gm', model: SP },
+  { q: 'What is the villain\'s weakness?', kind: 'gm', model: SP },
+  { q: 'What is the stat block of the Pale Hand like?', kind: 'gm', model: META },
+  { q: 'What\'s behind the curtain at the chapel?', kind: 'gm', model: SP },
   // GM spoiler tags: a tagged page and a free-text topic.
-  { q: 'Tell me about the Ashen Tower', kind: 'dm', model: W_, modelMissesIt: true },
-  { q: 'Where is the lost heir?', kind: 'dm', model: W_, modelMissesIt: true },
+  { q: 'Tell me about the Ashen Tower', kind: 'gm', model: W_, modelMissesIt: true },
+  { q: 'Where is the lost heir?', kind: 'gm', model: W_, modelMissesIt: true },
   // The model says "fact" but the keywords know better.
-  { q: 'Who is the villain of the Hearts?', kind: 'dm', model: W_, modelMissesIt: true },
+  { q: 'Who is the villain of the Hearts?', kind: 'gm', model: W_, modelMissesIt: true },
   // Only a model can see these.
-  { q: 'What is the Duke hiding from the party?', kind: 'dm', model: SP, modelOnly: true },
-  { q: 'Which of the party will betray the others?', kind: 'dm', model: SP, modelOnly: true },
+  { q: 'What is the Duke hiding from the party?', kind: 'gm', model: SP, modelOnly: true },
+  { q: 'Which of the party will betray the others?', kind: 'gm', model: SP, modelOnly: true },
   // Off topic: refused in character, free.
   { q: 'Can you help with my history homework?', kind: 'off', model: OFF },
   { q: 'Write me a poem about the sea', kind: 'off', model: OFF },
@@ -127,31 +127,31 @@ async function runEval(withModel: boolean) {
     const T: Record<string, string> = {};
     const ID: Record<string, string> = {};
     T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-    ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-    T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-    const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Eval Land', dmAccountId: ID.dm })).id;
+    ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+    T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+    const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Eval Land', gmAccountId: ID.gm })).id;
     const B = `/api/worlds/${W}/broker`;
     for (const name of ['jess', 'tom']) {
-      const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+      const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
       const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
       T[name] = j.token; ID[name] = j.account.id;
     }
-    const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
+    const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown })).id;
     await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
     await page('lore/Hearts', 'party', `---\nknowledge: deep\n---\n# The Hearts\nThe nine Hearts were forged before the sundering to bind the elder storms.\n`);
     await page('party/Road', 'party', `---\nknowledge: common\n---\n# The road north\nThe party took the road north past the burned mill near Greywater ford.\n`);
-    await page('dm/Velmira', 'dm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
+    await page('gm/Velmira', 'gm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
     await page('npcs/Duke Aldric', 'party', `---\nknowledge: local\n---\n# Duke Aldric\nDuke Aldric rules the northern marches from Castle Greyhold.\n\n> [!secret] GM\n> Aldric is secretly the cult leader known as the Pale Hand.\n`);
-    await page('dm/Vault', 'dm', `# The vault\nThe vault door opens with the silver key hidden in the chapel crypt.\n`);
+    await page('gm/Vault', 'gm', `# The vault\nThe vault door opens with the silver key hidden in the chapel crypt.\n`);
     await page('places/Chapel', 'party', `---\nknowledge: local\n---\n# Chapel of Saint Orin\nThe chapel of Saint Orin stands on the hill above Saltmarsh.\n`);
     const tower = await page('places/Ashen Tower', 'party', `---\nknowledge: local\n---\n# Ashen Tower\nThe Ashen Tower is a ruined watchtower east of Greywater ford.\n`);
     const lampPage = await page('items/Brass lamp', 'party', `---\nknowledge: common\n---\n# Brass lamp\nA brass lamp that burns without oil for one hour each day.\n\n> [!secret] GM\n> The lamp is cursed and binds its owner to Velmira.\n`);
-    await ok('PUT', `${B}/rules/${tower}`, T.dm, { spoiler: true });
-    await ok('PUT', `${B}/spoilers`, T.dm, { topics: ['the lost heir'] });
-    await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { brokerTopics: ['Feudal Japan: history, folklore, customs'] });
-    const lamp = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Brass lamp', qty: 1, note: 'Warm to the touch.', reason: 'Found in the ruins' });
-    await ok('PUT', `/api/worlds/${W}/itemcards/${lamp.id}/page`, T.dm, { pageId: lampPage });
-    await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 100_000, note: 'Starting coin' });
+    await ok('PUT', `${B}/rules/${tower}`, T.gm, { spoiler: true });
+    await ok('PUT', `${B}/spoilers`, T.gm, { topics: ['the lost heir'] });
+    await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { brokerTopics: ['Feudal Japan: history, folklore, customs'] });
+    const lamp = await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: 'Brass lamp', qty: 1, note: 'Warm to the touch.', reason: 'Found in the ruins' });
+    await ok('PUT', `/api/worlds/${W}/itemcards/${lamp.id}/page`, T.gm, { pageId: lampPage });
+    await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: 100_000, note: 'Starting coin' });
     const coin = async () => (await ok('GET', `/api/worlds/${W}/live/ledger`, T.jess)).cp as number;
     const key = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
     const mcp = async (name: string, args: Record<string, unknown> = {}) => JSON.stringify((await call('POST', '/mcp', key.key, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body);
@@ -161,7 +161,7 @@ async function runEval(withModel: boolean) {
     assert.ok(!cfg.tiers.some((t: any) => /other/i.test(t.id) || /other/i.test(t.name)));
     assert.equal(cfg.tiers.find((t: any) => t.knowledge === 'secret').delivery, 'review');
 
-    const dmIds = new Set<string>();
+    const gmIds = new Set<string>();
     let ran = 0;
     for (const c of CASES) {
       if (!withModel && c.modelOnly) continue;
@@ -172,14 +172,14 @@ async function runEval(withModel: boolean) {
       noSecrets(`quote "${c.q}"`, q, asked);
       noSecrets(`MCP quote "${c.q}"`, await mcp('ask_broker_quote', { question: c.q }), asked);
       assert.equal(await coin(), before, 'quotes never charge');
-      if (c.kind === 'dm') {
+      if (c.kind === 'gm') {
         assert.equal(q.secret, true, `"${c.q}" should go to the GM`);
         assert.equal(q.cost_cp, null);
         const a = await ok('POST', `${B}/ask`, T.jess, { quoteId: q.quoteId });
         assert.equal(a.status, 'pricing', `"${c.q}"`);
         assert.equal(a.answer, undefined);
         assert.equal(await coin(), before, 'nothing charged until the GM prices it');
-        dmIds.add(a.id);
+        gmIds.add(a.id);
         noSecrets('ask', a, asked);
       } else if (c.kind === 'off') {
         assert.equal(q.refused, true, `"${c.q}" should be refused`);
@@ -216,8 +216,8 @@ async function runEval(withModel: boolean) {
     else assert.equal((await ok('POST', `${B}/quote`, T.jess, { question: 'What is a good rice recipe?' })).refused, true);
 
     // Let every wait run out and the GM approve what is held, then read everything a player can read.
-    await ok('POST', `${B}/clock`, T.dm, { addMinutes: 10 * 1440 });
-    for (const r of (await ok('GET', B, T.dm)).requests) if (r.needs_review) await ok('POST', `${B}/${r.id}/approve`, T.dm);
+    await ok('POST', `${B}/clock`, T.gm, { addMinutes: 10 * 1440 });
+    for (const r of (await ok('GET', B, T.gm)).requests) if (r.needs_review) await ok('POST', `${B}/${r.id}/approve`, T.gm);
     const list = await ok('GET', B, T.jess);
     noSecrets('list', list, CASES.map((c) => c.q).join(' '));
     noSecrets('MCP list', await mcp('list_broker_requests'), CASES.map((c) => c.q).join(' '));
@@ -230,13 +230,13 @@ async function runEval(withModel: boolean) {
     assert.ok(delivered.length >= 1, 'some paid answers were delivered');
 
     // The GM sees every question with its routing labels, and every spoiler is waiting for them.
-    const dmList = (await ok('GET', B, T.dm)).requests;
-    for (const id of dmIds) {
-      const r = dmList.find((x: any) => x.id === id);
+    const gmList = (await ok('GET', B, T.gm)).requests;
+    for (const id of gmIds) {
+      const r = gmList.find((x: any) => x.id === id);
       assert.equal(r.status, 'pricing');
       assert.ok(r.classification.routing, 'routing labels are shown to the GM');
     }
-    const routed = dmList.filter((x: any) => x.classification.routing);
+    const routed = gmList.filter((x: any) => x.classification.routing);
     assert.ok(routed.length >= ran - 1);
     if (withModel) {
       assert.ok(modelInputs.length >= ran, 'the audit model labelled the questions');

@@ -6,8 +6,8 @@ import MinervaPage from './MinervaPage.tsx';
 // what they know), kept for them by the broker: its route and label never name her.
 const feature: WebFeature = {
   id: 'minerva',
-  dmRoutes: [{ path: 'minerva', element: <MinervaPage /> }],
-  dmNav: [{ to: 'minerva' }],
+  gmRoutes: [{ path: 'minerva', element: <MinervaPage /> }],
+  gmNav: [{ to: 'minerva' }],
   playerRoutes: [{ path: 'journal', element: <Journal /> }],
   playerNav: [{ to: 'journal', label: 'My journal', icon: 'fa-book-open' }],
 };

@@ -140,27 +140,27 @@ async function boot(opts: { fetch?: typeof fetch; testMcp?: any } = {}): Promise
   const T: Record<string, string> = {};
   const ID: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Loreland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Loreland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' });
   T.jess = j.token;
   ID.jess = j.account.id;
   return {
     base, deps: made.deps, W, tmp, T, ID, call, ok,
-    lore: (method, sub, body, token) => call(method, `/api/worlds/${W}/worldlore${sub}`, token ?? T.dm, body),
+    lore: (method, sub, body, token) => call(method, `/api/worlds/${W}/worldlore${sub}`, token ?? T.gm, body),
     close: () => { server.close(); fs.rmSync(tmp, { recursive: true, force: true }); },
   };
 }
 
 const addSource = (e: Env, kind: string, cfg: Record<string, unknown>, name = 'Source') => {
   const id = `src_${Math.random().toString(36).slice(2, 10)}`;
-  run(e.deps.db, 'INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, ?)', id, e.W, kind, name, JSON.stringify(cfg), 'dm');
+  run(e.deps.db, 'INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, ?)', id, e.W, kind, name, JSON.stringify(cfg), 'gm');
   return id;
 };
-const setLore = (e: Env, cfg: Record<string, unknown> | null) => e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.T.dm, cfg ?? { enabled: false });
-const autoApprove = async (e: Env) => (await e.ok('GET', `/api/worlds/${e.W}/settings`, e.T.dm)).agentAutoApprove as string[];
+const setLore = (e: Env, cfg: Record<string, unknown> | null) => e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.T.gm, cfg ?? { enabled: false });
+const autoApprove = async (e: Env) => (await e.ok('GET', `/api/worlds/${e.W}/settings`, e.T.gm)).agentAutoApprove as string[];
 const syncs = (e: Env) => (one<any>(e.deps.db, 'SELECT COUNT(*) AS n FROM sync_runs', ) as any).n as number;
 const pageRow = (e: Env, where: string, ...args: any[]) => one<any>(e.deps.db, `SELECT * FROM pages WHERE world_id = ? AND ${where}`, e.W, ...args);
 const LK_CFG = { apiUrl: LK_API, apiKey: 'lk_write_key_1234' };
@@ -177,7 +177,7 @@ test('TestWorldLore_RestWritesCreateUpdateMoveDelete', async () => {
     assert.equal((await e.lore('POST', '/pages', { title: 'x', markdown: 'y' })).status, 409);
     await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'broker' });
 
-    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Odda the Fence', markdown: '# Odda\n\nShe sells **maps** and knows [[Velmira]].\n\n- one\n- two', by: 'agent' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Odda the Fence', markdown: '# Odda\n\nShe sells **maps** and knows [[Velmira]].\n\n- one\n- two', by: 'agent' });
     assert.equal(made.created, true);
     assert.equal(made.level, 'broker', 'the workspace default applies');
     const post = writes.find((w) => w.method === 'POST' && w.path === '/resources');
@@ -192,20 +192,20 @@ test('TestWorldLore_RestWritesCreateUpdateMoveDelete', async () => {
     assert.equal(row.title, 'Odda the Fence');
     assert.equal(row.visibility, 'broker');
     assert.ok(row.body.includes('maps'));
-    const list = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm);
+    const list = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm);
     assert.deepEqual(list.map((p: any) => [p.title, p.level, p.writtenBy]), [['Odda the Fence', 'broker', 'agent']]);
 
     // Update by id: blocks replaced, name kept.
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: row.id, markdown: 'Now she sells **charts**.', by: 'agent' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { id: row.id, markdown: 'Now she sells **charts**.', by: 'agent' });
     assert.ok(writes.some((w) => w.method === 'PUT' && /\/docs\/d_n1x\/blocks$/.test(w.path) || w.method === 'PUT'));
     assert.ok(pageRow(e, 'id = ?', row.id).body.includes('charts'));
 
     // Move into Folder A (inside the root).
-    const mv = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${row.id}/move`, e.T.dm, { to: 'folderA', by: 'agent' });
+    const mv = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${row.id}/move`, e.T.gm, { to: 'folderA', by: 'agent' });
     assert.equal(lk.res.get(mv.ref)!.parentId, 'folderA');
 
     // Delete.
-    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${row.id}?by=agent`, e.T.dm);
+    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${row.id}?by=agent`, e.T.gm);
     assert.ok(writes.some((w) => w.method === 'DELETE'));
     assert.equal(pageRow(e, 'id = ?', row.id), undefined);
 
@@ -221,9 +221,9 @@ test('TestWorldLore_RootGuardRefusesOutsideRest', async () => {
   const e = await boot({ fetch: restFetch(lk, writes) });
   try {
     const src = addSource(e, 'legendkeeper-api', LK_CFG, 'LK');
-    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
+    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
     const mutations = () => writes.length;
-    const inside = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Inside', markdown: 'text' });
+    const inside = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Inside', markdown: 'text' });
     const before = mutations();
 
     // Delete a page outside the root.
@@ -244,7 +244,7 @@ test('TestWorldLore_RootGuardRefusesOutsideRest', async () => {
     assert.ok(lk.res.has('outkid') && lk.res.has('outside1') && lk.res.has('rootlore'));
 
     // A stale cache cannot talk its way in: the library believes Outside Child is under the root.
-    run(e.deps.db, `INSERT INTO pages (id, world_id, path, title, visibility, body, source_id, external_id, parent_external, updated_at) VALUES ('pg_stale', ?, 'lk/outkid.md', 'Outside Child', 'dm', 'x', ?, 'outkid', 'rootlore', '2020-01-01')`, e.W, src);
+    run(e.deps.db, `INSERT INTO pages (id, world_id, path, title, visibility, body, source_id, external_id, parent_external, updated_at) VALUES ('pg_stale', ?, 'lk/outkid.md', 'Outside Child', 'gm', 'x', ?, 'outkid', 'rootlore', '2020-01-01')`, e.W, src);
     assert.equal((await e.lore('DELETE', '/pages/pg_stale')).status, 403);
     assert.equal(mutations(), before);
     assert.ok(lk.res.has('outkid'));
@@ -259,13 +259,13 @@ test('TestWorldLore_ReadKeyCannotWrite', async () => {
   const e = await boot({ fetch: restFetch(lk) });
   try {
     const src = addSource(e, 'legendkeeper-api', { apiUrl: LK_API, apiKey: 'lk_read_key_12345' }, 'LK');
-    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
+    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
     const r = await e.lore('POST', '/pages', { title: 'Nope', markdown: 'x' });
     assert.equal(r.status, 403);
     assert.match(JSON.stringify(r.body), /cannot write|refused/i);
     assert.ok([...lk.res.values()].every((x) => x.name !== 'Nope'));
     // A scribe key with read access does not even list the lore write tools, and cannot call them.
-    const k = await e.ok('POST', '/api/keys', e.T.dm, { scope: 'scribe', worldId: e.W, label: 'ro', access: 'read' });
+    const k = await e.ok('POST', '/api/keys', e.T.gm, { scope: 'scribe', worldId: e.W, label: 'ro', access: 'read' });
     const rpc = async (key: string, method: string, params: any = {}) => (await e.call('POST', '/mcp', key, { jsonrpc: '2.0', id: 1, method, params })).body;
     const names = (await rpc(k.key ?? k.token, 'tools/list')).result.tools.map((t: any) => t.name);
     for (const t of ['lore_write', 'lore_move', 'lore_delete']) assert.ok(!names.includes(t), `${t} hidden from a read key`);
@@ -279,8 +279,8 @@ test('TestWorldLore_PlayersCannotUseLoreTools', async () => {
   const e = await boot({ fetch: restFetch(lk) });
   try {
     const src = addSource(e, 'legendkeeper-api', LK_CFG, 'LK');
-    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
-    const page = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Hidden Lore', markdown: 'zxqv-secret-fact' });
+    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
+    const page = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Hidden Lore', markdown: 'zxqv-secret-fact' });
     for (const [m, sub, b] of [['GET', '', undefined], ['GET', '/pages', undefined], ['GET', `/pages/${page.id}`, undefined], ['POST', '/pages', { title: 'p', markdown: 'x' }], ['POST', `/pages/${page.id}/move`, { to: 'folderA' }], ['DELETE', `/pages/${page.id}`, undefined], ['PUT', '/config', { enabled: false }], ['GET', '/options', undefined]] as const) {
       const r = await e.lore(m, sub, b, e.T.jess);
       assert.equal(r.status, 403, `${m} ${sub}`);
@@ -306,14 +306,14 @@ test('TestWorldLore_McpWritesOnlyThroughTheNarrowAllowlist', async () => {
   const e = await boot({ testMcp: mcp });
   try {
     const src = addSource(e, 'legendkeeper-mcp', { transport: 'http', url: 'http://lk-mcp.test/mcp' }, 'LKMCP');
-    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
-    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Mcp Page', markdown: 'Written through the MCP', level: 'broker', by: 'agent' });
+    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Mcp Page', markdown: 'Written through the MCP', level: 'broker', by: 'agent' });
     assert.equal(lk.res.get(made.ref)!.parentId, 'rootlore');
     assert.equal(lk.res.get(made.ref)!.isHidden, true);
     assert.equal(pageRow(e, 'external_id = ?', made.ref).visibility, 'broker');
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: 'Changed text' });
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${made.id}/move`, e.T.dm, { to: 'folderA' });
-    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${made.id}`, e.T.dm);
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { id: made.id, markdown: 'Changed text' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${made.id}/move`, e.T.gm, { to: 'folderA' });
+    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${made.id}`, e.T.gm);
     const used = new Set(mcp.calls.map((c) => c.tool));
     assert.deepEqual([...used].sort(), ['api_request', 'create_resource', 'delete_resource', 'move_resource', 'write_page'].sort());
     assert.equal(mcp.calls.find((c) => c.tool === 'delete_resource')!.args.confirm, true);
@@ -369,14 +369,14 @@ const mdSetup = async () => {
   fs.writeFileSync(path.join(vault, 'other.md'), '# Other\nNot in the workspace\n');
   fs.mkdirSync(path.join(e.tmp, 'outside'), { recursive: true });
   const src = addSource(e, 'markdown-folder', { folder: 'notes' }, 'Notes');
-  await setLore(e, { kind: 'source', sourceId: src, root: 'WorldLore', defaultLevel: 'dm' });
+  await setLore(e, { kind: 'source', sourceId: src, root: 'WorldLore', defaultLevel: 'gm' });
   return { e, vault, src };
 };
 
 test('TestWorldLore_MarkdownFolderWritesStayInsideTheRoot', async () => {
   const { e, vault } = await mdSetup();
   try {
-    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { path: 'npcs/Odda', title: 'Odda', markdown: 'Odda sells charts.', level: 'broker', by: 'agent' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { path: 'npcs/Odda', title: 'Odda', markdown: 'Odda sells charts.', level: 'broker', by: 'agent' });
     assert.equal(made.ref, 'WorldLore/npcs/Odda.md');
     const file = path.join(vault, 'WorldLore/npcs/Odda.md');
     const text = fs.readFileSync(file, 'utf8');
@@ -414,12 +414,12 @@ test('TestWorldLore_MarkdownFolderWritesStayInsideTheRoot', async () => {
     assert.ok(fs.existsSync(path.join(vault, 'other.md')) && !fs.existsSync(path.join(vault, 'escaped.md')));
 
     // Move and delete inside.
-    const mv = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${made.id}/move`, e.T.dm, { to: 'people/Odda Fence', by: 'agent' });
+    const mv = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${made.id}/move`, e.T.gm, { to: 'people/Odda Fence', by: 'agent' });
     assert.equal(mv.ref, 'WorldLore/people/Odda Fence.md');
     assert.ok(!fs.existsSync(file) && fs.existsSync(path.join(vault, mv.ref)));
     assert.equal(pageRow(e, 'external_id = ?', made.ref), undefined, 'the old entry is gone');
     assert.ok(pageRow(e, 'external_id = ?', mv.ref));
-    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${mv.id}`, e.T.dm);
+    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${mv.id}`, e.T.gm);
     assert.ok(!fs.existsSync(path.join(vault, mv.ref)));
     assert.equal(pageRow(e, 'external_id = ?', mv.ref), undefined);
   } finally { e.close(); }
@@ -430,12 +430,12 @@ test('TestWorldLore_MarkdownFolderWritesStayInsideTheRoot', async () => {
 test('TestWorldLore_LibraryModeWritesUnderWorldLoreOnly', async () => {
   const e = await boot();
   try {
-    await e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: '# Saltmarsh\nA fishing town.' });
-    await setLore(e, { kind: 'library', root: 'anything', defaultLevel: 'dm' });
-    const cfg = (await e.ok('GET', `/api/worlds/${e.W}/worldlore`, e.T.dm)).config;
+    await e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.gm, { path: 'places/Saltmarsh', visibility: 'party', markdown: '# Saltmarsh\nA fishing town.' });
+    await setLore(e, { kind: 'library', root: 'anything', defaultLevel: 'gm' });
+    const cfg = (await e.ok('GET', `/api/worlds/${e.W}/worldlore`, e.T.gm)).config;
     assert.equal(cfg.root, 'WorldLore', 'the library folder is fixed');
 
-    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { path: 'npcs/Odda', title: 'Odda', markdown: 'Library lore.', level: 'broker', by: 'agent' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { path: 'npcs/Odda', title: 'Odda', markdown: 'Library lore.', level: 'broker', by: 'agent' });
     assert.equal(made.ref, 'WorldLore/npcs/Odda.md');
     assert.equal(pageRow(e, 'path = ?', made.ref).visibility, 'broker');
     assert.equal((await e.lore('POST', '/pages', { path: 'npcs/Odda', markdown: 'dup' })).status, 409);
@@ -450,10 +450,10 @@ test('TestWorldLore_LibraryModeWritesUnderWorldLoreOnly', async () => {
     assert.ok([400, 403].includes((await e.lore('POST', `/pages/${made.id}/move`, { to: '../places/Moved' })).status));
     assert.ok(pageRow(e, 'path = ?', 'places/Saltmarsh.md').body.includes('fishing town'));
 
-    const mv = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${made.id}/move`, e.T.dm, { to: 'people/Odda' });
+    const mv = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${made.id}/move`, e.T.gm, { to: 'people/Odda' });
     assert.equal(mv.ref, 'WorldLore/people/Odda.md');
     assert.equal(pageRow(e, 'path = ?', mv.ref).visibility, 'broker', 'the level moves with the page');
-    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${mv.id}`, e.T.dm);
+    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${mv.id}`, e.T.gm);
     assert.equal(pageRow(e, 'path = ?', mv.ref), undefined);
     assert.equal(syncs(e), 0);
 
@@ -470,8 +470,8 @@ test('TestWorldLore_BrokerLevelPageNeverReachesAPlayer', async () => {
   const { e, vault } = await mdSetup();
   try {
     const MARK = 'qxzv-broker-only-fact';
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { path: 'rumours/Harbour', title: 'Harbour rumour', markdown: `The harbourmaster owes a debt: ${MARK}.`, level: 'broker', by: 'agent' });
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { path: 'rumours/Sealed', title: 'Sealed order', markdown: `Sealed text ${MARK}-classified`, level: 'classified', by: 'agent' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { path: 'rumours/Harbour', title: 'Harbour rumour', markdown: `The harbourmaster owes a debt: ${MARK}.`, level: 'broker', by: 'agent' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { path: 'rumours/Sealed', title: 'Sealed order', markdown: `Sealed text ${MARK}-classified`, level: 'classified', by: 'agent' });
     const k = await e.ok('POST', '/api/keys', e.T.jess, { scope: 'scribe', worldId: e.W, label: 'ai', access: 'read' });
     const rpc = async (name: string, args: any) => JSON.stringify((await e.call('POST', '/mcp', k.key ?? k.token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body);
     const seen = [
@@ -490,12 +490,12 @@ test('TestWorldLore_BrokerLevelPageNeverReachesAPlayer', async () => {
     // Player copies are empty; the files players can see hold nothing.
     for (const r of all<any>(e.deps.db, `SELECT player_body, player_blocks, visibility FROM pages WHERE world_id = ? AND path LIKE '%WorldLore%'`, e.W)) { assert.equal(r.player_body, null); assert.equal(r.player_blocks, null); assert.notEqual(r.visibility, 'party'); }
     // The GM sees it; the agent can read broker pages but never classified ones.
-    const list = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages?ai=1`, e.T.dm);
+    const list = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages?ai=1`, e.T.gm);
     assert.deepEqual(list.map((p: any) => p.title), ['Harbour rumour']);
-    const all2 = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm);
+    const all2 = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm);
     assert.deepEqual(all2.map((p: any) => p.level).sort(), ['broker', 'classified']);
     const broker = all2.find((p: any) => p.level === 'broker');
-    assert.ok((await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages/${broker.id}`, e.T.dm)).markdown.includes(MARK));
+    assert.ok((await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages/${broker.id}`, e.T.gm)).markdown.includes(MARK));
     const sealed = all2.find((p: any) => p.level === 'classified');
     const sr = await e.lore('GET', `/pages/${sealed.id}`);
     assert.equal(sr.status, 403);
@@ -504,16 +504,16 @@ test('TestWorldLore_BrokerLevelPageNeverReachesAPlayer', async () => {
   } finally { e.close(); }
 });
 
-test('TestWorldLore_PartyLevelNeedsTheDmsPartyDefault', async () => {
+test('TestWorldLore_PartyLevelNeedsTheGmsPartyDefault', async () => {
   const { e } = await mdSetup();
   try {
-    const r = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { path: 'a/One', title: 'One', markdown: 'text', level: 'party', by: 'agent' });
-    assert.equal(r.level, 'dm', 'an agent cannot publish to players on its own');
+    const r = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { path: 'a/One', title: 'One', markdown: 'text', level: 'party', by: 'agent' });
+    assert.equal(r.level, 'gm', 'an agent cannot publish to players on its own');
     assert.match(r.note, /party/);
     assert.equal((await e.lore('POST', '/pages', { path: 'a/Two', markdown: 'x', level: 'secret-ish' })).status, 400);
-    const src = (await e.ok('GET', `/api/worlds/${e.W}/worldlore`, e.T.dm)).config.sourceId;
+    const src = (await e.ok('GET', `/api/worlds/${e.W}/worldlore`, e.T.gm)).config.sourceId;
     await setLore(e, { kind: 'source', sourceId: src, root: 'WorldLore', defaultLevel: 'party' });
-    const p = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { path: 'a/Three', title: 'Three', markdown: 'players may read this', by: 'agent' });
+    const p = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { path: 'a/Three', title: 'Three', markdown: 'players may read this', by: 'agent' });
     assert.equal(p.level, 'party');
     assert.equal((await e.ok('GET', `/api/worlds/${e.W}/library/pages/${p.id}`, e.T.jess)).title, 'Three');
   } finally { e.close(); }
@@ -524,9 +524,9 @@ test('TestWorldLore_PartyLevelNeedsTheDmsPartyDefault', async () => {
 test('TestWorldLore_EnablingAddsToolsToAutoApproveAndDisablingRemovesThem', async () => {
   const e = await boot();
   try {
-    await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['next_turn'] });
+    await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentAutoApprove: ['next_turn'] });
     const src = addSource(e, 'markdown-folder', { folder: 'notes' }, 'Notes');
-    await setLore(e, { kind: 'source', sourceId: src, root: 'WorldLore', defaultLevel: 'dm' });
+    await setLore(e, { kind: 'source', sourceId: src, root: 'WorldLore', defaultLevel: 'gm' });
     const on = await autoApprove(e);
     for (const t of ['next_turn', 'lore_write', 'lore_move', 'lore_delete', 'lore_list', 'lore_read']) assert.ok(on.includes(t), t);
     assert.ok(!on.includes('save_page') && !on.includes('add_coin'), 'nothing else is approved');
@@ -535,19 +535,19 @@ test('TestWorldLore_EnablingAddsToolsToAutoApproveAndDisablingRemovesThem', asyn
     await setLore(e, null);
     const off = await autoApprove(e);
     assert.deepEqual(off, ['next_turn']);
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/settings`, e.T.dm)).worldLore, null);
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/settings`, e.T.gm)).worldLore, null);
     assert.equal((await e.lore('POST', '/pages', { title: 'x', markdown: 'y' })).status, 409, 'off: the tools do nothing');
     // The lore write tools are write tools (so they would wait for approval without the setting).
     const tools = (await import('../src/routes/mcpServer.ts')).toolsFor(true);
     for (const t of ['lore_write', 'lore_move', 'lore_delete']) assert.equal(tools.find((x) => x.name === t)!.write, true);
     for (const t of ['lore_list', 'lore_read']) assert.ok(!tools.find((x) => x.name === t)!.write);
     // Bad settings are refused.
-    assert.equal((await e.call('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { worldLore: { kind: 'source', root: '../x', defaultLevel: 'dm' } })).status, 400);
-    assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: 'nope', root: 'x', defaultLevel: 'dm' })).status, 404);
+    assert.equal((await e.call('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { worldLore: { kind: 'source', root: '../x', defaultLevel: 'gm' } })).status, 400);
+    assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: 'nope', root: 'x', defaultLevel: 'gm' })).status, 404);
     assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: src, root: 'x', defaultLevel: 'classified' })).status, 400);
     // A source that cannot be written to (a git repo) is refused.
     const git = addSource(e, 'git', { url: 'https://git.test/x.git' }, 'Git');
-    assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: git, root: 'x', defaultLevel: 'dm' })).status, 400);
+    assert.equal((await e.lore('PUT', '/config', { kind: 'source', sourceId: git, root: 'x', defaultLevel: 'gm' })).status, 400);
   } finally { e.close(); }
 });
 
@@ -559,17 +559,17 @@ test('TestWorldLore_OptionsAndLinkForThePicker', async () => {
     const a = addSource(e, 'legendkeeper-api', LK_CFG, 'LK');
     addSource(e, 'markdown-folder', { folder: 'notes' }, 'Notes');
     addSource(e, 'git', { url: 'https://git.test/x.git' }, 'Git');
-    const o = await e.ok('GET', `/api/worlds/${e.W}/worldlore/options`, e.T.dm);
+    const o = await e.ok('GET', `/api/worlds/${e.W}/worldlore/options`, e.T.gm);
     assert.deepEqual(o.sources.map((s: any) => s.name).sort(), ['LK', 'Notes'], 'only writable sources');
     assert.deepEqual(o.sources.find((s: any) => s.name === 'LK').roots.map((r: any) => r.id).sort(), ['outside1', 'rootlore']);
     assert.ok(o.sources.find((s: any) => s.name === 'Notes').roots.some((r: any) => r.id === 'WorldLore'));
-    const st = await setLore(e, { kind: 'source', sourceId: a, root: 'rootlore', defaultLevel: 'dm' });
+    const st = await setLore(e, { kind: 'source', sourceId: a, root: 'rootlore', defaultLevel: 'gm' });
     assert.match(st.links.url, /p1.*rootlore/);
     assert.equal(st.links.sourceName, 'LK');
-    const own = await setLore(e, { kind: 'source', sourceId: a, root: 'rootlore', defaultLevel: 'dm', url: 'https://lk.test/my/link' });
+    const own = await setLore(e, { kind: 'source', sourceId: a, root: 'rootlore', defaultLevel: 'gm', url: 'https://lk.test/my/link' });
     assert.equal(own.links.url, 'https://lk.test/my/link');
     // An admin can set it too.
-    const adm = await e.ok('PUT', `/api/admin/worldlore/${e.W}/config`, e.T.admin, { kind: 'library', root: 'WorldLore', defaultLevel: 'dm' });
+    const adm = await e.ok('PUT', `/api/admin/worldlore/${e.W}/config`, e.T.admin, { kind: 'library', root: 'WorldLore', defaultLevel: 'gm' });
     assert.equal(adm.enabled, true);
     assert.ok((await autoApprove(e)).includes('lore_write'));
   } finally { e.close(); }
@@ -583,7 +583,7 @@ test('TestWorldLore_AgentRunsLoreWriteWithoutAskingAndOthersStillWait', async ()
   try {
     const before = await autoApprove(e);
     assert.ok(!before.includes('lore_write'));
-    await setLore(e, { kind: 'library', root: 'WorldLore', defaultLevel: 'dm' });
+    await setLore(e, { kind: 'library', root: 'WorldLore', defaultLevel: 'gm' });
     const approve = new Set(await autoApprove(e));
     assert.ok(approve.has('lore_write') && approve.has('lore_delete') && approve.has('lore_move'));
     for (const t of ['save_page', 'add_coin', 'add_item', 'send_broker_offer', 'add_broker_note']) assert.ok(!approve.has(t), `${t} still needs the GM`);
@@ -600,11 +600,11 @@ test('TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress', async () => {
     const e = await boot({ fetch: restFetch(lk, writes) });
     try {
       const src = addSource(e, 'legendkeeper-api', LK_CFG, 'LK');
-      await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
-      const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Kept', markdown: 'First text', by: 'agent' });
+      await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
+      const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Kept', markdown: 'First text', by: 'agent' });
       const r = lk.res.get(made.ref)!;
       r.blocks[r.documents[0].id] = [{ id: 'blk_p1', kind: 'paragraph', content: [{ text: 'First text' }] }, infobox, embed];
-      await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: 'New text', by: 'agent' });
+      await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { id: made.id, markdown: 'New text', by: 'agent' });
       const put = writes.filter((w) => w.method === 'PUT' && /\/blocks$/.test(w.path)).at(-1);
       assert.deepEqual(put.body.blocks.map((b: any) => b.kind), ['paragraph', 'infobox', 'embed']);
       assert.deepEqual(put.body.blocks.slice(1), [infobox, embed], 'kept blocks go back exactly, ids included');
@@ -618,11 +618,11 @@ test('TestWorldLore_RewriteKeepsBlocksMarkdownCannotExpress', async () => {
     const e = await boot({ testMcp: mcp });
     try {
       const src = addSource(e, 'legendkeeper-mcp', { transport: 'http', url: 'http://lk-mcp.test/mcp' }, 'LKMCP');
-      await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
-      const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Kept MCP', markdown: 'First', by: 'agent' });
+      await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
+      const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Kept MCP', markdown: 'First', by: 'agent' });
       const r = lk.res.get(made.ref)!;
       r.blocks[r.documents[0].id] = [{ id: 'blk_p1', kind: 'paragraph', content: [{ text: 'First' }] }, infobox];
-      await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: 'Second', by: 'agent' });
+      await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { id: made.id, markdown: 'Second', by: 'agent' });
       const w = mcp.calls.filter((c) => c.tool === 'write_page').at(-1)!;
       assert.match(w.args.markdown, /^Second/);
       assert.match(w.args.markdown, /<!-- lk:keep id="blk_info1" kind="infobox" -->\n<!-- \/lk:keep -->/);
@@ -661,11 +661,11 @@ test('TestWorldLore_KeptBlocksStayWhereTheyWere', async () => {
   const e = await boot({ testMcp: mcp });
   try {
     const src = addSource(e, 'legendkeeper-mcp', { transport: 'http', url: 'http://lk-mcp.test/mcp' }, 'LKMCP');
-    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'dm' });
-    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Placed', markdown: 'x', by: 'agent' });
+    await setLore(e, { kind: 'source', sourceId: src, root: 'rootlore', defaultLevel: 'gm' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { title: 'Placed', markdown: 'x', by: 'agent' });
     const r = lk.res.get(made.ref)!;
     r.blocks[r.documents[0].id] = [h('Story'), p('one'), info, p('two')];
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { id: made.id, markdown: '## Story\n\nFirst.\n\nSecond.', by: 'agent' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.gm, { id: made.id, markdown: '## Story\n\nFirst.\n\nSecond.', by: 'agent' });
     const w = mcp.calls.filter((c) => c.tool === 'write_page').at(-1)!;
     assert.equal(w.args.markdown, '## Story\n\nFirst.\n\n<!-- lk:keep id="blk_info" kind="infobox" -->\n<!-- /lk:keep -->\n\nSecond.\n');
   } finally { e.close(); }

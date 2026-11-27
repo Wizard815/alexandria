@@ -9,7 +9,7 @@ import { Pill, Section } from '../../pages/admin/kit.tsx';
 import SearchInsights from '../gwstatus/SearchInsights.tsx';
 
 interface Result { world: { id: string; name: string }; id: string; path: string; title: string; titleHtml: string; snippetHtml: string; source: string | null }
-interface Found { q: string; worlds: { id: string; name: string; copy: 'dm' | 'party'; count: number }[]; sources: { name: string; count: number }[]; results: Result[] }
+interface Found { q: string; worlds: { id: string; name: string; copy: 'gm' | 'party'; count: number }[]; sources: { name: string; count: number }[]; results: Result[] }
 
 export default function AdminSearch() {
   const { client } = useAuth();
@@ -37,7 +37,7 @@ export default function AdminSearch() {
       </form>
       <ErrorBox error={found.error} />
       {found.loading && !d ? <Loading /> : d ? (
-        <Section title={`${d.results.length} result${d.results.length === 1 ? '' : 's'} for “${d.q}”`} lead={d.worlds.map((w) => `${w.name}: ${w.copy === 'dm' ? 'GM copy (you are its GM)' : 'party copy'}`).join(' · ')}
+        <Section title={`${d.results.length} result${d.results.length === 1 ? '' : 's'} for “${d.q}”`} lead={d.worlds.map((w) => `${w.name}: ${w.copy === 'gm' ? 'GM copy (you are its GM)' : 'party copy'}`).join(' · ')}
           actions={d.sources.length > 1 ? (
             <span className="row wrap">
               <button type="button" className={`btn small${source ? '' : ' primary'}`} onClick={() => setSource('')}>All</button>

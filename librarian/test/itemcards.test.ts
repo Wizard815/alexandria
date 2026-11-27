@@ -51,19 +51,19 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Cardland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Cardland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
+  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown })).id;
   P.md = await page('items/Moonblade', 'party', `# Moonblade\nA silver sword that glows near undead.\n\n> [!secret] GM\n> The blade is cursed by the lich Mordane.\n\n## History\nForged in Westmarch.\n`);
-  P.dmOnly = await page('dm/Ashgrove', 'dm', `# Ashgrove\nThe Ashgrove cult meets under the old mill.\n`);
+  P.gmOnly = await page('gm/Ashgrove', 'gm', `# Ashgrove\nThe Ashgrove cult meets under the old mill.\n`);
 
   // A structured (LegendKeeper-style) page with facts, a GM fact group and a secret block.
   run(deps.db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'api', 'Wiki', '{}', 'party')`, W);
@@ -71,7 +71,7 @@ before(async () => {
     externalId: 'e1', title: 'Ring of Warding', visibility: 'party', folder: ['Items'],
     properties: [
       { title: 'Facts', rows: [{ key: 'Rarity', value: [{ text: 'Rare' }] }] },
-      { title: 'GM facts', dm: true, rows: [{ key: 'Curse', value: [{ text: 'Mordane watches the wearer' }] }] },
+      { title: 'GM facts', gm: true, rows: [{ key: 'Curse', value: [{ text: 'Mordane watches the wearer' }] }] },
     ],
     blocks: [
       { kind: 'paragraph', content: [{ text: 'A plain iron ring.' }] },
@@ -90,61 +90,61 @@ after(async () => {
 
 const add = (token: string, body: Record<string, unknown>) => ok('POST', INV(), token, body);
 
-test('TestItemCards_DMSeesFullCardAndPlayerOnlyThePlayerCopy', async () => {
-  const dmIt = await add(T.dm, { owner: ID.jess, name: 'Moonblade', qty: 1, note: 'Family heirloom', dmNote: 'Handle with care', pageId: P.md, reason: 'gift' });
-  assert.equal(dmIt.pageId, P.md);
-  const lkIt = await add(T.dm, { owner: ID.jess, name: 'Ring of Warding', pageId: P.lk, dmNote: 'secret note', reason: 'gift' });
+test('TestItemCards_GMSeesFullCardAndPlayerOnlyThePlayerCopy', async () => {
+  const gmIt = await add(T.gm, { owner: ID.jess, name: 'Moonblade', qty: 1, note: 'Family heirloom', gmNote: 'Handle with care', pageId: P.md, reason: 'gift' });
+  assert.equal(gmIt.pageId, P.md);
+  const lkIt = await add(T.gm, { owner: ID.jess, name: 'Ring of Warding', pageId: P.lk, gmNote: 'secret note', reason: 'gift' });
 
-  const dmCard = await ok('GET', `${IC()}/${dmIt.id}`, T.dm);
-  assert.equal(dmCard.item.dmNote, 'Handle with care');
-  assert.equal(dmCard.page.title, 'Moonblade');
-  assert.ok(JSON.stringify(dmCard.page.excerpt).includes('silver sword'));
-  assert.ok(dmCard.page.openPath.includes('/gm/library?page='));
+  const gmCard = await ok('GET', `${IC()}/${gmIt.id}`, T.gm);
+  assert.equal(gmCard.item.gmNote, 'Handle with care');
+  assert.equal(gmCard.page.title, 'Moonblade');
+  assert.ok(JSON.stringify(gmCard.page.excerpt).includes('silver sword'));
+  assert.ok(gmCard.page.openPath.includes('/gm/library?page='));
 
-  const pCard = await ok('GET', `${IC()}/${dmIt.id}`, T.jess);
+  const pCard = await ok('GET', `${IC()}/${gmIt.id}`, T.jess);
   assert.equal(pCard.item.note, 'Family heirloom');
-  assert.equal(pCard.item.dmNote, undefined);
+  assert.equal(pCard.item.gmNote, undefined);
   assert.equal(pCard.page.title, 'Moonblade');
   assert.ok(JSON.stringify(pCard.page.excerpt).includes('silver sword'));
-  assert.ok(!pCard.page.openPath.includes('/dm/'));
+  assert.ok(!pCard.page.openPath.includes('/gm/'));
   noSecrets('markdown card', pCard);
   assert.ok(!JSON.stringify(pCard).includes('Handle with care'));
 
   // Structured page: facts and the GM fact group.
-  const dmLk = await ok('GET', `${IC()}/${lkIt.id}`, T.dm);
-  assert.ok(dmLk.page.facts.some((g: any) => g.dm));
+  const gmLk = await ok('GET', `${IC()}/${lkIt.id}`, T.gm);
+  assert.ok(gmLk.page.facts.some((g: any) => g.gm));
   const pLk = await ok('GET', `${IC()}/${lkIt.id}`, T.jess);
   assert.deepEqual(pLk.page.facts.map((g: any) => g.title), ['Facts']);
   assert.ok(JSON.stringify(pLk.page.excerpt).includes('plain iron ring'));
   noSecrets('structured card', pLk);
-  assert.equal(pLk.item.dmNote, undefined);
+  assert.equal(pLk.item.gmNote, undefined);
   // The inventory list itself carries pageId.
   const list = await ok('GET', `${INV()}?owner=me`, T.jess);
   assert.ok(list.items.some((i: any) => i.pageId === P.md));
 });
 
-test('TestItemCards_DMOnlyPageGivesPlayersNothingFromThePage', async () => {
-  const it = await add(T.dm, { owner: ID.jess, name: 'Ashen token', note: 'A burnt token', pageId: P.dmOnly, reason: 'gift' });
-  const dmCard = await ok('GET', `${IC()}/${it.id}`, T.dm);
-  assert.ok(JSON.stringify(dmCard.page).includes('Ashgrove cult'));
+test('TestItemCards_GMOnlyPageGivesPlayersNothingFromThePage', async () => {
+  const it = await add(T.gm, { owner: ID.jess, name: 'Ashen token', note: 'A burnt token', pageId: P.gmOnly, reason: 'gift' });
+  const gmCard = await ok('GET', `${IC()}/${it.id}`, T.gm);
+  assert.ok(JSON.stringify(gmCard.page).includes('Ashgrove cult'));
   const pCard = await ok('GET', `${IC()}/${it.id}`, T.jess);
   assert.equal(pCard.page, null);
   assert.equal(pCard.item.note, 'A burnt token');
-  noSecrets('dm-only page card', pCard);
+  noSecrets('gm-only page card', pCard);
   assert.ok(!JSON.stringify(pCard).includes('Ashgrove'));
 
   // Missing player copy (page was shared, then went back to GM-only).
-  const pg = await ok('GET', `/api/worlds/${W}/library/pages/${P.md}`, T.dm);
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: pg.path, visibility: 'dm', body: pg.body });
+  const pg = await ok('GET', `/api/worlds/${W}/library/pages/${P.md}`, T.gm);
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: pg.path, visibility: 'gm', body: pg.body });
   const md = (await ok('GET', `${INV()}?owner=me`, T.jess)).items.find((i: any) => i.name === 'Moonblade');
   const hidden = await ok('GET', `${IC()}/${md.id}`, T.jess);
   assert.equal(hidden.page, null);
   noSecrets('unshared page', hidden);
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: pg.path, visibility: 'party', body: pg.body });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: pg.path, visibility: 'party', body: pg.body });
 });
 
-test('TestItemCards_OnlyOwnerOrDMCanLink', async () => {
-  const it = await add(T.dm, { owner: ID.jess, name: 'Lantern', reason: 'gift' });
+test('TestItemCards_OnlyOwnerOrGMCanLink', async () => {
+  const it = await add(T.gm, { owner: ID.jess, name: 'Lantern', reason: 'gift' });
   // Another player may not even see the card, and cannot link.
   assert.equal((await call('GET', `${IC()}/${it.id}`, T.tom)).status, 404);
   assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.tom, { pageId: P.md })).status, 404);
@@ -156,55 +156,55 @@ test('TestItemCards_OnlyOwnerOrDMCanLink', async () => {
   await ok('PATCH', `${INV()}/${it.id}`, T.jess, { pageId: P.lk });
   assert.equal((await ok('GET', `${IC()}/${it.id}`, T.jess)).page.title, 'Ring of Warding');
   // The GM may too, and can unlink.
-  await ok('PUT', `${IC()}/${it.id}/page`, T.dm, { pageId: null });
+  await ok('PUT', `${IC()}/${it.id}/page`, T.gm, { pageId: null });
   assert.equal((await ok('GET', `${IC()}/${it.id}`, T.jess)).page, null);
-  assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.dm, {})).status, 400);
-  assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.dm, { pageId: 'pg_nope' })).status, 400);
+  assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.gm, {})).status, 400);
+  assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.gm, { pageId: 'pg_nope' })).status, 400);
 });
 
 test('TestItemCards_PlayerCannotLinkADMOnlyPage', async () => {
-  const it = await add(T.dm, { owner: ID.jess, name: 'Candle', reason: 'gift' });
-  assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.jess, { pageId: P.dmOnly })).status, 400);
-  assert.equal((await call('PATCH', `${INV()}/${it.id}`, T.jess, { pageId: P.dmOnly })).status, 400);
+  const it = await add(T.gm, { owner: ID.jess, name: 'Candle', reason: 'gift' });
+  assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.jess, { pageId: P.gmOnly })).status, 400);
+  assert.equal((await call('PATCH', `${INV()}/${it.id}`, T.jess, { pageId: P.gmOnly })).status, 400);
   // Adding an item through the player flow with a GM-only page is refused too.
-  assert.equal((await call('POST', INV(), T.jess, { owner: 'me', name: 'Trick', pageId: P.dmOnly })).status, 400);
+  assert.equal((await call('POST', INV(), T.jess, { owner: 'me', name: 'Trick', pageId: P.gmOnly })).status, 400);
   // A player's own proposed item can carry a shared page.
   const mine = await call('POST', INV(), T.jess, { owner: 'me', name: 'Brooch', pageId: P.lk });
   assert.ok(mine.status < 300, JSON.stringify(mine.body));
   assert.equal(mine.body.pageId, P.lk);
 });
 
-test('TestItemCards_PlayerPageSearchNeverListsDMOnlyPages', async () => {
-  const dm = await ok('GET', `${IC()}/pages?q=ashgrove`, T.dm);
-  assert.ok(dm.some((p: any) => p.id === P.dmOnly));
-  const dmAll = await ok('GET', `${IC()}/pages`, T.dm);
-  assert.ok(dmAll.length >= 3);
+test('TestItemCards_PlayerPageSearchNeverListsGMOnlyPages', async () => {
+  const gm = await ok('GET', `${IC()}/pages?q=ashgrove`, T.gm);
+  assert.ok(gm.some((p: any) => p.id === P.gmOnly));
+  const gmAll = await ok('GET', `${IC()}/pages`, T.gm);
+  assert.ok(gmAll.length >= 3);
   const pl = await ok('GET', `${IC()}/pages?q=ashgrove`, T.jess);
   assert.deepEqual(pl, []);
   const plAll = await ok('GET', `${IC()}/pages`, T.jess);
-  assert.ok(plAll.length >= 2 && plAll.every((p: any) => p.id !== P.dmOnly && p.visibility === undefined));
+  assert.ok(plAll.length >= 2 && plAll.every((p: any) => p.id !== P.gmOnly && p.visibility === undefined));
   assert.ok(!JSON.stringify(plAll).includes('Ashgrove'));
   const m = await ok('GET', `${IC()}/pages?q=moon`, T.jess);
   assert.deepEqual(m.map((p: any) => p.title), ['Moonblade']);
 });
 
 test('TestItemCards_CardReflectsPageEdits', async () => {
-  const it = await add(T.dm, { owner: ID.tom, name: 'Banner', pageId: P.md, reason: 'gift' });
+  const it = await add(T.gm, { owner: ID.tom, name: 'Banner', pageId: P.md, reason: 'gift' });
   const before = await ok('GET', `${IC()}/${it.id}`, T.tom);
   assert.ok(JSON.stringify(before.page.excerpt).includes('silver sword'));
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'items/Moonblade', visibility: 'party', markdown: '# Moonblade\nNow a golden sword.\n' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'items/Moonblade', visibility: 'party', markdown: '# Moonblade\nNow a golden sword.\n' });
   const after = await ok('GET', `${IC()}/${it.id}`, T.tom);
   assert.ok(JSON.stringify(after.page.excerpt).includes('golden sword'));
   assert.ok(!JSON.stringify(after).includes('silver sword'));
   // Deleting the page unlinks it (the item survives).
-  await ok('DELETE', `/api/worlds/${W}/library/pages/${P.md}`, T.dm);
+  await ok('DELETE', `/api/worlds/${W}/library/pages/${P.md}`, T.gm);
   const gone = await ok('GET', `${IC()}/${it.id}`, T.tom);
   assert.equal(gone.page, null);
   assert.equal(gone.item.name, 'Banner');
 });
 
 test('TestItemCards_MovedItemKeepsItsLink', async () => {
-  const it = await add(T.dm, { owner: ID.jess, name: 'Rope', qty: 2, pageId: P.lk, reason: 'gift' });
+  const it = await add(T.gm, { owner: ID.jess, name: 'Rope', qty: 2, pageId: P.lk, reason: 'gift' });
   const mv = await ok('POST', `${INV()}/${it.id}/move`, T.jess, { to: 'party', qty: 1 });
   assert.equal(mv.moved.pageId, P.lk);
 });
@@ -223,7 +223,7 @@ test('TestItemCards_ExcerptTakesTheLeadOrFirstSection', () => {
 });
 
 test('TestItemCards_MCPTools', async () => {
-  const dmKey = await ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'ai', access: 'write' });
+  const gmKey = await ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'ai', access: 'write' });
   const plKey = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
   const mcp = async (key: string, name: string, args: Record<string, unknown> = {}) => {
     const r = await call('POST', '/mcp', key, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
@@ -231,21 +231,21 @@ test('TestItemCards_MCPTools', async () => {
   };
   const tools = JSON.stringify((await call('POST', '/mcp', plKey.key, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).body);
   assert.ok(tools.includes('get_item_card') && !tools.includes('link_item_page'));
-  const it = await add(T.dm, { owner: ID.jess, name: 'Amulet', reason: 'gift' });
-  assert.ok((await mcp(dmKey.key, 'link_item_page', { itemId: it.id, pageId: P.dmOnly })).includes(P.dmOnly));
+  const it = await add(T.gm, { owner: ID.jess, name: 'Amulet', reason: 'gift' });
+  assert.ok((await mcp(gmKey.key, 'link_item_page', { itemId: it.id, pageId: P.gmOnly })).includes(P.gmOnly));
   const asPlayer = await mcp(plKey.key, 'get_item_card', { itemId: it.id });
   assert.ok(asPlayer.includes('Amulet'));
   noSecrets('MCP card', asPlayer);
   assert.ok(!asPlayer.includes('Ashgrove'));
-  assert.ok((await mcp(dmKey.key, 'get_item_card', { itemId: it.id })).includes('Ashgrove'));
+  assert.ok((await mcp(gmKey.key, 'get_item_card', { itemId: it.id })).includes('Ashgrove'));
 });
 
-test('TestItemCards_DMWritesTheItemPageAndLinksItInOneStep', async () => {
-  const it = await add(T.dm, { owner: 'party', name: 'Silver-hilted dagger' });
-  const r = await ok('PUT', `${IC()}/${it.id}/page`, T.dm, { newPage: { title: 'Silver-hilted dagger', markdown: '# Silver-hilted dagger\nA fine blade with a fish on the pommel.\n', visibility: 'party' } });
+test('TestItemCards_GMWritesTheItemPageAndLinksItInOneStep', async () => {
+  const it = await add(T.gm, { owner: 'party', name: 'Silver-hilted dagger' });
+  const r = await ok('PUT', `${IC()}/${it.id}/page`, T.gm, { newPage: { title: 'Silver-hilted dagger', markdown: '# Silver-hilted dagger\nA fine blade with a fish on the pommel.\n', visibility: 'party' } });
   assert.ok(r.pageId);
-  const card = await ok('GET', `${IC()}/${it.id}`, T.dm);
+  const card = await ok('GET', `${IC()}/${it.id}`, T.gm);
   assert.equal(card.page.title, 'Silver-hilted dagger');
-  const mine = await add(T.dm, { owner: ID.jess, name: 'Lucky stone', reason: 'gift' });
+  const mine = await add(T.gm, { owner: ID.jess, name: 'Lucky stone', reason: 'gift' });
   assert.equal((await call('PUT', `${IC()}/${mine.id}/page`, T.jess, { newPage: { title: 'Lucky stone' } })).status, 403, 'players link pages, they do not write them here');
 });

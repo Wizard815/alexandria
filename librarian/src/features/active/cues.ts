@@ -12,8 +12,8 @@ export interface LineIn {
   id: string;
   text: string;
   speaker: string;
-  /** dm: the GM's own mic; player: a player's own mic; other: room mic or nobody known. */
-  role: 'dm' | 'player' | 'other';
+  /** gm: the GM's own mic; player: a player's own mic; other: room mic or nobody known. */
+  role: 'gm' | 'player' | 'other';
   accountId: string | null;
   /** A GM-only line (aside): nothing players see may follow from it. */
   aside: boolean;
@@ -157,12 +157,12 @@ const partyByName = (ctx: CueCtx, name: string) => {
 export function cuesOf(line: LineIn, ctx: CueCtx, opts: { explicit?: boolean } = {}): Scored[] {
   const out: Scored[] = [];
   const push = (i: Intent, confidence: number) => out.push({ ...i, confidence: opts.explicit ? Math.max(confidence, 0.9) : confidence } as Scored);
-  const dm = line.role === 'dm' || opts.explicit === true;
+  const gm = line.role === 'gm' || opts.explicit === true;
   const text = line.text;
   if (!text.trim()) return out;
   if (line.role === 'player' && !opts.explicit) return playerCues(line, ctx);
   // Room mics and unknown speakers never trigger anything.
-  if (!dm) return out;
+  if (!gm) return out;
   const low = norm(text);
 
   // -- music, ambience, sound effects --
@@ -420,7 +420,7 @@ function playerCues(line: LineIn, ctx: CueCtx): Scored[] {
 export function allCues(line0: LineIn, ctx: CueCtx, opts: { explicit?: boolean } = {}): Scored[] {
   const line = { ...line0, text: digitize(line0.text) };
   const base = cuesOf(line, ctx, opts);
-  if (line.role === 'dm' || opts.explicit) return dedupe([...base, ...addCues(line, ctx)]);
+  if (line.role === 'gm' || opts.explicit) return dedupe([...base, ...addCues(line, ctx)]);
   return base;
 }
 

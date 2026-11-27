@@ -45,7 +45,7 @@ export function PagePicker({ value, onChange, label = 'Linked page (optional)', 
             {hits.map((h) => (
               <li key={h.id}>
                 <button type="button" className="btn small ghost" style={{ textAlign: 'left', width: '100%' }} onClick={() => { onChange(h.id); setTitle(h.title); setQ(''); onPick?.(h); }}>
-                  {h.title}{h.source ? <span className="tiny faint"> · {h.source}</span> : null}{h.visibility === 'dm' ? <span className="tiny faint"> · GM only</span> : null}
+                  {h.title}{h.source ? <span className="tiny faint"> · {h.source}</span> : null}{h.visibility === 'gm' ? <span className="tiny faint"> · GM only</span> : null}
                 </button>
               </li>
             ))}

@@ -183,7 +183,7 @@ test('Lifecycle_Argos_ANonZeroTtlIsRefreshedJustInsideIt', async () => {
   await f.close();
 });
 
-test('Lifecycle_LlamaSwap_PingsInsideTheTtlTheDmSetsAndUnloadsPerModel', async () => {
+test('Lifecycle_LlamaSwap_PingsInsideTheTtlTheGmSetsAndUnloadsPerModel', async () => {
   const f = await fake('llama-swap');
   await pointAt(f, 'openai-compatible', 'local', { ttl: 120 });
   setManual(deps, true);

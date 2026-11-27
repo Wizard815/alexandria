@@ -27,17 +27,17 @@ const gp = (n: number | null) => (n === null ? 'priceless' : `${n.toLocaleString
 const copy = (text: string) => { void copyText(text); };
 
 export default function QuickGenOverlay() {
-  const { isDM } = useWorld();
+  const { isGM } = useWorld();
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    if (!isDM) return;
+    if (!isGM) return;
     const k = (e: KeyboardEvent) => {
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'g' || e.key === 'G' || e.code === 'KeyG')) { e.preventDefault(); setOpen((o) => !o); }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [isDM]);
-  if (!isDM) return null;
+  }, [isGM]);
+  if (!isGM) return null;
   return (
     <>
       <DockButton order={30} icon="fa-dice" label="Quick generators (Alt+G)" title="Quick generators (Alt+G)" active={open} onClick={() => setOpen((o) => !o)} testId="dock-quickgen" />

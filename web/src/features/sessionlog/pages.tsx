@@ -11,7 +11,7 @@ const entryLabel = (n: number, title: string) => (/^session\b/i.test(title.trim(
 interface Entry { id: string; number: number; title: string; summary: string; sessionAt: string; worldFrom: string; worldTo: string; published: boolean; publishedAt: string; draftId?: string }
 interface Proposal { minutes: number; reason: string; travel?: { from: string; to: string; days: number; route: string }; rests?: { kind: string; minutesIn?: number }[] }
 interface Draft {
-  id: string; title: string; version: number; markdown: string; dmNotes: string; usedModel: boolean; proposal: Proposal | null;
+  id: string; title: string; version: number; markdown: string; gmNotes: string; usedModel: boolean; proposal: Proposal | null;
   dateStatus: 'none' | 'pending' | 'accepted' | 'declined'; entryId: string | null; createdAt: string;
   versions: { n: number; note: string; createdAt: string; size: number }[];
 }
@@ -56,7 +56,7 @@ export function SessionLogPlayer() {
 
 // ---- GM ----
 
-export function SessionLogDM() {
+export function SessionLogGM() {
   const { w } = useWorld();
   const act = useAction();
   const drafts = useLoad<DraftRow[]>(() => w.call('GET', '/sessionlog/drafts'), [w], ['sessionlog']);
@@ -232,7 +232,7 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
 
       <div className="card stack">
         <h3 style={{ margin: 0 }}>GM notes <span className="chip">never published</span></h3>
-        {dr.dmNotes ? <Markdown text={dr.dmNotes} /> : <p className="small muted">No GM-only lines were recorded.</p>}
+        {dr.gmNotes ? <Markdown text={dr.gmNotes} /> : <p className="small muted">No GM-only lines were recorded.</p>}
       </div>
     </div>
   );

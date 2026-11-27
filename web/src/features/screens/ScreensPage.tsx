@@ -6,7 +6,7 @@ import { useWorld } from '../../lib/world.tsx';
 import { canManageWindows, detectMonitors, openDisplay, type Monitor } from './open.ts';
 import { panelUrl } from './names.ts';
 import { PANELS } from './panels.tsx';
-import { DM_NAMES } from '../../lib/dmnames.ts';
+import { GM_NAMES } from '../../lib/gmnames.ts';
 import { useAssignments, useMainPrefs } from './prefs.ts';
 import './screens.css';
 
@@ -35,7 +35,7 @@ export default function ScreensPage() {
 
   const displays: { id: string; title: string; icon: string; url: string; name: string; about: string }[] = [
     { id: 'side', title: 'Side screen', icon: 'fa-table-columns', url: `${base}/screen/side`, name: 'alx-side', about: 'A tall screen beside yours: stack the assistant, transcript, initiative and approvals.' },
-    { id: 'players', title: DM_NAMES['screen-players'].label, icon: DM_NAMES['screen-players'].icon, url: `${base}/screen/players`, name: 'alx-players', about: 'The TV facing the players: staged cards, handouts and scenes. Only what players may see.' },
+    { id: 'players', title: GM_NAMES['screen-players'].label, icon: GM_NAMES['screen-players'].icon, url: `${base}/screen/players`, name: 'alx-players', about: 'The TV facing the players: staged cards, handouts and scenes. Only what players may see.' },
     { id: 'table', title: 'Table screen', icon: 'fa-chess-board', url: `${base}/screen/table`, name: 'alx-table', about: 'The screen lying face up on the table: battle map and initiative, big. Players’ view only, even from your login.' },
   ];
   const Pick = ({ id }: { id: string }) => monitors ? (

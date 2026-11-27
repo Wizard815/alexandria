@@ -58,15 +58,15 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Logland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Logland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).token;
-  const put = (p: string, visibility: 'dm' | 'party', markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await put('dm/Velmira', 'dm', '# Velmira\n\nVelmira, the smuggler queen, owns the lighthouse keeper. Her payroll: three captains of the harbour watch owe her silver. The Drowned King waits under the bay until the eclipse.\n');
-  await put('dm/Mayor', 'dm', '# The mayor\n\nThe mayor is secretly the thief who robs the ships on the reef and blames the wreckers.\n');
-  await put('dm/Vault', 'dm', `# Vault\n\n> [!classified] The vault\n> ${CLASSIFIED}.\n`);
+  const put = (p: string, visibility: 'gm' | 'party', markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown });
+  await put('gm/Velmira', 'gm', '# Velmira\n\nVelmira, the smuggler queen, owns the lighthouse keeper. Her payroll: three captains of the harbour watch owe her silver. The Drowned King waits under the bay until the eclipse.\n');
+  await put('gm/Mayor', 'gm', '# The mayor\n\nThe mayor is secretly the thief who robs the ships on the reef and blames the wreckers.\n');
+  await put('gm/Vault', 'gm', `# Vault\n\n> [!classified] The vault\n> ${CLASSIFIED}.\n`);
   await put('places/Saltmarsh', 'party', '# Saltmarsh\n\nA fishing town with a lighthouse, a busy harbour gate and a market square.\n');
   run(deps.db, "INSERT INTO audio_sessions (id, world_id, name, started_at, stopped_at) VALUES ('as1', ?, 'Table', '2026-01-01T18:00:00.000Z', '2026-01-01T21:00:00.000Z')", W);
   run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 'l1', 'as1', W, 10000, 15000, 'Jess', 'We met the lighthouse keeper at the harbour gate and he mentioned Odo Fennick', 'players', '2026-01-01T18:00:00.000Z');
@@ -93,23 +93,23 @@ test('SessionLogParaphrase: what the players saw or said is not flagged', () => 
 });
 
 test('SessionLogParaphrase: publish flags the paraphrase for review and force publishes it', async () => {
-  const draft = await ok('POST', `${SL()}/drafts`, T.dm, { audioSessionId: 'as1', title: 'The road' });
-  await ok('PUT', `${SL()}/drafts/${draft.id}`, T.dm, { markdown: `## Recap\n${PARAPHRASE}\n` });
-  const check = await ok('GET', `${SL()}/drafts/${draft.id}/leakcheck`, T.dm);
+  const draft = await ok('POST', `${SL()}/drafts`, T.gm, { audioSessionId: 'as1', title: 'The road' });
+  await ok('PUT', `${SL()}/drafts/${draft.id}`, T.gm, { markdown: `## Recap\n${PARAPHRASE}\n` });
+  const check = await ok('GET', `${SL()}/drafts/${draft.id}/leakcheck`, T.gm);
   assert.ok(check.overlaps.length >= 2, JSON.stringify(check));
   assert.equal(check.blocked, false);
-  const refused = await call('POST', `${SL()}/drafts/${draft.id}/publish`, T.dm, {});
+  const refused = await call('POST', `${SL()}/drafts/${draft.id}/publish`, T.gm, {});
   assert.equal(refused.status, 409);
   assert.equal(refused.body.forceAllowed, true);
   assert.ok(refused.body.overlaps.some((o: any) => o.kind === 'terms'));
   // A clean text goes through.
-  await ok('PUT', `${SL()}/drafts/${draft.id}`, T.dm, { markdown: `## Recap\n${PLAIN}\n` });
-  const clean = await ok('POST', `${SL()}/drafts/${draft.id}/publish`, T.dm, {});
+  await ok('PUT', `${SL()}/drafts/${draft.id}`, T.gm, { markdown: `## Recap\n${PLAIN}\n` });
+  const clean = await ok('POST', `${SL()}/drafts/${draft.id}/publish`, T.gm, {});
   assert.equal(clean.overlaps.length, 0);
   // Forcing the flagged text works, and says so in the audit log.
-  const d2 = await ok('POST', `${SL()}/drafts`, T.dm, { audioSessionId: 'as1', title: 'Another' });
-  await ok('PUT', `${SL()}/drafts/${d2.id}`, T.dm, { markdown: `## Recap\n${PARAPHRASE}\n` });
-  const forced = await call('POST', `${SL()}/drafts/${d2.id}/publish`, T.dm, { force: true });
+  const d2 = await ok('POST', `${SL()}/drafts`, T.gm, { audioSessionId: 'as1', title: 'Another' });
+  await ok('PUT', `${SL()}/drafts/${d2.id}`, T.gm, { markdown: `## Recap\n${PARAPHRASE}\n` });
+  const forced = await call('POST', `${SL()}/drafts/${d2.id}/publish`, T.gm, { force: true });
   assert.equal(forced.status, 200, forced.text);
 });
 

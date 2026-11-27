@@ -165,8 +165,8 @@ export default function StagePage() {
   const reload = () => { void s.reload(); void hist.reload(); };
   if (s.loading && !s.data) return <div className="page"><Loading what="the stage" /></div>;
   const v = s.data;
-  const staged = v?.cards.filter((c) => c.visibility === 'dm') ?? [];
-  const live: StageView | null = v ? { ...v, cards: v.cards.filter((c) => c.visibility !== 'dm') } : null;
+  const staged = v?.cards.filter((c) => c.visibility === 'gm') ?? [];
+  const live: StageView | null = v ? { ...v, cards: v.cards.filter((c) => c.visibility !== 'gm') } : null;
   const setLayout = (layout: string) => act.run(async () => { await w.call('PUT', '/stage/layout', { layout }); reload(); });
 
   return (

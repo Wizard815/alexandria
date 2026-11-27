@@ -16,7 +16,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-obsidian-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const player = { accountId: 'p', role: 'player' as const };
-const dm = { accountId: 'a', role: 'dm' as const };
+const gm = { accountId: 'a', role: 'gm' as const };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 function world(kind: string, config: Record<string, unknown>) {
@@ -27,7 +27,7 @@ function world(kind: string, config: Record<string, unknown>) {
   return { db, lib: new Library(db, null) };
 }
 
-const TOWN = `---\nvisibility: party\ntags: [town]\n---\n# Port Town\n\nA busy harbour. [[Mira]] runs the inn.\n\n> [!secret]\n> SMUGGLERS use the old pier.\n\n%% DMNOTE remember the tide %%\n`;
+const TOWN = `---\nvisibility: party\ntags: [town]\n---\n# Port Town\n\nA busy harbour. [[Mira]] runs the inn.\n\n> [!secret]\n> SMUGGLERS use the old pier.\n\n%% GMNOTE remember the tide %%\n`;
 const MIRA = `---\nvisibility: party\n---\nMira keeps the inn.\n`;
 const PLOT = `# The plot\n\nPLOTTWIST the duke is a lich.\n`; // no visibility: stays the GM's
 
@@ -37,9 +37,9 @@ function leakCheck(lib: Library) {
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pl = JSON.stringify(lib.get('w', town.id, player));
   assert.ok(pl.includes('busy harbour'), 'players see the shared text');
-  for (const w of ['SMUGGLERS', 'DMNOTE', 'PLOTTWIST']) assert.ok(!pl.includes(w), `a player never sees ${w}`);
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('SMUGGLERS'), 'the GM sees the secret');
-  assert.equal(lib.list('w', dm).length, 3);
+  for (const w of ['SMUGGLERS', 'GMNOTE', 'PLOTTWIST']) assert.ok(!pl.includes(w), `a player never sees ${w}`);
+  assert.ok(JSON.stringify(lib.get('w', town.id, gm)).includes('SMUGGLERS'), 'the GM sees the secret');
+  assert.equal(lib.list('w', gm).length, 3);
 }
 
 // ---------- Local REST API plugin ----------
@@ -78,8 +78,8 @@ test('TestObsidianRest_SyncsTheVaultAndKeepsSecretsFromPlayers', async () => {
   assert.equal(out.status, 'ok', out.error);
   assert.ok(!calls.some((c) => c.includes('.obsidian') || c.includes('map.png')), 'settings and non-notes are not read');
   leakCheck(lib);
-  const town = lib.list('w', dm).find((p: any) => p.title === 'Port Town') as any;
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('obsidian://'), 'the page opens in Obsidian');
+  const town = lib.list('w', gm).find((p: any) => p.title === 'Port Town') as any;
+  assert.ok(JSON.stringify(lib.get('w', town.id, gm)).includes('obsidian://'), 'the page opens in Obsidian');
 });
 
 test('TestObsidianRest_TestReportsABadKey', async () => {
@@ -92,7 +92,7 @@ test('TestObsidianRest_TestReportsABadKey', async () => {
 });
 
 test('TestObsidianRest_WorldLoreWritesStayInTheWorkspace', async () => {
-  const files: Record<string, string> = { 'WorldLore/Old.md': '---\nvisibility: dm\n---\nOld text\n', 'Places/Port Town.md': TOWN };
+  const files: Record<string, string> = { 'WorldLore/Old.md': '---\nvisibility: gm\n---\nOld text\n', 'Places/Port Town.md': TOWN };
   const { f } = fakeRest(files);
   const cfg = { url: 'http://127.0.0.1:27123', apiKey: 'k'.repeat(32) };
   const ctx: any = { fetch: f, env: {}, signal: new AbortController().signal, log: () => {} };
@@ -100,15 +100,15 @@ test('TestObsidianRest_WorldLoreWritesStayInTheWorkspace', async () => {
   assert.equal(made.externalId, 'WorldLore/Factions/The Guild.md');
   assert.match(files['WorldLore/Factions/The Guild.md'], /visibility: party[\s\S]*A guild\./);
   await obsidianRestWrite.updatePage(cfg, ctx, { root: 'WorldLore', id: 'WorldLore/Old.md', markdown: 'New text' } as any);
-  assert.match(files['WorldLore/Old.md'], /visibility: dm[\s\S]*New text/, 'frontmatter kept on update');
+  assert.match(files['WorldLore/Old.md'], /visibility: gm[\s\S]*New text/, 'frontmatter kept on update');
   const moved = await obsidianRestWrite.movePage!(cfg, ctx, { root: 'WorldLore', id: 'WorldLore/Old.md', to: 'Archive/Old' } as any);
   assert.equal(moved.externalId, 'WorldLore/Archive/Old.md');
   assert.ok(!('WorldLore/Old.md' in files) && 'WorldLore/Archive/Old.md' in files);
   for (const bad of [
     () => obsidianRestWrite.updatePage(cfg, ctx, { root: 'WorldLore', id: 'Places/Port Town.md', markdown: 'x' } as any),
     () => obsidianRestWrite.deletePage!(cfg, ctx, { root: 'WorldLore', id: 'WorldLore/../Places/Port Town.md' } as any),
-    () => obsidianRestWrite.createPage(cfg, ctx, { root: 'WorldLore', path: '../Places/Evil', title: 'x', markdown: 'x', level: 'dm' } as any),
-    () => obsidianRestWrite.createPage(cfg, ctx, { root: 'WorldLore', path: '.obsidian/plugins', title: 'x', markdown: 'x', level: 'dm' } as any),
+    () => obsidianRestWrite.createPage(cfg, ctx, { root: 'WorldLore', path: '../Places/Evil', title: 'x', markdown: 'x', level: 'gm' } as any),
+    () => obsidianRestWrite.createPage(cfg, ctx, { root: 'WorldLore', path: '.obsidian/plugins', title: 'x', markdown: 'x', level: 'gm' } as any),
   ]) await assert.rejects(bad, WriteRefused);
   assert.equal(files['Places/Port Town.md'], TOWN, 'nothing outside the workspace changed');
 });
@@ -136,8 +136,8 @@ test('TestObsidianPublish_ReadsThePublishedNotes', async () => {
   assert.deepEqual(titles, ['Mira', 'Port Town', 'The plot']);
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pl = JSON.stringify(lib.get('w', town.id, player));
-  assert.ok(!pl.includes('SMUGGLERS') && !pl.includes('DMNOTE'));
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('https://publish.obsidian.md/realm/Places/Port%20Town'), 'opens on the site');
+  assert.ok(!pl.includes('SMUGGLERS') && !pl.includes('GMNOTE'));
+  assert.ok(JSON.stringify(lib.get('w', town.id, gm)).includes('https://publish.obsidian.md/realm/Places/Port%20Town'), 'opens on the site');
 });
 
 test('TestObsidianPublish_SiteInfoIsStrict', () => {
@@ -190,7 +190,7 @@ test('TestObsidianSync_WorldLoreWritesOnlyInTwoWayMode', async () => {
   fs.mkdirSync(path.join(vaults, 'realm', 'WorldLore'), { recursive: true });
   const ob = fakeOb({});
   const ctx: any = { env: { ALX_OBSIDIAN_BIN: ob.bin }, vaultsDir: vaults, signal: new AbortController().signal, log: () => {} };
-  const a = { root: 'WorldLore', path: 'Guild', title: 'Guild', markdown: 'A guild.', level: 'dm' } as any;
+  const a = { root: 'WorldLore', path: 'Guild', title: 'Guild', markdown: 'A guild.', level: 'gm' } as any;
   await assert.rejects(() => obsidianSyncWrite.createPage({ folder: 'realm' }, ctx, a), WriteRefused);
   const made = await obsidianSyncWrite.createPage({ folder: 'realm', twoWay: true }, ctx, a);
   assert.equal(made.externalId, 'WorldLore/Guild.md');

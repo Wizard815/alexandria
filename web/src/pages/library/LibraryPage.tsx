@@ -27,7 +27,7 @@ import { ShareButton } from '../../features/sourcekeys/ShareButton.tsx';
 import { escapeHtml, safeMarks, snippetOf } from '../../features/search/marks.ts';
 import '../../features/search/search.css';
 import { FILES_CSS, FilesTab, PageFiles } from '../../features/libfiles/Files.tsx';
-import { AudBadge, FromDM, SHARE_CSS, SharedPanel, ShareControl, ShareDialog, useSharing, type Overview, type Target } from '../../features/libshare/Share.tsx';
+import { AudBadge, FromGM, SHARE_CSS, SharedPanel, ShareControl, ShareDialog, useSharing, type Overview, type Target } from '../../features/libshare/Share.tsx';
 import type { Node } from './treeModel.ts';
 
 type Side = 'pages' | 'files' | 'shared' | 'saved' | 'lint';
@@ -35,17 +35,17 @@ type Sort = 'tree' | 'recent' | 'title';
 
 /** `embedded`: inside the gateway admin (own heading, read-only except for files). */
 export default function LibraryPage({ embedded = false }: { embedded?: boolean } = {}) {
-  const { w, info, isDM, me, readOnly } = useWorld();
+  const { w, info, isGM, me, readOnly } = useWorld();
   const [params, setParams] = useSearchParams();
   const pages = useLoad<PageRow[]>(() => w.pages(), [w], ['page']);
-  const lint = useLoad<any[]>(() => (isDM ? w.call('GET', '/library/lint') : Promise.resolve([])), [w, isDM], ['page']);
+  const lint = useLoad<any[]>(() => (isGM ? w.call('GET', '/library/lint') : Promise.resolve([])), [w, isGM], ['page']);
   const [saved, setSaved] = useState<off.SavedPage[]>([]);
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<any[] | null>(null);
   const [tag, setTag] = useState('');
   const [kind, setKind] = useState(() => params.get('kind') ?? '');
   const [every, setEvery] = useState(() => { try { return localStorage.getItem('alx.lib.every') === '1'; } catch { return false; } });
-  const [vis, setVis] = useState<'all' | 'party' | 'broker' | 'dm' | 'classified'>('all');
+  const [vis, setVis] = useState<'all' | 'party' | 'broker' | 'gm' | 'classified'>('all');
   const [savedOnly, setSavedOnly] = useState(false);
   const [sharedOnly, setSharedOnly] = useState(false);
   const [sort, setSort] = useState<Sort>('tree');
@@ -83,8 +83,8 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
     if (!titleParam || !pages.data) return;
     const t = titleParam.toLowerCase();
     const hit = pages.data.find((p) => p.title.toLowerCase() === t);
-    setParams(hit ? { page: hit.id } : isDM ? { new: titleParam } : {}, { replace: true });
-  }, [titleParam, pages.data, setParams, isDM]);
+    setParams(hit ? { page: hit.id } : isGM ? { new: titleParam } : {}, { replace: true });
+  }, [titleParam, pages.data, setParams, isGM]);
 
   useEffect(() => {
     if (!q.trim() || offline || !netOnline) { setHits(null); return; }
@@ -113,7 +113,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   const flat = useMemo(() => (sort === 'tree' && !needle ? null : [...list].sort((a, b) => (sort === 'recent' ? b.updated_at.localeCompare(a.updated_at) : a.title.localeCompare(b.title, undefined, { numeric: true })))), [list, sort, needle]);
 
   const selected = params.get('page');
-  const creating = isDM && !readOnly ? params.get('new') : null;
+  const creating = isGM && !readOnly ? params.get('new') : null;
   const open = useCallback((id: string) => setParams({ page: id }), [setParams]);
   const shownAs = selected && !every ? merged.repOf.get(selected) ?? selected : selected;
   const filtered = !!(tag || kind || savedOnly || sharedOnly || vis !== 'all');
@@ -160,20 +160,20 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
   };
 
   const sideItems: [Side, string][] = [['pages', `Pages (${every ? rows.length : whole.rows.length})`], ['files', 'Files'], ...(readOnly ? [] : [['saved', `Saved (${saved.length})`] as [Side, string]])];
-  if (isDM && !readOnly) sideItems.splice(2, 0, ['shared', `Shared${so?.shared.length ? ` (${so.shared.length})` : ''}`]);
-  if (isDM) sideItems.push(['lint', `Leak check${lint.data?.length ? ` (${lint.data.length})` : ''}`]);
+  if (isGM && !readOnly) sideItems.splice(2, 0, ['shared', `Shared${so?.shared.length ? ` (${so.shared.length})` : ''}`]);
+  if (isGM) sideItems.push(['lint', `Leak check${lint.data?.length ? ` (${lint.data.length})` : ''}`]);
 
   return (
     <div className={embedded ? "lib-embedded" : "page wide"}>
       <style>{LIB_CSS + TREE_CSS + SHELL_CSS + FILES_CSS + SHARE_CSS}</style>
-      {!embedded && <PageHead title="Library" lead={isDM ? `Every page in ${info.name}; players get the player copy.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
+      {!embedded && <PageHead title="Library" lead={isGM ? `Every page in ${info.name}; players get the player copy.` : `What your party knows about ${info.name}. Save pages to read them offline.`}>
         {!readOnly && <Link className="btn" to="../codex" relative="path"><i className="fa-solid fa-book-journal-whills" aria-hidden="true" /> Codex</Link>}
-        {isDM && !readOnly && <button type="button" className="btn primary" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
+        {isGM && !readOnly && <button type="button" className="btn primary" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setParams({ new: '' })}><i className="fa-solid fa-plus" aria-hidden="true" /> New page</button>}
       </PageHead>}
       {offline && <div className="lib-offline" role="status"><i className="fa-solid fa-plug-circle-xmark" aria-hidden="true" /> The library can't be reached. Showing pages saved on this device.</div>}
       {!offline && <ErrorBox error={pages.error} />}
       {busy && <div className="note small" role="status">{busy}</div>}
-      {isDM && !embedded && !readOnly && <StatusBanner />}
+      {isGM && !embedded && !readOnly && <StatusBanner />}
       <div className={`lib-shell${selected || creating !== null ? ' has-page' : ''}`}>
         <aside className="lib-side card">
           <Tabs label="Library side panel" value={side} onChange={setSide} items={sideItems} />
@@ -185,7 +185,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
               <div className="lib-filters">
                 <select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}><option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                 {kinds.length > 1 && <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select>}
-                {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="dm">GM only</option><option value="classified">Classified</option></select>}
+                {isGM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="gm">GM only</option><option value="classified">Classified</option></select>}
                 <select aria-label="Order" value={sort} onChange={(e) => setSort(e.target.value as Sort)}><option value="tree">Source order</option><option value="recent">Recent</option><option value="title">A–Z</option></select>
                 <label className="lib-check"><input type="checkbox" checked={savedOnly} onChange={(e) => setSavedOnly(e.target.checked)} /> Saved for offline</label>
                 {rows.some((r) => r.sharedWithMe) && <label className="lib-check"><input type="checkbox" checked={sharedOnly} onChange={(e) => setSharedOnly(e.target.checked)} /> Shared with me</label>}
@@ -205,27 +205,27 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
                   {list.length > 0 && <div className="tiny faint" style={{ marginTop: 6 }}>Titles</div>}
                 </div>
               )}
-              {!isDM && !offline && <FromDM onOpen={open} compact autoSeen />}
-              {hits && !list.length ? null : flat ? <FlatList rows={flat} selected={shownAs} onOpen={open} saved={savedIds} so={isDM ? so : null} />
-                : <Tree rows={list} selected={shownAs} onOpen={open} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} badge={isDM && !readOnly ? badgeOf : undefined} onShare={isDM && !readOnly && netOnline ? shareNode : undefined} />}
+              {!isGM && !offline && <FromGM onOpen={open} compact autoSeen />}
+              {hits && !list.length ? null : flat ? <FlatList rows={flat} selected={shownAs} onOpen={open} saved={savedIds} so={isGM ? so : null} />
+                : <Tree rows={list} selected={shownAs} onOpen={open} saved={savedIds} onSaveFolder={offline ? undefined : (ids, label) => void saveMany(ids, `“${label}”`)} badge={isGM && !readOnly ? badgeOf : undefined} onShare={isGM && !readOnly && netOnline ? shareNode : undefined} />}
             </>
           )}
           {side === 'files' && <FilesTab onOpen={open} />}
-          {side === 'shared' && isDM && <SharedPanel onOpen={open} />}
+          {side === 'shared' && isGM && <SharedPanel onOpen={open} />}
           {side === 'saved' && <SavedPanel saved={saved} offline={offline} onOpen={open} onUpdate={() => void updateSaved()} onZip={zipSaved}
             onRemove={async (id) => { await off.removeSaved(world, me, id); void refreshSaved(); }} />}
-          {side === 'lint' && isDM && <LintPanel rows={lint.data} error={lint.error} onOpen={open} />}
+          {side === 'lint' && isGM && <LintPanel rows={lint.data} error={lint.error} onOpen={open} />}
         </aside>
         <section className="lib-main">
           {(selected || creating !== null) && <button type="button" className="btn small lib-back" onClick={() => setParams({})}><i className="fa-solid fa-arrow-left" aria-hidden="true" /> All pages</button>}
           {creating !== null ? (
-            <Editor key={`new:${creating}`} initial={{ path: creating, title: creating, body: '', visibility: 'dm', frontmatter: {} }} isNew
+            <Editor key={`new:${creating}`} initial={{ path: creating, title: creating, body: '', visibility: 'gm', frontmatter: {} }} isNew
               onSaved={(p) => { toast(`Saved ${p.title}`); setParams({ page: p.id }); }} onCancel={() => setParams({})} />
           ) : selected ? (
             <PageView key={selected} id={selected} rows={rows} copies={whole.rows.find((r) => r.id === whole.repOf.get(selected))?.copies ?? []} savedAt={saved.find((s) => s.pageId === selected)?.savedAt ?? null} onOpen={open}
               onSavedChange={refreshSaved} toast={toast} onDeleted={() => { toast('Page deleted'); setParams({}); }} />
           ) : (
-            <div className="card"><Empty>{rows.length ? 'Pick a page on the left.' : offline ? 'Nothing is saved on this device yet.' : isDM ? 'No pages yet. Make one, or add a source in Library admin.' : 'Your GM hasn\'t shared any pages yet.'}</Empty>{isDM && <SecretHint />}</div>
+            <div className="card"><Empty>{rows.length ? 'Pick a page on the left.' : offline ? 'Nothing is saved on this device yet.' : isGM ? 'No pages yet. Make one, or add a source in Library admin.' : 'Your GM hasn\'t shared any pages yet.'}</Empty>{isGM && <SecretHint />}</div>
           )}
         </section>
       </div>
@@ -306,7 +306,7 @@ function LintPanel({ rows, error, onOpen }: { rows: any[] | null; error: string 
 function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onDeleted }: {
   id: string; rows: PageRow[]; copies: NonNullable<PageRow['copies']>; savedAt: string | null; onOpen: (id: string) => void; onSavedChange: () => Promise<void> | void; toast: (m: string) => void; onDeleted: () => void;
 }) {
-  const { w, info, isDM, me, readOnly } = useWorld();
+  const { w, info, isGM, me, readOnly } = useWorld();
   const netOnline = useNet().online;
   const [pg, setPg] = useState<any>(null);
   const [offlineAt, setOfflineAt] = useState<string | null>(null);
@@ -334,12 +334,12 @@ function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onD
     if (pg && !offlineAt && savedAt && pg.updated_at && pg.updated_at > savedAt) void off.savePage(info.id, me, pg).then(() => onSavedChange());
   }, [pg, offlineAt, savedAt, info.id, me, onSavedChange]);
 
-  const ctx: RenderCtx = useMemo(() => ({ links: pg?.links ?? {}, titles: pg?.linkTitles ?? {}, open: onOpen, isDM, children: pg?.children ?? [] }), [pg, onOpen, isDM]);
+  const ctx: RenderCtx = useMemo(() => ({ links: pg?.links ?? {}, titles: pg?.linkTitles ?? {}, open: onOpen, isGM, children: pg?.children ?? [] }), [pg, onOpen, isGM]);
   if (error) return <div className="card"><ErrorBox error={error} /></div>;
   if (!pg) return <div className="card"><Loading what="page" /><WaitingForSite /></div>;
   if (editing) return <Editor key={`edit:${pg.id}`} initial={pg} onSaved={(p) => { setEditing(false); toast(`Saved ${p.title}`); if (p.id !== id) onOpen(p.id); else void load(); }} onCancel={() => setEditing(false)} />;
 
-  const editable = isDM && !pg.source && !readOnly;
+  const editable = isGM && !pg.source && !readOnly;
   const toggleSave = async () => {
     if (savedAt) { await off.removeSaved(info.id, me, id); toast('Removed from this device'); }
     else toast((await off.savePage(info.id, me, pg)) ? 'Saved for offline' : 'Offline storage is blocked in this browser');
@@ -391,34 +391,34 @@ function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onD
         <h1 className="lib-title">{pg.icon?.glyph && <Icon icon={pg.icon} size={26} />}<span>{pg.title}</span></h1>
         {pg.aliases?.length > 0 && <div className="small muted">Also called {pg.aliases.join(', ')}</div>}
         <div className="row wrap lib-meta">
-          {isDM && pg.visibility && <PageAud id={pg.id} level={pg.visibility} />}
-          {isDM && !readOnly && pg.source && <DepthBadge pageId={pg.id} />}
+          {isGM && pg.visibility && <PageAud id={pg.id} level={pg.visibility} />}
+          {isGM && !readOnly && pg.source && <DepthBadge pageId={pg.id} />}
           {editable && !offlineAt && <select aria-label="Level" value={levelOf(pg.visibility)} onChange={(e) => void setLevel(e.target.value)} disabled={act.busy}>{LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}</select>}
           {pg.tags?.map((t: string) => <span key={t} className="chip"><i className="fa-solid fa-tag" aria-hidden="true" /> {t}</span>)}
           {pg.updated_at && <span className="tiny faint">Updated {when(pg.updated_at)}</span>}
         </div>
         <div className="row wrap lib-actions">
-          {!offlineAt && !readOnly && (isDM ? <ShareControl target={{ kind: 'page', id: pg.id, title: pg.title }} onDone={toast} primary /> : <ShareButton pageId={pg.id} />)}
+          {!offlineAt && !readOnly && (isGM ? <ShareControl target={{ kind: 'page', id: pg.id, title: pg.title }} onDone={toast} primary /> : <ShareButton pageId={pg.id} />)}
           {!readOnly && <button type="button" className={`btn small${savedAt ? ' on' : ''}`} onClick={() => void toggleSave()} disabled={!!offlineAt} aria-pressed={!!savedAt}>
             <i className={`fa-solid ${savedAt ? 'fa-circle-check' : 'fa-download'}`} aria-hidden="true" /> {savedAt ? 'Saved for offline' : 'Save for offline'}
           </button>}
           <button type="button" className="btn small" onClick={() => off.download(off.fileName(pg.title), off.pageMarkdown(pg, offlineAt ?? undefined), 'text/markdown')}><i className="fa-solid fa-file-arrow-down" aria-hidden="true" /> Download .md</button>
           {src && <a className="btn small" href={src.href} {...(src.custom ? {} : { target: '_blank' })} rel="noopener noreferrer"><i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" /> {src.label}</a>}
-          {isDM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
+          {isGM && !offlineAt && !readOnly && <SculptPicker pageId={pg.id} />}
           {editable && !offlineAt && <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
-          {isDM && !offlineAt && !readOnly && <MoreMenu><button type="button" role="menuitem" className="lib-menu-danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete this page…</button></MoreMenu>}
-          {!isDM && !offlineAt && !readOnly && <>
+          {isGM && !offlineAt && !readOnly && <MoreMenu><button type="button" role="menuitem" className="lib-menu-danger" onClick={() => void del()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Delete this page…</button></MoreMenu>}
+          {!isGM && !offlineAt && !readOnly && <>
             <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setAsk('edit')}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>
             <button type="button" className="btn small" disabled={!netOnline} title={netOnline ? undefined : 'Offline: this needs the server'} onClick={() => setAsk('question')}><i className="fa-solid fa-circle-question" aria-hidden="true" /> Ask about this page</button>
           </>}
         </div>
         {copies.length > 1 && <div className="row wrap lib-copies" role="group" aria-label="Copies of this page"><span className="tiny faint">Copies:</span>
-          {copies.map((c) => <button key={c.id} type="button" className={`chip${c.id === id ? ' gold' : ''}`} aria-current={c.id === id || undefined} onClick={() => onOpen(c.id)}>{c.source ?? 'Imported'}{isDM && (c.visibility === 'party' ? ' · players see' : ' · GM')}</button>)}
+          {copies.map((c) => <button key={c.id} type="button" className={`chip${c.id === id ? ' gold' : ''}`} aria-current={c.id === id || undefined} onClick={() => onOpen(c.id)}>{c.source ?? 'Imported'}{isGM && (c.visibility === 'party' ? ' · players see' : ' · GM')}</button>)}
         </div>}
-        {pg.source && <p className="tiny faint lib-source" style={{ margin: '6px 0 0' }}>From {pg.source}{pg.synced_at ? <>, last synced {when(pg.synced_at)}</> : null}.{isDM && ' Edit it there. Delete removes it here until the next sync brings it back.'}</p>}
+        {pg.source && <p className="tiny faint lib-source" style={{ margin: '6px 0 0' }}>From {pg.source}{pg.synced_at ? <>, last synced {when(pg.synced_at)}</> : null}.{isGM && ' Edit it there. Delete removes it here until the next sync brings it back.'}</p>}
         <ErrorBox error={act.error} />
       </header>
-      {isDM && levelOf(pg.visibility) === 'classified' && <ClassifiedFrame />}
+      {isGM && levelOf(pg.visibility) === 'classified' && <ClassifiedFrame />}
       <div className={`lib-body${facts.length ? ' with-facts' : ''}`}>
         <div className="lib-page">
           {blocks.length ? <Blocks blocks={blocks} ctx={ctx} /> : <p className="muted">This page is empty.</p>}

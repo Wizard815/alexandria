@@ -39,10 +39,10 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
   assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${JSON.stringify(r.body)}`);
   return r.body;
 };
-const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.dm, new Date().toISOString()); };
+const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.gm, new Date().toISOString()); };
 const coin = (owner: string) => balance(deps.db, W, owner);
 const invQty = (owner: string, name: string) => all<any>(deps.db, `SELECT qty FROM items WHERE world_id = ? AND owner = ? AND name = ? AND status = 'approved'`, W, owner, name).reduce((n, x) => n + x.qty, 0);
-const send = (body: Record<string, unknown>) => ok('POST', P(), T.dm, body);
+const send = (body: Record<string, unknown>) => ok('POST', P(), T.gm, body);
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-story-'));
@@ -52,11 +52,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Streetland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Streetland', gmAccountId: ID.gm })).id;
   for (const [u, c] of [['jess', 'Jess'], ['tom', 'Tom']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: u, password: 'player pass 123', characterName: c });
     T[u] = j.token; ID[u] = j.account.id;
   }
@@ -86,11 +86,11 @@ test('TestStoryEvents_CleanPlaces', () => {
 });
 
 test('TestStoryEvents_NewEffectsParse', () => {
-  const sc = parseScript({ nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', effects: [{ kind: 'pay', cp: 5 }, { kind: 'lose', cp: 3 }, { kind: 'dmnote', text: 'kept it' }] }, { label: 'z', effects: [{ kind: 'item', name: 'Gem', qty: 1, note: 'Worth 10 gp' }] }] }] });
+  const sc = parseScript({ nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', effects: [{ kind: 'pay', cp: 5 }, { kind: 'lose', cp: 3 }, { kind: 'gmnote', text: 'kept it' }] }, { label: 'z', effects: [{ kind: 'item', name: 'Gem', qty: 1, note: 'Worth 10 gp' }] }] }] });
   assert.equal(sc.nodes[0].options[0].effects.length, 3);
   assert.deepEqual(sc.nodes[0].options[1].effects[0], { kind: 'item', name: 'Gem', qty: 1, note: 'Worth 10 gp' });
   assert.throws(() => parseScript({ nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', effects: [{ kind: 'pay', cp: 0 }] }] }] }), /cp/);
-  assert.throws(() => parseScript({ nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', effects: [{ kind: 'dmnote', text: '' }] }] }] }), /text/);
+  assert.throws(() => parseScript({ nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', effects: [{ kind: 'gmnote', text: '' }] }] }] }), /text/);
 });
 
 test('TestStoryEvents_RandomEventForAPlace', async () => {
@@ -98,7 +98,7 @@ test('TestStoryEvents_RandomEventForAPlace', async () => {
   assert.equal(made.length, 1);
   assert.equal(made[0].kind, 'event');
   assert.ok(EVENT_STARTERS.find((s) => s.id === made[0].templateId)?.places?.includes('dungeon'));
-  const bad = await call('POST', P(), T.dm, { accountIds: [ID.jess], place: 'moon' });
+  const bad = await call('POST', P(), T.gm, { accountIds: [ID.jess], place: 'moon' });
   assert.equal(bad.status, 400);
   // The whole party: one event each.
   const party = await send({ accountIds: 'party', place: 'coast' });
@@ -123,8 +123,8 @@ test('TestStoryEvents_PickpocketKeepOrGiveBack', async () => {
   // The GM note never reaches the player; the GM sees it.
   assert.ok(!r.body.log.some((l: any) => l.who === 'secret'));
   assert.ok(!JSON.stringify(r.body).includes('Let a pickpocket get away'));
-  const dmView = await ok('GET', `${P()}/${e.id}`, T.dm);
-  assert.ok(dmView.log.some((l: any) => l.who === 'secret' && /pickpocket/.test(l.text)));
+  const gmView = await ok('GET', `${P()}/${e.id}`, T.gm);
+  assert.ok(gmView.log.some((l: any) => l.who === 'secret' && /pickpocket/.test(l.text)));
 
   // Tom chases (a sure roll), catches the kid and keeps both purses.
   await send({ accountIds: [ID.tom], templateId: 'builtin:ev-pickpocket' });
@@ -201,9 +201,9 @@ test('TestStoryEvents_CheckNeedsTheTypedTotal', async () => {
   assert.equal(r.status, 200);
   assert.ok(r.body.log.some((l: any) => /You rolled 13 for Athletics/.test(l.text)));
   assert.ok(!r.body.log.some((l: any) => /DC/.test(l.text)), 'the player saw the DC');
-  const dmView = await ok('GET', `${P()}/${e.id}`, T.dm);
-  assert.ok(dmView.log.some((l: any) => l.who === 'secret' && /DC 1[0-4] \(picked from 10–14\)/.test(l.text)));
-  await ok('POST', `${P()}/${e.id}/end`, T.dm, {});
+  const gmView = await ok('GET', `${P()}/${e.id}`, T.gm);
+  assert.ok(gmView.log.some((l: any) => l.who === 'secret' && /DC 1[0-4] \(picked from 10–14\)/.test(l.text)));
+  await ok('POST', `${P()}/${e.id}/end`, T.gm, {});
   // A natural 1 with no total fails the chase; the GM sees it was a natural 1.
   await send({ accountIds: [ID.jess], templateId: 'builtin:ev-pickpocket' });
   const c = await openFor('jess');
@@ -211,9 +211,9 @@ test('TestStoryEvents_CheckNeedsTheTypedTotal', async () => {
   const r1 = await choose(c.id, 'jess', { play: true, crit: 'low' });
   assert.equal(r1.status, 200, JSON.stringify(r1.body));
   assert.match(r1.body.text, /vanish into the alleys/);
-  const dm1 = await ok('GET', `${P()}/${c.id}`, T.dm);
-  assert.ok(dm1.log.some((l: any) => l.who === 'secret' && /natural 1, failed/.test(l.text)));
-  await ok('POST', `${P()}/${c.id}/end`, T.dm, {});
+  const gm1 = await ok('GET', `${P()}/${c.id}`, T.gm);
+  assert.ok(gm1.log.some((l: any) => l.who === 'secret' && /natural 1, failed/.test(l.text)));
+  await ok('POST', `${P()}/${c.id}/end`, T.gm, {});
 });
 
 test('TestStoryEvents_TimedStep', async () => {
@@ -228,7 +228,7 @@ test('TestStoryEvents_TimedStep', async () => {
   setCoin(ID.tom, 100);
   await send({ accountIds: [ID.tom], templateId: 'builtin:ev-pickpocket' });
   // The clock starts when Tom first sees it.
-  const sent = (await ok('GET', P(), T.dm)).find((x: any) => x.player === 'Tom' && x.status === 'open');
+  const sent = (await ok('GET', P(), T.gm)).find((x: any) => x.player === 'Tom' && x.status === 'open');
   assert.deepEqual(sent.timer, { secs: 20, endsAt: null });
   const e = await openFor('tom');
   assert.equal(e.timer.secs, 20);
@@ -259,10 +259,10 @@ test('TestStoryEvents_TimedStep', async () => {
 
 test('TestStoryEvents_FavouritesAndRandomFrom', async () => {
   // Star a built-in and a saved one; both come back starred.
-  await ok('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.dm, { fav: true });
-  const mine = await ok('POST', `${P()}/templates/all`, T.dm, { kind: 'event', name: 'Fake fortune teller', places: ['market'], script: { nodes: [{ id: 'a', text: 'A woman offers to read your palm.', options: [{ label: 'Sure' }, { label: 'No thanks' }] }] } });
-  await ok('PUT', `${P()}/templates/fav/${mine.id}`, T.dm, { fav: true });
-  let list = await ok('GET', `${P()}/templates/all?kind=event`, T.dm);
+  await ok('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.gm, { fav: true });
+  const mine = await ok('POST', `${P()}/templates/all`, T.gm, { kind: 'event', name: 'Fake fortune teller', places: ['market'], script: { nodes: [{ id: 'a', text: 'A woman offers to read your palm.', options: [{ label: 'Sure' }, { label: 'No thanks' }] }] } });
+  await ok('PUT', `${P()}/templates/fav/${mine.id}`, T.gm, { fav: true });
+  let list = await ok('GET', `${P()}/templates/all?kind=event`, T.gm);
   assert.equal(list.starters.find((s: any) => s.id === 'builtin:ev-gem').fav, true);
   assert.equal(list.starters.find((s: any) => s.id === 'builtin:ev-pickpocket').fav, false);
   assert.equal(list.templates.find((t: any) => t.id === mine.id).fav, true);
@@ -274,36 +274,36 @@ test('TestStoryEvents_FavouritesAndRandomFrom', async () => {
   // Built-in only never picks the saved one, even though the world has its own market events.
   for (let i = 0; i < 4; i++) assert.ok((await send({ accountIds: [ID.jess], place: 'market', from: 'builtin' }))[0].templateId.startsWith('builtin:'));
   // Unstar; deleting a saved one drops its star too. No favourites left in the market: a clear 404.
-  await ok('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.dm, { fav: false });
-  await ok('DELETE', `${P()}/templates/all/${mine.id}`, T.dm);
+  await ok('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.gm, { fav: false });
+  await ok('DELETE', `${P()}/templates/all/${mine.id}`, T.gm);
   assert.equal(all<any>(deps.db, 'SELECT * FROM encounter_favs WHERE world_id = ?', W).length, 0);
-  const none = await call('POST', P(), T.dm, { accountIds: [ID.jess], place: 'market', from: 'fav' });
+  const none = await call('POST', P(), T.gm, { accountIds: [ID.jess], place: 'market', from: 'fav' });
   assert.equal(none.status, 404);
   assert.match(none.body.error, /starred/);
   // Players cannot star.
   assert.equal((await call('PUT', `${P()}/templates/fav/builtin:ev-gem`, T.jess, { fav: true })).status, 403);
-  assert.equal((await call('PUT', `${P()}/templates/fav/nope`, T.dm, { fav: true })).status, 404);
+  assert.equal((await call('PUT', `${P()}/templates/fav/nope`, T.gm, { fav: true })).status, 404);
   // An unsaved draft sends with its own name.
   const [d] = await send({ accountIds: [ID.jess], kind: 'event', name: 'Loose cobble', npcName: 'A loose cobble', script: { nodes: [{ id: 'a', text: 'You stub your toe.', options: [{ label: 'Ow' }] }] } });
   assert.equal(d.templateName, 'Loose cobble');
   assert.equal(d.kind, 'event');
-  await ok('POST', `${P()}/${d.id}/end`, T.dm, {});
+  await ok('POST', `${P()}/${d.id}/end`, T.gm, {});
 });
 
 test('TestStoryEvents_SavedEventsByPlace', async () => {
-  const sc = { start: 'a', nodes: [{ id: 'a', text: 'A crow steals a shiny button.', options: [{ label: 'Shoo it', next: null, effects: [{ kind: 'dmnote', text: 'The crow will be back.' }] }] }] };
-  const t = await ok('POST', `${P()}/templates/all`, T.dm, { kind: 'event', name: 'Thieving crow', places: ['woods', 'Forest', 'moon'], script: sc });
+  const sc = { start: 'a', nodes: [{ id: 'a', text: 'A crow steals a shiny button.', options: [{ label: 'Shoo it', next: null, effects: [{ kind: 'gmnote', text: 'The crow will be back.' }] }] }] };
+  const t = await ok('POST', `${P()}/templates/all`, T.gm, { kind: 'event', name: 'Thieving crow', places: ['woods', 'Forest', 'moon'], script: sc });
   assert.equal(t.kind, 'event');
   assert.deepEqual(t.places, ['woods']);
   assert.equal(t.npcName, 'Thieving crow');
-  const woods = await ok('GET', `${P()}/templates/all?kind=event&place=woods`, T.dm);
+  const woods = await ok('GET', `${P()}/templates/all?kind=event&place=woods`, T.gm);
   assert.deepEqual(woods.templates.map((x: any) => x.name), ['Thieving crow']);
   assert.ok(woods.starters.every((x: any) => x.kind === 'event' && x.places.includes('woods')));
   // With one of its own for the woods, a random woods event is the world's own.
   for (let i = 0; i < 5; i++) assert.equal((await send({ accountIds: [ID.tom], place: 'woods' }))[0].templateId, t.id);
   // Players never get the template list.
   assert.equal((await call('GET', `${P()}/templates/all`, T.jess)).status, 403);
-  const npcOnly = await ok('GET', `${P()}/templates/all?kind=npc`, T.dm);
+  const npcOnly = await ok('GET', `${P()}/templates/all?kind=npc`, T.gm);
   assert.ok(npcOnly.starters.length >= 5 && npcOnly.starters.every((x: any) => x.kind === 'npc'));
 });
 
@@ -315,7 +315,7 @@ test('TestStoryEvents_QuickLineEvent', async () => {
 });
 
 test('TestStoryEvents_DraftWithoutModel', async () => {
-  const d = await ok('POST', `${P()}/templates/draft`, T.dm, { prompt: 'A thief in the market grabs a purse', kind: 'event', places: ['market'] });
+  const d = await ok('POST', `${P()}/templates/draft`, T.gm, { prompt: 'A thief in the market grabs a purse', kind: 'event', places: ['market'] });
   assert.equal(d.kind, 'event');
   assert.deepEqual(d.places, ['market']);
   assert.ok(d.script.nodes.length >= 1);
@@ -363,34 +363,34 @@ test('TestTemplates_StartersCopyIn', async () => {
   const of = (k: string) => packs.flatMap((p) => p.templates).filter((t) => t.kind === k);
   assert.equal(of('event').length, 8);
   assert.equal(of('spell').length, 8);
-  const st = await ok('GET', `${TP()}/starters`, T.dm);
+  const st = await ok('GET', `${TP()}/starters`, T.gm);
   assert.ok(st.packs.some((p: any) => p.id === 'events' && p.templates.length === 8));
-  const add = await ok('POST', `${TP()}/starters/add`, T.dm, { pack: 'events', names: ['Town & city temptations'] });
+  const add = await ok('POST', `${TP()}/starters/add`, T.gm, { pack: 'events', names: ['Town & city temptations'] });
   assert.deepEqual(add.created, ['Town & city temptations']);
   assert.equal((await call('POST', `${TP()}/starters/add`, T.jess, { pack: 'events' })).status, 403);
-  const made = (await ok('GET', TP(), T.dm)).templates.find((t: any) => t.name === 'Town & city temptations');
+  const made = (await ok('GET', TP(), T.gm)).templates.find((t: any) => t.name === 'Town & city temptations');
   assert.equal(made.kind, 'event');
   assert.equal(made.version, 1);
   assert.ok((made.spec.places as string[]).includes('market'));
   // The quick event template drafts an event (no model here: a plain draft) with its places.
-  const r = await ok('POST', `${TP()}/${made.id}/event`, T.dm, { prompt: '' });
+  const r = await ok('POST', `${TP()}/${made.id}/event`, T.gm, { prompt: '' });
   assert.equal(r.draft.kind, 'event');
   assert.ok(r.draft.places.includes('town'));
   // And steers the Encounters draft too.
-  const d = await ok('POST', `${P()}/templates/draft`, T.dm, { prompt: 'A drunk spills ale', kind: 'event', guide: made.id });
+  const d = await ok('POST', `${P()}/templates/draft`, T.gm, { prompt: 'A drunk spills ale', kind: 'event', guide: made.id });
   assert.ok(d.places.includes('market'));
 });
 
 test('TestTemplates_SpellTemplateDraftsAndSaves', async () => {
-  await ok('POST', `${TP()}/starters/add`, T.dm, { pack: 'spells', names: ['Cantrip'] });
-  const st = (await ok('GET', TP(), T.dm)).templates.find((t: any) => t.kind === 'spell' && t.name === 'Cantrip');
-  assert.equal((await call('POST', `${TP()}/${st.id}/spell`, T.dm, { prompt: '' })).status, 400);
-  const r = await ok('POST', `${TP()}/${st.id}/spell`, T.dm, { prompt: 'Spark Flick: a tiny jolt that makes a foe drop what they hold' });
+  await ok('POST', `${TP()}/starters/add`, T.gm, { pack: 'spells', names: ['Cantrip'] });
+  const st = (await ok('GET', TP(), T.gm)).templates.find((t: any) => t.kind === 'spell' && t.name === 'Cantrip');
+  assert.equal((await call('POST', `${TP()}/${st.id}/spell`, T.gm, { prompt: '' })).status, 400);
+  const r = await ok('POST', `${TP()}/${st.id}/spell`, T.gm, { prompt: 'Spark Flick: a tiny jolt that makes a foe drop what they hold' });
   assert.equal(r.draft.spell.level, 0);
   assert.equal(r.draft.spell.name, 'Spark Flick');
-  const saved = await ok('POST', `/api/worlds/${W}/spells/s`, T.dm, r.draft.spell);
+  const saved = await ok('POST', `/api/worlds/${W}/spells/s`, T.gm, r.draft.spell);
   assert.equal(saved.name, 'Spark Flick');
   assert.equal(saved.source, 'Homebrew');
-  const ev = await ok('GET', TP(), T.dm);
-  assert.equal((await call('POST', `${TP()}/${ev.templates.find((t: any) => t.kind === 'event').id}/spell`, T.dm, { prompt: 'x' })).status, 400);
+  const ev = await ok('GET', TP(), T.gm);
+  assert.equal((await call('POST', `${TP()}/${ev.templates.find((t: any) => t.kind === 'event').id}/spell`, T.gm, { prompt: 'x' })).status, 400);
 });

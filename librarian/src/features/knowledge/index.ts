@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one, run } from '../../core/db.ts';
 import { now } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
@@ -51,14 +51,14 @@ const feature: Feature = {
   worldMount: 'knowledge',
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
-    r.get('/', requireDM, (_req, res) => { res.json(knowledgeStatus(d, ctx(res).world.id)); });
-    r.post('/refresh', requireDM, (req, res) => {
+    r.get('/', requireGM, (_req, res) => { res.json(knowledgeStatus(d, ctx(res).world.id)); });
+    r.post('/refresh', requireGM, (req, res) => {
       const w = ctx(res).world.id;
       const st = startRefresh(d, w, { by: me(res), full: req.body?.full === true });
       audit(d, w, me(res), 'world.refresh', st.id);
       res.status(202).json({ started: true, refresh: st });
     });
-    r.post('/refresh/stop', requireDM, (_req, res) => { res.json({ stopped: stopRefresh(d, ctx(res).world.id) }); });
+    r.post('/refresh/stop', requireGM, (_req, res) => { res.json({ stopped: stopRefresh(d, ctx(res).world.id) }); });
     return r;
   },
   mcpTools: [{

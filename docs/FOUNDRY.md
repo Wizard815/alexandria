@@ -51,7 +51,7 @@ vision and fog exploration still work as usual on top of it.
 `foundryHp`, `foundryConditions`, `foundryTokens`, `foundryFog`,
 `foundryRevealSquares` (0-60, default 6), `foundryPlayersMove`,
 `foundryRollsIn`, `foundryRollsOut`, `foundryPushMax`, `foundryMapLevel`
-(`party` or `dm`), `foundryHpPath` / `foundryMaxPath` / `foundryTempPath`
+(`party` or `gm`), `foundryHpPath` / `foundryMaxPath` / `foundryTempPath`
 (actor data paths; dnd5e defaults), `foundryStatuses` (condition → status
 id, `""` turns one off).
 

@@ -192,7 +192,7 @@ const PARTY = /^(party|players?|public|shared|everyone|all)$/i;
 export function notionAccess(x: any, cfg: Record<string, any>): { shared: boolean; level?: Level } {
   for (const [name, p] of Object.entries<any>(x?.properties ?? {})) {
     if (!VIS_PROP.test(name.trim())) continue;
-    const vals: string[] = p?.type === 'select' ? [p.select?.name] : p?.type === 'status' ? [p.status?.name] : p?.type === 'multi_select' ? (p.multi_select ?? []).map((o: any) => o?.name) : p?.type === 'checkbox' ? [p.checkbox ? 'party' : 'dm'] : [];
+    const vals: string[] = p?.type === 'select' ? [p.select?.name] : p?.type === 'status' ? [p.status?.name] : p?.type === 'multi_select' ? (p.multi_select ?? []).map((o: any) => o?.name) : p?.type === 'checkbox' ? [p.checkbox ? 'party' : 'gm'] : [];
     const names = vals.filter((v) => typeof v === 'string' && v.trim()).map((v) => v.trim());
     if (!names.length) continue; // an empty property says nothing
     if (names.every((n) => PARTY.test(n))) return { shared: true };
@@ -262,7 +262,7 @@ export function notionEntry(x: any, blocks: any[], cfg: Record<string, any>, kin
     externalId: ext(id), parentExternalId: parentOf(x, kinds), title: notionTitle(x), tags, type: x.object === 'database' ? 'collection' : 'page',
     icon: iconOf(x), banner: coverOf(x), properties: rows.length ? [{ title: 'Properties', rows }] : [],
     blocks: [...head, ...notionBlocks(blocks)],
-    visibility: acc.shared && shareVisible ? 'party' : 'dm', sourceShared: acc.shared, ...(acc.level ? { level: acc.level } : {}),
+    visibility: acc.shared && shareVisible ? 'party' : 'gm', sourceShared: acc.shared, ...(acc.level ? { level: acc.level } : {}),
     url: httpUrl(x.url), updatedAt: x.last_edited_time ?? null, sourceUpdatedAt: x.last_edited_time ?? null, depth: 'full',
   };
 }
@@ -317,7 +317,7 @@ async function* notionIndex(cfg: Record<string, any>, ctx: ConnectorContext, sta
     yield {
       externalId: ext(notionId(x.id)!), parentExternalId: parentOf(x, kinds), title, tags, type, icon: iconOf(x),
       blocks: indexBlocks({ title, type, tags }), url: httpUrl(x.url),
-      visibility: 'dm', restricted: !notionAccess(x, cfg).shared, updatedAt: x.last_edited_time ?? null, sourceUpdatedAt: x.last_edited_time ?? null, depth: 'index',
+      visibility: 'gm', restricted: !notionAccess(x, cfg).shared, updatedAt: x.last_edited_time ?? null, sourceUpdatedAt: x.last_edited_time ?? null, depth: 'index',
     } satisfies Entry;
   }
 }

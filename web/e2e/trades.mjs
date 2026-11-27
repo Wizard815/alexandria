@@ -20,10 +20,10 @@ const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursiv
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('trades'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'game master 123');
+const gmLogin = await login('gm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
 const tomLogin = await login('tom', 'player pass 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + gmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
   const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => null);
@@ -32,11 +32,11 @@ const api = async (token, method, p, body) => {
 };
 const jessId = jessLogin.account.id;
 const tomId = tomLogin.account.id;
-await api(dmLogin.token, 'PATCH', '/settings', { playerTransfers: true });
-const rope = await api(dmLogin.token, 'POST', '/inventory', { owner: tomId, name: 'Silk rope', qty: 1, reason: 'Found in the caves' });
+await api(gmLogin.token, 'PATCH', '/settings', { playerTransfers: true });
+const rope = await api(gmLogin.token, 'POST', '/inventory', { owner: tomId, name: 'Silk rope', qty: 1, reason: 'Found in the caves' });
 // The demo world already has one offer from Tom; withdraw it so the counts start at zero.
 for (const t of await api(tomLogin.token, 'GET', '/sessionchat/trades')) if (t.status === 'open') await api(tomLogin.token, 'POST', `/sessionchat/trades/${t.id}/cancel`, {});
-await api(dmLogin.token, 'POST', '/inventory', { owner: jessId, name: 'Lantern', qty: 1, reason: 'Found in the caves' });
+await api(gmLogin.token, 'POST', '/inventory', { owner: jessId, name: 'Lantern', qty: 1, reason: 'Found in the caves' });
 
 const browser = await chromium.launch();
 function watch(page, who) {

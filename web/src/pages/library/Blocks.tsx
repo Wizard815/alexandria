@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 
 export interface Mention { ref?: string; name?: string; text?: string }
 export interface Inline { text?: string; bold?: boolean; italic?: boolean; code?: boolean; strike?: boolean; underline?: boolean; link?: string; mention?: Mention }
-export interface PropertyGroup { title: string; rows: { key: string; value: Inline[] }[]; dm?: boolean; level?: string }
+export interface PropertyGroup { title: string; rows: { key: string; value: Inline[] }[]; gm?: boolean; level?: string }
 import { LEVEL_CSS, LevelChip, levelOf, titleLevel } from './Levels.tsx';
 import { mentionKey, mentionView, safeHref, safeImageUrl } from './links.ts';
 export { mentionKey };
@@ -18,7 +18,7 @@ export interface RenderCtx {
   /** Current titles of linked pages, for mentions the source gave no words for. */
   titles?: Record<string, string>;
   open: (pageId: string) => void;
-  isDM: boolean;
+  isGM: boolean;
   children: { id: string; title: string; icon?: { glyph?: string; color?: string } | null }[];
 }
 
@@ -70,8 +70,8 @@ export function Facts({ groups, ctx }: { groups: PropertyGroup[]; ctx: RenderCtx
   return (
     <>
       {groups.map((g, i) => (
-        <section key={i} className={`lib-facts${g.dm || g.level ? ' lib-dm' : ''}`} aria-label={g.title}>
-          <h3>{g.title}{g.level === 'broker' || g.level === 'classified' || titleLevel(g.title) ? <LevelChip level={g.level ?? titleLevel(g.title)} /> : g.dm && <span className="lib-dm-tag">GM only</span>}</h3>
+        <section key={i} className={`lib-facts${g.gm || g.level ? ' lib-gm' : ''}`} aria-label={g.title}>
+          <h3>{g.title}{g.level === 'broker' || g.level === 'classified' || titleLevel(g.title) ? <LevelChip level={g.level ?? titleLevel(g.title)} /> : g.gm && <span className="lib-gm-tag">GM only</span>}</h3>
           <dl>{g.rows.map((r, j) => <div key={j} className="lib-fact"><dt>{r.key}</dt><dd><Inlines c={r.value} ctx={ctx} /></dd></div>)}</dl>
         </section>
       ))}
@@ -151,15 +151,15 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
           {Array.isArray(b.pins) && b.pins.length > 0 && (
             <figcaption>
               <strong>{b.title ?? 'Map'}</strong> · {b.pins.length} pin{b.pins.length === 1 ? '' : 's'}
-              <ul>{b.pins.map((p: any, i: number) => <li key={i}>{p.name}{p.dm ? ' (GM only)' : ''}</li>)}</ul>
+              <ul>{b.pins.map((p: any, i: number) => <li key={i}>{p.name}{p.gm ? ' (GM only)' : ''}</li>)}</ul>
             </figcaption>
           )}
         </figure>
       );
     case 'unsupported':
-      return ctx.isDM ? <p className="lib-unsupported">Not shown to players: {b.sourceKind} block</p> : null;
+      return ctx.isGM ? <p className="lib-unsupported">Not shown to players: {b.sourceKind} block</p> : null;
     default:
-      return ctx.isDM ? <p className="lib-unsupported">Not shown to players: {String(b.kind)} block</p> : null;
+      return ctx.isGM ? <p className="lib-unsupported">Not shown to players: {String(b.kind)} block</p> : null;
   }
 }
 
@@ -213,8 +213,8 @@ ${LEVEL_CSS}
 .lib-facts dl { margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .lib-fact { display: grid; grid-template-columns: minmax(70px, 38%) 1fr; gap: 8px; }
 .lib-fact dt { color: var(--faint); } .lib-fact dd { margin: 0; overflow-wrap: anywhere; }
-.lib-dm { border-color: var(--danger); background: var(--danger-bg); }
-.lib-dm-tag { font-family: var(--font); font-size: 11px; color: var(--danger-text); border: 1px solid var(--danger); border-radius: 999px; padding: 0 8px; }
+.lib-gm { border-color: var(--danger); background: var(--danger-bg); }
+.lib-gm-tag { font-family: var(--font); font-size: 11px; color: var(--danger-text); border: 1px solid var(--danger); border-radius: 999px; padding: 0 8px; }
 .lib-collection { margin: 12px 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--font); }
 .lib-collection ul { list-style: none; padding: 0; margin: 0; columns: 2 220px; }
 .lib-collection li { margin: 3px 0; break-inside: avoid; }

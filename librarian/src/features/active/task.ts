@@ -14,8 +14,8 @@ export interface TaskOut { chatId: string; messageId?: string; reply: string; pe
 export async function runTask(d: Deps, who: { worldId: string; accountId: string; token: string; port: number }, o: { prompt: string; mode: 'do' | 'propose'; allow?: string[]; title?: string }): Promise<TaskOut> {
   const w = one<any>(d.db, 'SELECT name, settings FROM worlds WHERE id = ?', who.worldId);
   if (!w) return { chatId: '', reply: 'No such world', pending: 0, ok: false };
-  const caller: Caller = { worldId: who.worldId, worldName: w.name, accountId: who.accountId, viewer: { accountId: who.accountId, role: 'dm' }, harness: 'dm', token: who.token, port: who.port, settings: { ...DEFAULT_SETTINGS, ...parseJson(w.settings, {}) } };
-  const chat = newChat(d.db, who.worldId, who.accountId, 'dm', (o.title ?? o.prompt).slice(0, 80));
+  const caller: Caller = { worldId: who.worldId, worldName: w.name, accountId: who.accountId, viewer: { accountId: who.accountId, role: 'gm' }, harness: 'gm', token: who.token, port: who.port, settings: { ...DEFAULT_SETTINGS, ...parseJson(w.settings, {}) } };
+  const chat = newChat(d.db, who.worldId, who.accountId, 'gm', (o.title ?? o.prompt).slice(0, 80));
   addMessage(d.db, chat.id, 'user', o.prompt, {});
   const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
   await runAgent(d, caller, { chatId: chat.id, replyId: reply.id, text: o.prompt, context: {}, history: [], summary: '', fast: null, exec: { mode: o.mode, allow: o.allow } });

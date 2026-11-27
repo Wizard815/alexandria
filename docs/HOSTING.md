@@ -98,7 +98,7 @@ Needs Node 22.13 or newer. Data goes to `librarian/data` unless
 | `ALX_CORS_ORIGINS` | Other origins allowed to call the API (e.g. a dev server). Empty (the default) means none. |
 | `ALX_MEMORY_MB` | The heap size the memory guard measures against (default: V8's limit, `NODE_OPTIONS=--max-old-space-size`) |
 | `ALX_AUDIO_STALE_MIN` | Minutes without a line or audio after which a recording session is closed (default 30; 0 turns it off) |
-| `ALX_V1_RATE_PER_MIN`, `ALX_V1_DAILY_REQUESTS`, `ALX_V1_DAILY_TOKENS` | Limits of a listed (non-GM) account or key on the `/v1` model gateway (20 a minute, 200 requests and 100 000 tokens a day). The GM and admin: `…_DM` (120, 5 000, 2 000 000). |
+| `ALX_V1_RATE_PER_MIN`, `ALX_V1_DAILY_REQUESTS`, `ALX_V1_DAILY_TOKENS` | Limits of a listed (non-GM) account or key on the `/v1` model gateway (20 a minute, 200 requests and 100 000 tokens a day). The GM and admin: `…_GM` (120, 5 000, 2 000 000; the older `…_DM` names still work). |
 | `MODEL_BASE_URL`, `MODEL_API_KEY`, `LOCAL_LLM_URL` | Model endpoint for AI features (OpenAI, Ollama, LM Studio, Argos…) |
 
 Notes on local MCP servers:

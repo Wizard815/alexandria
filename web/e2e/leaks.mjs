@@ -104,7 +104,7 @@ async function crawl(browser, p) {
   // The players' screen is a route of its own (no layout, no links to it): visit it as every player and the guest too.
   links.add(`${W}/screen/players`);
   await open(W);
-  for (const h of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')))) if (h?.startsWith(`/w/${world.slug}`) && !h.includes('/dm')) links.add(base + h.split('#')[0]);
+  for (const h of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')))) if (h?.startsWith(`/w/${world.slug}`) && !h.includes('/gm')) links.add(base + h.split('#')[0]);
   for (const pg of Object.values(world.pages)) links.add(`${W}/library?page=${encodeURIComponent(pg.id)}`);
 
   for (const url of links) {
@@ -148,7 +148,7 @@ async function crawl(browser, p) {
   await open(W);
   const search = page.getByRole('button', { name: /^search/i }).first();
   if (await search.isVisible().catch(() => false)) {
-    for (const q of ['smuggler', 'queen', 'ZQX', 'vault', 'harbour', 'secret', 'broker', 'classified', 'dm', 'lighthouse']) {
+    for (const q of ['smuggler', 'queen', 'ZQX', 'vault', 'harbour', 'secret', 'broker', 'classified', 'gm', 'lighthouse']) {
       here = `search "${q}"`;
       if (!(await page.locator('input[type=search], [role=dialog] input, .search input').first().isVisible({ timeout: 500 }).catch(() => false))) await search.click({ timeout: 2000 }).catch(() => {});
       const box = page.locator('input[type=search], [role=dialog] input, .search input, input[placeholder*="earch"]').first();
@@ -167,8 +167,8 @@ async function crawl(browser, p) {
 
 /** The players' screen, opened with the GM's own token: it must show no more than a guest may read (the player view), and no app chrome. */
 async function crawlScreen(browser) {
-  const tag = 'dm@screen';
-  const { ctx, page } = await signIn(browser, base, 'dungeon', 'dm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
+  const tag = 'gm@screen';
+  const { ctx, page } = await signIn(browser, base, 'dungeon', 'gm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
   page.on('pageerror', (e) => hits.set(`${tag}: page error ${e.message}`, true));
   // Only what this route itself fetched: the GM's own offline cache legitimately holds GM data.
   page.on('response', async (r) => {
@@ -180,7 +180,7 @@ async function crawlScreen(browser) {
   await page.locator('.ps').waitFor({ timeout: 10000 }).catch(() => hits.set(`${tag}: the screen did not render`, true));
   await page.waitForTimeout(1500);
   await scanDom(page, 'guest', `${tag} /screen/players`);
-  const info = await page.evaluate(() => ({ chrome: !!document.querySelector('nav, .topbar, .side, #alx-dock, .dm-phonebar'), text: document.body.innerText, url: location.pathname }));
+  const info = await page.evaluate(() => ({ chrome: !!document.querySelector('nav, .topbar, .side, #alx-dock, .gm-phonebar'), text: document.body.innerText, url: location.pathname }));
   if (info.chrome) hits.set(`${tag}: the players' screen shows app navigation`, true);
   if (!info.url.endsWith('/screen/players')) hits.set(`${tag}: left the screen route (${info.url})`, true);
   if (!/Board for everyone/.test(info.text) || !/Combat/.test(info.text)) hits.set(`${tag}: the screen is not showing the shown card and the combat card, so the crawl is not reaching the content`, true);
@@ -190,7 +190,7 @@ async function crawlScreen(browser) {
 /** The table screen, opened from the GM's login: its DOM is scanned as if a player were reading it (a screen lying face up). */
 async function crawlTable(browser) {
   const who = 'table';
-  const { ctx, page } = await signIn(browser, base, 'dungeon', 'dm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
+  const { ctx, page } = await signIn(browser, base, 'dungeon', 'gm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
   let here = '';
   page.on('pageerror', (e) => hits.set(`table ${here}: page error ${e.message}`, true));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) hits.set(`table ${here}: console ${m.text().slice(0, 160)}`, true); });

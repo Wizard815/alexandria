@@ -28,7 +28,7 @@ srv.stderr.on('data', (d) => process.stderr.write('[demo] ' + d));
 for (let i = 0; i < 150 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const PASS = { dm: 'game master 123', jess: 'player pass 123', admin: 'library admin 123' };
+const PASS = { gm: 'game master 123', jess: 'player pass 123', admin: 'library admin 123' };
 const api = async (method, p, token, body) => {
   const r = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const j = await r.json().catch(() => null);
@@ -45,21 +45,21 @@ async function signIn(user, viewport, mobile) {
   await page.getByLabel(/username/i).fill(user);
   await page.getByLabel(/password/i).fill(PASS[user]);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL(user === 'dm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
+  await page.waitForURL(user === 'gm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
   return { ctx, page };
 }
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png') }); };
 
 try {
-  const dmTok = (await api('POST', '/api/auth/login', null, { username: 'dm', password: PASS.dm })).body.token;
-  const world = (await api('GET', '/api/me', dmTok)).body.worlds.find((w) => w.slug === 'saltreach').id;
+  const gmTok = (await api('POST', '/api/auth/login', null, { username: 'gm', password: PASS.gm })).body.token;
+  const world = (await api('GET', '/api/me', gmTok)).body.worlds.find((w) => w.slug === 'saltreach').id;
 
   // 1. The Recording badge shows for the GM and for a player once a session records (M1).
-  const rec = await api('POST', `/api/worlds/${world}/audio/sessions`, dmTok, { name: 'E2E session' });
+  const rec = await api('POST', `/api/worlds/${world}/audio/sessions`, gmTok, { name: 'E2E session' });
   check(rec.status === 201, `could not start a recording: ${rec.status}`);
-  const dm = await signIn('dm', { width: 1280, height: 800 });
-  await dm.page.goto(`${W}/gm/library`);
-  check(await dm.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for the GM');
+  const gm = await signIn('gm', { width: 1280, height: 800 });
+  await gm.page.goto(`${W}/gm/library`);
+  check(await gm.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for the GM');
   const jess = await signIn('jess', { width: 1280, height: 800 });
   check(await jess.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for a player');
   await shot(jess.page, 'recording-badge-player');
@@ -73,7 +73,7 @@ try {
   await jess.page.goto(`${W}/live`);
   await jess.page.locator('main').waitFor();
   check(!(await jess.page.locator('body').innerText()).includes('Live captions show here when the GM turns on'), 'the Live page still has the old captions line');
-  await api('POST', `/api/worlds/${world}/audio/sessions/current/stop`, dmTok, {});
+  await api('POST', `/api/worlds/${world}/audio/sessions/current/stop`, gmTok, {});
 
   // 3. Admin Keys & AI: the list loads and a key can be made (H2).
   const adm = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: SHOTS ? 2 : 1 });
@@ -96,7 +96,7 @@ try {
   await adm.close();
 
   // 4. The Minerva status approval keeps thread descriptions (H1).
-  const minerva = await api('GET', `/api/worlds/${world}/minerva`, dmTok);
+  const minerva = await api('GET', `/api/worlds/${world}/minerva`, gmTok);
   const sec = (minerva.body.sections ?? []).find((s) => s.title === 'Active threads');
   check(!!sec, 'no Active threads section in the demo');
   const before = sec?.text ?? '';
@@ -104,7 +104,7 @@ try {
   note(`active threads with descriptions in the demo: ${withDesc.length}`);
 
   // 5. Phone: the GM's party pack is a list of cards, not a cramped table (L12).
-  const ph = await signIn('dm', { width: 390, height: 844 }, true);
+  const ph = await signIn('gm', { width: 390, height: 844 }, true);
   await ph.page.goto(`${W}/gm/party`);
   await ph.page.locator('main').waitFor();
   await ph.page.getByRole('tab', { name: 'Details and approvals' }).click().catch(() => {});

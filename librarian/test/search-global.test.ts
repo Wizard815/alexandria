@@ -62,35 +62,35 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Searchland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Searchland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' });
   T.jess = j.token; ID.jess = j.account.id;
-  const inv2 = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const inv2 = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j2 = await ok('POST', '/api/join', undefined, { code: inv2.code, username: 'bo', password: 'player pass 123', characterName: 'Bo' });
   T.bo = j2.token; ID.bo = j2.account.id;
 
-  const put = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
+  const put = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown });
   await put('places/Saltmarsh', 'party', '# Saltmarsh\nA fishing town with a lighthouse.\n\n> [!secret] GM\n> The mayor poisons the wells with nightshade.\n');
-  await put('dm/Crown', 'dm', '# Crown\nThe lighthouse hides a cursed crown called Gloomcrest.\n');
+  await put('gm/Crown', 'gm', '# Crown\nThe lighthouse hides a cursed crown called Gloomcrest.\n');
   await put('lore/Lighthouse', 'party', '# Lighthouse\nA tall tower. Visit the lighthouse at night.\n');
   await put('lore/Whiskers', 'party', '# Whiskers\nA friendly kitten who purrs by the harbour.\n\n> [!secret]\n> The kitten is a spy for the Zaxxar guild.\n');
-  await put('dm/Cat plot', 'dm', '# Feline plan\nThe cat Zaxxar steals gold from the temple.\n');
+  await put('gm/Cat plot', 'gm', '# Feline plan\nThe cat Zaxxar steals gold from the temple.\n');
 
   // People
-  const alder = await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Captain Lighthouse Aldous', role: 'harbor master', visibility: 'party', met: 'Day 2' });
-  await ok('POST', `/api/worlds/${W}/people/${alder.id}/quotes`, T.dm, { text: 'Never sail past the old lighthouse after dark', visibility: 'party' });
-  await ok('POST', `/api/worlds/${W}/people/${alder.id}/quotes`, T.dm, { text: 'I secretly serve the Gloomcrest cult', visibility: 'dm' });
-  await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Vexmoor the Spy', role: 'secret agent of Gloomcrest', visibility: 'dm' });
+  const alder = await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'Captain Lighthouse Aldous', role: 'harbor master', visibility: 'party', met: 'Day 2' });
+  await ok('POST', `/api/worlds/${W}/people/${alder.id}/quotes`, T.gm, { text: 'Never sail past the old lighthouse after dark', visibility: 'party' });
+  await ok('POST', `/api/worlds/${W}/people/${alder.id}/quotes`, T.gm, { text: 'I secretly serve the Gloomcrest cult', visibility: 'gm' });
+  await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'Vexmoor the Spy', role: 'secret agent of Gloomcrest', visibility: 'gm' });
 
   // Transcript
   run(deps.db, "INSERT INTO audio_sessions (id, world_id, name, started_at, stopped_at) VALUES ('as1', ?, 'Table', '2026-01-01T18:00:00.000Z', NULL)", W);
   const line = (n: number, text: string, audience: string) => run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', `l${n}`, 'as1', W, n * 10000, n * 10000 + 5000, 'Narrator', text, audience, '2026-01-01T18:00:00.000Z');
   line(1, 'We climbed the lighthouse stairs together', 'players');
-  line(2, 'The lighthouse keeper is really the Gloomcrest vampire', 'dm');
+  line(2, 'The lighthouse keeper is really the Gloomcrest vampire', 'gm');
 
   // Session log: one published, one unpublished
   const entry = (id: string, n: number, title: string, summary: string, unpub: string | null) => run(deps.db, `INSERT INTO sessionlog_entries (id, world_id, number, title, summary, session_at, world_from_minutes, world_to_minutes, published_at, unpublished_at) VALUES (?, ?, ?, ?, ?, '2026-01-01', 0, 10, '2026-01-02', ?)`, id, W, n, title, summary, unpub);
@@ -98,7 +98,7 @@ before(async () => {
   entry('sle2', 2, 'Retracted', 'A lighthouse draft with the secret Gloomcrest plot.', '2026-01-03');
 
   // Items: party stash, Jess's, Bo's (hidden from Jess), with a GM note
-  const item = (id: string, owner: string, name: string, note: string, dmNote: string, status = 'approved') => run(deps.db, `INSERT INTO items (id, world_id, owner, name, qty, note, dm_note, updated_at, updated_by, status) VALUES (?, ?, ?, ?, 1, ?, ?, '2026-01-01', ?, ?)`, id, W, owner, name, note, dmNote, ID.dm, status);
+  const item = (id: string, owner: string, name: string, note: string, gmNote: string, status = 'approved') => run(deps.db, `INSERT INTO items (id, world_id, owner, name, qty, note, gm_note, updated_at, updated_by, status) VALUES (?, ?, ?, ?, 1, ?, ?, '2026-01-01', ?, ?)`, id, W, owner, name, note, gmNote, ID.gm, status);
   item('it1', 'party', 'Lighthouse lamp', 'Bright lamp from the tower', 'Cursed by Gloomcrest');
   item('it2', ID.jess, 'Lighthouse key', 'Opens the tower door', '');
   item('it3', ID.bo, 'Lighthouse map', 'Bo private map', '');
@@ -109,35 +109,35 @@ after(async () => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(
 
 const kindsOf = (r: any[]) => [...new Set(r.map((x) => x.kind))].sort();
 
-test('TestGlobalSearch_CoversEveryKindForTheDM', async () => {
-  const dm = await S('lighthouse', T.dm, '&semantic=0');
-  assert.deepEqual(kindsOf(dm), ['item', 'log', 'page', 'person', 'term', 'transcript']);
-  for (const h of dm) for (const k of ['kind', 'title', 'snippet', 'link', 'score']) assert.ok(k in h, `${k} in ${JSON.stringify(h)}`);
-  assert.ok(dm.every((h) => typeof h.score === 'number' && h.link));
+test('TestGlobalSearch_CoversEveryKindForTheGM', async () => {
+  const gm = await S('lighthouse', T.gm, '&semantic=0');
+  assert.deepEqual(kindsOf(gm), ['item', 'log', 'page', 'person', 'term', 'transcript']);
+  for (const h of gm) for (const k of ['kind', 'title', 'snippet', 'link', 'score']) assert.ok(k in h, `${k} in ${JSON.stringify(h)}`);
+  assert.ok(gm.every((h) => typeof h.score === 'number' && h.link));
   // Sorted by score.
-  for (let i = 1; i < dm.length; i++) assert.ok(dm[i - 1].score >= dm[i].score);
+  for (let i = 1; i < gm.length; i++) assert.ok(gm[i - 1].score >= gm[i].score);
   // A game rule term (the built-in module).
-  const rule = await S('grappled', T.dm, '&semantic=0');
+  const rule = await S('grappled', T.gm, '&semantic=0');
   assert.ok(rule.some((h) => h.kind === 'term'), JSON.stringify(rule.map((r) => r.kind)));
   // The GM finds GM-only text of every kind.
-  const g = await S('gloomcrest', T.dm, '&semantic=0');
+  const g = await S('gloomcrest', T.gm, '&semantic=0');
   assert.deepEqual(kindsOf(g), ['item', 'log', 'page', 'person', 'transcript']);
   // kinds filter, aliases and a bad kind.
-  assert.deepEqual(kindsOf(await S('lighthouse', T.dm, '&kinds=item,log&semantic=0')), ['item', 'log']);
-  assert.deepEqual(kindsOf(await S('lighthouse', T.dm, '&kinds=people&semantic=0')), ['person']);
-  assert.equal((await call('GET', `/api/worlds/${W}/search?q=x&kinds=bogus`, T.dm)).status, 400);
-  assert.deepEqual(await S('', T.dm), []);
+  assert.deepEqual(kindsOf(await S('lighthouse', T.gm, '&kinds=item,log&semantic=0')), ['item', 'log']);
+  assert.deepEqual(kindsOf(await S('lighthouse', T.gm, '&kinds=people&semantic=0')), ['person']);
+  assert.equal((await call('GET', `/api/worlds/${W}/search?q=x&kinds=bogus`, T.gm)).status, 400);
+  assert.deepEqual(await S('', T.gm), []);
   assert.equal((await call('GET', `/api/worlds/${W}/search?q=lighthouse`)).status, 401);
 });
 
 test('TestGlobalSearch_RanksExactNamesFirst', async () => {
-  const r = await S('lighthouse', T.dm, '&semantic=0');
+  const r = await S('lighthouse', T.gm, '&semantic=0');
   assert.equal(r[0].title, 'Lighthouse', 'the exact page title comes first');
   assert.equal(r[0].kind, 'page');
-  const fz = await S('Lighthose', T.dm, '&semantic=0');
+  const fz = await S('Lighthose', T.gm, '&semantic=0');
   assert.ok(fz.some((h) => h.kind === 'page' && h.title === 'Lighthouse'), 'typos find pages');
-  assert.ok((await S('lighthouse -aldous', T.dm, '&kinds=person&semantic=0')).length === 0);
-  assert.ok((await S('"old lighthouse"', T.dm, '&kinds=person&semantic=0')).length === 1);
+  assert.ok((await S('lighthouse -aldous', T.gm, '&kinds=person&semantic=0')).length === 0);
+  assert.ok((await S('"old lighthouse"', T.gm, '&kinds=person&semantic=0')).length === 1);
 });
 
 test('TestGlobalSearch_PlayersOnlySeeWhatTheyMay', async () => {
@@ -169,8 +169,8 @@ test('TestGlobalSearch_PlayersOnlySeeWhatTheyMay', async () => {
   // The library endpoint agrees.
   const lib = await ok('GET', `/api/worlds/${W}/library/search?q=gloomcrest`, T.jess);
   assert.deepEqual(lib, []);
-  const libDm = await ok('GET', `/api/worlds/${W}/library/search?q=gloomcrest`, T.dm);
-  assert.ok(libDm.length >= 1 && 'snippet' in libDm[0] && 'path' in libDm[0] && 'id' in libDm[0] && 'title' in libDm[0]);
+  const libGm = await ok('GET', `/api/worlds/${W}/library/search?q=gloomcrest`, T.gm);
+  assert.ok(libGm.length >= 1 && 'snippet' in libGm[0] && 'path' in libGm[0] && 'id' in libGm[0] && 'title' in libGm[0]);
 });
 
 test('TestGlobalSearch_McpToolSearchesTheWorld', async () => {
@@ -222,10 +222,10 @@ test('TestHybrid_EmbedsInTheBackgroundAndMergesWithKeywordSearch', async () => {
 
   // Player and GM copies are kept apart; GM text is never in the party index.
   const party = all<any>(deps.db, `SELECT text FROM search_chunks WHERE scope = 'party'`).map((r) => r.text).join('\n');
-  const dmChunks = all<any>(deps.db, `SELECT text FROM search_chunks WHERE scope = 'dm'`).map((r) => r.text).join('\n');
+  const gmChunks = all<any>(deps.db, `SELECT text FROM search_chunks WHERE scope = 'gm'`).map((r) => r.text).join('\n');
   for (const bad of ['Zaxxar', 'nightshade', 'Gloomcrest', 'Feline plan']) assert.ok(!party.includes(bad), `${bad} in the party index`);
-  for (const must of ['Zaxxar', 'nightshade', 'Gloomcrest']) assert.ok(dmChunks.includes(must), `${must} missing from the GM index`);
-  assert.equal(all(deps.db, `SELECT 1 FROM search_chunks WHERE scope = 'party' AND page_id IN (SELECT id FROM pages WHERE visibility = 'dm')`).length, 0);
+  for (const must of ['Zaxxar', 'nightshade', 'Gloomcrest']) assert.ok(gmChunks.includes(must), `${must} missing from the GM index`);
+  assert.equal(all(deps.db, `SELECT 1 FROM search_chunks WHERE scope = 'party' AND page_id IN (SELECT id FROM pages WHERE visibility = 'gm')`).length, 0);
 
   // "feline" appears in no player-visible page; the kitten page is found by meaning.
   const kw = await S('feline', T.jess, '&semantic=0&kinds=page');
@@ -233,8 +233,8 @@ test('TestHybrid_EmbedsInTheBackgroundAndMergesWithKeywordSearch', async () => {
   const hy = await S('feline', T.jess, '&kinds=page');
   assert.deepEqual(hy.map((h) => h.title), ['Whiskers'], JSON.stringify(hy));
   // The GM's semantic results include the GM-only page; the player's never do.
-  const dmHy = await S('feline', T.dm, '&kinds=page');
-  assert.ok(dmHy.some((h) => h.title === 'Cat plot' || h.title === 'Whiskers'));
+  const gmHy = await S('feline', T.gm, '&kinds=page');
+  assert.ok(gmHy.some((h) => h.title === 'Cat plot' || h.title === 'Whiskers'));
   assert.ok(!JSON.stringify(hy).includes('Zaxxar') && !JSON.stringify(hy).includes('Cat plot'));
   assert.ok(hy[0].snippet && hy[0].snippetHtml && !hy[0].snippetHtml.includes('<script'));
 
@@ -247,11 +247,11 @@ test('TestHybrid_EmbedsInTheBackgroundAndMergesWithKeywordSearch', async () => {
 
   // Changes are picked up: edit a page, hide a page.
   embedCalls = [];
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'lore/Whiskers', visibility: 'party', markdown: '# Whiskers\nNow a ship cat who loves gold coins.\n' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'lore/Whiskers', visibility: 'party', markdown: '# Whiskers\nNow a ship cat who loves gold coins.\n' });
   const r2 = await syncEmbeddings(deps);
   assert.ok(r2.pages >= 1 && embedCalls.length >= 1);
   assert.deepEqual((await S('treasure', T.jess, '&kinds=page')).map((h) => h.title), ['Whiskers']);
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'lore/Whiskers', visibility: 'dm', markdown: '# Whiskers\nNow a ship cat who loves gold coins.\n' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'lore/Whiskers', visibility: 'gm', markdown: '# Whiskers\nNow a ship cat who loves gold coins.\n' });
   await syncEmbeddings(deps);
   assert.deepEqual(await S('treasure', T.jess, '&kinds=page'), [], 'a page that is no longer shared leaves the party index');
   assert.equal(one<any>(deps.db, `SELECT count(*) AS n FROM search_chunks sc JOIN pages p ON p.id = sc.page_id WHERE sc.scope = 'party' AND p.title = 'Whiskers'`)!.n, 0);

@@ -72,7 +72,7 @@ export default function PlayerLive() {
                   {d.here.map((h) => (
                     <li key={h.account_id} className="row" style={{ gap: 8 }}>
                       <span className="live-dot" aria-hidden="true" />
-                      <span className="grow"><strong style={{ fontWeight: 500 }}>{h.character_name || h.display_name}</strong>{h.role === 'dm' && <span className="chip red" style={{ marginLeft: 6 }}>GM</span>}</span>
+                      <span className="grow"><strong style={{ fontWeight: 500 }}>{h.character_name || h.display_name}</strong>{h.role === 'gm' && <span className="chip red" style={{ marginLeft: 6 }}>GM</span>}</span>
                       <span className="tiny muted">{h.location}</span>
                     </li>
                   ))}

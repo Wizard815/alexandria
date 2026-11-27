@@ -5,9 +5,9 @@ import { useWorld } from '../../lib/world.tsx';
 import { CATEGORIES, FIELD_TYPES, type Field as F, type Outputs, type Target, type Tpl } from './types.ts';
 
 const blank = (): Tpl => ({
-  id: '', builtin: false, key: null, name: '', description: '', perspective: 'dm', category: 'Story', outputs: { page: true },
+  id: '', builtin: false, key: null, name: '', description: '', perspective: 'gm', category: 'Story', outputs: { page: true },
   fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'notes', label: 'Notes', type: 'longtext' }],
-  body: '# {{name}}\n\n{{notes}}\n', target: { kind: 'page', path: 'Sculpted/{{name}}', visibility: 'dm' },
+  body: '# {{name}}\n\n{{notes}}\n', target: { kind: 'page', path: 'Sculpted/{{name}}', visibility: 'gm' },
 });
 
 export default function TemplateEditor({ initial, onDone }: { initial: Tpl | null; onDone: (id?: string) => void }) {
@@ -30,14 +30,14 @@ export default function TemplateEditor({ initial, onDone }: { initial: Tpl | nul
 
   return (
     <div className="page wide">
-      <PageHead title={initial ? `Edit “${initial.name}”` : 'New template'} lead="Use {{key}} for a field, {{gen:name race=elf}}, {{dice:2d6+3}} or {{pick:a|b|c}} for instant results, {{world.date}}, {{party.level}} or {{location}} for context, {{#if field}}…{{/if}} and {{#each list}}{{this}}{{/each}}. Wrap GM-only parts in {{#dm}} … {{/dm}}: they become secret blocks.">
+      <PageHead title={initial ? `Edit “${initial.name}”` : 'New template'} lead="Use {{key}} for a field, {{gen:name race=elf}}, {{dice:2d6+3}} or {{pick:a|b|c}} for instant results, {{world.date}}, {{party.level}} or {{location}} for context, {{#if field}}…{{/if}} and {{#each list}}{{this}}{{/each}}. Wrap GM-only parts in {{#gm}} … {{/gm}}: they become secret blocks.">
         <button type="button" className="btn small ghost" onClick={() => onDone()}>Cancel</button>
       </PageHead>
       <div className="card stack">
         <Field label="Name"><input value={t.name} maxLength={80} onChange={(e) => setT({ ...t, name: e.target.value })} /></Field>
         <Field label="Description"><input value={t.description} maxLength={400} onChange={(e) => setT({ ...t, description: e.target.value })} /></Field>
         <Field label="Category"><select value={t.category} onChange={(e) => setT({ ...t, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
-        <Field label="Perspective" help="A player-perspective template is built only from what players can see and has no GM-only parts."><select value={t.perspective} onChange={(e) => setT({ ...t, perspective: e.target.value as Tpl['perspective'] })}><option value="dm">GM notes</option><option value="player">Players’ view</option></select></Field>
+        <Field label="Perspective" help="A player-perspective template is built only from what players can see and has no GM-only parts."><select value={t.perspective} onChange={(e) => setT({ ...t, perspective: e.target.value as Tpl['perspective'] })}><option value="gm">GM notes</option><option value="player">Players’ view</option></select></Field>
       </div>
       <h3>Fields</h3>
       {t.fields.map((f, i) => (
@@ -61,7 +61,7 @@ export default function TemplateEditor({ initial, onDone }: { initial: Tpl | nul
           <input aria-label="Hint" value={f.hint ?? ''} placeholder="Hint for the writer (also guides the model)" onChange={(e) => setF(i, { hint: e.target.value })} />
           <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
             <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={!!f.required} onChange={(e) => setF(i, { required: e.target.checked })} /> Required</label>
-            <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={!!f.dmOnly} disabled={t.perspective === 'player'} onChange={(e) => setF(i, { dmOnly: e.target.checked })} /> GM only</label>
+            <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={!!f.gmOnly} disabled={t.perspective === 'player'} onChange={(e) => setF(i, { gmOnly: e.target.checked })} /> GM only</label>
             <span style={{ flex: 1 }} />
             <button type="button" className="btn small ghost" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
             <button type="button" className="btn small ghost" aria-label="Move down" disabled={i === t.fields.length - 1} onClick={() => move(i, 1)}>↓</button>
@@ -74,14 +74,14 @@ export default function TemplateEditor({ initial, onDone }: { initial: Tpl | nul
       <div className="card stack">
         <Field label="Markdown body"><textarea rows={12} style={{ fontFamily: 'monospace' }} value={t.body} onChange={(e) => setT({ ...t, body: e.target.value })} /></Field>
         <Field label="Save to">
-          <select value={tk} onChange={(e) => setTarget({ kind: e.target.value as Target['kind'], path: t.target.path || `Sculpted/{{${t.fields[0]?.key ?? 'name'}}}`, visibility: t.target.visibility ?? 'dm' })}>
+          <select value={tk} onChange={(e) => setTarget({ kind: e.target.value as Target['kind'], path: t.target.path || `Sculpted/{{${t.fields[0]?.key ?? 'name'}}}`, visibility: t.target.visibility ?? 'gm' })}>
             <option value="page">A library page</option><option value="person">People (and a page)</option><option value="combat">Combat statblock page</option><option value="shop">Shop (page and item list)</option><option value="none">Nowhere</option>
           </select>
         </Field>
         {(tk === 'page' || tk === 'person' || tk === 'shop') && (
           <>
             <Field label="Path pattern"><input value={t.target.path ?? ''} onChange={(e) => setTarget({ path: e.target.value })} /></Field>
-            <Field label="Visibility" help="Secret blocks are always hidden from players, whatever this says."><select value={t.target.visibility ?? 'dm'} onChange={(e) => setTarget({ visibility: e.target.value as 'dm' | 'party' })}><option value="dm">GM only</option><option value="party">Shared with the party</option></select></Field>
+            <Field label="Visibility" help="Secret blocks are always hidden from players, whatever this says."><select value={t.target.visibility ?? 'gm'} onChange={(e) => setTarget({ visibility: e.target.value as 'gm' | 'party' })}><option value="gm">GM only</option><option value="party">Shared with the party</option></select></Field>
           </>
         )}
         {tk === 'shop' && <Field label="Item list field"><select value={t.target.listField ?? ''} onChange={(e) => setTarget({ listField: e.target.value || undefined })}><option value="">(none)</option>{t.fields.filter((f) => f.type === 'list').map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></Field>}

@@ -18,7 +18,7 @@ test('Audit_Auth: changing a password signs out every other session of that acco
 });
 
 test('Audit_Auth: sessions and keys of an account the admin deleted stop working at once', async () => {
-  const inv = await k.ok('POST', k.w('/invites'), k.T.dm, { role: 'player' });
+  const inv = await k.ok('POST', k.w('/invites'), k.T.gm, { role: 'player' });
   const j = await k.ok('POST', '/api/join', null, { code: inv.code, username: 'gone', password: 'player pass 123', characterName: 'Gone' });
   const key = (await k.ok('POST', '/api/keys', j.token, { scope: 'scribe', worldId: k.W, label: 'k', access: 'read' })).key as string;
   assert.equal((await k.call('GET', k.w('/library/pages'), key)).status, 200);
@@ -29,7 +29,7 @@ test('Audit_Auth: sessions and keys of an account the admin deleted stop working
 });
 
 test('Audit_Auth: an invite is single use, a guest invite makes a guest, and the code is not enough without the right body', async () => {
-  const inv = await k.ok('POST', k.w('/invites'), k.T.dm, { role: 'guest' });
+  const inv = await k.ok('POST', k.w('/invites'), k.T.gm, { role: 'guest' });
   const bad = await k.call('POST', '/api/join', null, { code: inv.code, username: 'x' });
   assert.equal(bad.status, 400);
   const bad2 = await k.call('POST', '/api/join', null, { code: inv.code, username: 'bad name!', password: 'player pass 123' });
@@ -46,7 +46,7 @@ test('Audit_Auth: an invite is single use, a guest invite makes a guest, and the
 });
 
 test('Audit_Auth: a failed join with a wrong username format does not use up the invite', async () => {
-  const inv = await k.ok('POST', k.w('/invites'), k.T.dm, { role: 'player' });
+  const inv = await k.ok('POST', k.w('/invites'), k.T.gm, { role: 'player' });
   const bad = await k.call('POST', '/api/join', null, { code: inv.code, username: 'a', password: 'player pass 123' });
   assert.equal(bad.status, 400);
   const good = await k.call('POST', '/api/join', null, { code: inv.code, username: 'laterplayer', password: 'player pass 123' });

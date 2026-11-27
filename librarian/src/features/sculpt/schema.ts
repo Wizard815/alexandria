@@ -17,7 +17,7 @@ export const CTX_VARS = ['world.date', 'world.time', 'world.season', 'world.week
 const CTX = new Set(CTX_VARS);
 
 export interface TemplateIn {
-  name: string; description: string; perspective: 'dm' | 'player'; category: Category;
+  name: string; description: string; perspective: 'gm' | 'player'; category: Category;
   fields: Field[]; body: string; target: Target; outputs: Outputs;
 }
 
@@ -31,7 +31,7 @@ function checkExpr(label: string, expr: string, field = false) {
 export function readTemplate(b: any): TemplateIn {
   if (!b || typeof b !== 'object') throw bad('A template is needed');
   const name = text(b.name, 'name', 80, true);
-  const perspective = b.perspective === 'player' ? 'player' : 'dm';
+  const perspective = b.perspective === 'player' ? 'player' : 'gm';
   const category: Category = (CATEGORIES as readonly string[]).includes(b.category) ? b.category : 'Story';
   if (!Array.isArray(b.fields) || !b.fields.length || b.fields.length > 40) throw bad('A template needs 1 to 40 fields');
   const seen = new Set<string>();
@@ -50,7 +50,7 @@ export function readTemplate(b: any): TemplateIn {
     const hint = text(f.hint, `fields[${i}].hint`, 300);
     if (hint) out.hint = hint;
     if (f.required) out.required = true;
-    if (f.dmOnly) out.dmOnly = true;
+    if (f.gmOnly) out.gmOnly = true;
     if (f.optional) out.optional = true;
     if (f.gen === 'clock' || f.gen === 'stock') out.gen = f.gen;
     else if (f.gen) { const g = text(f.gen, `fields[${i}].gen`, 300); checkExpr(`Field "${key}" gen`, g, true); out.gen = g; }
@@ -70,7 +70,7 @@ export function readTemplate(b: any): TemplateIn {
   let ifs = 0; let eachs = 0;
   for (const m of body.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
     const t = m[1].trim();
-    if (t === '#dm' || t === '/dm' || t === 'else' || t === 'this' || /^this\.\d+$/.test(t) || t === '@index' || t === '@n') continue;
+    if (t === '#gm' || t === '/gm' || t === 'else' || t === 'this' || /^this\.\d+$/.test(t) || t === '@index' || t === '@n') continue;
     if (/^[a-z][a-z0-9_]*$/.test(t)) { if (!seen.has(t) && !CTX.has(t)) throw bad(`The body uses {{${t}}}, which is not a field`); continue; }
     if (CTX.has(t)) continue;
     if (/^page:\s*\S/.test(t)) continue;
@@ -88,10 +88,10 @@ export function readTemplate(b: any): TemplateIn {
   if (ifs !== 0 || eachs !== 0) throw bad('Every {{#if}} and {{#each}} needs its {{/if}} or {{/each}}');
   for (const m of body.matchAll(/\{\{\s*(?:gen|dice|pick):[^{}]*\$([a-z_][a-z0-9_.]*)/gi)) if (!seen.has(m[1]) && !CTX.has(m[1])) throw bad(`The body refers to $${m[1]}, which is not a field`);
   for (const f of fields) for (const e of [f.gen, f.fallback]) for (const m of (e ?? '').matchAll(/\$([a-z_][a-z0-9_.]*)/gi)) if (!seen.has(m[1]) && !CTX.has(m[1].replace(/\.$/, ''))) throw bad(`Field "${f.key}" refers to $${m[1]}, which is not a field`);
-  if (perspective === 'player' && (fields.some((f) => f.dmOnly) || /\{\{#dm\}\}/.test(body))) throw bad('A player-perspective template cannot have GM-only fields or {{#dm}} sections');
+  if (perspective === 'player' && (fields.some((f) => f.gmOnly) || /\{\{#gm\}\}/.test(body))) throw bad('A player-perspective template cannot have GM-only fields or {{#gm}} sections');
 
   const t = b.target && typeof b.target === 'object' ? b.target : { kind: 'none' };
-  const vis = t.visibility === 'party' ? 'party' : 'dm';
+  const vis = t.visibility === 'party' ? 'party' : 'gm';
   const path = text(t.path, 'target.path', 200);
   let target: Target;
   switch (t.kind) {

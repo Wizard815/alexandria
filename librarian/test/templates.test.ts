@@ -47,30 +47,30 @@ async function ok(method: string, url: string, token?: string, body?: unknown) {
 const T: Record<string, string> = {};
 T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
 const ads = (await ok('POST', '/api/admin-auth/login', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-const dmId = (await ok('POST', '/api/admin/accounts', ads, { username: 'dungeon', password: 'dm password 123' })).account.id;
-T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-const W = (await ok('POST', '/api/admin/worlds', ads, { name: 'Guideland', dmAccountId: dmId })).id;
+const gmId = (await ok('POST', '/api/admin/accounts', ads, { username: 'dungeon', password: 'gm password 123' })).account.id;
+T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+const W = (await ok('POST', '/api/admin/worlds', ads, { name: 'Guideland', gmAccountId: gmId })).id;
 const w = (p: string) => `/api/worlds/${W}${p}`;
-const inv = await ok('POST', w('/invites'), T.dm, { role: 'player' });
+const inv = await ok('POST', w('/invites'), T.gm, { role: 'player' });
 T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
-const dm = (m: string, p: string, b?: unknown) => ok(m, w(p), T.dm, b);
+const gm = (m: string, p: string, b?: unknown) => ok(m, w(p), T.gm, b);
 
 const CLASSIFIED = 'The Moonvault opens only when the Quorlith sigil burns under three moons at once';
-const page = async (p: string, visibility: string, markdown: string) => (await dm('PUT', '/library/pages', { path: p, visibility, markdown })).id as string;
+const page = async (p: string, visibility: string, markdown: string) => (await gm('PUT', '/library/pages', { path: p, visibility, markdown })).id as string;
 const PG: Record<string, string> = {};
 PG.saltmarsh = await page('Places/Towns/Saltmarsh', 'party', '---\ntags: [town, coast]\n---\n# Saltmarsh\n## Overview\nA fishing town on the coast, ruled by a harbour council. The [[Greywater Ferry]] crosses the river.\n## People\nFishers and ferrymen.\n## Rumours\nThe lighthouse is dark.\n> [!secret] GM\n> The council answers to Velmira, the smuggler queen.\n');
 PG.ferry = await page('Places/Towns/Greywater Ferry', 'party', '---\ntags: [town, river]\n---\n# Greywater Ferry\n## Overview\nA ferry hamlet on the Greywater, linked to [[Saltmarsh]].\n## People\nBoatwrights.\n## Rumours\nA drowned bell rings at night.\n');
 PG.mill = await page('Places/Towns/Brindle Mill', 'party', '---\ntags: [town]\n---\n# Brindle Mill\n## Overview\nA mill village upriver.\n## Trade\nFlour.\n## People\nMillers.\n## Rumors\nThe wheel turns by itself.\n');
-PG.velmira = await page('People/Velmira', 'dm', '# Velmira\nThe smuggler queen of the coast. She keeps her treasury beneath the dark lighthouse.');
+PG.velmira = await page('People/Velmira', 'gm', '# Velmira\nThe smuggler queen of the coast. She keeps her treasury beneath the dark lighthouse.');
 PG.vault = await page('Secrets/The Moonvault', 'classified', `# The Moonvault\n${CLASSIFIED}.`);
 
 const AGENT = w('/agent');
 async function ask(text: string, chatId?: string) {
-  const chat = chatId ?? (await ok('POST', `${AGENT}/chats`, T.dm, {})).id;
+  const chat = chatId ?? (await ok('POST', `${AGENT}/chats`, T.gm, {})).id;
   const seen = fakes.requests.length;
-  await ok('POST', `${AGENT}/chats/${chat}/messages`, T.dm, { text });
+  await ok('POST', `${AGENT}/chats/${chat}/messages`, T.gm, { text });
   for (let i = 0; i < 200; i++) {
-    const c = (await ok('GET', `${AGENT}/chats/${chat}`, T.dm));
+    const c = (await ok('GET', `${AGENT}/chats/${chat}`, T.gm));
     if (!c.busy) return { chat: c, requests: fakes.requests.slice(seen) };
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -84,68 +84,68 @@ test('Templates: GM only; versioned; on and off; classified text is refused', as
   assert.equal((await call('GET', w('/templates'), T.jess)).status, 403);
   assert.equal((await call('POST', w('/templates/draft'), T.jess, { kind: 'guide', description: 'x' })).status, 403);
   assert.equal((await call('POST', w('/templates/web/search'), T.jess, { queries: ['x'] })).status, 403);
-  const t = await dm('POST', '/templates', { kind: 'library', name: 'Shop page', spec: { folder: 'Places/Shops', sections: ['Overview', 'Stock'] } });
+  const t = await gm('POST', '/templates', { kind: 'library', name: 'Shop page', spec: { folder: 'Places/Shops', sections: ['Overview', 'Stock'] } });
   assert.equal(t.version, 1);
-  const t2 = await dm('PUT', `/templates/${t.id}`, { spec: { sections: ['Overview', 'Stock', 'Owner'] } });
+  const t2 = await gm('PUT', `/templates/${t.id}`, { spec: { sections: ['Overview', 'Stock', 'Owner'] } });
   assert.equal(t2.version, 2);
   assert.equal(t2.spec.folder, 'Places/Shops', 'a partial spec keeps the rest');
   // On/off is not a new version.
-  assert.equal((await dm('PUT', `/templates/${t.id}`, { enabled: false })).version, 2);
-  const back = await dm('POST', `/templates/${t.id}/restore`, { version: 1 });
+  assert.equal((await gm('PUT', `/templates/${t.id}`, { enabled: false })).version, 2);
+  const back = await gm('POST', `/templates/${t.id}/restore`, { version: 1 });
   assert.deepEqual(back.spec.sections, ['Overview', 'Stock']);
   assert.equal(back.version, 3);
-  assert.equal((await dm('GET', `/templates/${t.id}`)).versions.length, 3);
+  assert.equal((await gm('GET', `/templates/${t.id}`)).versions.length, 3);
   // Classified text never goes into a template (templates go to the model).
-  const bad = await call('POST', w('/templates'), T.dm, { kind: 'guide', name: 'Leaky', spec: { instructions: CLASSIFIED } });
+  const bad = await call('POST', w('/templates'), T.gm, { kind: 'guide', name: 'Leaky', spec: { instructions: CLASSIFIED } });
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /classified/);
-  await dm('DELETE', `/templates/${t.id}`);
+  await gm('DELETE', `/templates/${t.id}`);
 });
 
 test('Web research: off by default; GM-only and classified words never leave (fail closed)', async () => {
-  assert.equal((await dm('GET', '/templates/web')).config.enabled, false);
-  const off = await call('POST', w('/templates/web/search'), T.dm, { queries: ['Tomonoura Japan'] });
+  assert.equal((await gm('GET', '/templates/web')).config.enabled, false);
+  const off = await call('POST', w('/templates/web/search'), T.gm, { queries: ['Tomonoura Japan'] });
   assert.equal(off.status, 403);
-  await dm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl });
+  await gm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl });
   const terms = secretTerms(deps, W);
-  assert.ok(terms.dm.has('velmira'), 'a GM-only name');
+  assert.ok(terms.gm.has('velmira'), 'a GM-only name');
   assert.ok(terms.classified.has('quorlith') && terms.classified.has('moonvault'), 'classified words');
-  assert.ok(!terms.dm.has('saltmarsh') && !terms.dm.has('fishing'), 'public names and common words are not secret');
+  assert.ok(!terms.gm.has('saltmarsh') && !terms.gm.has('fishing'), 'public names and common words are not secret');
   assert.equal(blockedQuery(deps, W, ['Tomonoura Japan town history']), null);
-  assert.equal(blockedQuery(deps, W, ['Velmira smuggler queen'])?.level, 'dm');
+  assert.equal(blockedQuery(deps, W, ['Velmira smuggler queen'])?.level, 'gm');
   assert.equal(blockedQuery(deps, W, ['quorlith sigil meaning'])?.level, 'classified');
   const before = searches().length;
-  const dmTerm = await call('POST', w('/templates/web/search'), T.dm, { queries: ['Tomonoura history', 'Velmira'] });
-  assert.equal(dmTerm.status, 422);
-  assert.match(dmTerm.body.error, /GM-only name/);
-  const cl = await call('POST', w('/templates/web/search'), T.dm, { queries: ['Moonvault Quorlith'] });
+  const gmTerm = await call('POST', w('/templates/web/search'), T.gm, { queries: ['Tomonoura history', 'Velmira'] });
+  assert.equal(gmTerm.status, 422);
+  assert.match(gmTerm.body.error, /GM-only name/);
+  const cl = await call('POST', w('/templates/web/search'), T.gm, { queries: ['Moonvault Quorlith'] });
   assert.equal(cl.status, 422);
   assert.ok(!/quorlith|moonvault/i.test(cl.body.error), 'a classified word is never repeated');
   assert.equal(searches().length, before, 'nothing was sent for a refused query, not even the allowed one beside it');
   // The GM may allow a GM-only word, never a classified one.
-  await dm('PUT', '/templates/web', { allowTerms: ['velmira', 'quorlith'] });
+  await gm('PUT', '/templates/web', { allowTerms: ['velmira', 'quorlith'] });
   assert.equal(blockedQuery(deps, W, ['Velmira']), null);
   assert.equal(blockedQuery(deps, W, ['Quorlith'])?.level, 'classified');
-  await dm('PUT', '/templates/web', { allowTerms: [] });
-  const okr = await dm('POST', '/templates/web/search', { queries: ['Tomonoura Japan town'] });
+  await gm('PUT', '/templates/web', { allowTerms: [] });
+  const okr = await gm('POST', '/templates/web/search', { queries: ['Tomonoura Japan town'] });
   assert.equal(okr.results.length, 2);
   assert.match(okr.results[0].url, /^https:\/\/example\.org\//);
   const sent = searches().at(-1)!;
   assert.equal(sent.path, '/search');
   assert.ok(all<any>(deps.db, `SELECT 1 FROM audit WHERE world_id = ? AND action = 'templates.web_blocked'`, W).length >= 2);
-  await dm('PUT', '/templates/web', { enabled: false });
+  await gm('PUT', '/templates/web', { enabled: false });
 });
 
 test('Templates: draft with the assistant, then derive a guide from example pages (fake model)', async () => {
-  const dr = await dm('POST', '/templates/draft', { kind: 'guide', description: 'Towns: for my world always research the IRL Japanese town as well as my own world lore and the towns around it. Always do that.' });
+  const dr = await gm('POST', '/templates/draft', { kind: 'guide', description: 'Towns: for my world always research the IRL Japanese town as well as my own world lore and the towns around it. Always do that.' });
   assert.equal(dr.template.name, 'Towns');
   assert.ok(dr.template.spec.steps.some((s: any) => s.kind === 'web'));
   assert.ok(Array.isArray(dr.questions) && dr.questions.length > 0, 'the assistant asks a few questions');
   // Answering a question is a new draft without that question.
-  const dr2 = await dm('POST', '/templates/draft', { kind: 'guide', description: dr.template.description, answers: [{ q: dr.questions[0], a: 'Tomonoura' }], current: dr.template });
+  const dr2 = await gm('POST', '/templates/draft', { kind: 'guide', description: dr.template.description, answers: [{ q: dr.questions[0], a: 'Tomonoura' }], current: dr.template });
   assert.ok(!dr2.questions.includes(dr.questions[0]));
   const seen = fakes.requests.length;
-  const der = await dm('POST', '/templates/derive', { pageIds: [PG.saltmarsh, PG.ferry, PG.mill, PG.vault] });
+  const der = await gm('POST', '/templates/derive', { pageIds: [PG.saltmarsh, PG.ferry, PG.mill, PG.vault] });
   assert.deepEqual(der.template.spec.sections, ['Overview', 'People', 'Rumours']);
   assert.deepEqual(der.template.spec.exemplars.sort(), [PG.saltmarsh, PG.ferry, PG.mill].sort());
   assert.equal(der.template.spec.folder, 'Places/Towns');
@@ -155,11 +155,11 @@ test('Templates: draft with the assistant, then derive a guide from example page
   const asked = fakes.requests.slice(seen).filter((r) => r.path === '/v1/chat/completions');
   assert.ok(asked.length >= 1);
   assert.ok(!asked.some((r) => /quorlith|moonvault/i.test(JSON.stringify(r.body))));
-  assert.equal((await call('POST', w('/templates/derive'), T.dm, { pageIds: [PG.vault] })).status, 400);
+  assert.equal((await call('POST', w('/templates/derive'), T.gm, { pageIds: [PG.vault] })).status, 400);
 });
 
 test('Guides: a matching request gets the guide, its steps run, and the chat shows "Using guide"', async () => {
-  const guide = await dm('POST', '/templates', {
+  const guide = await gm('POST', '/templates', {
     kind: 'guide', name: 'Towns', triggers: ['town', 'village', 'city'],
     spec: {
       task: 'Make a town', instructions: 'Keep the coast towns poor and proud.', sections: ['Overview', 'People', 'Rumours', 'Secrets (GM)'], folder: 'Places/Towns',
@@ -195,8 +195,8 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   assert.equal((await ask('how many people live in the town of Saltmarsh?')).chat.messages.at(-1).guides.length, 0);
 
   // Web research on, Ask first: the search is a card with the query, nothing is sent until the GM approves.
-  await dm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl });
-  await dm('PATCH', '/settings', { agentAuto: false });
+  await gm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl });
+  await gm('PATCH', '/settings', { agentAuto: false });
   const r2 = await ask('Make a town called Kirihama based on Tomonoura, near Saltmarsh');
   const card = r2.chat.actions.find((a: any) => a.tool === 'web_research');
   assert.ok(card && card.status === 'pending', 'a card for the search');
@@ -204,13 +204,13 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   assert.equal(card.args.guide, guide.id);
   assert.equal(searches().length, before, 'nothing sent before the approval');
   assert.equal(r2.chat.messages.at(-1).guides[0].steps.find((s: any) => s.kind === 'web').status, 'waiting');
-  const approved = await call('POST', `${AGENT}/actions/${card.id}`, T.dm, { decision: 'approve' });
+  const approved = await call('POST', `${AGENT}/actions/${card.id}`, T.gm, { decision: 'approve' });
   assert.equal(approved.body.status, 'done');
   assert.equal(searches().length, before + 1);
   assert.equal(new URL(searches().at(-1)!.path, 'http://x').pathname, '/search');
   // The results come into the chat, and the assistant carries on with them (the guide again, no second search).
   let c: any;
-  for (let i = 0; i < 200; i++) { c = await ok('GET', `${AGENT}/chats/${r2.chat.id}`, T.dm); if (!c.busy && c.messages.length >= 5) break; await new Promise((r) => setTimeout(r, 25)); }
+  for (let i = 0; i < 200; i++) { c = await ok('GET', `${AGENT}/chats/${r2.chat.id}`, T.gm); if (!c.busy && c.messages.length >= 5) break; await new Promise((r) => setTimeout(r, 25)); }
   assert.ok(c.messages.some((m: any) => /Web research results \(2/.test(m.text) && /example\.org/.test(m.text)));
   const cont = c.messages.at(-1);
   assert.equal(cont.guides[0]?.name, 'Towns');
@@ -218,7 +218,7 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   assert.equal(searches().length, before + 1);
 
   // Auto: the search runs at once and its sources are cited.
-  await dm('PATCH', '/settings', { agentAuto: true });
+  await gm('PATCH', '/settings', { agentAuto: true });
   const r3 = await ask('Write a new village called Hamazaki based on Kotohira near Saltmarsh');
   const web3 = r3.chat.messages.at(-1).guides[0].steps.find((s: any) => s.kind === 'web');
   assert.equal(web3.status, 'done', JSON.stringify(web3));
@@ -234,15 +234,15 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   assert.equal(r5.chat.actions.filter((a: any) => a.tool === 'web_research').length, 0);
   assert.equal(searches().length, n);
   // Turned off, the guide is not used.
-  await dm('PUT', `/templates/${guide.id}`, { enabled: false });
+  await gm('PUT', `/templates/${guide.id}`, { enabled: false });
   assert.equal((await ask('Make a town called Ushio based on Tomonoura')).chat.messages.at(-1).guides.length, 0);
-  await dm('PATCH', '/settings', { agentAuto: false });
-  await dm('PUT', '/templates/web', { enabled: false });
+  await gm('PATCH', '/settings', { agentAuto: false });
+  await gm('PUT', '/templates/web', { enabled: false });
 });
 
 test('Templates: a shop generation template steers the shop generator', async () => {
-  const t = await dm('POST', '/templates', { kind: 'shop', name: 'Herb shops', spec: { shopType: 'apothecary', guide: '6 items, no magic, markup 20%', stock: ['healing herbs'] } });
-  const r = await dm('POST', `/templates/${t.id}/shop`, {});
+  const t = await gm('POST', '/templates', { kind: 'shop', name: 'Herb shops', spec: { shopType: 'apothecary', guide: '6 items, no magic, markup 20%', stock: ['healing herbs'] } });
+  const r = await gm('POST', `/templates/${t.id}/shop`, {});
   assert.equal(r.draft.kind, 'alchemist', 'the free-text type picks the generator kind');
   assert.equal(r.draft.guided, true);
   assert.ok(r.draft.stock.length > 0 && r.draft.stock.length <= 6, `stock follows the guide: ${r.draft.stock.length}`);
@@ -252,16 +252,16 @@ test('Templates: a shop generation template steers the shop generator', async ()
 
 test('Templates: the agent tools list, read, create and update templates', async () => {
   const names = (await import('../src/routes/mcpServer.ts')).toolsFor(true).map((t: any) => t.name);
-  for (const n of ['list_dm_templates', 'get_dm_template', 'create_dm_template', 'update_dm_template', 'web_research']) assert.ok(names.includes(n), n);
+  for (const n of ['list_gm_templates', 'get_gm_template', 'create_gm_template', 'update_gm_template', 'web_research']) assert.ok(names.includes(n), n);
   // Players' keys never list them.
   const playerNames = (await import('../src/routes/mcpServer.ts')).toolsFor(false).map((t: any) => t.name);
-  assert.ok(!playerNames.includes('web_research') && !playerNames.includes('create_dm_template'));
-  const r = await ask('FAKE_CALL create_dm_template {"kind":"guide","name":"NPCs","triggers":["npc"],"spec":{"sections":["Look","Wants"]}}');
-  const card = r.chat.actions.find((a: any) => a.tool === 'create_dm_template');
+  assert.ok(!playerNames.includes('web_research') && !playerNames.includes('create_gm_template'));
+  const r = await ask('FAKE_CALL create_gm_template {"kind":"guide","name":"NPCs","triggers":["npc"],"spec":{"sections":["Look","Wants"]}}');
+  const card = r.chat.actions.find((a: any) => a.tool === 'create_gm_template');
   assert.equal(card.status, 'pending');
   assert.match(card.summary, /Save the guide template "NPCs"/);
-  assert.equal((await call('POST', `${AGENT}/actions/${card.id}`, T.dm, { decision: 'approve' })).body.status, 'done');
-  const got = await dm('GET', '/templates/NPCs');
+  assert.equal((await call('POST', `${AGENT}/actions/${card.id}`, T.gm, { decision: 'approve' })).body.status, 'done');
+  const got = await gm('GET', '/templates/NPCs');
   assert.deepEqual(got.spec.sections, ['Look', 'Wants']);
 });
 
@@ -337,61 +337,61 @@ test('Templates: the common structure of example pages', () => {
 });
 
 test('Templates: export a package and import it into another world (all or none; same name updates)', async () => {
-  const g = await dm('POST', '/templates', { kind: 'guide', name: 'Make a town', triggers: ['town'], spec: { task: 'Make a town', sections: ['Overview', 'People'], exemplars: [PG.saltmarsh] } });
-  const m = await dm('POST', '/templates', { kind: 'macro', name: 'Weather', spec: { prompt: 'Roll the weather for {place}', params: [{ name: 'place', label: 'Place', default: 'here' }] } });
+  const g = await gm('POST', '/templates', { kind: 'guide', name: 'Make a town', triggers: ['town'], spec: { task: 'Make a town', sections: ['Overview', 'People'], exemplars: [PG.saltmarsh] } });
+  const m = await gm('POST', '/templates', { kind: 'macro', name: 'Weather', spec: { prompt: 'Roll the weather for {place}', params: [{ name: 'place', label: 'Place', default: 'here' }] } });
   assert.equal((await call('GET', w('/templates/export'), T.jess)).status, 403);
-  const pkg = await dm('GET', `/templates/export?ids=${g.id},${m.id}`);
+  const pkg = await gm('GET', `/templates/export?ids=${g.id},${m.id}`);
   assert.equal(pkg.type, 'alexandria-templates');
   assert.equal(pkg.templates.length, 2);
   assert.deepEqual(pkg.templates[0].spec.exemplars, [], "example pages are this world's library, so they stay home");
   assert.ok(!JSON.stringify(pkg).includes(g.id), 'no ids travel');
   // Another world (same GM).
-  const W2 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Elsewhere', dmAccountId: dmId })).id;
+  const W2 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Elsewhere', gmAccountId: gmId })).id;
   const w2 = (p: string) => `/api/worlds/${W2}${p}`;
-  const checked = await ok('POST', w2('/templates/import'), T.dm, { file: pkg, check: true });
+  const checked = await ok('POST', w2('/templates/import'), T.gm, { file: pkg, check: true });
   assert.equal(checked.templates.length, 2);
-  assert.equal((await ok('GET', w2('/templates'), T.dm)).templates.length, 0, 'a check saves nothing');
-  const r1 = await ok('POST', w2('/templates/import'), T.dm, { file: pkg });
+  assert.equal((await ok('GET', w2('/templates'), T.gm)).templates.length, 0, 'a check saves nothing');
+  const r1 = await ok('POST', w2('/templates/import'), T.gm, { file: pkg });
   assert.deepEqual(r1.created.sort(), ['Make a town', 'Weather']);
   // Again: nothing changed. Changed: a new version of the same template, not a copy.
-  assert.deepEqual((await ok('POST', w2('/templates/import'), T.dm, { file: pkg })).unchanged.length, 2);
+  assert.deepEqual((await ok('POST', w2('/templates/import'), T.gm, { file: pkg })).unchanged.length, 2);
   pkg.templates[1].spec.prompt = 'Roll the weather and the wind for {place}';
-  const r3 = await ok('POST', w2('/templates/import'), T.dm, { file: pkg });
+  const r3 = await ok('POST', w2('/templates/import'), T.gm, { file: pkg });
   assert.deepEqual(r3.updated, ['Weather']);
-  const list = (await ok('GET', w2('/templates'), T.dm)).templates;
+  const list = (await ok('GET', w2('/templates'), T.gm)).templates;
   assert.equal(list.length, 2);
   assert.equal(list.find((t: any) => t.name === 'Weather').version, 2);
   // A bare template works too; a bad one, or classified text, saves nothing at all.
-  assert.deepEqual((await ok('POST', w2('/templates/import'), T.dm, { file: { kind: 'library', name: 'NPC page', spec: { sections: ['Look'] } } })).created, ['NPC page']);
-  const bad = await call('POST', w2('/templates/import'), T.dm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Good one' }, { kind: 'nope', name: 'Bad' }] } });
+  assert.deepEqual((await ok('POST', w2('/templates/import'), T.gm, { file: { kind: 'library', name: 'NPC page', spec: { sections: ['Look'] } } })).created, ['NPC page']);
+  const bad = await call('POST', w2('/templates/import'), T.gm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Good one' }, { kind: 'nope', name: 'Bad' }] } });
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /Template 2/);
-  const leak = await call('POST', w('/templates/import'), T.dm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Fine' }, { kind: 'guide', name: 'Leaky', spec: { instructions: CLASSIFIED } }] } });
+  const leak = await call('POST', w('/templates/import'), T.gm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Fine' }, { kind: 'guide', name: 'Leaky', spec: { instructions: CLASSIFIED } }] } });
   assert.equal(leak.status, 400);
-  assert.ok(!(await dm('GET', '/templates')).templates.some((t: any) => t.name === 'Fine'), 'all or none');
-  const dup = await call('POST', w2('/templates/import'), T.dm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Twin' }, { kind: 'library', name: 'twin' }] } });
+  assert.ok(!(await gm('GET', '/templates')).templates.some((t: any) => t.name === 'Fine'), 'all or none');
+  const dup = await call('POST', w2('/templates/import'), T.gm, { file: { type: 'alexandria-templates', templates: [{ kind: 'library', name: 'Twin' }, { kind: 'library', name: 'twin' }] } });
   assert.equal(dup.status, 400);
-  assert.equal((await call('POST', w2('/templates/import'), T.dm, { file: { type: 'alexandria-house-rules', mods: [] } })).status, 400);
-  await dm('DELETE', `/templates/${g.id}`);
-  await dm('DELETE', `/templates/${m.id}`);
+  assert.equal((await call('POST', w2('/templates/import'), T.gm, { file: { type: 'alexandria-house-rules', mods: [] } })).status, 400);
+  await gm('DELETE', `/templates/${g.id}`);
+  await gm('DELETE', `/templates/${m.id}`);
 });
 
 test('Templates: starter packs ship 8 of each kind; adding them makes ordinary templates and leaves changed ones alone', async () => {
-  const W3 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Starterville', dmAccountId: dmId })).id;
+  const W3 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Starterville', gmAccountId: gmId })).id;
   const w3 = (p: string) => `/api/worlds/${W3}${p}`;
   assert.equal((await call('GET', w('/templates/starters'), T.jess)).status, 403);
-  const { packs } = await ok('GET', w3('/templates/starters'), T.dm);
+  const { packs } = await ok('GET', w3('/templates/starters'), T.gm);
   const kinds = new Map<string, number>();
   for (const p of packs) for (const t of p.templates) kinds.set(t.kind, (kinds.get(t.kind) ?? 0) + 1);
   assert.deepEqual([...kinds.entries()].sort(), [['assist', 8], ['event', 8], ['generator', 8], ['guide', 8], ['library', 8], ['macro', 8], ['shop', 8], ['spell', 8]]);
-  const one = await ok('POST', w3('/templates/starters/add'), T.dm, { pack: 'guides', names: ['Towns'] });
+  const one = await ok('POST', w3('/templates/starters/add'), T.gm, { pack: 'guides', names: ['Towns'] });
   assert.deepEqual(one.created, ['Towns']);
-  const towns = (await ok('GET', w3('/templates'), T.dm)).templates.find((t: any) => t.name === 'Towns');
-  await ok('PUT', w3(`/templates/${towns.id}`), T.dm, { description: 'My own towns' });
-  for (const p of packs) await ok('POST', w3('/templates/starters/add'), T.dm, { pack: p.id });
-  const all = (await ok('GET', w3('/templates'), T.dm)).templates;
+  const towns = (await ok('GET', w3('/templates'), T.gm)).templates.find((t: any) => t.name === 'Towns');
+  await ok('PUT', w3(`/templates/${towns.id}`), T.gm, { description: 'My own towns' });
+  for (const p of packs) await ok('POST', w3('/templates/starters/add'), T.gm, { pack: p.id });
+  const all = (await ok('GET', w3('/templates'), T.gm)).templates;
   assert.equal(all.length, 64);
   assert.equal(all.find((t: any) => t.name === 'Towns').description, 'My own towns', 'a changed starter is not reset');
-  assert.ok((await ok('GET', w3('/templates/starters'), T.dm)).packs.every((p: any) => p.templates.every((t: any) => t.added)));
-  assert.equal((await call('POST', w3('/templates/starters/add'), T.dm, { pack: 'nope' })).status, 404);
+  assert.ok((await ok('GET', w3('/templates/starters'), T.gm)).packs.every((p: any) => p.templates.every((t: any) => t.added)));
+  assert.equal((await call('POST', w3('/templates/starters/add'), T.gm, { pack: 'nope' })).status, 404);
 });

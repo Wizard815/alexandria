@@ -250,7 +250,7 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
                 const title = name.trim();
                 const md = String(t.spec.body || `# {name}\n\n${(t.spec.sections ?? []).map((s: string) => `## ${s}\n\n`).join('')}`).replace(/\{name\}/g, title);
                 const tags = (t.spec.tags ?? []).length ? `---\ntags: [${t.spec.tags.join(', ')}]\n---\n` : '';
-                const p = await w.call<any>('PUT', '/library/pages', { path: `${t.spec.folder ? `${t.spec.folder}/` : ''}${String(t.spec.titlePattern || '{name}').replace(/\{name\}/g, title)}`, visibility: 'dm', markdown: tags + md });
+                const p = await w.call<any>('PUT', '/library/pages', { path: `${t.spec.folder ? `${t.spec.folder}/` : ''}${String(t.spec.titlePattern || '{name}').replace(/\{name\}/g, title)}`, visibility: 'gm', markdown: tags + md });
                 setAsk(null);
                 navigate(`/w/${slug}/gm/library?page=${encodeURIComponent(p.id)}`);
               } else if (ask === 'macro') {
@@ -334,7 +334,7 @@ function MakeSpell({ t, onClose }: { t: Tpl; onClose: () => void }) {
       {saved && <p className="tiny">Saved to the Codex as homebrew, GM only. Change it or share it on the <a href={`/w/${info.slug}/gm/codex`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/gm/codex`); }}>Codex</a> page.</p>}
       <div className="row">
         <button type="button" className="btn" disabled={busy || !prompt.trim()} onClick={() => void run(async () => { const r = await w.call<any>('POST', `/templates/${t.id}/spell`, { prompt }); setD(r.draft); setSaved(false); })} data-testid="tpl-spell-go">{busy ? 'Drafting…' : d ? 'Draft again' : 'Draft'}</button>
-        {sp && !saved && <button type="button" className="btn primary" disabled={busy} onClick={() => void run(async () => { await w.call('POST', '/spells/s', { ...sp, ...(d.lines?.length ? { dmNotes: `Spell lines: ${d.lines.join(', ')}` } : {}) }); setSaved(true); })} data-testid="tpl-spell-save">Save to the Codex</button>}
+        {sp && !saved && <button type="button" className="btn primary" disabled={busy} onClick={() => void run(async () => { await w.call('POST', '/spells/s', { ...sp, ...(d.lines?.length ? { gmNotes: `Spell lines: ${d.lines.join(', ')}` } : {}) }); setSaved(true); })} data-testid="tpl-spell-save">Save to the Codex</button>}
         <button type="button" className="btn ghost" onClick={onClose}>Close</button>
       </div>
     </Modal>
@@ -413,7 +413,7 @@ function Editor({ initial, onDone, shop }: { initial: Tpl; onDone: () => void; s
         <details className="tpl-chat" data-testid="tpl-chat">
           <summary><i className="fa-solid fa-comments" aria-hidden="true" /> Chat with the assistant about this template</summary>
           <p className="tiny muted">Its own chats, kept apart from your main chat. Ask it to change the template (“add a step that…”) or to use it (“make one where…”). They are also under Templates in the assistant’s chat list.</p>
-          <div className="tpl-chat-box"><Chat harness="dm" template={t.id} placeholder={t.kind === 'event' ? 'Make a quick event where… or: change this template so…' : t.kind === 'spell' ? 'Make a spell that… or: change this template so…' : 'Ask about this template, or use it…'} /></div>
+          <div className="tpl-chat-box"><Chat harness="gm" template={t.id} placeholder={t.kind === 'event' ? 'Make a quick event where… or: change this template so…' : t.kind === 'spell' ? 'Make a spell that… or: change this template so…' : 'Ask about this template, or use it…'} /></div>
         </details>
       )}
       {versions.length > 1 && (

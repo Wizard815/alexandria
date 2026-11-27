@@ -110,7 +110,7 @@ const feature: Feature = {
         worlds: worlds.map((w) => {
           const nm = names(db, w.id);
           const keys = worldKeys(db, w.id).filter((k) => !k.revoked).map((k) => {
-            const v = keyView(db, k, nm, { dm: false }) as Record<string, any>;
+            const v = keyView(db, k, nm, { gm: false }) as Record<string, any>;
             return { ...v, userNames: (v.users as string[]).map((u) => nm[u] ?? 'Someone') };
           });
           const escalations = rows<EscRow>(db, 'SELECT * FROM sourcekeys_escalations WHERE world_id = ? ORDER BY created_at DESC LIMIT 100', w.id).map((e) => ({
@@ -123,9 +123,9 @@ const feature: Feature = {
     });
 
     r.get('/guard', (_req, res) => {
-      const levels = { party: 0, broker: 0, dm: 0, classified: 0 };
+      const levels = { party: 0, broker: 0, gm: 0, classified: 0 };
       for (const x of rows<{ visibility: string; n: number }>(db, 'SELECT visibility, COUNT(*) AS n FROM pages GROUP BY visibility')) {
-        if (x.visibility in levels) (levels as any)[x.visibility] += x.n; else levels.dm += x.n;
+        if (x.visibility in levels) (levels as any)[x.visibility] += x.n; else levels.gm += x.n;
       }
       res.json({
         levels,

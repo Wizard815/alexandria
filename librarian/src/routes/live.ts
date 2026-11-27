@@ -6,14 +6,14 @@ import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
 import { combatViewFor } from '../core/combatView.ts';
-import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
-import { dmAnd } from '../core/events.ts';
+import { requireGM, requirePlayerOrGM } from '../core/auth.ts';
+import { gmAnd } from '../core/events.ts';
 import { featureSetting, type Viewer, type WorldSettings } from '../core/policy.ts';
 import { HttpError, id, int, now, parseJson, str } from '../core/util.ts';
 import { applyDamage, applyHeal, gainTempHp, isDying, rollDeathSave, syncDeathTags, tickEffects, type Concentration, type DeathSaves, type Effect, type Fighter } from '../core/combatRules.ts';
 import { rollMonsterInitiative } from '../features/modules/search.ts';
 import { fromCombat, seedForCombat } from '../features/sheet/vitals.ts';
-import { ctx, isDM, me, memberIds, readerFor, settings } from './_shared.ts';
+import { ctx, isGM, me, memberIds, readerFor, settings } from './_shared.ts';
 
 export default function liveRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -72,7 +72,7 @@ export default function liveRoutes(d: Deps) {
     d.hub.emit(c.world.id, 'presence', { accountId: me(res), location: null }, () => true);
     res.json({ ok: true });
   });
-  r.delete('/presence/all', requireDM, (_req, res) => {
+  r.delete('/presence/all', requireGM, (_req, res) => {
     run(db, 'DELETE FROM presence WHERE world_id = ?', ctx(res).world.id);
     res.json({ ok: true });
   });
@@ -82,20 +82,20 @@ export default function liveRoutes(d: Deps) {
     const c = ctx(res);
     const owner = resolveOwner(res, String(req.query.owner ?? 'me'), false);
     // Players see approved entries plus their own pending ones.
-    const entries = all<any>(db, `SELECT * FROM ledger WHERE world_id = ? AND owner = ? AND (status = 'approved' OR (status = 'pending' AND (? OR by_id = ?))) ORDER BY at DESC LIMIT 200`, c.world.id, owner, isDM(res) ? 1 : 0, me(res));
+    const entries = all<any>(db, `SELECT * FROM ledger WHERE world_id = ? AND owner = ? AND (status = 'approved' OR (status = 'pending' AND (? OR by_id = ?))) ORDER BY at DESC LIMIT 200`, c.world.id, owner, isGM(res) ? 1 : 0, me(res));
     res.json({ cp: balance(c.world.id, owner), pending: entries.filter((x) => x.status === 'pending').reduce((n, x) => n + x.amount_cp, 0), entries });
   });
-  r.post('/ledger', requirePlayerOrDM, (req, res) => {
+  r.post('/ledger', requirePlayerOrGM, (req, res) => {
     const c = ctx(res);
     const owner = resolveOwner(res, String(req.body?.owner ?? 'me'), true);
     // A player's change is only a request until the GM approves it.
-    const pending = !isDM(res) && settings(res).playerChangesNeedApproval;
+    const pending = !isGM(res) && settings(res).playerChangesNeedApproval;
     const e = { id: id('led_'), world_id: c.world.id, owner, amount_cp: int(req.body?.amountCp, 'amountCp', { min: -100_000_000, max: 100_000_000 })!, note: str(req.body?.note, 'note', { max: 200, optional: true }), session_label: str(req.body?.session, 'session', { max: 40, optional: true }) || null, by_id: me(res), at: now(), status: pending ? 'pending' : 'approved' };
     if (e.amount_cp === 0) throw new HttpError(400, 'amountCp cannot be zero');
     run(db, 'INSERT INTO ledger (id, world_id, owner, amount_cp, note, session_label, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', e.id, e.world_id, e.owner, e.amount_cp, e.note, e.session_label, e.by_id, e.at, e.status);
     audit(db, c.world.id, me(res), pending ? 'coin.request' : 'coin', `${owner} ${e.amount_cp} ${e.note}`);
-    if (pending) d.hub.emit(c.world.id, 'approval', { kind: 'coin', id: e.id }, dmAnd(me(res)));
-    else d.hub.emit(c.world.id, 'coin', { ...e, balance: balance(c.world.id, owner) }, owner === 'party' ? () => true : dmAnd(owner));
+    if (pending) d.hub.emit(c.world.id, 'approval', { kind: 'coin', id: e.id }, gmAnd(me(res)));
+    else d.hub.emit(c.world.id, 'coin', { ...e, balance: balance(c.world.id, owner) }, owner === 'party' ? () => true : gmAnd(owner));
     res.status(pending ? 202 : 201).json({ ...e, pending, balance: balance(c.world.id, owner) });
   });
 
@@ -106,15 +106,15 @@ export default function liveRoutes(d: Deps) {
       return 'party';
     }
     if (raw === 'me') return me(res);
-    if (!isDM(res)) throw new HttpError(403, 'You can only see your own coin and the party pouch');
-    if (writing && !s.dmEditsInventory) throw new HttpError(403, 'GM edits to player coin are off in World settings');
+    if (!isGM(res)) throw new HttpError(403, 'You can only see your own coin and the party pouch');
+    if (writing && !s.gmEditsInventory) throw new HttpError(403, 'GM edits to player coin are off in World settings');
     if (!memberIds(db, ctx(res).world.id).includes(raw)) throw new HttpError(404, 'Player not found');
     return raw;
   }
 
   // Combat (GM)
   r.get('/combat', (req, res) => res.json(combatView(ctx(res).world.id, readerFor(req, res), settings(res))));
-  r.put('/combat', requireDM, (req, res) => {
+  r.put('/combat', requireGM, (req, res) => {
     const c = ctx(res);
     const cur = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', c.world.id) ?? { active: 0, round: 1, turn: 0 };
     const active = req.body?.active !== undefined ? (req.body.active ? 1 : 0) : cur.active;
@@ -124,7 +124,7 @@ export default function liveRoutes(d: Deps) {
     pushCombat(res);
     res.json(combatView(c.world.id, c.viewer, settings(res)));
   });
-  r.post('/combat/next', requireDM, (_req, res) => {
+  r.post('/combat/next', requireGM, (_req, res) => {
     const c = ctx(res);
     const list = all<any>(db, 'SELECT id, name, account_id, is_pc, hp, death_saves, effects FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', c.world.id);
     const n = list.length || 1;
@@ -144,7 +144,7 @@ export default function liveRoutes(d: Deps) {
     const deathSaveDue = up && isDying({ hp: up.hp, isPc: !!up.is_pc, deathSaves: parseJson(up.death_saves, null) }) ? up.name : undefined;
     res.json({ ...combatView(c.world.id, c.viewer, settings(res)), ...(named.length ? { ended: named } : {}), ...(deathSaveDue ? { deathSaveDue } : {}) });
   });
-  r.post('/combatants', requireDM, (req, res) => {
+  r.post('/combatants', requireGM, (req, res) => {
     const c = ctx(res);
     const b = req.body ?? {};
     let acc = b.accountId ? str(b.accountId, 'accountId', { max: 60 }) : null;
@@ -184,11 +184,11 @@ export default function liveRoutes(d: Deps) {
     const eff = normEffects(b.effects, { ids: combatantIds(c.world.id), selfId: x.id, currentId: null, existing: [] });
     run(db, 'INSERT INTO combatants (id, world_id, name, account_id, is_pc, initiative, hp, max_hp, effects, hidden, ac, statblock_page, temp_hp, concentration, death_saves) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', x.id, c.world.id, x.name, acc, acc ? 1 : 0, x.initiative ?? 0, x.hp, x.max_hp ?? x.hp, JSON.stringify(eff), b.hidden ? 1 : 0, ac, sbPage,
       b.tempHp !== undefined ? int(b.tempHp, 'tempHp', { min: 0, max: 99999 }) : seed?.tempHp ?? 0, jsonOrNull(b.concentration === undefined ? null : concInput(b.concentration)), jsonOrNull(deathInput(b.deathSaves)));
-    if (acc && !seed && (x.hp !== null || x.max_hp !== null) && fromCombat(db, c.world.id, acc, { hp: x.hp, maxHp: x.max_hp ?? x.hp, tempHp: b.tempHp !== undefined ? Number(b.tempHp) : 0 }, me(res), 'Joined combat')) d.hub.emit(c.world.id, 'sheet', { accountId: acc }, dmAnd(acc));
+    if (acc && !seed && (x.hp !== null || x.max_hp !== null) && fromCombat(db, c.world.id, acc, { hp: x.hp, maxHp: x.max_hp ?? x.hp, tempHp: b.tempHp !== undefined ? Number(b.tempHp) : 0 }, me(res), 'Joined combat')) d.hub.emit(c.world.id, 'sheet', { accountId: acc }, gmAnd(acc));
     pushCombat(res);
     res.status(201).json({ id: x.id, initiative: x.initiative ?? 0, ...(rolled ? { rolled } : {}) });
   });
-  r.patch('/combatants/:cid', requireDM, (req, res) => {
+  r.patch('/combatants/:cid', requireGM, (req, res) => {
     const c = ctx(res);
     const x = one<any>(db, 'SELECT * FROM combatants WHERE id = ? AND world_id = ?', String(req.params.cid), c.world.id);
     if (!x) throw new HttpError(404, 'Combatant not found');
@@ -261,7 +261,7 @@ export default function liveRoutes(d: Deps) {
     // A player's HP, max HP and temporary HP go to their sheet too, and into its log.
     if (isPc) {
       const maxHp = b.maxHp !== undefined ? int(b.maxHp, 'maxHp', { min: 0, max: 99999 }) : x.max_hp;
-      if (fromCombat(db, c.world.id, x.account_id, { hp, maxHp, tempHp: f.tempHp }, me(res), notes.length ? `Combat: ${notes.join('; ')}`.slice(0, 200) : 'Combat tracker')) d.hub.emit(c.world.id, 'sheet', { accountId: x.account_id }, dmAnd(x.account_id));
+      if (fromCombat(db, c.world.id, x.account_id, { hp, maxHp, tempHp: f.tempHp }, me(res), notes.length ? `Combat: ${notes.join('; ')}`.slice(0, 200) : 'Combat tracker')) d.hub.emit(c.world.id, 'sheet', { accountId: x.account_id }, gmAnd(x.account_id));
     }
     const removed = fell && featureSetting<boolean>(settings(res), 'combatRemoveDefeated') === true;
     if (removed) run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', x.id, c.world.id);
@@ -273,7 +273,7 @@ export default function liveRoutes(d: Deps) {
       deathSaves: f.deathSaves, ...(notes.length ? { notes } : {}),
     });
   });
-  r.delete('/combatants/:cid', requireDM, (req, res) => {
+  r.delete('/combatants/:cid', requireGM, (req, res) => {
     if (!run(db, 'DELETE FROM combatants WHERE id = ? AND world_id = ?', String(req.params.cid), ctx(res).world.id)) throw new HttpError(404, 'Combatant not found');
     pushCombat(res);
     res.json({ ok: true });

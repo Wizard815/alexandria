@@ -23,7 +23,7 @@ is the same for every source:
 | `notion-api` | Notion's public API with an internal integration token: pages and databases shared with the integration (see "Notion") | No `Visibility` of party on a database row and not published to the web; toggles, toggle headings and callouts titled Secret, GM or GM |
 | `obsidian-portal` | Obsidian Portal API v1 (OAuth 1.0a): wiki pages, adventure log and characters (see "Obsidian Portal") | `is_game_master_only` (or not said), `private` characters, GM info |
 | `kanka-mcp` | The mcp-kanka server (`find_entities`, `get_entities`) | `is_hidden`. Posts are GM-only unless "trust post visibility" is on. |
-| `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- dm -->`, GM headings |
+| `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- gm -->`, GM headings |
 | `obsidian-sync` | An Obsidian Sync vault (yours or shared with you), brought to the server by Obsidian's official headless client `ob` (see "Obsidian") | Same as Markdown |
 | `obsidian-rest` | The vault open in Obsidian, through the Local REST API community plugin | Same as Markdown |
 | `obsidian-publish` | A site published with Obsidian Publish (public notes only) | Secret callouts, comments and GM headings; the rest is public (or keep the whole site GM-only) |
@@ -75,7 +75,7 @@ have nothing at connection level and stay plain sources.
 | Audience | Label | Meaning |
 |---|---|---|
 | `auto` (default) | Follows the source | What the source's own flags and levels say, as before. |
-| `dm` | GM only | Everything from this source is GM-only, whatever the source says. Its relations, timelines, calendars and map markers too. |
+| `gm` | GM only | Everything from this source is GM-only, whatever the source says. Its relations, timelines, calendars and map markers too. |
 | `party` | Shared with players | Everything from this source may be shown to players. For a connection that already uses a player-level key (a Kanka member token that only sees public entries). |
 
 - `party` never un-hides what is marked secret: `secret` blocks and callouts,
@@ -83,16 +83,16 @@ have nothing at connection level and stay plain sources.
   frontmatter keys, and unknown blocks are still cut from the player copy. It
   lifts the *source's own* flag (private, hidden, "No visibility") and nothing else.
 - `party` needs explicit confirmation (`confirmParty: true`) when it is set,
-  and the change is recorded in the audit log (`source.audience`). `dm` and
+  and the change is recorded in the audit log (`source.audience`). `gm` and
   `auto` do not need it, but are logged too.
 - Implementation: `Library.saveEntry` stores `pages.source_level` (what the
   source said) and `pages.marker_level` (what marks the page secret on its
   own) and sets `visibility` with `levelForAudience()` (`core/library.ts`):
-  `dm` = at least `dm`, never lower than the source; `party` = the marker level;
+  `gm` = at least `gm`, never lower than the source; `party` = the marker level;
   `auto` = the source level. Switching the audience (`PATCH /sources/:id
   {audience}`) works every page's level out again and rebuilds all copies, so
   player pages, search and embeddings follow at once. Records are forced
-  GM-only at once by `dm`; `party` and `auto` change them at the next sync.
+  GM-only at once by `gm`; `party` and `auto` change them at the next sync.
 - A page saved before audiences existed has its marker level read again from
   its tags, and any `broker` or `classified` level it had is kept.
 
@@ -193,7 +193,7 @@ for example):
   `Library.liftedInfo` in `core/library.ts`). It never lifts `marker_level`: a page the
   source marks broker or classified stays out of reach. Secret blocks, GM fact groups and
   private posts are cut from the copy as for any player. A source whose audience is
-  `dm` is not lifted either.
+  `gm` is not lifted either.
 - The copy is built when it is asked for and never stored. It shows in the Library list,
   the page, search, offline bulk, MCP and the agent, for that account only.
 - Blanket and unsure keys never feed anyone's view. Revoking a key, changing its trust,
@@ -210,7 +210,7 @@ What a player sees through their own key is theirs alone until they share it.
   copy**; sharing never lifts a page above what the sharer could see, and a share ends when
   the sharer loses sight of the page (their key is revoked).
 - The GM can share any page except broker and classified ones, with the party or chosen
-  players. It is a grant (`sourcekeys_shares`, kind `dm`); the page's own level is unchanged.
+  players. It is a grant (`sourcekeys_shares`, kind `gm`); the page's own level is unchanged.
 - Unsharing is immediate everywhere the page shows.
 
 ### The agent and live lookups
@@ -232,7 +232,7 @@ player's lookup never uses another person's key or the GM's.
 When a question needs more than the asker's own view, it is not answered. World setting
 `escalation`:
 
-- `dm-question`: a GM-only question in the queue (World settings → Source keys → Escalated
+- `gm-question`: a GM-only question in the queue (World settings → Source keys → Escalated
   questions). The GM answers or refuses.
 - `broker-deal` (default): a broker request the GM prices (`POST /source-keys/escalations/:id/price`
   with a cost, the answer and the wait in sessions, default `escalationSessions` 2).
@@ -250,13 +250,13 @@ keys only) add what the source knows to the GM's context.
 
 ## Secrecy levels: marking content in every source
 
-Every page and block has one of four levels (`librarian/src/core/levels.ts`). The most secret level wins, and anything unknown or unparseable is `dm`.
+Every page and block has one of four levels (`librarian/src/core/levels.ts`). The most secret level wins, and anything unknown or unparseable is `gm`.
 
 | Level | Players | Broker may sell it | Any AI or model (GM agent, Sculpting, session-log drafts, statblocks from pages, MCP clients, embeddings) | The GM in the app |
 |---|---|---|---|---|
 | `party` | yes | yes | yes | yes |
 | `broker` | no | yes (after GM review by default) | yes | yes |
-| `dm` | no | no | yes | yes |
+| `gm` | no | no | yes | yes |
 | `classified` | no | no | never sent, never embedded | yes, marked "Classified: never shared with any AI" |
 
 How to mark each level, in every source:
@@ -293,7 +293,7 @@ Each connector declares what it provides in `capabilities`: `pages`,
 - `title`, `aliases`, `tags`, `type`, `icon` (Font Awesome glyph and
   colour), `banner`.
 - `properties`: sidebar fact groups. Each row is a key with rich text.
-  `dm: true` marks a whole group GM-only.
+  `gm: true` marks a whole group GM-only.
 - `blocks`: the body. The kinds follow LegendKeeper's document schema, so
   its pages keep their layout:
 
@@ -313,8 +313,8 @@ Each connector declares what it provides in `capabilities`: `pages`,
 - **Inline text** carries bold, italic, code, strike, underline, links,
   and **mentions** (`ref` = the target's externalId, or `name` for
   `[[wiki links]]`).
-- `visibility`: `dm` or `party`. Connectors must fail closed: when unsure,
-  `dm`.
+- `visibility`: `gm` or `party`. Connectors must fail closed: when unsure,
+  `gm`.
 - `knowledge`: `common` | `local` | `deep`, for the information broker's
   price tiers.
 - Markdown sources set `markdown` and `frontmatter` instead of `blocks`.
@@ -981,8 +981,8 @@ pages it read in full (`ctx.refreshed`): those, and only those, are replaced.
 | `mapMarker` | `externalId`, `mapRef` (the map page's externalId), `name`, `latitude`, `longitude`, `shape?`, `color?`, `ref?`, `visibility` | `intake_markers`, `GET /intake/markers` | shared marker on a shared map, linked to a shared page or none |
 | `image` | `externalId`, `pageRef?`, `name`, `marker` (version stored), `data?` (the file, or absent to keep the stored one), `visibility` | `intake_images`, the page's `banner` | the picture of a page they may read, when the picture itself is shared |
 
-`visibility` is `dm` unless the source says players may see it. When
-unsure, `dm`.
+`visibility` is `gm` unless the source says players may see it. When
+unsure, `gm`.
 
 **Calendar definition** (`intake_calendars.definition`, read by the world
 clock):
@@ -1001,8 +1001,8 @@ LegendKeeper: 0 when `hasZeroYear`, else 1). Leap rules are not carried
 over.
 
 **Maps** from LegendKeeper are pages with a `map` block:
-`{ kind: 'map', title?, image?, width?, height?, pins: [{ name, lat, lng, type?, ref?, dm? }] }`.
-The player guard drops pins marked `dm`, pins whose `ref` page is hidden
+`{ kind: 'map', title?, image?, width?, height?, pins: [{ name, lat, lng, type?, ref?, gm? }] }`.
+The player guard drops pins marked `gm`, pins whose `ref` page is hidden
 or unknown, and a non-http image.
 
 ## Push API
@@ -1062,7 +1062,7 @@ MCP, Markdown folder, Kanka API token, mcp-kanka, World Anvil API, Notion, Obsid
 `write_page`, `update_resource`, `move_resource` and `delete_resource`
 (`confirm=true`), and only through `workspaceMcpFactory`; `readOnlyMcp` still
 refuses every write tool for sync and everything else. Pages carry a level
-(`dm`, `broker`, `party`, `classified`); an agent can write `party` only if the
+(`gm`, `broker`, `party`, `classified`); an agent can write `party` only if the
 GM made `party` the workspace default, and `classified` pages are never sent to
 an AI.
 
@@ -1085,7 +1085,7 @@ categories (the home included), maps, secrets and timelines are never changed.
   and the root must be among them. Refused: the root itself, a category, anything
   outside the root, a move out of it or into the page's own child.
 - **Levels:** `party` makes the article `public` (only when the workspace default
-  is `party`); `dm`, `broker` and `classified` make it `private`, and `broker` or
+  is `party`); `gm`, `broker` and `classified` make it `private`, and `broker` or
   `classified` adds a tag of that name. A `> [!secret]` callout or a heading like
   "Broker notes" keeps the article private even if the level says party.
 - **Not tested against World Anvil itself yet:** built from the API v2 schemas
@@ -1147,7 +1147,7 @@ nested any depth. Everything else in the campaign stays read-only.
   root being moved, renamed or deleted; moving out of the root, into the page
   itself or its child; a page of another type; anything outside the root.
 - **Levels:** `party` sets `is_private: false` (only when the workspace default is
-  `party`); `dm`, `broker` and `classified` set `is_private: true`. `broker` and
+  `party`); `gm`, `broker` and `classified` set `is_private: true`. `broker` and
   `classified` add a tag of that name (created, private, when missing; matches
   `core/levels.ts`) and a level change swaps it and keeps the page's other tags.
   A `> [!secret]`, `[!broker]` or `[!classified]` callout, or a heading like
@@ -1180,7 +1180,7 @@ export const myApp: Connector = {
         parentExternalId: item.parent ? String(item.parent) : null,
         title: item.name,
         blocks: markdownToBlocks(item.markdown),
-        visibility: item.public === true && ctx.shareVisible ? 'party' : 'dm',
+        visibility: item.public === true && ctx.shareVisible ? 'party' : 'gm',
       };
     }
   },
@@ -1192,11 +1192,11 @@ export const myApp: Connector = {
 Rules:
 - **Read only.** Never call a tool or endpoint that changes the source.
 - **Fail closed.**
-  - A missing flag, an entry you couldn't load, an unknown parent: `dm`.
+  - A missing flag, an entry you couldn't load, an unknown parent: `gm`.
   - Only set `party` when the source itself says players may see it
     **and** `ctx.shareVisible` is on.
 - **Keep secrets structured.** Put GM-only parts in `secret` blocks or
-  `dm` property groups rather than hoping a text marker survives.
+  `gm` property groups rather than hoping a text marker survives.
 - **Use `ctx.fetch` and `ctx.signal`** so syncs can be stopped and
   tested.
 - **Use `ctx.log`** for anything the admin should see in the run log.

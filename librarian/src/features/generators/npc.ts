@@ -160,13 +160,13 @@ export function genNpc(o: NpcOpts = {}): NpcResult {
 }
 const cap1 = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? '' : '.') : s);
 
-/** The sections of an NPC page, in order. `dm` ones never go in a player copy. */
-export function npcSections(n: Pick<NpcResult, 'fields' | 'preset' | 'role'>): { key: string; label: string; text: string; dm?: boolean }[] {
+/** The sections of an NPC page, in order. `gm` ones never go in a player copy. */
+export function npcSections(n: Pick<NpcResult, 'fields' | 'preset' | 'role'>): { key: string; label: string; text: string; gm?: boolean }[] {
   const f = n.fields;
-  const out: { key: string; label: string; text: string; dm?: boolean }[] = [
+  const out: { key: string; label: string; text: string; gm?: boolean }[] = [
     { key: 'look', label: 'Look', text: f.look }, { key: 'voice', label: 'Voice and manner', text: f.voice },
-    { key: 'want', label: 'Wants', text: f.want, dm: true }, { key: 'secret', label: 'Secret', text: f.secret, dm: true }, { key: 'hook', label: 'Hook', text: f.hook, dm: true },
+    { key: 'want', label: 'Wants', text: f.want, gm: true }, { key: 'secret', label: 'Secret', text: f.secret, gm: true }, { key: 'hook', label: 'Hook', text: f.hook, gm: true },
   ];
-  if (f.tie) out.push({ key: 'tie', label: 'Ties to the world', text: f.tie, dm: true });
+  if (f.tie) out.push({ key: 'tie', label: 'Ties to the world', text: f.tie, gm: true });
   return out;
 }

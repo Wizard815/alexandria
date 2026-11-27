@@ -59,8 +59,8 @@ interface Options {
   names: { kinds: string[]; flavours: string[]; styles: string[]; races: string[]; genders: string[] };
   model: boolean; coins: string; partyLevel: number; world: { places: number; factions: number };
 }
-interface Section { key: string; label: string; text: string; dm?: boolean }
-interface MapKey { n: string; name: string; text: string; dm?: string }
+interface Section { key: string; label: string; text: string; gm?: boolean }
+interface MapKey { n: string; name: string; text: string; gm?: string }
 interface Result {
   kind: string; preset: string; seed: string; title: string; subtitle: string; fields: Record<string, string>; lockable: string[]; sections: Section[];
   statblock?: any; statblockMd?: string; tie?: { id: string; title: string; kind: string } | null; names?: string[]; enriched: boolean; notes: string[]; attribution?: string;
@@ -134,7 +134,7 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
   const [locks, setLocks] = useState<Set<string>>(new Set());
   const [res, setRes] = useState<Result | null>(null);
   const [enrich, setEnrich] = useState(false);
-  const [level, setLevel] = useState<'dm' | 'party'>('dm');
+  const [level, setLevel] = useState<'gm' | 'party'>('gm');
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState<{ id: string; path: string; title: string; level: string } | null>(null);
   const set = (p: Record<string, any>) => setO((x) => ({ ...x, ...p }));
@@ -167,8 +167,8 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
   });
   const stage = () => act.run(async () => { await w.call('POST', '/generators/stage', { ...body(res!.seed, locks, true), show }); toast(show ? 'Shown to the table' : 'Staged: it is on the stage, not shown yet'); });
   const toCombat = () => act.run(async () => {
-    let id = saved?.level === 'dm' ? saved.id : '';
-    if (!id) { const r = await w.call<any>('POST', '/generators/save', { ...body(res!.seed, locks, true), level: 'dm' }); id = r.page.id; setSaved({ ...r.page, level: 'dm' }); }
+    let id = saved?.level === 'gm' ? saved.id : '';
+    if (!id) { const r = await w.call<any>('POST', '/generators/save', { ...body(res!.seed, locks, true), level: 'gm' }); id = r.page.id; setSaved({ ...r.page, level: 'gm' }); }
     const c = await w.call<any>('POST', `/agent/statblock/${encodeURIComponent(id)}/combat`, {});
     toast(`${c.combatant?.name ?? 'Added'} is in combat (HP ${c.combatant?.hp ?? '?'}, AC ${c.combatant?.ac ?? '?'})`);
   });
@@ -241,12 +241,12 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
             {res.names && <div className="card"><ul className="gen-names">{res.names.map((n) => <li key={n}>{n}</li>)}</ul></div>}
 
             {res.sections.filter((s) => s.key !== 'statblock' && !(res.names && s.key === 'names') && !(res.map && (s.key === 'key' || s.key === 'legend'))).map((s) => (
-              <div key={s.key} className={`card gen-sec${s.dm ? ' gen-dm' : ''}`}>
-                <div className="row between"><h3 className="gen-h3">{s.label}{s.dm && <span className="chip red gen-chip">GM only</span>}</h3>{lockBtn(s.key)}</div>
+              <div key={s.key} className={`card gen-sec${s.gm ? ' gen-gm' : ''}`}>
+                <div className="row between"><h3 className="gen-h3">{s.label}{s.gm && <span className="chip red gen-chip">GM only</span>}</h3>{lockBtn(s.key)}</div>
                 <Markdown text={s.text} />
               </div>
             ))}
-            {res.statblockMd && <div className="card gen-dm gen-stat"><h3 className="gen-h3">Statblock <span className="chip red gen-chip">GM only</span></h3><Markdown text={res.statblockMd} /></div>}
+            {res.statblockMd && <div className="card gen-gm gen-stat"><h3 className="gen-h3">Statblock <span className="chip red gen-chip">GM only</span></h3><Markdown text={res.statblockMd} /></div>}
 
             <section className="card gen-actions" aria-label="Use this result">
               <div className="row">
@@ -256,7 +256,7 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
               <div className="stack tight">
                 <span className="label">Save to the library</span>
                 <div className="row">
-                  <VisibilityPicker value={level} onChange={setLevel} options={['dm', 'party']} labels={{ dm: 'GM only', party: 'Party can see it' }} />
+                  <VisibilityPicker value={level} onChange={setLevel} options={['gm', 'party']} labels={{ gm: 'GM only', party: 'Party can see it' }} />
                   <button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save</button>
                 </div>
                 {level === 'party' && <span className="tiny muted">Players will see the public parts only. Secrets, hooks and the statblock stay in GM-only blocks. {res.map ? 'The map picture will have no secret doors or traps.' : ''}</span>}
@@ -296,7 +296,7 @@ function MapView({ map }: { map: NonNullable<Result['map']> }) {
       <h3 className="gen-h3">Key</h3>
       <ol className="gen-key">
         {map.key.map((k: MapKey) => (
-          <li key={k.n}><strong><span className="gen-n">{k.n}</span> {k.name}.</strong> <span>{k.text}</span>{k.dm && <span className="gen-dmnote"> GM: {k.dm}</span>}</li>
+          <li key={k.n}><strong><span className="gen-n">{k.n}</span> {k.name}.</strong> <span>{k.text}</span>{k.gm && <span className="gen-dmnote"> GM: {k.gm}</span>}</li>
         ))}
       </ol>
     </div>

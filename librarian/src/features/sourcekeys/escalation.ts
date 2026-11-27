@@ -3,7 +3,7 @@
 // anything that came through a blanket or unsure key), it is not answered. It
 // becomes, by the world setting `escalation`:
 //
-//   dm-question  a GM-only question in the GM queue; the GM answers or refuses.
+//   gm-question  a GM-only question in the GM queue; the GM answers or refuses.
 //   broker-deal  a high-level broker request the GM prices (the wait is a
 //                number of sessions, `escalationSessions`); delivered only
 //                after the GM approves it and the player pays.
@@ -13,7 +13,7 @@
 // and is never sent to the player or to any model.
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmAnd, dmOnly } from '../../core/events.ts';
+import { gmAnd, gmOnly } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { routeQuestion, LOW_CONFIDENCE, type Labels } from '../broker2/routing.ts';
@@ -22,7 +22,7 @@ import { searchLive, type SourceRow } from './live.ts';
 import { auditKey, auditUse, usesOf, worldKeys } from './store.ts';
 
 export const LOOKING = 'The broker will look into it.';
-export type Mode = 'dm-question' | 'broker-deal';
+export type Mode = 'gm-question' | 'broker-deal';
 
 export interface HiddenItem { title: string; source: string; text: string }
 /** For the GM only. */
@@ -32,8 +32,8 @@ export const worldSettings = (d: Deps, worldId: string): WorldSettings => ({ ...
 
 /** The mode this world uses. A world with the broker closed has no deals to make: it asks the GM. */
 export function modeFor(s: WorldSettings): Mode {
-  const m = featureSetting<string>(s, 'escalation') === 'dm-question' ? 'dm-question' : 'broker-deal';
-  return m === 'broker-deal' && !s.brokerEnabled ? 'dm-question' : m;
+  const m = featureSetting<string>(s, 'escalation') === 'gm-question' ? 'gm-question' : 'broker-deal';
+  return m === 'broker-deal' && !s.brokerEnabled ? 'gm-question' : m;
 }
 
 const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -57,16 +57,16 @@ export function escalate(d: Deps, a: { worldId: string; accountId: string; quest
   let brokerId: string | null = a.brokerRequestId ?? null;
   if (!brokerId && mode === 'broker-deal') {
     brokerId = id('brk_');
-    const cls = { type: 'other', verdict: null, reason: 'Escalated: the answer needs content beyond the asker\'s own view. The hidden context is in the GM queue.', entities: [], knowledge: 'secret', multiplier: 1, player: null, dmEvidence: [], routing: a.hidden.routing ?? null };
+    const cls = { type: 'other', verdict: null, reason: 'Escalated: the answer needs content beyond the asker\'s own view. The hidden context is in the GM queue.', entities: [], knowledge: 'secret', multiplier: 1, player: null, gmEvidence: [], routing: a.hidden.routing ?? null };
     run(d.db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, 'short', 'secret', 'pricing', ?, ?)`, brokerId, a.worldId, a.accountId, q, now(), JSON.stringify(cls));
-    d.hub.emit(a.worldId, 'broker', { id: brokerId, status: 'pricing' }, dmAnd(a.accountId));
+    d.hub.emit(a.worldId, 'broker', { id: brokerId, status: 'pricing' }, gmAnd(a.accountId));
   }
   const eid = id('esc_');
   run(d.db, `INSERT INTO sourcekeys_escalations (id, world_id, account_id, question, origin, mode, status, hidden, broker_request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
     eid, a.worldId, a.accountId, q, a.origin, mode, JSON.stringify(a.hidden), brokerId, now());
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', a.worldId, a.accountId, 'sourcekeys.escalate', `${eid} ${a.origin} ${mode}`, now());
   // The event names no text: the GM's screen reloads its queue.
-  d.hub.emit(a.worldId, 'sourcekeys', { kind: 'escalation', id: eid }, dmOnly);
+  d.hub.emit(a.worldId, 'sourcekeys', { kind: 'escalation', id: eid }, gmOnly);
   return one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ?', eid)!;
 }
 
@@ -89,7 +89,7 @@ export async function gatherContext(d: Deps, worldId: string, accountId: string,
   const out: HiddenItem[] = [];
   for (const k of worldKeys(d.db, worldId)) {
     // Only keys the GM owns, with the broker use. A player's own key is never used to answer for someone else.
-    if (k.revoked || !k.verified || !usesOf(k).includes('broker') || !one(d.db, `SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'`, worldId, k.owner_id)) continue;
+    if (k.revoked || !k.verified || !usesOf(k).includes('broker') || !one(d.db, `SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'gm'`, worldId, k.owner_id)) continue;
     const src = one<SourceRow>(d.db, 'SELECT * FROM sources WHERE id = ?', k.source_id);
     if (!src) continue;
     try {
@@ -138,7 +138,7 @@ export function playerView(d: Deps, e: EscRow) {
   };
 }
 
-export function dmView(d: Deps, e: EscRow, names: Record<string, string>) {
+export function gmView(d: Deps, e: EscRow, names: Record<string, string>) {
   return { ...playerView(d, e), askerId: e.account_id, askerName: names[e.account_id] ?? 'Someone', origin: e.origin, hidden: parseJson<Hidden>(e.hidden, { reason: '' }), sessions: e.sessions, resolvedAt: e.resolved_at };
 }
 
@@ -155,7 +155,7 @@ const open = (d: Deps, worldId: string, eid: string): EscRow => {
 export function answer(d: Deps, worldId: string, eid: string, text: string, by: string): EscRow {
   const e = open(d, worldId, eid);
   run(d.db, `UPDATE sourcekeys_escalations SET status = 'answered', answer = ?, resolved_at = ?, resolved_by = ? WHERE id = ?`, text, now(), by, e.id);
-  if (e.broker_request_id) run(d.db, `UPDATE broker_requests SET status = 'answered', dm_written = 1, cost_cp = 0, answer = ?, sources = '[]', delivered_at = ? WHERE id = ? AND status = 'pricing'`, text, now(), e.broker_request_id);
+  if (e.broker_request_id) run(d.db, `UPDATE broker_requests SET status = 'answered', gm_written = 1, cost_cp = 0, answer = ?, sources = '[]', delivered_at = ? WHERE id = ? AND status = 'pricing'`, text, now(), e.broker_request_id);
   auditKey(d.db, worldId, by, 'answer', e.id);
   tell(d, e);
   return one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ?', e.id)!;
@@ -177,10 +177,10 @@ export function price(d: Deps, worldId: string, eid: string, a: { costCp: number
   const mins = minutesForSessions(d, worldId, a.sessions);
   // Fewer sessions are scheduled than the wait: a week of real time for each one.
   const wait = mins !== null ? { amount: mins, unit: 'minutes', clock: 'real' } : { amount: a.sessions * 7, unit: 'days', clock: 'real' };
-  run(d.db, `UPDATE broker_requests SET status = 'offered', dm_written = 1, cost_cp = ?, wait_clock = ?, ready_at = ?, answer = ?, dm_note = ? WHERE id = ? AND status = 'pricing'`, a.costCp, wait.clock, JSON.stringify(wait), a.answer, a.note || null, e.broker_request_id);
+  run(d.db, `UPDATE broker_requests SET status = 'offered', gm_written = 1, cost_cp = ?, wait_clock = ?, ready_at = ?, answer = ?, gm_note = ? WHERE id = ? AND status = 'pricing'`, a.costCp, wait.clock, JSON.stringify(wait), a.answer, a.note || null, e.broker_request_id);
   run(d.db, 'UPDATE sourcekeys_escalations SET cost_cp = ?, sessions = ?, answer = ?, note = ? WHERE id = ?', a.costCp, a.sessions, a.answer, a.note || null, e.id);
   auditKey(d.db, worldId, by, 'price', `${e.id} ${a.costCp}cp ${a.sessions} sessions`);
-  d.hub.emit(worldId, 'broker', { id: e.broker_request_id, status: 'offered' }, dmAnd(e.account_id));
+  d.hub.emit(worldId, 'broker', { id: e.broker_request_id, status: 'offered' }, gmAnd(e.account_id));
   tell(d, e);
   return one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ?', e.id)!;
 }
@@ -188,15 +188,15 @@ export function price(d: Deps, worldId: string, eid: string, a: { costCp: number
 export function refuse(d: Deps, worldId: string, eid: string, note: string, by: string): EscRow {
   const e = open(d, worldId, eid);
   run(d.db, `UPDATE sourcekeys_escalations SET status = 'refused', note = ?, resolved_at = ?, resolved_by = ? WHERE id = ?`, note || null, now(), by, e.id);
-  if (e.broker_request_id) run(d.db, `UPDATE broker_requests SET status = 'refused', dm_note = ? WHERE id = ? AND status = 'pricing'`, note || null, e.broker_request_id);
+  if (e.broker_request_id) run(d.db, `UPDATE broker_requests SET status = 'refused', gm_note = ? WHERE id = ? AND status = 'pricing'`, note || null, e.broker_request_id);
   auditKey(d.db, worldId, by, 'refuse', e.id);
   tell(d, e);
   return one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ?', e.id)!;
 }
 
 function tell(d: Deps, e: EscRow) {
-  d.hub.emit(e.world_id, 'sourcekeys', { kind: 'escalation', id: e.id }, dmAnd(e.account_id));
-  if (e.broker_request_id) d.hub.emit(e.world_id, 'broker', { id: e.broker_request_id }, dmAnd(e.account_id));
+  d.hub.emit(e.world_id, 'sourcekeys', { kind: 'escalation', id: e.id }, gmAnd(e.account_id));
+  if (e.broker_request_id) d.hub.emit(e.world_id, 'broker', { id: e.broker_request_id }, gmAnd(e.account_id));
 }
 
 // ---- the audit model decides: answerable from the asker's view, or escalate -----------------

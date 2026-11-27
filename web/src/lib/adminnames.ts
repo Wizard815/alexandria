@@ -1,5 +1,5 @@
 // What every admin page is called, in one place: the menu, the find-a-page filter and the page headers read these, so a
-// page has one short name, one icon and one line of description. A leaf module (no imports), like dmnames.ts.
+// page has one short name, one icon and one line of description. A leaf module (no imports), like gmnames.ts.
 
 export type AdminGroupId = 'worlds' | 'sources' | 'ai' | 'access' | 'server';
 

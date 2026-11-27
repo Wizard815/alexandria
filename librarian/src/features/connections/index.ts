@@ -26,14 +26,14 @@ import type { Feature } from '../types.ts';
 import { all, one, run } from '../../core/db.ts';
 import type { Auth } from '../../core/auth.ts';
 import { HttpError, id, now, str } from '../../core/util.ts';
-import { ctx, isDM } from '../../routes/_shared.ts';
+import { ctx, isGM } from '../../routes/_shared.ts';
 import { pageLevel } from '../../core/levels.ts';
 import { ConfigError, type Connector } from '../../intake/connector.ts';
 import { CONNECTORS, connectorFor, makeMcpFactory } from '../../intake/registry.ts';
 import { AUDIENCE_LABEL, SECRET_MASK, connectionKeys, createConnection, getConnection, hasConnection, keepSecrets, maskedConfig, migrateSources, normAudience, splitConfig, type ConnectionRow } from '../../intake/connections.ts';
 import { BUILTIN_PRESETS, cleanPresetConfig, cleanPresetName, exportPreset, parsePresetImport, type Preset } from '../../intake/presets.ts';
 import { connectorContext } from '../../intake/sync.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { cleanEndpoints } from '../../intake/connectors/apiEndpoints.ts';
 import { discoverApi, guessMcpTools } from '../../intake/connectors/apiSetup.ts';
 import { startDetailWorker, tierSummary } from '../../intake/detail.ts';
@@ -116,7 +116,7 @@ async function testConnection(d: Deps, c: Connector, connection: Record<string, 
   try { c.validate(cfg, { vaultsDir: d.vaultsDir, env: d.env }); } catch (err: any) { return { ok: false, message: err.message }; }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 30_000);
-  const made = connectorContext({ db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp }, { id: 'test', kind: c.id, default_visibility: 'dm', audience: 'dm' }, cfg, ctl.signal, () => {});
+  const made = connectorContext({ db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp }, { id: 'test', kind: c.id, default_visibility: 'gm', audience: 'gm' }, cfg, ctl.signal, () => {});
   try { return await c.test(cfg, made.ctx); } catch (err: any) {
     return { ok: false, message: err instanceof ConfigError ? err.message : `Could not connect: ${String(err.message).slice(0, 200)}` };
   } finally { clearTimeout(timer); made.close(); }
@@ -267,7 +267,7 @@ const feature: Feature = {
       }
       audit(d, res, 'source.tiers', `${s.id} ${JSON.stringify(upd)}`, s.world_id);
       const out = { id: s.id, name: s.name, ...tierSummary(d, s) };
-      d.hub.emit(s.world_id, 'tiers', { sources: [out] }, dmOnly);
+      d.hub.emit(s.world_id, 'tiers', { sources: [out] }, gmOnly);
       res.json(out);
     });
 
@@ -383,7 +383,7 @@ const feature: Feature = {
     const r = Router({ mergeParams: true });
     // What this world's sources are and who each one is shared with. Players get nothing from here.
     r.get('/', (_req, res) => {
-      if (!isDM(res)) return res.json({ sources: [] });
+      if (!isGM(res)) return res.json({ sources: [] });
       const w = ctx(res).world.id;
       const rows = all<any>(d.db, 'SELECT s.*, c.name AS connection_name, (SELECT COUNT(*) FROM pages p WHERE p.source_id = s.id) AS pages FROM sources s LEFT JOIN connections c ON c.id = s.connection_id WHERE s.world_id = ? ORDER BY s.name', w);
       res.json({
@@ -396,12 +396,12 @@ const feature: Feature = {
     });
     // Why players may see nothing, a key the site refuses for content, a wait for the site: for the GM's library and the world page.
     r.get('/status', (_req, res) => {
-      if (!isDM(res)) return res.json({ pages: 0, levels: { party: 0, broker: 0, dm: 0, classified: 0 }, dmOnly: null, refused: [], waiting: null });
+      if (!isGM(res)) return res.json({ pages: 0, levels: { party: 0, broker: 0, gm: 0, classified: 0 }, gmOnly: null, refused: [], waiting: null });
       res.json(worldStatus(d, ctx(res).world.id));
     });
     // Pages not yet read in full: for the GM's depth badge.
     r.get('/depths', (_req, res) => {
-      if (!isDM(res)) return res.json({ depths: {} });
+      if (!isGM(res)) return res.json({ depths: {} });
       res.json({ depths: depthsOf(d.db, ctx(res).world.id) });
     });
     return r;
@@ -413,14 +413,14 @@ const feature: Feature = {
     (results) => {
       for (const t of results) {
         const s = one<any>(d.db, 'SELECT * FROM sources WHERE id = ?', t.sourceId);
-        if (s) d.hub.emit(s.world_id, 'tiers', { sources: [{ id: s.id, name: s.name, ...tierSummary(d, s) }] }, dmOnly);
+        if (s) d.hub.emit(s.world_id, 'tiers', { sources: [{ id: s.id, name: s.name, ...tierSummary(d, s) }] }, gmOnly);
       }
     },
   ),
 
   mcpTools: [
     {
-      name: 'world_sources', dmOnly: true,
+      name: 'world_sources', gmOnly: true,
       description: "GM: where this world's library comes from: each source (name, kind of app, connection), its audience (GM only, shared with players, or following the source's own flags), the schedule and when it last synced.",
       props: {}, call: () => ({ method: 'GET', path: '/world-sources' }),
     },

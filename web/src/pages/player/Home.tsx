@@ -7,7 +7,7 @@ import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { CombatPanel, type LiveView } from './Live.tsx';
 import { AlertsCard, BrokerTeaser, useMine } from '../broker/shared.tsx';
-import { FromDM } from '../../features/libshare/Share.tsx';
+import { FromGM } from '../../features/libshare/Share.tsx';
 
 interface CalSession { id: string; title: string; starts_at: string; ends_at: string; location: string; status: string; rsvps: { account_id: string; answer: string }[]; chatCount: number }
 const RSVP: [string, string][] = [['yes', 'Going'], ['maybe', 'Maybe'], ['no', "Can't"]];
@@ -64,7 +64,7 @@ export default function PlayerHome() {
 
           {d && d.combat.active && <CombatPanel c={d.combat} compact />}
           <AlertsCard mine={mine.data} reload={mine.reload} />
-          <FromDM compact />
+          <FromGM compact />
 
           <section className="card" aria-labelledby="upd-h">
             <h2 id="upd-h">Updates</h2>

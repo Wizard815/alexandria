@@ -51,8 +51,8 @@ const drag = async (page, loc, [x0, y0], [x1, y1]) => {
 };
 
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { ctx, page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${token}` }, body: raw ? raw : body ? JSON.stringify(body) : undefined });
@@ -82,13 +82,13 @@ try {
   // ---- 1. the GM's Map page: fog is off until turned on, then everything is fogged ---------------------------------------
   await page.goto(`${W}/gm/map`);
   await page.getByTestId('map-fog').waitFor({ timeout: 8000 });
-  check(await shows(page.getByText(SECRET).first(), 3000) || (await page.locator('[data-mark]').count()) >= 2, 'dm map: the GM sees both pins with fog off');
-  check((await page.getByTestId('fog-canvas').count()) === 0, 'dm map: no fog canvas while fog is off');
+  check(await shows(page.getByText(SECRET).first(), 3000) || (await page.locator('[data-mark]').count()) >= 2, 'gm map: the GM sees both pins with fog off');
+  check((await page.getByTestId('fog-canvas').count()) === 0, 'gm map: no fog canvas while fog is off');
   await page.getByTestId('fog-toggle').click();
   await page.getByTestId('fog-canvas').waitFor({ timeout: 8000 });
   const tinted = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid=fog-canvas]')).opacity);
-  check(Number(tinted) < 1, `dm map: the GM sees fog as a tint (opacity ${tinted})`);
-  check((await alphaAt(page, '', 0.5, 0.5)) === 255, 'dm map: turning fog on starts fully fogged');
+  check(Number(tinted) < 1, `gm map: the GM sees fog as a tint (opacity ${tinted})`);
+  check((await alphaAt(page, '', 0.5, 0.5)) === 255, 'gm map: turning fog on starts fully fogged');
   await page.getByTestId('show-on-table').click();
   await settle(page, 500);
   const disp = (await api('GET', '/fog/table')).json;

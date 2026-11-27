@@ -58,12 +58,12 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
     // Only the lines that came in since the last pass are tested one by one (testing the whole night every 20 seconds froze the server);
     // the lines around a match are tested when they are read for the excerpt.
     const secret = (t: string) => d.library.containsClassified(worldId, t) || wouldBeRefused(d, t);
-    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: true });
+    const lines = sessionLines(d.db, worldId, sessionId, { includeGm: true });
     const fresh = lines.filter((l) => l.updatedAt > seen && !secret(l.text));
     if (!fresh.length) return { checked: 0, flagged: 0 };
     const newest = fresh.reduce((m, l) => (l.updatedAt > m ? l.updatedAt : m), seen);
     run(d.db, 'INSERT INTO audio_rule_seen (session_id, upto) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET upto = excluded.upto', sessionId, newest);
-    const viewer = { role: 'dm', accountId: '', audience: 'ai' } as any;
+    const viewer = { role: 'gm', accountId: '', audience: 'ai' } as any;
     const recent = new Map(all<any>(d.db, 'SELECT term, max(created_at) AS at FROM audio_rule_notes WHERE session_id = ? GROUP BY term', sessionId).map((r) => [String(r.term), Date.parse(r.at)]));
     const by = worldModules(d.db, worldId).byRef;
     const todo: { term: string; ref: string; line: TranscriptLine }[] = [];
@@ -95,7 +95,7 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
       run(d.db, 'INSERT INTO audio_rule_notes (id, session_id, world_id, term, term_ref, line_id, ok, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', row.id, sessionId, worldId, t.term, t.ref, t.line.id, j.ok ? 1 : 0, note, row.at);
       if (!j.ok) {
         flagged++;
-        d.hub.emit(worldId, 'rules-note', { sessionId, id: row.id, term: t.term, ref: t.ref, lineId: t.line.id, note, at: row.at }, (v) => v.role === 'dm');
+        d.hub.emit(worldId, 'rules-note', { sessionId, id: row.id, term: t.term, ref: t.ref, lineId: t.line.id, note, at: row.at }, (v) => v.role === 'gm');
       }
     }
     return { checked, flagged };

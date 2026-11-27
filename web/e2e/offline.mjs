@@ -47,17 +47,17 @@ const browser = await chromium.launch();
 try {
   // World with shared and GM-only content.
   const admin = await api('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' });
-  const dmToken = admin.token;
-  await api('POST', '/api/admin/worlds', dmToken, { name: 'BloodEarth', dmAccountId: admin.account.id });
+  const gmToken = admin.token;
+  await api('POST', '/api/admin/worlds', gmToken, { name: 'BloodEarth', gmAccountId: admin.account.id });
   const W = '/api/worlds/bloodearth';
-  await api('PUT', `${W}/library/pages`, dmToken, { path: 'Old Kesh', visibility: 'party', markdown: '# Old Kesh\nA port town on the red coast. See [[Ash Road]] and [[Plot]].\n\n> [!secret]\n> SECRET-SMUGGLERS own it.\n' });
-  await api('PUT', `${W}/library/pages`, dmToken, { path: 'Ash Road', visibility: 'party', markdown: '# Ash Road\nThe old trade road.' });
-  await api('PUT', `${W}/library/pages`, dmToken, { path: 'Plot', markdown: 'SECRET-TWIST: the king is dead.' });
-  for (let i = 0; i < 120; i++) await api('PUT', `${W}/library/pages`, dmToken, { path: `Lore/Note ${i}`, visibility: 'party', markdown: `# Note ${i}\nShared note number ${i}.` });
-  const { code } = await api('POST', `${W}/invites`, dmToken, { role: 'player' });
+  await api('PUT', `${W}/library/pages`, gmToken, { path: 'Old Kesh', visibility: 'party', markdown: '# Old Kesh\nA port town on the red coast. See [[Ash Road]] and [[Plot]].\n\n> [!secret]\n> SECRET-SMUGGLERS own it.\n' });
+  await api('PUT', `${W}/library/pages`, gmToken, { path: 'Ash Road', visibility: 'party', markdown: '# Ash Road\nThe old trade road.' });
+  await api('PUT', `${W}/library/pages`, gmToken, { path: 'Plot', markdown: 'SECRET-TWIST: the king is dead.' });
+  for (let i = 0; i < 120; i++) await api('PUT', `${W}/library/pages`, gmToken, { path: `Lore/Note ${i}`, visibility: 'party', markdown: `# Note ${i}\nShared note number ${i}.` });
+  const { code } = await api('POST', `${W}/invites`, gmToken, { role: 'player' });
   const pl = await api('POST', '/api/join', null, { code, username: 'jess', password: 'player pass 123', characterName: 'Mira' });
-  await api('POST', `${W}/inventory`, dmToken, { owner: 'party', name: 'Lantern of Ash', qty: 1, dmNote: 'SECRET-DMNOTE cursed', reason: 'Found in the crypt' });
-  await api('POST', `${W}/inventory`, dmToken, { owner: pl.account.id, name: 'Rope (50 ft)', qty: 1, dmNote: 'SECRET-DMNOTE2', reason: 'Bought in town' });
+  await api('POST', `${W}/inventory`, gmToken, { owner: 'party', name: 'Lantern of Ash', qty: 1, gmNote: 'SECRET-GMNOTE cursed', reason: 'Found in the crypt' });
+  await api('POST', `${W}/inventory`, gmToken, { owner: pl.account.id, name: 'Rope (50 ft)', qty: 1, gmNote: 'SECRET-GMNOTE2', reason: 'Bought in town' });
 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
@@ -159,7 +159,7 @@ try {
       t.oncomplete = () => res(out.join('\n'));
     };
   }));
-  for (const s of ['SECRET-SMUGGLERS', 'SECRET-TWIST', 'SECRET-DMNOTE']) if (dump.includes(s)) problems.push(`offline data contains ${s}`);
+  for (const s of ['SECRET-SMUGGLERS', 'SECRET-TWIST', 'SECRET-GMNOTE']) if (dump.includes(s)) problems.push(`offline data contains ${s}`);
   if (!dump.includes('Shared note number 119')) problems.push('offline data misses a shared page');
   note(`offline data checked (${Math.round(dump.length / 1024)} KB): no GM-only text`);
 

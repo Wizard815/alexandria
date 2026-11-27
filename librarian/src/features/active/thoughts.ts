@@ -4,10 +4,10 @@
 // and how long it took. Held in memory only (the last THOUGHTS_KEPT per world, gone on a restart):
 // the command log stays the record of what was done; this is the running commentary.
 //
-// GM only, always: the event goes to the GM's screens and the route sits behind requireDM. Text is
+// GM only, always: the event goes to the GM's screens and the route sits behind requireGM. Text is
 // clipped, and nothing classified is ever put here (Active mode skips classified lines before this).
 import type { Deps } from '../../app.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { id } from '../../core/util.ts';
 
 export const THOUGHTS_KEPT = 120;
@@ -77,7 +77,7 @@ export function think(d: Deps, worldId: string, t: Omit<Thought, 'id' | 'at'>): 
       list.push(th);
       if (list.length > THOUGHTS_KEPT) list.splice(0, list.length - THOUGHTS_KEPT);
     }
-    d.hub.emit(worldId, 'thought', th, dmOnly);
+    d.hub.emit(worldId, 'thought', th, gmOnly);
     return th;
   } catch (e) {
     console.error('thoughts: could not note a thought', e);

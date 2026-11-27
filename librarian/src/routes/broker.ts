@@ -18,8 +18,8 @@ import { randomBytes } from 'node:crypto';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { type DB, one, all, run, tx } from '../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
-import { dmAnd } from '../core/events.ts';
+import { requireGM, requirePlayerOrGM } from '../core/auth.ts';
+import { gmAnd } from '../core/events.ts';
 import { HttpError, id, int, now, oneOf, str } from '../core/util.ts';
 import { DEFAULT_SETTINGS, featureSetting, type Viewer } from '../core/policy.ts';
 import { classify, questionType, type Classification } from '../core/brokerClassify.ts';
@@ -30,7 +30,7 @@ import { itemAnswer, rulesAnswer, visibleItems, type OtherAnswer } from '../feat
 import { LOW_CONFIDENCE, allowedTopicHit, answersQuestion, needsAnswerCheck, realWorldAnswer, routeQuestion, type Labels } from '../features/broker2/routing.ts';
 import { escalateFromBroker } from '../features/sourcekeys/hook.ts';
 import { balance, money, spendable } from '../core/coin.ts';
-import { ctx, isDM, me, memberIds, names, settings } from './_shared.ts';
+import { ctx, isGM, me, memberIds, names, settings } from './_shared.ts';
 
 type Clock = 'real' | 'game';
 type Unit = 'minutes' | 'hours' | 'days';
@@ -41,7 +41,7 @@ interface Config {
   tiers: Tier[];
   lengths: { id: string; name: string; multiplier: number }[];
   /** What happens to questions the broker can't answer: the GM prices them, or the broker turns them away. */
-  unknown: 'dm' | 'refuse';
+  unknown: 'gm' | 'refuse';
 }
 
 export const DEFAULT_BROKER: Config = {
@@ -56,7 +56,7 @@ export const DEFAULT_BROKER: Config = {
     { id: 'secret', name: 'Guarded secrets', description: 'Not in your library. The broker asks around; the GM names the price or says no.', knowledge: 'secret', costCp: null, wait: null, delivery: 'review' },
   ],
   lengths: [{ id: 'short', name: 'Short answer', multiplier: 1 }, { id: 'full', name: 'Full answer', multiplier: 2 }],
-  unknown: 'dm',
+  unknown: 'gm',
 };
 
 /** Guarded secrets are always the GM's, whatever was saved. */
@@ -97,7 +97,7 @@ function validConfig(b: any): Config {
   });
   for (const k of ['common', 'local', 'deep', 'secret']) if (!tiers.some((t) => t.knowledge === k)) throw new HttpError(400, `Keep a tier for ${k} knowledge`);
   const lengths = Array.isArray(b?.lengths) && b.lengths.length ? b.lengths.slice(0, 4).map((l: any, i: number) => ({ id: str(l.id, `lengths[${i}].id`, { max: 20 }).replace(/[^\w-]/g, ''), name: str(l.name, `lengths[${i}].name`, { max: 40 }), multiplier: Math.max(0, Math.min(20, Number(l.multiplier) || 1)) })) : DEFAULT_BROKER.lengths;
-  return { persona, tiers, lengths, unknown: b?.unknown === 'refuse' ? 'refuse' : 'dm' };
+  return { persona, tiers, lengths, unknown: b?.unknown === 'refuse' ? 'refuse' : 'gm' };
 }
 
 const waitText = (w: Tier['wait']) => (!w || !w.amount ? 'right now' : `${w.amount} ${w.amount === 1 ? w.unit.replace(/s$/, '') : w.unit}${w.clock === 'game' ? ' of game time' : ''}`);
@@ -114,7 +114,7 @@ export default function brokerRoutes(d: Deps) {
   const on = (res: Response) => {
     if (!settings(res).brokerEnabled) throw new HttpError(404, 'The information broker is closed in this world');
   };
-  const emit = (worldId: string, req: any) => d.hub.emit(worldId, 'broker', { id: req.id, status: req.status }, dmAnd(req.account_id));
+  const emit = (worldId: string, req: any) => d.hub.emit(worldId, 'broker', { id: req.id, status: req.status }, gmAnd(req.account_id));
 
   /** The world clock (the broker keeps none of its own). Moves old broker minutes over once. */
   const worldNow = (worldId: string) => {
@@ -132,7 +132,7 @@ export default function brokerRoutes(d: Deps) {
     const minutes = worldNow(worldId).minutes;
     const due = all<any>(db, `SELECT * FROM broker_requests WHERE world_id = ? AND status = 'waiting' AND needs_review = 0 AND ((wait_clock = 'real' AND ready_at <= ?) OR (wait_clock = 'game' AND ready_at_game <= ?))`, worldId, now(), minutes);
     for (const q of due) {
-      if (!q.dm_written && q.answer && leaks(db, d.library, worldId, q.answer, q.question, !!q.broker_level)) {
+      if (!q.gm_written && q.answer && leaks(db, d.library, worldId, q.answer, q.question, !!q.broker_level)) {
         run(db, 'UPDATE broker_requests SET needs_review = 1 WHERE id = ?', q.id);
         emit(worldId, { ...q, status: 'waiting' });
         continue;
@@ -149,16 +149,16 @@ export default function brokerRoutes(d: Deps) {
   const view = (res: Response, q: any, nm: Record<string, string>) => {
     const { cfg } = loadConfig(db, q.world_id);
     const minutes = getClock(db, q.world_id).minutes;
-    const dm = isDM(res);
+    const gm = isGM(res);
     const tier = cfg.tiers.find((t) => t.id === q.tier);
     const out: any = {
       id: q.id, question: q.question, length: q.length, tier: q.tier, tier_name: q.tier === 'other' ? 'Other' : tier?.name ?? q.tier, cost_cp: q.status === 'pricing' || (q.status === 'declined' && !q.ledger_id && q.answer === null) ? null : q.cost_cp, payer: q.payer, status: q.status,
       wait_clock: q.wait_clock, ready_at: q.ready_at, ready_at_game: q.ready_at_game, ready_at_game_label: q.ready_at_game !== null && q.ready_at_game !== undefined ? gameLabel(q.world_id, q.ready_at_game) : null,
-      game_now: minutes, created_at: q.created_at, delivered_at: q.delivered_at, reply: q.dm_note,
+      game_now: minutes, created_at: q.created_at, delivered_at: q.delivered_at, reply: q.gm_note,
     };
-    if (q.status === 'answered' || dm) { out.answer = q.answer; out.sources = JSON.parse(q.sources || '[]'); }
+    if (q.status === 'answered' || gm) { out.answer = q.answer; out.sources = JSON.parse(q.sources || '[]'); }
     if (q.status === 'answered') out.voice = `${cfg.persona.name} ${cfg.persona.voice}`;
-    if (dm) {
+    if (gm) {
       out.broker_level = !!q.broker_level;
       out.asker = q.account_id; out.asker_name = nm[q.account_id] ?? 'Someone';
       const payRow = q.ledger_id ? one<any>(db, 'SELECT by_id FROM ledger WHERE id = ?', q.ledger_id) : null;
@@ -166,7 +166,7 @@ export default function brokerRoutes(d: Deps) {
       out.needs_review = !!q.needs_review && q.status === 'waiting';
       // GM only: how the question was judged, and the GM-side lines that matched.
       const c: (Classification & { routing?: Labels }) | null = q.classification ? JSON.parse(q.classification) : null;
-      out.classification = ctx(res).viewer.audience === 'ai' ? null : c ? { type: c.type, verdict: c.verdict, reason: c.reason, entities: c.entities, knowledge: c.knowledge, multiplier: c.multiplier, dmEvidence: c.dmEvidence, routing: c.routing ?? null } : { type: questionType(q.question), verdict: null, reason: 'Asked before questions were classified.', entities: [], knowledge: null, multiplier: 1, dmEvidence: [], routing: null };
+      out.classification = ctx(res).viewer.audience === 'ai' ? null : c ? { type: c.type, verdict: c.verdict, reason: c.reason, entities: c.entities, knowledge: c.knowledge, multiplier: c.multiplier, gmEvidence: c.gmEvidence, routing: c.routing ?? null } : { type: questionType(q.question), verdict: null, reason: 'Asked before questions were classified.', entities: [], knowledge: null, multiplier: 1, gmEvidence: [], routing: null };
     }
     return out;
   };
@@ -190,7 +190,7 @@ export default function brokerRoutes(d: Deps) {
     // Players get the same config; spoiler tags and routing rules stay on GM-only routes.
     res.json({ ...cfg, payer: settings(res).brokerPayer, partyPay: settings(res).partyPurse && settings(res).brokerPartyPay !== false, clock: { minutes: c.minutes, label: c.label }, site: siteOf(res), topics: topicsOf(res) });
   });
-  r.put('/config', requireDM, (req, res) => {
+  r.put('/config', requireGM, (req, res) => {
     const c = validConfig(req.body);
     saveConfig(db, ctx(res).world.id, c);
     audit(db, ctx(res).world.id, me(res), 'broker.config', `${c.tiers.length} tiers`);
@@ -198,7 +198,7 @@ export default function brokerRoutes(d: Deps) {
     res.json(loadConfig(db, ctx(res).world.id).cfg);
   });
   // "Auto for all tiers except Guarded": every price tier delivers when its wait is over.
-  r.post('/delivery/auto', requireDM, (_req, res) => {
+  r.post('/delivery/auto', requireGM, (_req, res) => {
     const w = ctx(res).world.id;
     const { cfg } = loadConfig(db, w);
     const next: Config = { ...cfg, tiers: cfg.tiers.map((t) => ({ ...t, delivery: deliveryOf(t.knowledge, 'auto') })) };
@@ -208,7 +208,7 @@ export default function brokerRoutes(d: Deps) {
     res.json(loadConfig(db, w).cfg);
   });
   // The old broker clock, now a thin wrapper over the world clock.
-  r.post('/clock', requireDM, (req, res) => {
+  r.post('/clock', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const cur = worldNow(w).minutes;
     if (req.body?.setMinutes !== undefined) moveClockTo(db, d.hub, w, int(req.body.setMinutes, 'setMinutes', { min: 0, max: 1_000_000_000 })!, 'Broker clock', me(res));
@@ -224,11 +224,11 @@ export default function brokerRoutes(d: Deps) {
   });
 
   // GM only: free-text spoiler topics. A question that names one always goes to the GM.
-  r.get('/spoilers', requireDM, (_req, res) => {
+  r.get('/spoilers', requireGM, (_req, res) => {
     const row = one<any>(db, 'SELECT spoiler_topics FROM broker_config WHERE world_id = ?', ctx(res).world.id);
     res.json({ topics: JSON.parse(row?.spoiler_topics || '[]') });
   });
-  r.put('/spoilers', requireDM, (req, res) => {
+  r.put('/spoilers', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const raw = req.body?.topics;
     if (!Array.isArray(raw) || raw.length > 50) throw new HttpError(400, 'topics must be a list of up to 50 texts');
@@ -246,11 +246,11 @@ export default function brokerRoutes(d: Deps) {
     const len = cfg.lengths.find((l) => l.id === length) ?? cfg.lengths[0];
     const asker = me(res);
     // Always a player's view: the GM asking gets what a player would get.
-    const viewer: Viewer = isDM(res) ? { accountId: asker, role: 'player' } : ctx(res).viewer;
+    const viewer: Viewer = isGM(res) ? { accountId: asker, role: 'player' } : ctx(res).viewer;
     const labels = await routeQuestion(d, w, question, topicsOf(res), visibleItems(d, w, asker).map((i) => i.name));
     const p = cfg.persona.name;
     const qid = randomBytes(9).toString('base64url');
-    const stub = (reason: string): Classification & { routing: Labels } => ({ type: labels.type, verdict: null as any, reason, entities: [], knowledge: 'local', multiplier: 1, player: null, dmEvidence: [], routing: labels });
+    const stub = (reason: string): Classification & { routing: Labels } => ({ type: labels.type, verdict: null as any, reason, entities: [], knowledge: 'local', multiplier: 1, player: null, gmEvidence: [], routing: labels });
     const keep = (extra: Record<string, unknown>) => {
       quotes.set(qid, { world: w, account: asker, question, length: len.id, expires: Date.now() + QUOTE_MS, ...extra });
       for (const [k, v] of quotes) if (v.expires < Date.now()) quotes.delete(k);
@@ -310,8 +310,8 @@ export default function brokerRoutes(d: Deps) {
   }
   // GET works with read-only keys (MCP); it never charges.
   // Secret, spoiler and unknown questions get the same reply, so a quote never reveals that a secret exists.
-  r.get('/quote', requirePlayerOrDM, async (req, res) => res.json(await quote(res, str(req.query.question, 'question', { max: 500 }), String(req.query.length ?? 'short'))));
-  r.post('/quote', requirePlayerOrDM, async (req, res) => res.json(await quote(res, str(req.body?.question, 'question', { max: 500 }), String(req.body?.length ?? 'short'))));
+  r.get('/quote', requirePlayerOrGM, async (req, res) => res.json(await quote(res, str(req.query.question, 'question', { max: 500 }), String(req.query.length ?? 'short'))));
+  r.post('/quote', requirePlayerOrGM, async (req, res) => res.json(await quote(res, str(req.body?.question, 'question', { max: 500 }), String(req.body?.length ?? 'short'))));
 
   /**
    * Take payment for something the broker sells, from the payer the player chose: their own coin ('self') or the party
@@ -348,11 +348,11 @@ export default function brokerRoutes(d: Deps) {
   /** Tell the people who can see a purse that it changed (the party pouch goes to the whole party, live). */
   function coinChanged(w: string, owner: string, asker: string, note?: string) {
     const nm = names(db, w);
-    d.hub.emit(w, 'coin', { owner, balance: balance(db, w, owner), ...(owner === 'party' && note ? { note, by: nm[asker] ?? null } : {}) }, owner === 'party' ? (v) => v.role === 'dm' || v.role === 'player' : dmAnd(owner));
+    d.hub.emit(w, 'coin', { owner, balance: balance(db, w, owner), ...(owner === 'party' && note ? { note, by: nm[asker] ?? null } : {}) }, owner === 'party' ? (v) => v.role === 'gm' || v.role === 'player' : gmAnd(owner));
   }
 
   // What this player may pay with, and how much each purse holds, for the choice shown with every price.
-  r.get('/pay-options', requirePlayerOrDM, (_req, res) => {
+  r.get('/pay-options', requirePlayerOrGM, (_req, res) => {
     on(res);
     const w = ctx(res).world.id;
     const s = settings(res);
@@ -371,7 +371,7 @@ export default function brokerRoutes(d: Deps) {
     return { clock: 'real', at: new Date(Date.now() + wait.amount * UNIT_MIN[wait.unit] * 60_000).toISOString(), game: null };
   };
 
-  r.post('/ask', requirePlayerOrDM, (req, res) => {
+  r.post('/ask', requirePlayerOrGM, (req, res) => {
     on(res);
     const w = ctx(res).world.id;
     const qid = str(req.body?.quoteId, 'quoteId', { max: 40 });
@@ -381,12 +381,12 @@ export default function brokerRoutes(d: Deps) {
     quotes.delete(qid);
     const rid = id('brk_');
     // Classified text lives on its page only: the stored evidence names the page and says so, never repeats the text.
-    const cls = JSON.stringify({ ...q.classification, dmEvidence: (q.classification?.dmEvidence ?? []).map((e: any) => (e.level === 'classified' ? { ...e, text: '(classified: open the page to read it)' } : e)) });
+    const cls = JSON.stringify({ ...q.classification, gmEvidence: (q.classification?.gmEvidence ?? []).map((e: any) => (e.level === 'classified' ? { ...e, text: '(classified: open the page to read it)' } : e)) });
     if (q.refused) {
       // Turned away. The GM still sees what was asked (and could send an offer).
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, ?, ?, 'noted', ?, ?)`, rid, w, me(res), q.question, q.length, q.tier, now(), cls);
       audit(db, w, me(res), 'broker.ask', q.kind === 'offtopic' ? 'off topic' : 'turned away');
-      d.hub.emit(w, 'broker', { id: rid, status: 'noted' }, dmAnd());
+      d.hub.emit(w, 'broker', { id: rid, status: 'noted' }, gmAnd());
       return res.status(200).json({ id: rid, status: 'noted', question: q.question, line: q.kind === 'offtopic' ? 'That’s not something I deal in.' : 'The broker has nothing for you on that.' });
     }
     if (q.kind === 'other') {
@@ -398,7 +398,7 @@ export default function brokerRoutes(d: Deps) {
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, ?, ?, 'pricing', ?, ?)`, rid, w, me(res), q.question, q.length, q.tier, now(), cls);
       audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost ?? 'priced by GM'}`);
       // The GM queue of escalated questions (features/sourcekeys) shows it too, with what the GM side holds.
-      escalateFromBroker(d, { worldId: w, accountId: me(res), question: q.question, brokerRequestId: rid, reason: String(q.classification?.reason ?? ''), evidence: JSON.parse(cls).dmEvidence ?? [], routing: q.classification?.routing ?? null });
+      escalateFromBroker(d, { worldId: w, accountId: me(res), question: q.question, brokerRequestId: rid, reason: String(q.classification?.reason ?? ''), evidence: JSON.parse(cls).gmEvidence ?? [], routing: q.classification?.routing ?? null });
     } else {
       let paid: { payer: string; ledgerId: string | null; note: string } | null = null;
       try {
@@ -428,7 +428,7 @@ export default function brokerRoutes(d: Deps) {
     on(res);
     const w = ctx(res).world.id;
     settle(w);
-    const rows = isDM(res)
+    const rows = isGM(res)
       ? all<any>(db, 'SELECT * FROM broker_requests WHERE world_id = ? ORDER BY created_at DESC LIMIT 200', w)
       : all<any>(db, `SELECT * FROM broker_requests WHERE world_id = ? AND account_id = ? AND status <> 'noted' ORDER BY created_at DESC LIMIT 100`, w, me(res));
     const nm = names(db, w);
@@ -438,7 +438,7 @@ export default function brokerRoutes(d: Deps) {
 
   const reqFor = (res: Response, rid: string) => {
     const q = one<any>(db, 'SELECT * FROM broker_requests WHERE id = ? AND world_id = ?', rid, ctx(res).world.id);
-    if (!q || (!isDM(res) && (q.account_id !== me(res) || q.status === 'noted'))) throw new HttpError(404, 'Request not found');
+    if (!q || (!isGM(res) && (q.account_id !== me(res) || q.status === 'noted'))) throw new HttpError(404, 'Request not found');
     return q;
   };
   const back = (res: Response, rid: string, w: string) => {
@@ -450,7 +450,7 @@ export default function brokerRoutes(d: Deps) {
   // ---- GM tuning: try a question, notes the broker may sell, per-page rules ----
 
   // What a question would be judged as, without anyone paying. GM only.
-  r.post('/classify', requireDM, async (req, res) => {
+  r.post('/classify', requireGM, async (req, res) => {
     on(res);
     const w = ctx(res).world.id;
     const question = str(req.body?.question, 'question', { max: 500 });
@@ -460,7 +460,7 @@ export default function brokerRoutes(d: Deps) {
     const routing = await routeQuestion(d, w, question, topicsOf(res), visibleItems(d, w, me(res)).map((i) => i.name));
     // A model asking (spoofed marker or not) gets no GM-side text.
     const blind = ctx(res).viewer.audience === 'ai';
-    res.json({ ...c, ...(blind ? { dmEvidence: [], reason: 'Hidden from models.' } : {}), routing, tier: tier?.id ?? null, tier_name: tier?.name ?? null, cost_cp: c.verdict === 'shared' && tier?.costCp !== null && tier ? Math.round(tier.costCp! * c.multiplier) : null });
+    res.json({ ...c, ...(blind ? { gmEvidence: [], reason: 'Hidden from models.' } : {}), routing, tier: tier?.id ?? null, tier_name: tier?.name ?? null, cost_cp: c.verdict === 'shared' && tier?.costCp !== null && tier ? Math.round(tier.costCp! * c.multiplier) : null });
   });
 
   const noteOut = (n: any) => ({ id: n.id, page_id: n.page_id, page_title: n.page_id ? one<any>(db, 'SELECT title FROM pages WHERE id = ?', n.page_id)?.title ?? null : null, topic: n.topic, text: n.text, knowledge: n.knowledge, active: !!n.active, from_request: n.from_request, at: n.at });
@@ -470,8 +470,8 @@ export default function brokerRoutes(d: Deps) {
     if (!one(db, 'SELECT 1 FROM pages WHERE id = ? AND world_id = ?', pid, w)) throw new HttpError(404, 'Page not found');
     return pid;
   };
-  r.get('/notes', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM broker_notes WHERE world_id = ? ORDER BY at DESC', ctx(res).world.id).map(noteOut)));
-  r.post('/notes', requireDM, (req, res) => {
+  r.get('/notes', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM broker_notes WHERE world_id = ? ORDER BY at DESC', ctx(res).world.id).map(noteOut)));
+  r.post('/notes', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const b = req.body ?? {};
     const n = { id: id('bnt_'), page_id: notePage(w, b.pageId), topic: str(b.topic, 'topic', { max: 200 }), text: str(b.text, 'text', { max: 5000 }), knowledge: oneOf(b.knowledge, 'knowledge', ['common', 'local', 'deep'] as const, 'local') };
@@ -479,7 +479,7 @@ export default function brokerRoutes(d: Deps) {
     audit(db, w, me(res), 'broker.note', n.topic);
     res.status(201).json(noteOut(one(db, 'SELECT * FROM broker_notes WHERE id = ?', n.id)));
   });
-  r.patch('/notes/:nid', requireDM, (req, res) => {
+  r.patch('/notes/:nid', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const n = one<any>(db, 'SELECT * FROM broker_notes WHERE id = ? AND world_id = ?', String(req.params.nid), w);
     if (!n) throw new HttpError(404, 'Note not found');
@@ -489,16 +489,16 @@ export default function brokerRoutes(d: Deps) {
       b.knowledge !== undefined ? oneOf(b.knowledge, 'knowledge', ['common', 'local', 'deep'] as const) : n.knowledge, b.active !== undefined ? (b.active ? 1 : 0) : n.active, n.id);
     res.json(noteOut(one(db, 'SELECT * FROM broker_notes WHERE id = ?', n.id)));
   });
-  r.delete('/notes/:nid', requireDM, (req, res) => {
+  r.delete('/notes/:nid', requireGM, (req, res) => {
     run(db, 'DELETE FROM broker_notes WHERE id = ? AND world_id = ?', String(req.params.nid), ctx(res).world.id);
     res.json({ ok: true });
   });
 
   const ruleOut = (x: any) => ({ page_id: x.page_id, title: x.title ?? null, visibility: x.visibility ?? null, page_knowledge: x.page_knowledge ?? null, knowledge: x.knowledge, multiplier: x.multiplier, never_sell: !!x.never_sell, spoiler: !!x.spoiler });
-  r.get('/rules', requireDM, (_req, res) => {
+  r.get('/rules', requireGM, (_req, res) => {
     res.json(all<any>(db, `SELECT r.*, p.title, p.visibility, p.knowledge AS page_knowledge FROM broker_page_rules r LEFT JOIN pages p ON p.id = r.page_id WHERE r.world_id = ? ORDER BY p.title`, ctx(res).world.id).map(ruleOut));
   });
-  r.put('/rules/:pid', requireDM, (req, res) => {
+  r.put('/rules/:pid', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const pid = String(req.params.pid);
     if (!one(db, 'SELECT 1 FROM pages WHERE id = ? AND world_id = ?', pid, w)) throw new HttpError(404, 'Page not found');
@@ -511,7 +511,7 @@ export default function brokerRoutes(d: Deps) {
     audit(db, w, me(res), 'broker.rule', pid);
     res.json(ruleOut(one(db, `SELECT r.*, p.title, p.visibility, p.knowledge AS page_knowledge FROM broker_page_rules r LEFT JOIN pages p ON p.id = r.page_id WHERE r.world_id = ? AND r.page_id = ?`, w, pid)));
   });
-  r.delete('/rules/:pid', requireDM, (req, res) => {
+  r.delete('/rules/:pid', requireGM, (req, res) => {
     run(db, 'DELETE FROM broker_page_rules WHERE world_id = ? AND page_id = ?', ctx(res).world.id, String(req.params.pid));
     res.json({ ok: true });
   });
@@ -529,7 +529,7 @@ export default function brokerRoutes(d: Deps) {
   const targetsOf = (o: any): string[] => JSON.parse(o.targets || '[]');
   const playerIds = (w: string) => memberIds(db, w, ['player']);
   const offerFor = (o: any, acc: string) => { const t = targetsOf(o); return t.includes(acc) || (t.includes('party') && playerIds(o.world_id).includes(acc)); };
-  const offerAudience = (o: any) => { const t = targetsOf(o); return t.includes('party') ? dmAnd(...playerIds(o.world_id)) : dmAnd(...t); };
+  const offerAudience = (o: any) => { const t = targetsOf(o); return t.includes('party') ? gmAnd(...playerIds(o.world_id)) : gmAnd(...t); };
   function expireOffers(w: string) {
     for (const o of all<any>(db, `SELECT * FROM broker_offers WHERE world_id = ? AND status = 'open'`, w)) {
       if (offerExpiry(o) <= now()) {
@@ -543,21 +543,21 @@ export default function brokerRoutes(d: Deps) {
   offerTimer.unref();
 
   function offerOut(res: Response, o: any, nm: Record<string, string>) {
-    const dm = isDM(res);
+    const gm = isGM(res);
     const out: any = { id: o.id, title: o.title, teaser: o.teaser, price_cp: o.price_cp, status: o.status, expires_at: offerExpiry(o), expires_sessions: o.expires_sessions, created_at: o.created_at, paid_at: o.paid_at, paid_by: o.paid_by, paid_by_name: o.paid_by ? nm[o.paid_by] ?? null : null, paid_from_party: o.paid_from === 'party' };
-    if (o.status === 'paid' || dm) {
+    if (o.status === 'paid' || gm) {
       out.info = o.info;
       const pg = o.page_id ? one<any>(db, 'SELECT id, title, visibility, player_body FROM pages WHERE id = ?', o.page_id) : null;
       // Link the page only if the viewer may open it.
-      out.page = pg && (dm || (pg.visibility === 'party' && pg.player_body !== null)) ? { id: pg.id, title: pg.title } : null;
+      out.page = pg && (gm || (pg.visibility === 'party' && pg.player_body !== null)) ? { id: pg.id, title: pg.title } : null;
     }
-    if (dm) { out.targets = targetsOf(o); out.declined_by = JSON.parse(o.declined_by); out.paid_from = o.paid_from; out.target_names = out.targets.map((t: string) => (t === 'party' ? 'The whole party' : nm[t] ?? 'Someone')); }
+    if (gm) { out.targets = targetsOf(o); out.declined_by = JSON.parse(o.declined_by); out.paid_from = o.paid_from; out.target_names = out.targets.map((t: string) => (t === 'party' ? 'The whole party' : nm[t] ?? 'Someone')); }
     else out.for_party = targetsOf(o).includes('party');
     return out;
   }
   const offerFind = (res: Response, oid: string) => {
     const o = one<any>(db, 'SELECT * FROM broker_offers WHERE id = ? AND world_id = ?', oid, ctx(res).world.id);
-    if (!o || (!isDM(res) && (!offerFor(o, me(res)) || JSON.parse(o.declined_by).includes(me(res)) || !['open', 'paid'].includes(o.status)))) throw new HttpError(404, 'Offer not found');
+    if (!o || (!isGM(res) && (!offerFor(o, me(res)) || JSON.parse(o.declined_by).includes(me(res)) || !['open', 'paid'].includes(o.status)))) throw new HttpError(404, 'Offer not found');
     return o;
   };
 
@@ -566,12 +566,12 @@ export default function brokerRoutes(d: Deps) {
     const w = ctx(res).world.id;
     expireOffers(w);
     const nm = names(db, w);
-    if (isDM(res)) return res.json(all<any>(db, 'SELECT * FROM broker_offers WHERE world_id = ? ORDER BY created_at DESC LIMIT 200', w).map((o) => offerOut(res, o, nm)));
+    if (isGM(res)) return res.json(all<any>(db, 'SELECT * FROM broker_offers WHERE world_id = ? ORDER BY created_at DESC LIMIT 200', w).map((o) => offerOut(res, o, nm)));
     const mine = all<any>(db, `SELECT * FROM broker_offers WHERE world_id = ? AND status IN ('open', 'paid') ORDER BY created_at DESC LIMIT 200`, w)
       .filter((o) => offerFor(o, me(res)) && !(o.status === 'open' && JSON.parse(o.declined_by).includes(me(res))));
     res.json(mine.map((o) => offerOut(res, o, nm)));
   });
-  r.post('/offers', requireDM, (req, res) => {
+  r.post('/offers', requireGM, (req, res) => {
     on(res);
     const w = ctx(res).world.id;
     const b = req.body ?? {};
@@ -592,12 +592,12 @@ export default function brokerRoutes(d: Deps) {
     d.hub.emit(w, 'broker-offer', { id: o.id, status: 'open' }, offerAudience(row));
     res.status(201).json(offerOut(res, row, names(db, w)));
   });
-  r.post('/offers/:oid/pay', requirePlayerOrDM, (req, res) => {
+  r.post('/offers/:oid/pay', requirePlayerOrGM, (req, res) => {
     on(res);
     const w = ctx(res).world.id;
     expireOffers(w);
     const o = offerFind(res, String(req.params.oid));
-    if (isDM(res)) throw new HttpError(403, 'Players pay for offers');
+    if (isGM(res)) throw new HttpError(403, 'Players pay for offers');
     if (o.status !== 'open') throw new HttpError(409, o.status === 'paid' ? 'Already paid' : 'This offer is gone');
     let from = me(res);
     let note = '';
@@ -618,20 +618,20 @@ export default function brokerRoutes(d: Deps) {
     coinChanged(w, from, me(res), note);
     res.json(offerOut(res, row, names(db, w)));
   });
-  r.post('/offers/:oid/decline', requirePlayerOrDM, (req, res) => {
+  r.post('/offers/:oid/decline', requirePlayerOrGM, (req, res) => {
     const w = ctx(res).world.id;
     const o = offerFind(res, String(req.params.oid));
-    if (isDM(res) || o.status !== 'open') throw new HttpError(409, 'Nothing to decline');
+    if (isGM(res) || o.status !== 'open') throw new HttpError(409, 'Nothing to decline');
     const declined = [...new Set([...JSON.parse(o.declined_by), me(res)])];
     const t = targetsOf(o);
     const everyone = t.includes('party') ? playerIds(w) : t;
     const all_ = everyone.every((a) => declined.includes(a));
     run(db, 'UPDATE broker_offers SET declined_by = ?, status = ? WHERE id = ?', JSON.stringify(declined), all_ ? 'declined' : 'open', o.id);
     if (all_) run(db, `UPDATE coin_requests SET status = 'cancelled' WHERE offer_id = ? AND status = 'open'`, o.id);
-    d.hub.emit(w, 'broker-offer', { id: o.id, status: all_ ? 'declined' : 'open' }, dmAnd(me(res)));
+    d.hub.emit(w, 'broker-offer', { id: o.id, status: all_ ? 'declined' : 'open' }, gmAnd(me(res)));
     res.json({ ok: true, status: all_ ? 'declined' : 'open' });
   });
-  r.post('/offers/:oid/withdraw', requireDM, (req, res) => {
+  r.post('/offers/:oid/withdraw', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const o = offerFind(res, String(req.params.oid));
     if (o.status !== 'open') throw new HttpError(409, 'Only an open offer can be withdrawn');
@@ -642,7 +642,7 @@ export default function brokerRoutes(d: Deps) {
   });
 
   // Save a request's answer as a broker note, so later questions on the topic sell it too.
-  r.post('/:id/note', requireDM, (req, res) => {
+  r.post('/:id/note', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
     const text = req.body?.text !== undefined ? str(req.body.text, 'text', { max: 5000 }) : String(q.answer ?? '').trim();
@@ -659,19 +659,19 @@ export default function brokerRoutes(d: Deps) {
   });
 
   // GM prices a guarded secret (and writes the answer); the player then accepts or declines.
-  r.post('/:id/price', requireDM, (req, res) => {
+  r.post('/:id/price', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
     if (q.status !== 'pricing') throw new HttpError(409, 'This request is not waiting for a price');
     const cost = int(req.body?.costCp, 'costCp', { min: 0, max: 100_000_000 })!;
     const wait = { amount: int(req.body?.waitAmount, 'waitAmount', { min: 0, max: 100_000, optional: true }) ?? 0, unit: oneOf(req.body?.waitUnit, 'waitUnit', ['minutes', 'hours', 'days'] as const, 'hours'), clock: oneOf(req.body?.clock, 'clock', ['real', 'game'] as const, 'game') };
     const answer = str(req.body?.answer, 'answer', { max: 10_000 });
-    run(db, `UPDATE broker_requests SET status = 'offered', dm_written = 1, cost_cp = ?, wait_clock = ?, ready_at = ?, answer = ?, dm_note = ? WHERE id = ?`,
+    run(db, `UPDATE broker_requests SET status = 'offered', gm_written = 1, cost_cp = ?, wait_clock = ?, ready_at = ?, answer = ?, gm_note = ? WHERE id = ?`,
       cost, wait.clock, JSON.stringify(wait), answer, str(req.body?.note, 'note', { max: 300, optional: true }) || null, q.id);
     audit(db, w, me(res), 'broker.price', `${q.id} ${cost}`);
     back(res, q.id, w);
   });
-  r.post('/:id/accept', requirePlayerOrDM, (req, res) => {
+  r.post('/:id/accept', requirePlayerOrGM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
     if (q.account_id !== me(res) || q.status !== 'offered') throw new HttpError(409, 'There is no offer to accept');
@@ -691,7 +691,7 @@ export default function brokerRoutes(d: Deps) {
     settle(w);
     back(res, q.id, w);
   });
-  r.post('/:id/decline', requirePlayerOrDM, (req, res) => {
+  r.post('/:id/decline', requirePlayerOrGM, (req, res) => {
     const q = reqFor(res, String(req.params.id));
     if (q.account_id !== me(res) || !['offered', 'pricing'].includes(q.status)) throw new HttpError(409, 'Nothing to decline');
     run(db, `UPDATE broker_requests SET status = 'declined' WHERE id = ?`, q.id);
@@ -702,24 +702,24 @@ export default function brokerRoutes(d: Deps) {
     if (!q.ledger_id || !q.cost_cp) return;
     run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')`, id('led_'), q.world_id, q.payer, q.cost_cp, (q.payer === 'party' ? 'Broker refund' : `Broker refund: ${q.question}`).slice(0, 200), me(res), now());
   }
-  r.post('/:id/refuse', requireDM, (req, res) => {
+  r.post('/:id/refuse', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
     if (!['pricing', 'offered', 'waiting'].includes(q.status)) throw new HttpError(409, 'Too late to refuse; refund it instead');
     tx(db, () => {
       refund(res, q);
-      run(db, `UPDATE broker_requests SET status = ?, dm_note = ? WHERE id = ?`, q.ledger_id ? 'refunded' : 'refused', str(req.body?.note, 'note', { max: 300, optional: true }) || null, q.id);
+      run(db, `UPDATE broker_requests SET status = ?, gm_note = ? WHERE id = ?`, q.ledger_id ? 'refunded' : 'refused', str(req.body?.note, 'note', { max: 300, optional: true }) || null, q.id);
     });
     audit(db, w, me(res), 'broker.refuse', q.id);
     back(res, q.id, w);
   });
-  r.post('/:id/refund', requireDM, (req, res) => {
+  r.post('/:id/refund', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
     if (q.status === 'refunded' || !q.ledger_id) throw new HttpError(409, 'Nothing to refund');
     tx(db, () => {
       refund(res, q);
-      run(db, `UPDATE broker_requests SET status = 'refunded', dm_note = COALESCE(?, dm_note) WHERE id = ?`, str(req.body?.note, 'note', { max: 300, optional: true }) || null, q.id);
+      run(db, `UPDATE broker_requests SET status = 'refunded', gm_note = COALESCE(?, gm_note) WHERE id = ?`, str(req.body?.note, 'note', { max: 300, optional: true }) || null, q.id);
     });
     audit(db, w, me(res), 'broker.refund', q.id);
     back(res, q.id, w);
@@ -733,13 +733,13 @@ export default function brokerRoutes(d: Deps) {
     audit(db, w, me(res), 'broker.approve', q.id);
     back(res, q.id, w);
   };
-  r.post('/:id/deliver', requireDM, deliver);
-  r.post('/:id/approve', requireDM, deliver);
+  r.post('/:id/deliver', requireGM, deliver);
+  r.post('/:id/approve', requireGM, deliver);
   // GM edits the prepared answer before it is revealed (or after).
-  r.patch('/:id', requireDM, (req, res) => {
+  r.patch('/:id', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
-    run(db, 'UPDATE broker_requests SET answer = ?, dm_written = ?, dm_note = ? WHERE id = ?', req.body?.answer !== undefined ? str(req.body.answer, 'answer', { max: 10_000 }) : q.answer, req.body?.answer !== undefined ? 1 : q.dm_written, req.body?.note !== undefined ? str(req.body.note, 'note', { max: 300, optional: true }) || null : q.dm_note, q.id);
+    run(db, 'UPDATE broker_requests SET answer = ?, gm_written = ?, gm_note = ? WHERE id = ?', req.body?.answer !== undefined ? str(req.body.answer, 'answer', { max: 10_000 }) : q.answer, req.body?.answer !== undefined ? 1 : q.gm_written, req.body?.note !== undefined ? str(req.body.note, 'note', { max: 300, optional: true }) || null : q.gm_note, q.id);
     audit(db, w, me(res), 'broker.edit', q.id);
     back(res, q.id, w);
   });

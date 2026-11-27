@@ -33,7 +33,7 @@ attribution.
   or `{ "items": [...] }`) or a CSV file (header row; `name` required;
   `type`, `category`, `rarity`, `cost` like `15 gp` or `cost_cp`, `weight`,
   `attunement`, `description`, `properties`, `source`, `attribution`,
-  `tags` separated by `;`, `dm_notes`). Give file imports a source name and
+  `tags` separated by `;`, `gm_notes`). Give file imports a source name and
   a credit line if their licence asks for one.
 - **Dedupe.** Items are the same when their names match ignoring case and
   punctuation ("Thieves' Tools" = "thieves tools"). An import never adds a

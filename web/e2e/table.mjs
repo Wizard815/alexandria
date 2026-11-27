@@ -27,12 +27,12 @@ const api = async (method, p, body) => {
 };
 
 try {
-  token = await login('dm', 'game master 123');
-  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1440, height: 900 });
+  token = await login('gm', 'game master 123');
+  const { page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1440, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error on ${page.url()}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console on ${page.url()}: ${m.text()}`); });
   await page.goto(`${W}/gm`);
-  await shows(page.getByTestId('dm-table'));
+  await shows(page.getByTestId('gm-table'));
 
   // 1. The zones and the world clock.
   for (const id of ['table-now', 'table-main', 'table-side', 'tb-clock', 'tb-session', 'tb-here', 'tb-needs', 'tb-library']) check(await shows(page.getByTestId(id)), `table: ${id} is missing`);
@@ -83,7 +83,7 @@ try {
   check(!(await page.getByTestId('tb-library').count()), 'hide: Library still shows');
   await page.getByTestId('table-arrange').click();
   await page.reload();
-  await shows(page.getByTestId('dm-table'));
+  await shows(page.getByTestId('gm-table'));
   await page.waitForTimeout(800);
   check(!(await page.getByTestId('tb-library').count()), 'hide: Library came back after a reload');
   await page.getByTestId('table-arrange').click();
@@ -142,9 +142,9 @@ try {
   if (process.env.TABLE_SHOTS) { fs.mkdirSync(process.env.TABLE_SHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.TABLE_SHOTS, 'table.png'), fullPage: true }); }
 
   // 7. A phone: no sideways scroll.
-  const { page: ph } = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
+  const { page: ph } = await signIn(browser, base, 'gm', 'game master 123', { width: 390, height: 844 }, true);
   await ph.goto(`${W}/gm`);
-  await shows(ph.getByTestId('dm-table'));
+  await shows(ph.getByTestId('gm-table'));
   await ph.waitForTimeout(800);
   const over = await ph.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(over <= 2, `phone: the Table scrolls sideways by ${over}px`);

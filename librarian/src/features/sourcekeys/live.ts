@@ -32,13 +32,13 @@ export function keyConnector(d: Deps, src: SourceRow): { c: Connector; field: st
 }
 
 /** Run something against the source with this key, with a time limit. */
-async function withKey<T>(d: Deps, src: SourceRow, secret: string, fn: (x: { c: Connector; cfg: Record<string, any>; ctx: ReturnType<typeof connectorContext>['ctx']; dmCfg: Record<string, any> }) => Promise<T>, ms = 30_000): Promise<T> {
-  const { c, field, cfg: dmCfg } = keyConnector(d, src);
-  const cfg = { ...dmCfg, [field]: secret };
+async function withKey<T>(d: Deps, src: SourceRow, secret: string, fn: (x: { c: Connector; cfg: Record<string, any>; ctx: ReturnType<typeof connectorContext>['ctx']; gmCfg: Record<string, any> }) => Promise<T>, ms = 30_000): Promise<T> {
+  const { c, field, cfg: gmCfg } = keyConnector(d, src);
+  const cfg = { ...gmCfg, [field]: secret };
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), ms);
-  const made = connectorContext({ db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp }, { ...src, default_visibility: 'dm' }, cfg, ctl.signal, () => {});
-  try { return await fn({ c, cfg, ctx: made.ctx, dmCfg }); } finally { clearTimeout(timer); made.close(); }
+  const made = connectorContext({ db: d.db, library: d.library, dataDir: d.dataDir, vaultsDir: d.vaultsDir, fetch: d.fetch, env: d.env, mcp: d.testMcp }, { ...src, default_visibility: 'gm' }, cfg, ctl.signal, () => {});
+  try { return await fn({ c, cfg, ctx: made.ctx, gmCfg }); } finally { clearTimeout(timer); made.close(); }
 }
 
 const say = (e: any) => String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 200);
@@ -80,7 +80,7 @@ export async function verifyKey(d: Deps, src: SourceRow, secret: string): Promis
   }
 }
 
-export interface Probe { verdict: 'sees-everything' | 'sees-less' | 'unknown'; keyCount: number | null; dmCount: number | null; note: string }
+export interface Probe { verdict: 'sees-everything' | 'sees-less' | 'unknown'; keyCount: number | null; gmCount: number | null; note: string }
 
 /**
  * Help the GM decide the trust question. Kanka: the number of entities the key
@@ -89,7 +89,7 @@ export interface Probe { verdict: 'sees-everything' | 'sees-less' | 'unknown'; k
  * ever informs: it never changes trust. Other sources: unknown.
  */
 export async function probeKey(d: Deps, src: SourceRow, secret: string): Promise<Probe> {
-  const unknown = (note: string): Probe => ({ verdict: 'unknown', keyCount: null, dmCount: null, note });
+  const unknown = (note: string): Probe => ({ verdict: 'unknown', keyCount: null, gmCount: null, note });
   try {
     const { c } = keyConnector(d, src);
     if (c.id !== 'kanka-api') return unknown('Alexandria cannot compare this kind of source. Treated as a blanket key until the GM says otherwise.');
@@ -99,11 +99,11 @@ export async function probeKey(d: Deps, src: SourceRow, secret: string): Promise
       const n = Number(r.body?.meta?.total ?? (Array.isArray(r.body?.data) ? r.body.data.length : NaN));
       return Number.isFinite(n) ? n : null;
     });
-    const dmToken = String(effectiveConfig(d.db, src).token ?? '');
-    const [keyCount, dmCount] = [await count(secret), dmToken ? await count(dmToken) : null];
-    if (keyCount === null || dmCount === null) return unknown('Could not count what the key and the GM connection can see.');
-    if (keyCount >= dmCount) return { verdict: 'sees-everything', keyCount, dmCount, note: `This key lists ${keyCount} entities, as many as the GM connection (${dmCount}): it looks like a blanket key.` };
-    return { verdict: 'sees-less', keyCount, dmCount, note: `This key lists ${keyCount} of the ${dmCount} entities the GM connection lists: it looks like per-user permissions.` };
+    const gmToken = String(effectiveConfig(d.db, src).token ?? '');
+    const [keyCount, gmCount] = [await count(secret), gmToken ? await count(gmToken) : null];
+    if (keyCount === null || gmCount === null) return unknown('Could not count what the key and the GM connection can see.');
+    if (keyCount >= gmCount) return { verdict: 'sees-everything', keyCount, gmCount, note: `This key lists ${keyCount} entities, as many as the GM connection (${gmCount}): it looks like a blanket key.` };
+    return { verdict: 'sees-less', keyCount, gmCount, note: `This key lists ${keyCount} of the ${gmCount} entities the GM connection lists: it looks like per-user permissions.` };
   } catch (e: any) {
     return unknown(`The probe failed: ${say(e)}`);
   }

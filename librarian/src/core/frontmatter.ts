@@ -9,7 +9,10 @@ export function splitFrontmatter(md: string): { fm: FM; body: string } {
   const text = md.replace(/^﻿/, '');
   const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
   if (!m) return { fm: {}, body: text };
-  return { fm: parseYaml(m[1]), body: text.slice(m[0].length) };
+  const fm = parseYaml(m[1]);
+  // Pages written before the GM rename may say level: dm.
+  for (const k of ['level', 'visibility']) if (fm[k] === 'dm') fm[k] = 'gm';
+  return { fm, body: text.slice(m[0].length) };
 }
 
 function scalar(raw: string): FMValue {

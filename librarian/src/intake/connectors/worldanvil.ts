@@ -350,7 +350,7 @@ export function waArticleEntry(a: any, worldId: string, lk: WaLookups, secrets: 
     banner: typeof a.cover?.url === 'string' && /^https?:\/\//i.test(a.cover.url) ? a.cover.url : null,
     properties: facts.length ? [{ title: 'Facts', rows: facts }] : [],
     blocks: fixRefs(blocks),
-    visibility: shared && lk.shareVisible ? 'party' : 'dm', sourceShared: shared,
+    visibility: shared && lk.shareVisible ? 'party' : 'gm', sourceShared: shared,
     url: typeof a.url === 'string' && /^https?:\/\//i.test(a.url) ? a.url : null,
     position: Number.isFinite(Number(a.position)) && a.position !== null ? Number(a.position) : null,
     updatedAt: updated, sourceUpdatedAt: updated, depth: 'full',
@@ -367,7 +367,7 @@ export function waCategoryEntry(x: any, worldId: string, lk: WaLookups): Entry {
     externalId: `wa:${String(x.id).toLowerCase()}`, parentExternalId: parentOf(x, worldId, lk), title: String(x.title ?? 'Category'), tags: tagsOf(x), type: 'category', icon: null,
     banner: typeof x.pagecover?.url === 'string' && /^https?:\/\//i.test(x.pagecover.url) ? x.pagecover.url : null,
     blocks: fixRefs([...waBlocks(x.description ?? x.excerpt, bb), ...custom.flatMap((t) => waBlocks(t, bb))]),
-    visibility: shared && lk.shareVisible ? 'party' : 'dm', sourceShared: shared,
+    visibility: shared && lk.shareVisible ? 'party' : 'gm', sourceShared: shared,
     url: typeof x.url === 'string' && /^https?:\/\//i.test(x.url) ? x.url : null,
     position: Number.isFinite(Number(x.position)) && x.position !== null ? Number(x.position) : null,
     updatedAt: updated, sourceUpdatedAt: updated, depth: 'full',
@@ -383,7 +383,7 @@ export function waMapEntry(x: any, worldId: string, lk: WaLookups): Entry {
   return {
     externalId: `wa:${String(x.id).toLowerCase()}`, parentExternalId: parentOf(x, worldId, lk), title: String(x.title ?? 'Map'), tags: tagsOf(x), type: 'map', icon: null, banner: null,
     blocks: fixRefs([...waBlocks(x.description, bb), ...(legend ? [{ kind: 'heading', level: 2, content: [{ text: 'Legend' }] } as Block, ...waBlocks(legend, bb)] : [])]),
-    visibility: shared && lk.shareVisible ? 'party' : 'dm', sourceShared: shared,
+    visibility: shared && lk.shareVisible ? 'party' : 'gm', sourceShared: shared,
     url: typeof x.url === 'string' && /^https?:\/\//i.test(x.url) ? x.url : null,
     position: Number.isFinite(Number(x.position)) && x.position !== null ? Number(x.position) : null,
     updatedAt: updated, sourceUpdatedAt: updated, depth: 'full',
@@ -465,11 +465,11 @@ async function* waIndex(cfg: Record<string, any>, ctx: ConnectorContext, state: 
         externalId: `wa:${String(x.id).toLowerCase()}`, parentExternalId: parentOf(x, worldId, lk), title, tags, type, icon: null,
         blocks: indexBlocks({ title, type, tags }),
         url: typeof x.url === 'string' && /^https?:\/\//i.test(x.url) ? x.url : null,
-        visibility: 'dm', restricted: !waShared(x, groups), updatedAt: updated, sourceUpdatedAt: updated, depth: 'index',
+        visibility: 'gm', restricted: !waShared(x, groups), updatedAt: updated, sourceUpdatedAt: updated, depth: 'index',
       } satisfies Entry;
     }
   }
-  const share = (ok: boolean) => (ok && ctx.shareVisible ? 'party' : 'dm') as 'dm' | 'party';
+  const share = (ok: boolean) => (ok && ctx.shareVisible ? 'party' : 'gm') as 'gm' | 'party';
 
   // Map pictures and markers: read again only for a map whose update time moved (a marker's own change moves the map's too, as far as
   // World Anvil documents; a full refresh reads them all).

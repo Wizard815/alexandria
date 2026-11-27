@@ -85,7 +85,7 @@ function Now({ c, reload }: { c: ClockState; reload: () => Promise<void> }) {
 
 interface Draft {
   id?: string; title: string; description: string; year: number; month: number; day: number; hour: number; minute: number;
-  lasts: string; unit: 'hours' | 'days'; visibility: 'dm' | 'party'; repeat: boolean; kind: string;
+  lasts: string; unit: 'hours' | 'days'; visibility: 'gm' | 'party'; repeat: boolean; kind: string;
 }
 
 function draftFrom(c: ClockState, e?: WEvent): Draft {
@@ -95,7 +95,7 @@ function draftFrom(c: ClockState, e?: WEvent): Draft {
   return {
     id: e?.id, title: e?.title ?? '', description: e?.description ?? '', year: s.year, month: s.month, day: s.day, hour: e ? s.hour : 0, minute: e ? s.minute : 0,
     lasts: dur > 0 ? String(days ? dur / 1440 : dur / 60) : '', unit: days || dur === 0 ? 'days' : 'hours',
-    visibility: e?.visibility ?? 'dm', repeat: e?.repeat === 'yearly', kind: e?.kind ?? 'custom',
+    visibility: e?.visibility ?? 'gm', repeat: e?.repeat === 'yearly', kind: e?.kind ?? 'custom',
   };
 }
 
@@ -142,7 +142,7 @@ function Events({ c }: { c: ClockState }) {
               <Field label="Kind"><select value={draft.kind} onChange={(e) => set('kind', e.target.value)}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select></Field>
             </div>
             <label className="row"><input type="checkbox" checked={draft.repeat} onChange={(e) => set('repeat', e.target.checked)} /> Repeats every year</label>
-            <Field label="Who sees it"><VisibilityPicker value={draft.visibility} onChange={(v) => set('visibility', v)} labels={{ dm: 'Only me', party: 'The party' }} /></Field>
+            <Field label="Who sees it"><VisibilityPicker value={draft.visibility} onChange={(v) => set('visibility', v)} labels={{ gm: 'Only me', party: 'The party' }} /></Field>
             <div className="row"><button className="btn primary" type="submit" disabled={act.busy}>Save</button><button className="btn" type="button" onClick={() => setDraft(null)}>Cancel</button></div>
           </form>
         ) : <button className="btn primary" onClick={() => setDraft(draftFrom(c))}>Add an event</button>}

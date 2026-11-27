@@ -6,17 +6,17 @@
 // is hidden from everyone else, the GM included.
 import { HttpError } from '../../core/util.ts';
 
-export const TYPES = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list', 'downtime'] as const;
+export const TYPES = ['vitals', 'mana', 'rerolls', 'inventory', 'gm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list', 'downtime'] as const;
 export type ModuleType = (typeof TYPES)[number];
 /** Modules that show the player's own live data once; the GM always sees them. */
-const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent', 'downtime'];
+const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'gm', 'recent', 'downtime'];
 const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 const MAX_MODULES = 24;
 const MAX_JSON = 64_000;
 
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 
-const TITLES: Record<ModuleType, string> = { vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the GM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist', downtime: 'Downtime' };
+const TITLES: Record<ModuleType, string> = { vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', gm: 'From the GM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist', downtime: 'Downtime' };
 
 // Most used at the top: health and mana side by side, then what a player
 // reaches for during play, then what they read between scenes.
@@ -24,7 +24,7 @@ export const DEFAULT_MODULES: Module[] = [
   { id: 'vitals', type: 'vitals', title: TITLES.vitals, wide: false, private: false, collapsed: false },
   { id: 'mana', type: 'mana', title: TITLES.mana, wide: false, private: false, collapsed: false },
   { id: 'counters', type: 'counters', title: TITLES.counters, wide: false, private: false, collapsed: false, data: { entries: [] } },
-  { id: 'dm', type: 'dm', title: TITLES.dm, wide: false, private: false, collapsed: false },
+  { id: 'gm', type: 'gm', title: TITLES.gm, wide: false, private: false, collapsed: false },
   { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },
   { id: 'inventory', type: 'inventory', title: TITLES.inventory, wide: false, private: false, collapsed: false },
   { id: 'contacts', type: 'contacts', title: 'People I know', wide: false, private: false, collapsed: false, data: { entries: [] } },

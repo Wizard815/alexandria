@@ -116,13 +116,13 @@ export type Capability = (typeof CAPABILITIES)[number];
 /** Anything a source gives besides a page. Source ids are the source's own ("kanka:123"). */
 export type SyncRecord =
   /** A link between two pages (their externalIds). */
-  | { kind: 'relation'; externalId: string; from: string; to: string; label: string; attitude?: number | null; visibility: 'dm' | 'party' }
+  | { kind: 'relation'; externalId: string; from: string; to: string; label: string; attitude?: number | null; visibility: 'gm' | 'party' }
   /** A timeline: groups (eras, lanes) of dated events, each event with its own visibility. */
-  | { kind: 'timeline'; externalId: string; name: string; visibility: 'dm' | 'party'; groups: TimelineGroup[] }
+  | { kind: 'timeline'; externalId: string; name: string; visibility: 'gm' | 'party'; groups: TimelineGroup[] }
   /** A calendar definition for the world clock (see CalendarDefinition). */
-  | { kind: 'calendar'; externalId: string; name: string; visibility: 'dm' | 'party'; definition: CalendarDefinition; current?: { year: number; month: number; day: number } | null }
+  | { kind: 'calendar'; externalId: string; name: string; visibility: 'gm' | 'party'; definition: CalendarDefinition; current?: { year: number; month: number; day: number } | null }
   /** A pin on a map page (mapRef is the map page's externalId). */
-  | { kind: 'mapMarker'; externalId: string; mapRef: string; name: string; latitude: number; longitude: number; shape?: string; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
+  | { kind: 'mapMarker'; externalId: string; mapRef: string; name: string; latitude: number; longitude: number; shape?: string; color?: string | null; ref?: string | null; visibility: 'gm' | 'party' }
   /**
    * A picture of a page (`pageRef`: the source's own id of the page, or of the record the picture belongs to). `data` is the file when it was
    * downloaded now; without it the picture already stored under `externalId` is kept (and its link refreshed). `marker` says which version of the
@@ -130,9 +130,9 @@ export type SyncRecord =
    * `later`: not downloaded now but queued (with `url`) for the picture downloader (intake/imagequeue.ts). `inline`: a picture in the page's
    * text (served in place of its address, not listed with the page's own pictures).
    */
-  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'dm' | 'party'; map?: boolean; url?: string; inline?: boolean; later?: boolean };
+  | { kind: 'image'; externalId: string; pageRef?: string | null; name: string; marker: string; mime?: string; data?: Uint8Array | null; visibility: 'gm' | 'party'; map?: boolean; url?: string; inline?: boolean; later?: boolean };
 
-export interface TimelineEvent { id: string; name: string; date?: string | null; description?: Block[]; color?: string | null; ref?: string | null; visibility: 'dm' | 'party' }
+export interface TimelineEvent { id: string; name: string; date?: string | null; description?: Block[]; color?: string | null; ref?: string | null; visibility: 'gm' | 'party' }
 export interface TimelineGroup { name: string; abbreviation?: string | null; description?: Block[]; events: TimelineEvent[] }
 
 /** The shape the world clock reads. `month` in seasons is 1-based. */
@@ -158,7 +158,7 @@ export interface TestResult {
 }
 
 /** Secrecy level of a page the workspace writes. `classified` is never sent to any AI. */
-export type WriteLevel = 'party' | 'broker' | 'dm' | 'classified';
+export type WriteLevel = 'party' | 'broker' | 'gm' | 'classified';
 
 /** A workspace write was refused (outside the root, name taken, ...). `status` is the HTTP status to answer with. */
 export class WriteRefused extends Error {

@@ -8,9 +8,9 @@ import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { hasJob, withPriority } from '../../core/ai.ts';
 import { CALLER_HEADER, CALLER_MODEL } from '../../core/levels.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, int, oneOf, str } from '../../core/util.ts';
 import { ctx, me, settings } from '../../routes/_shared.ts';
 import { closeArc, conversationLog, fileSession, memoryLog, startArc } from './after.ts';
@@ -29,7 +29,7 @@ import { ROOT, STATUS_PATH, STATUS_SECTIONS, listPages, players, readPage, remov
 const enc = encodeURIComponent;
 const S = (description: string) => ({ type: 'string', description });
 const HEAT = { type: 'string', enum: ['on', 'ongoing', 'simmering', 'sleeping'], description: 'on: in play now. ongoing. simmering. sleeping.' };
-const LEVEL = { type: 'string', enum: ['party', 'broker', 'dm', 'classified'] };
+const LEVEL = { type: 'string', enum: ['party', 'broker', 'gm', 'classified'] };
 
 const bearerHeaderOk = (_req: any) => true;
 void bearerHeaderOk;
@@ -57,7 +57,7 @@ function routes(d: import('../../app.ts').Deps) {
   r.use('/me', mine);
 
   // ---- the GM's side ------------------------------------------------------------------------
-  r.use(requireDM);
+  r.use(requireGM);
   // A model asking through the GM's token is never handed classified text: an answer that repeats any is refused whole (docs/SECURITY.md).
   r.use((req, res, next) => {
     if (String(req.headers[CALLER_HEADER] ?? '').toLowerCase() !== CALLER_MODEL) return next();
@@ -93,7 +93,7 @@ function routes(d: import('../../app.ts').Deps) {
         goals: listPages(d, w, `players/${p.accountId}/goals/`).map((g) => ({ rel: g.rel, title: g.title, heat: String(g.fm.heat ?? 'ongoing') })),
         journal: listPages(d, w, `players/${p.accountId}/journal/`).length,
         knowledge: readPage(d, w, `players/${p.accountId}/knowledge.md`)?.body ?? '',
-        notes: readPage(d, w, `dm/players/${p.accountId}.md`)?.body ?? '',
+        notes: readPage(d, w, `gm/players/${p.accountId}.md`)?.body ?? '',
         shared: readPage(d, w, `players/${p.accountId}/shared.md`)?.body ?? '',
       })),
     });
@@ -113,8 +113,8 @@ function routes(d: import('../../app.ts').Deps) {
     requireEnabled(d.db, W(res));
     const rel = safeRel(String(req.body?.rel ?? ''));
     const fm: Record<string, any> = {};
-    if (req.body?.level !== undefined) fm.level = oneOf(req.body.level, 'level', ['party', 'broker', 'dm', 'classified'] as const);
-    if (rel.startsWith('dm/') && fm.level === 'party') throw new HttpError(400, 'Pages in dm/ are never opened to players');
+    if (req.body?.level !== undefined) fm.level = oneOf(req.body.level, 'level', ['party', 'broker', 'gm', 'classified'] as const);
+    if (rel.startsWith('gm/') && fm.level === 'party') throw new HttpError(400, 'Pages in gm/ are never opened to players');
     if (req.body?.heat !== undefined) fm.heat = oneOf(req.body.heat, 'heat', ['on', 'ongoing', 'simmering', 'sleeping'] as const);
     const body = req.body?.body === undefined ? undefined : str(req.body.body, 'body', { max: 200_000 });
     const p = writePage(d, W(res), rel, { title: req.body?.title ? str(req.body.title, 'title', { max: 200 }) : undefined, fm, body, by: me(res) });
@@ -195,7 +195,7 @@ function routes(d: import('../../app.ts').Deps) {
     requireEnabled(d.db, W(res));
     const b = req.body ?? {};
     const out = markRevelation(d, W(res), { mystery: String(b.mystery ?? ''), clue: b.clue, player: String(b.player ?? ''), session: b.session === undefined ? null : int(b.session, 'session', { min: 1, max: 100000 }), kind: b.kind, text: b.text, by: me(res) });
-    d.hub.emit(W(res), 'minerva', { kind: 'revelation' }, dmOnly);
+    d.hub.emit(W(res), 'minerva', { kind: 'revelation' }, gmOnly);
     res.json(out);
   });
   r.get('/revelations/:slug', (req, res) => res.json(findMystery(d, W(res), String(req.params.slug))));
@@ -211,7 +211,7 @@ function routes(d: import('../../app.ts').Deps) {
     const line = `- ${new Date().toISOString().slice(0, 10)}: ${text}`;
     const pl = about ? whoIs(d, w, about, { partial: false }).find((m) => m.type === 'player') : null;
     const op: Op = pl?.accountId
-      ? { op: 'section', rel: `dm/players/${pl.accountId}.md`, section: 'Table notes', mode: 'append', text: line }
+      ? { op: 'section', rel: `gm/players/${pl.accountId}.md`, section: 'Table notes', mode: 'append', text: line }
       : { op: 'section', rel: STATUS_PATH, section: 'Inbox', mode: 'append', text: about ? `${line} (about ${about.slice(0, 80)})` : line };
     res.json(applyOp(d, w, op, me(res)));
   });
@@ -291,8 +291,8 @@ const feature: Feature = {
   },
   mcpTools: [
     // GM harness (Minerva).
-    { name: 'context_for', dmOnly: true, description: "Minerva's memory: everything she knows about a player, an NPC, a place, a mystery or an arc (who). With no name: the campaign status, the active arc and the last session. Read this before answering about long-term threads.", props: { who: S('A player, character, NPC, place, mystery or arc (optional)') }, call: (a) => ({ method: 'GET', path: `/minerva/context?who=${enc(a.who ?? '')}` }) },
-    { name: 'who_is', dmOnly: true, description: 'Find who or what a name is: a codex page, a player (by name, character or mic speaker), or a library page. Use it before writing about an entity so no duplicate page is made.', props: { name: S('Name, alias, character or speaker') }, required: ['name'], call: (a) => ({ method: 'GET', path: `/minerva/who?name=${enc(a.name)}` }) },
+    { name: 'context_for', gmOnly: true, description: "Minerva's memory: everything she knows about a player, an NPC, a place, a mystery or an arc (who). With no name: the campaign status, the active arc and the last session. Read this before answering about long-term threads.", props: { who: S('A player, character, NPC, place, mystery or arc (optional)') }, call: (a) => ({ method: 'GET', path: `/minerva/context?who=${enc(a.who ?? '')}` }) },
+    { name: 'who_is', gmOnly: true, description: 'Find who or what a name is: a codex page, a player (by name, character or mic speaker), or a library page. Use it before writing about an entity so no duplicate page is made.', props: { name: S('Name, alias, character or speaker') }, required: ['name'], call: (a) => ({ method: 'GET', path: `/minerva/who?name=${enc(a.name)}` }) },
     { name: 'memory_log', write: true, description: 'Log what just happened at the table to the session in progress (GM-only notes).', props: { text: S('What happened'), about: S('Who or what it is about (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/memory/log', body: { text: a.text, about: a.about } }) },
     { name: 'memory_capture', write: true, description: "Quick capture of an idea or table note. About a player it goes to that player's notes; otherwise to the status inbox.", props: { text: S('The note'), about: S('A player, character or topic (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/memory/capture', body: { text: a.text, about: a.about } }) },
     { name: 'conversation_log', write: true, description: "File a conversation by speaker: each player's lines go to their journal, the whole to the session's GM notes.", props: { lines: { type: 'array', items: { type: 'object', properties: { speaker: { type: 'string' }, text: { type: 'string' } } } }, session: { type: 'integer', description: 'Session number (default: the one in progress)' } }, required: ['lines'], call: (a) => ({ method: 'POST', path: '/minerva/conversation', body: { lines: a.lines, session: a.session } }) },

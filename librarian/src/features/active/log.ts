@@ -8,7 +8,7 @@ import { listSessions } from '../audio/api.ts';
 
 const PLAYERS = /^(show_on_stage|send_quick_event|send_scene|send_table_chat|add_item|add_coin|move_item|add_combatant|damage_combatant|heal_combatant|set_conditions|remove_combatant|set_initiative|set_combat|next_turn|advance_world_time|add_world_event|send_broker_offer|speak|publish_session_log|add_map_mark|run_macro)/;
 const TABLE = /^(play_music|stop_music|play_ambience|play_sfx)/;
-export const visibleOf = (tool: string): 'dm' | 'table' | 'players' => (PLAYERS.test(tool) ? 'players' : TABLE.test(tool) ? 'table' : 'dm');
+export const visibleOf = (tool: string): 'gm' | 'table' | 'players' => (PLAYERS.test(tool) ? 'players' : TABLE.test(tool) ? 'table' : 'gm');
 
 const sessionId = (d: Deps, worldId: string): string | null => { const s = listSessions(d.db, worldId)[0]; return s?.active ? s.id : null; };
 const find = (d: Deps, worldId: string, actionId: string) => one<{ id: string }>(d.db, "SELECT id FROM active_log WHERE world_id = ? AND rule_key = ? AND trigger = 'chat'", worldId, `agent:${actionId}`);
@@ -31,6 +31,6 @@ export function logAgentCall(d: Deps, worldId: string, p: { tool: string; args: 
 export function logAgentCommand(d: Deps, worldId: string, text: string, reply: string) {
   try {
     const sid = sessionId(d, worldId);
-    addLog(d, worldId, { sessionId: sid, mode: effectiveMode(d, worldId, sid), trigger: 'chat', category: 'command', tool: 'command', summary: reply.slice(0, 200), cue: text, status: 'done', visible: 'dm', source: 'chat' });
+    addLog(d, worldId, { sessionId: sid, mode: effectiveMode(d, worldId, sid), trigger: 'chat', category: 'command', tool: 'command', summary: reply.slice(0, 200), cue: text, status: 'done', visible: 'gm', source: 'chat' });
   } catch (e) { console.error('active: log failed', e); }
 }

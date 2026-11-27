@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS sourcekeys_access (
   PRIMARY KEY (world_id, page_id, account_id, key_id)
 );
 CREATE INDEX IF NOT EXISTS sourcekeys_access_key ON sourcekeys_access (key_id);
--- Page shares: a player (kind share) or the GM (kind dm) lets others open the player copy of a page.
+-- Page shares: a player (kind share) or the GM (kind gm) lets others open the player copy of a page.
 -- to_id is an account id, or '*' for the whole party. A share is read live (core/library.ts liftedInfo): it only counts while the sharer can still see the page.
 CREATE TABLE IF NOT EXISTS sourcekeys_shares (
   world_id TEXT NOT NULL,
@@ -140,7 +140,7 @@ export function revokeKey(db: DB, k: KeyRow, by: string) {
 }
 
 /** The key as an API client sees it: the secret is only ever a mask. */
-export function keyView(db: DB, k: KeyRow, names: Record<string, string>, opts: { dm: boolean }) {
+export function keyView(db: DB, k: KeyRow, names: Record<string, string>, opts: { gm: boolean }) {
   const src = one<any>(db, 'SELECT name, kind FROM sources WHERE id = ?', k.source_id);
   const probe = parseJson<Record<string, unknown>>(k.probe, {});
   const out: Record<string, unknown> = {
@@ -152,7 +152,7 @@ export function keyView(db: DB, k: KeyRow, names: Record<string, string>, opts: 
     verified: { matchedWorld: !!k.verified, checkedAt: k.checked_at }, revoked: !!k.revoked, revokedAt: k.revoked_at,
     refreshedAt: k.refreshed_at, createdAt: k.created_at,
   };
-  if (opts.dm) { out.userNames = usersOf(k).map((u) => names[u] ?? 'Someone'); out.probe = probe; out.refreshNote = k.refresh_note; out.pagesSeen = one<any>(db, 'SELECT COUNT(DISTINCT page_id) AS n FROM sourcekeys_access WHERE key_id = ?', k.id)?.n ?? 0; }
+  if (opts.gm) { out.userNames = usersOf(k).map((u) => names[u] ?? 'Someone'); out.probe = probe; out.refreshNote = k.refresh_note; out.pagesSeen = one<any>(db, 'SELECT COUNT(DISTINCT page_id) AS n FROM sourcekeys_access WHERE key_id = ?', k.id)?.n ?? 0; }
   else { out.probe = { verdict: probe.verdict ?? 'unknown' }; out.pagesSeen = one<any>(db, 'SELECT COUNT(DISTINCT page_id) AS n FROM sourcekeys_access WHERE key_id = ?', k.id)?.n ?? 0; }
   return out;
 }

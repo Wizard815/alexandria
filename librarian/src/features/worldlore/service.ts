@@ -8,7 +8,7 @@
 //   4. is audited.
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { safePagePath } from '../../core/library.ts';
 import { mergeSettings, type WorldSettings, DEFAULT_SETTINGS } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS worldlore_pages (
 );
 `;
 
-export const LEVELS: readonly WriteLevel[] = ['party', 'broker', 'dm', 'classified'];
-export const DEFAULT_LEVELS = ['dm', 'broker', 'party'] as const;
+export const LEVELS: readonly WriteLevel[] = ['party', 'broker', 'gm', 'classified'];
+export const DEFAULT_LEVELS = ['gm', 'broker', 'party'] as const;
 /** The tools that change the workspace. Enabling WorldLore adds them to agentAutoApprove. */
 export const LORE_WRITE_TOOLS = ['lore_write', 'lore_move', 'lore_delete'] as const;
 export const LORE_TOOLS = ['lore_list', 'lore_read', ...LORE_WRITE_TOOLS] as const;
@@ -44,7 +44,7 @@ export interface LoreConfig {
   sourceId?: string;
   /** A source's externalId (LegendKeeper resource id, Kanka `kanka:<entity id>` of a note or journal) or folder path (Markdown); the library folder for `library`. */
   root: string;
-  defaultLevel: 'dm' | 'broker' | 'party';
+  defaultLevel: 'gm' | 'broker' | 'party';
   /** The GM's own link to the workspace, when the app can't work it out. */
   url?: string;
 }
@@ -57,7 +57,7 @@ export function validateConfig(v: unknown): asserts v is LoreConfig | null {
   if (c.kind !== 'source' && c.kind !== 'library') throw new Error('worldLore.kind must be source or library');
   if (c.kind === 'source' && (typeof c.sourceId !== 'string' || !c.sourceId || c.sourceId.length > 80)) throw new Error('worldLore.sourceId is required');
   if (typeof c.root !== 'string' || !c.root.trim() || c.root.length > 300 || /[\x00-\x1f]/.test(c.root) || c.root.split(/[\\/]/).includes('..')) throw new Error('worldLore.root must be an id or folder path');
-  if (!DEFAULT_LEVELS.includes(c.defaultLevel)) throw new Error('worldLore.defaultLevel must be dm, broker or party');
+  if (!DEFAULT_LEVELS.includes(c.defaultLevel)) throw new Error('worldLore.defaultLevel must be gm, broker or party');
   if (c.url !== undefined && (typeof c.url !== 'string' || !/^https?:\/\/\S{1,500}$/.test(c.url))) throw new Error('worldLore.url must be a link');
 }
 
@@ -67,7 +67,7 @@ export const configOf = (s: WorldSettings): LoreConfig | null => ((s as any).wor
 export function effectiveLevel(cfg: LoreConfig, asked: unknown): WriteLevel {
   if (asked === undefined || asked === null || asked === '') return cfg.defaultLevel;
   if (!LEVELS.includes(asked as WriteLevel)) throw new HttpError(400, `level must be one of ${LEVELS.join(', ')}`);
-  if (asked === 'party' && cfg.defaultLevel !== 'party') return 'dm';
+  if (asked === 'party' && cfg.defaultLevel !== 'party') return 'gm';
   return asked as WriteLevel;
 }
 
@@ -173,7 +173,7 @@ function inside(d: Deps, worldId: string, w: Workspace): any[] {
 const refOfRow = (w: Workspace, r: any): string => (w.cfg.kind === 'library' ? r.path : r.external_id);
 
 export interface LorePage {
-  id: string; ref: string; title: string; path: string; level: string; writtenBy: 'agent' | 'dm'; updatedAt: string; parentId: string | null;
+  id: string; ref: string; title: string; path: string; level: string; writtenBy: 'agent' | 'gm'; updatedAt: string; parentId: string | null;
 }
 
 export function listPages(d: Deps, worldId: string, opts: { forAI?: boolean } = {}): LorePage[] {
@@ -185,7 +185,7 @@ export function listPages(d: Deps, worldId: string, opts: { forAI?: boolean } = 
     return rows.map((r) => {
       const m = marks.get(refOfRow(w, r));
       return {
-        id: r.id, ref: refOfRow(w, r), title: r.title, path: r.path, level: r.visibility, writtenBy: (m?.written_by === 'agent' ? 'agent' : 'dm') as 'agent' | 'dm',
+        id: r.id, ref: refOfRow(w, r), title: r.title, path: r.path, level: r.visibility, writtenBy: (m?.written_by === 'agent' ? 'agent' : 'gm') as 'agent' | 'gm',
         updatedAt: r.updated_at, parentId: r.parent_external ? byExt.get(r.parent_external)?.id ?? null : null,
       };
     }).filter((p) => !(opts.forAI && p.level === 'classified'));
@@ -225,7 +225,7 @@ const toHttp = (err: any): never => {
 };
 
 /** Record who wrote a page and at what level. */
-function mark(d: Deps, worldId: string, ref: string, title: string, level: WriteLevel, by: 'agent' | 'dm', who: string | null) {
+function mark(d: Deps, worldId: string, ref: string, title: string, level: WriteLevel, by: 'agent' | 'gm', who: string | null) {
   run(d.db, `INSERT INTO worldlore_pages (world_id, ref, title, level, written_by, account_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (world_id, ref) DO UPDATE SET title = excluded.title, level = excluded.level, written_by = excluded.written_by, account_id = excluded.account_id, updated_at = excluded.updated_at`,
   worldId, ref, title, level, by, who, now());
@@ -258,7 +258,7 @@ export interface WriteInput { id?: string; path?: string; title?: string; markdo
 
 export async function writePage(d: Deps, worldId: string, who: string | null, a: WriteInput): Promise<{ id: string | null; ref: string; level: WriteLevel; created: boolean; note?: string }> {
   const w = workspace(d, worldId);
-  const by = a.by === 'agent' ? 'agent' : 'dm';
+  const by = a.by === 'agent' ? 'agent' : 'gm';
   try {
     const markdown = a.markdown === undefined ? undefined : String(a.markdown);
     if (markdown !== undefined && markdown.length > 500_000) throw new HttpError(413, 'Page too large');
@@ -284,7 +284,7 @@ export async function writePage(d: Deps, worldId: string, who: string | null, a:
       }
       const pg = one<any>(d.db, 'SELECT id, title FROM pages WHERE world_id = ? AND path = ?', worldId, ref)!;
       if (level) { applyLevel(d, worldId, pg.id, level); d.library.rebuildPlayerCopies(worldId); }
-      const lv = (level ?? pg.visibility ?? 'dm') as WriteLevel;
+      const lv = (level ?? pg.visibility ?? 'gm') as WriteLevel;
       mark(d, worldId, ref, pg.title, level ?? lv, by, who);
       finish(d, worldId, who, by, updating ? 'update' : 'create', `${pg.title} [${lv}] ${ref}`);
       return { id: pg.id, ref, level: lv, created, note };
@@ -326,7 +326,7 @@ export async function writePage(d: Deps, worldId: string, who: string | null, a:
 
 export async function movePage(d: Deps, worldId: string, who: string | null, a: { id: string; to?: string | null; by?: string }) {
   const w = workspace(d, worldId);
-  const by = a.by === 'agent' ? 'agent' : 'dm';
+  const by = a.by === 'agent' ? 'agent' : 'gm';
   try {
     if (w.cfg.kind === 'library') {
       const row = libRow(d, worldId, String(a.id));
@@ -363,7 +363,7 @@ export async function movePage(d: Deps, worldId: string, who: string | null, a: 
 
 export async function deletePage(d: Deps, worldId: string, who: string | null, a: { id: string; by?: string }) {
   const w = workspace(d, worldId);
-  const by = a.by === 'agent' ? 'agent' : 'dm';
+  const by = a.by === 'agent' ? 'agent' : 'gm';
   try {
     if (w.cfg.kind === 'library') {
       const row = libRow(d, worldId, String(a.id));
@@ -393,7 +393,7 @@ export async function deletePage(d: Deps, worldId: string, who: string | null, a
 }
 
 /** One page for the agent: its text, unless it is classified. */
-export function readPage(d: Deps, worldId: string, viewer: { accountId: string; role: 'dm' }, arg: string) {
+export function readPage(d: Deps, worldId: string, viewer: { accountId: string; role: 'gm' }, arg: string) {
   const w = workspace(d, worldId);
   try {
     const row = one<any>(d.db, 'SELECT * FROM pages WHERE world_id = ? AND (id = ? OR path = ?)', worldId, arg, arg);
@@ -407,7 +407,7 @@ export function readPage(d: Deps, worldId: string, viewer: { accountId: string; 
 
 function finish(d: Deps, worldId: string, who: string | null, by: string, action: string, detail: string) {
   audit(d, worldId, who, `worldlore.${action}`, `${by === 'agent' ? 'agent' : 'GM'}: ${detail}`);
-  d.hub.emit(worldId, 'page', { worldlore: action }, dmOnly);
+  d.hub.emit(worldId, 'page', { worldlore: action }, gmOnly);
 }
 
 // ---- pickers and links ----------------------------------------------------------------

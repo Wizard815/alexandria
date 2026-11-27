@@ -14,7 +14,7 @@
 // sent to the GM's live stream as a `crawl` event. Never to players.
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { hasJob } from '../../core/ai.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 import type { JobCtx } from '../../core/jobs.ts';
@@ -51,7 +51,7 @@ export interface Progress {
   removed: number;
   errors: number;
   errorSamples: string[];
-  levels: { party: number; broker: number; dm: number; classified: number };
+  levels: { party: number; broker: number; gm: number; classified: number };
   /** Calls made to the sources by this crawl, by tier. */
   calls: { index: number; detail: number };
   /** Pages by how much of them is held. */
@@ -81,9 +81,9 @@ export const latestCrawl = (d: Deps, worldId: string) => shapeCrawl(one<any>(d.d
 
 /** Page counts by level for a world. */
 export function levelCounts(d: Deps, worldId: string): Progress['levels'] {
-  const out = { party: 0, broker: 0, dm: 0, classified: 0 };
+  const out = { party: 0, broker: 0, gm: 0, classified: 0 };
   for (const r of all<any>(d.db, 'SELECT visibility, COUNT(*) AS n FROM pages WHERE world_id = ? GROUP BY visibility', worldId)) {
-    if (r.visibility in out) (out as any)[r.visibility] = r.n; else out.dm += r.n; // anything unknown counts as dm
+    if (r.visibility in out) (out as any)[r.visibility] = r.n; else out.gm += r.n; // anything unknown counts as gm
   }
   return out;
 }
@@ -146,7 +146,7 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
     P.levels = levelCounts(d, worldId);
     P.depth = depthTotals(d, worldId);
     run(d.db, 'UPDATE connections_crawls SET progress = ?, log = ?, status = ? WHERE id = ?', JSON.stringify(P), lines.join('\n'), status, cid);
-    d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, dmOnly);
+    d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, gmOnly);
     if (P.phase === 'embed') job?.progress(P.embedding.pagesDone, P.embedding.pagesTotal, `Embedding: ${P.embedding.pagesDone} of ${P.embedding.pagesTotal} pages`);
     else job?.progress(P.sources.done, Math.max(1, P.sources.total), `${P.sources.current ? `Syncing ${P.sources.current}: ` : ''}${P.saved} pages saved`);
   };
@@ -271,6 +271,6 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
     P.levels = levelCounts(d, worldId);
     P.depth = depthTotals(d, worldId);
     run(d.db, 'UPDATE connections_crawls SET progress = ?, log = ?, status = ?, error = ?, finished_at = ? WHERE id = ?', JSON.stringify(P), lines.join('\n'), status, error, now(), cid);
-    d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, dmOnly);
+    d.hub.emit(worldId, 'crawl', { id: cid, status, progress: P }, gmOnly);
   }
 }

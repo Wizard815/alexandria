@@ -19,7 +19,7 @@
 import type { Deps } from '../../app.ts';
 import { chatStream, hasJob, jobConfig, rerankItems, ModelPreempted, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly, only } from '../../core/events.ts';
+import { gmOnly, only } from '../../core/events.ts';
 import type { Viewer, WorldSettings } from '../../core/policy.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { now, parseJson, id } from '../../core/util.ts';
@@ -30,7 +30,7 @@ import { worldModules } from '../modules/store.ts';
 import { findMatches } from '../modules/match.ts';
 import { latestSummary } from '../audio/summary.ts';
 import { ruleNotes } from '../audio/rulescheck.ts';
-import { DM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
+import { GM_CORE_TOOLS, fastPlan, matchCombatant, searchTerms, selectTools, type FastPlan } from './intent.ts';
 import { agentOptions } from './options.ts';
 import { CONCISE } from './descriptions.ts';
 import { nearestTools } from './toolselect.ts';
@@ -71,7 +71,7 @@ export interface Caller {
   worldName: string;
   accountId: string;
   viewer: Viewer;
-  harness: 'dm' | 'player';
+  harness: 'gm' | 'player';
   /** A player's table helper rather than the broker. */
   mode?: 'helper';
   /** The caller's own session token; held in memory only for this run. */
@@ -84,12 +84,12 @@ const audit = (d: Deps, worldId: string, accountId: string | null, action: strin
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
 
 /** The tools a harness may list: the player harness gets read tools only, whatever the model asks for. */
-export async function harnessTools(harness: 'dm' | 'player'): Promise<McpTool[]> {
+export async function harnessTools(harness: 'gm' | 'player'): Promise<McpTool[]> {
   // Loaded when first used: mcpServer imports the feature registry, which loads this feature.
   const m = await import('../../routes/mcpServer.ts');
   // Players are never offered GM-only lookups (they would only get 403).
-  const tools = m.toolsFor(harness === 'dm').filter((t: { dmOnly?: boolean }) => harness === 'dm' || !t.dmOnly);
-  return harness === 'dm' ? tools : tools.filter((t) => !t.write);
+  const tools = m.toolsFor(harness === 'gm').filter((t: { gmOnly?: boolean }) => harness === 'gm' || !t.gmOnly);
+  return harness === 'gm' ? tools : tools.filter((t) => !t.write);
 }
 
 const SOUND_TOOLS = new Set(['play_music', 'play_ambience', 'play_sfx', 'list_sound_library', 'get_sound_now']);
@@ -120,7 +120,7 @@ export function describeCall(tool: string, a: any): string {
     case 'next_turn': return 'Advance combat to the next turn';
     case 'make_statblock': return `Make a statblock from ${a.moduleTermId ? `module monster ${a.moduleTermId}` : a.pageId ? `page ${a.pageId}` : `"${n(a.prompt).slice(0, 80)}"`}${a.addToCombat ? ' and add it to combat' : ''}`;
     case 'save_page': return `Save library page ${n(a.path)}${a.visibility === 'party' ? ' (shared with the party)' : ' (GM only)'}`;
-    case 'create_template': return `Create sculpting template "${n(a.name)}" (${Array.isArray(a.fields) ? a.fields.length : 0} fields, ${n(a.perspective ?? 'dm')} perspective)`;
+    case 'create_template': return `Create sculpting template "${n(a.name)}" (${Array.isArray(a.fields) ? a.fields.length : 0} fields, ${n(a.perspective ?? 'gm')} perspective)`;
     case 'add_person': return `Add ${n(a.name)} to People`;
     case 'add_item': return `Give ${n(a.qty ?? 1)} x ${n(a.name)} to ${n(a.owner)}`;
     case 'add_coin': return `Change ${n(a.owner)} coin by ${n(a.amountCp)} cp`;
@@ -129,8 +129,8 @@ export function describeCall(tool: string, a: any): string {
       const qs = (Array.isArray(a.queries) ? a.queries : [a.queries ?? a.query]).filter(Boolean).map((q: unknown) => `"${n(q).slice(0, 120)}"`);
       return `Search the web for ${qs.join(', ') || '(nothing)'}${a.purpose ? ` (${n(a.purpose).slice(0, 80)})` : ''}. Only these words leave Alexandria`;
     }
-    case 'create_dm_template': return `Save the ${n(a.kind || 'guide')} template "${n(a.name)}"${Array.isArray(a.triggers) && a.triggers.length ? ` (used for: ${a.triggers.slice(0, 6).join(', ')})` : ''}`;
-    case 'update_dm_template': return `Update the template "${n(a.id)}"${a.enabled === false ? ' (turn it off)' : a.enabled === true ? ' (turn it on)' : ''}`;
+    case 'create_gm_template': return `Save the ${n(a.kind || 'guide')} template "${n(a.name)}"${Array.isArray(a.triggers) && a.triggers.length ? ` (used for: ${a.triggers.slice(0, 6).join(', ')})` : ''}`;
+    case 'update_gm_template': return `Update the template "${n(a.id)}"${a.enabled === false ? ' (turn it off)' : a.enabled === true ? ' (turn it on)' : ''}`;
     case 'house_rule_save': {
       const m = a.mod && typeof a.mod === 'object' ? a.mod : null;
       const many = Array.isArray(m?.mods) ? m.mods.length : 0;
@@ -261,7 +261,7 @@ export function rulesSaid(d: Deps, c: Pick<Caller, 'worldId' | 'viewer'>, text: 
  * gets far more of the session, so it can follow the whole night instead of the last twenty lines.
  */
 export interface Budget { tokens: number; history: number; liveLines: number; liveChars: number; toolChars: number }
-export const budgetFor = (d: Deps, harness?: string): Budget => budgetFrom(Number(jobConfig(d, harness === 'dm' ? 'dm' : harness ? 'player' : 'chat')?.options?.contextTokens));
+export const budgetFor = (d: Deps, harness?: string): Budget => budgetFrom(Number(jobConfig(d, harness === 'gm' ? 'gm' : harness ? 'player' : 'chat')?.options?.contextTokens));
 export function budgetFrom(n?: number): Budget {
   const tokens = Number.isFinite(n) && n! >= 2000 ? Math.round(n!) : 32_000;
   if (tokens < 16_000) return { tokens, history: 4, liveLines: 10, liveChars: 2_000, toolChars: 4_000 };
@@ -297,9 +297,9 @@ export function fitToBudget(messages: ChatMessage[], tokens: number): ChatMessag
 }
 
 export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, summary = '', persona: Persona = {}, skills: 'full' | 'lite' | 'off' | boolean = 'full'): string {
-  const dm = c.harness === 'dm';
+  const gm = c.harness === 'gm';
   const mode = skills === true ? 'full' : skills === false ? 'off' : skills;
-  const L: string[] = dm && mode === 'lite'
+  const L: string[] = gm && mode === 'lite'
     ? [
       `You are ${persona.agentName || 'Minerva'}, the assistant of the Game Master of the tabletop campaign "${c.worldName}". You talk only to the GM and may use everything they can see, including GM-only notes and secrets.`,
       'Your character: wise, concise and proactive about long-term threads; you keep the campaign\'s memory.',
@@ -313,12 +313,12 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
       '- If you think you have no tool for what the GM asks, call more_tools with a few words about it first.',
       '- Be brief. Lead with the answer; short paragraphs or bullets in Markdown; no preamble.',
     ]
-    : dm && mode === 'off'
+    : gm && mode === 'off'
     ? [
       `You are ${persona.agentName || 'Minerva'}, the assistant of the Game Master of the tabletop campaign "${c.worldName}". You talk only to the GM and may use everything they can see, including GM-only notes and secrets.`,
       'Be brief. Lead with the answer.',
     ]
-    : dm
+    : gm
     ? [
       `You are ${persona.agentName || 'Minerva'}, the assistant of the Game Master of the tabletop campaign "${c.worldName}". You talk only to the GM and may use everything they can see, including GM-only notes and secrets.`,
       'Your character: wise, concise and proactive about long-term threads. Notice what is going cold, what a player is after, and what is due to pay off, and say so in a line. You keep the campaign\'s memory (context_for, who_is, codex_upsert, status_update, revelation_mark, goal_update).',
@@ -362,14 +362,14 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
 // ---- context ------------------------------------------------------------------
 
 /** Everything the agent is given from the library is the AI copy: a GM's viewer becomes the model's, which never sees classified content. */
-const forModel = (v: Viewer): Viewer => (v.role === 'dm' ? { ...v, audience: 'ai' } : v);
+const forModel = (v: Viewer): Viewer => (v.role === 'gm' ? { ...v, audience: 'ai' } : v);
 
-const lineText = (l: { speaker: string; text: string; audience?: string }) => `${l.speaker}${l.audience === 'dm' ? ' (GM only)' : ''}: ${l.text}`;
+const lineText = (l: { speaker: string; text: string; audience?: string }) => `${l.speaker}${l.audience === 'gm' ? ' (GM only)' : ''}: ${l.text}`;
 
-function recentTranscript(d: Deps, worldId: string, includeDm: boolean, limit = 30): string {
+function recentTranscript(d: Deps, worldId: string, includeGm: boolean, limit = 30): string {
   const s = listSessions(d.db, worldId)[0];
   if (!s) return '';
-  const lines = sessionLines(d.db, worldId, s.id, { includeDm }).slice(-limit);
+  const lines = sessionLines(d.db, worldId, s.id, { includeGm }).slice(-limit);
   return lines.length ? `Transcript of "${s.name}" (latest ${lines.length} lines, session ${s.id}):\n${lines.map(lineText).join('\n')}` : '';
 }
 
@@ -410,7 +410,7 @@ export async function prefetchHybrid(d: Deps, c: Caller, text: string, max = 5):
   const kw = prefetchLibrary(d, c, text, 20);
   if (!hasJob(d, 'extra') || !text.trim()) return kw.slice(0, max);
   let sem: Awaited<ReturnType<typeof semanticPages>> = [];
-  try { sem = (await semanticPages(d, c.worldId, c.harness === 'dm' ? 'ai' : 'party', text, SEMANTIC_TOP, forModel(c.viewer))).slice(0, SEMANTIC_TOP); } catch { return kw.slice(0, max); }
+  try { sem = (await semanticPages(d, c.worldId, c.harness === 'gm' ? 'ai' : 'party', text, SEMANTIC_TOP, forModel(c.viewer))).slice(0, SEMANTIC_TOP); } catch { return kw.slice(0, max); }
   if (!sem.length) return kw.slice(0, max);
   const byId = new Map(kw.map((h) => [h.id, h]));
   const missing = sem.filter((s) => !byId.has(s.id));
@@ -456,14 +456,14 @@ export interface BuiltContext { text: string; hits: Hit[]; prepMs: number }
 /** The per-message context block that goes in front of the question. */
 export async function buildContext(d: Deps, c: Caller, input: { text: string; context: MessageContext }): Promise<BuiltContext> {
   const t0 = performance.now();
-  const dm = c.harness === 'dm';
+  const gm = c.harness === 'gm';
   const { text } = input;
   const ctxIn = input.context;
   const [combat, inv, brk, ppl] = await Promise.all([
-    dm ? get(d, c, '/live/combat') : null,
-    !dm && (c.mode === 'helper' || WANTS_ITEMS.test(text)) ? get(d, c, '/inventory?owner=me') : null,
-    !dm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
-    !dm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
+    gm ? get(d, c, '/live/combat') : null,
+    !gm && (c.mode === 'helper' || WANTS_ITEMS.test(text)) ? get(d, c, '/inventory?owner=me') : null,
+    !gm && WANTS_BROKER.test(text) ? get(d, c, '/broker') : null,
+    !gm && WANTS_PEOPLE.test(text) ? get(d, c, '/people') : null,
   ]);
   const opts = agentOptions(d);
   let hits = opts.retrieval === 'hybrid' ? await prefetchHybrid(d, c, text, hasJob(d, 'rerank') ? 20 : 5) : prefetchLibrary(d, c, text, hasJob(d, 'rerank') ? 20 : 5);
@@ -476,15 +476,15 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   L.push(`Today in the real world: ${realToday()}.`);
   const mods = worldModules(d.db, c.worldId).enabled.map((m) => m.name).join(', ');
   if (mods) L.push(`Game modules: ${mods}.`);
-  if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
+  if (gm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
   // The campaign status first (GM), or what this player knows (the broker): the retrieval order of the memory vault.
-  if (dm && opts.status) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
+  if (gm && opts.status) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
   else { const mine = brokerContext(d, c.worldId, c.accountId, text); if (mine) L.push(mine); }
-  const cb = dm ? compactCombat(combat) : '';
+  const cb = gm ? compactCombat(combat) : '';
   if (cb) L.push(cb.slice(0, 2500));
   if (hits.length) {
     // Pages only held at index depth (a tiered crawl) are read from their source before the agent is handed them.
-    if (dm && hits.length) await readSearchHits(d, c.worldId, hits.slice(0, 2), 2);
+    if (gm && hits.length) await readSearchHits(d, c.worldId, hits.slice(0, 2), 2);
     const top = hits.slice(0, 2).map((h) => {
       try { const pg: any = d.library.get(c.worldId, h.id, forModel(c.viewer)); return String(pg.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 500); } catch { return ''; }
     });
@@ -492,18 +492,18 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   } else L.push('Library matches for this message: none.');
   // While a session is recording the last lines ride along (the GM's: everything GM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
   // The table helper knows whose helper it is.
-  if (!dm && c.mode === 'helper') {
+  if (!gm && c.mode === 'helper') {
     const me_ = one<any>(d.db, 'SELECT a.display_name AS d, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', c.worldId, c.accountId);
     if (me_) L.push(`You are helping ${me_.d}${me_.ch ? `, who plays ${me_.ch}` : ''}.`);
   }
   const budget = budgetFor(d, c.harness);
   // The running summary of tonight's session (the GM's, or the players' for a player): the whole night in a few
   // hundred words, so a model that only gets the last lines still knows what came before.
-  const sum = latestSummary(d, c.worldId, dm ? 'dm' : 'party');
+  const sum = latestSummary(d, c.worldId, gm ? 'gm' : 'party');
   if (sum) L.push(`Session so far ("${sum.name}"${sum.active ? ', recording now' : ', ended'}; running summary of ${sum.lines} transcript lines):\n${sum.text.slice(0, 3000)}`);
   // The rules calls Minerva flagged tonight (GM only): so "was that right?" has the answer at hand.
-  if (dm && sum) { const notes = ruleNotes(d, sum.sessionId, { onlyFlags: true, limit: 3 }); if (notes.length) L.push(`Rules checks flagged this session (newest first):\n${notes.map((n) => `- ${n.term}: ${n.note}`).join('\n')}`); }
-  const live = liveLines(d, c.worldId, dm, budget.liveLines);
+  if (gm && sum) { const notes = ruleNotes(d, sum.sessionId, { onlyFlags: true, limit: 3 }); if (notes.length) L.push(`Rules checks flagged this session (newest first):\n${notes.map((n) => `- ${n.term}: ${n.note}`).join('\n')}`); }
+  const live = liveLines(d, c.worldId, gm, budget.liveLines);
   if (live.session?.active && live.lines.length) {
     // The newest lines matter most: a long session keeps its end, not its start.
     const body = live.lines.map(lineText).join('\n');
@@ -511,8 +511,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     const rules = rulesSaid(d, c, live.lines.map((l: any) => l.text ?? '').join('\n'));
     if (rules) L.push(rules);
   }
-  else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, dm); if (tr) L.push(tr.slice(0, 4500)); }
-  if (!dm) {
+  else if (WANTS_TRANSCRIPT.test(text)) { const tr = recentTranscript(d, c.worldId, gm); if (tr) L.push(tr.slice(0, 4500)); }
+  if (!gm) {
     if (inv?.items?.length) L.push(`This player's items: ${inv.items.map((i: any) => `${i.qty ?? 1} x ${i.name}${i.note ? ` (${i.note})` : ''}`).join('; ').slice(0, 1500)}`);
     // The helper says an empty pack is empty, rather than that it has no list.
     else if (c.mode === 'helper' && inv) L.push("This player's items: none (their own inventory is empty; the party pouch is separate).");
@@ -533,8 +533,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
 }
 
 /** The persona each harness speaks as: the GM's assistant, or the broker the players know. */
-function dmPersona(d: Deps, c: Caller): Persona {
-  if (c.harness === 'dm') return { agentName: agentName(d, c.worldId) };
+function gmPersona(d: Deps, c: Caller): Persona {
+  if (c.harness === 'gm') return { agentName: agentName(d, c.worldId) };
   const b = brokerPersona(d, c.worldId);
   return { brokerName: b.name, brokerTitle: b.title };
 }
@@ -602,7 +602,7 @@ export interface RunInput { chatId: string; replyId: string; text: string; conte
 /** Runs in progress, so the Stop button can end one. */
 const running = new Map<string, AbortController>();
 /** The end of a player's answer that was cut short because the GM needed the model. */
-export const PAUSED_FOR_DM = '_Paused so the GM could go first. Ask again in a moment._';
+export const PAUSED_FOR_GM = '_Paused so the GM could go first. Ask again in a moment._';
 export const stopRun = (chatId: string): boolean => { const a = running.get(chatId); if (!a) return false; a.abort(); return true; };
 
 /** Tell the owner's screens about an action (a new card, or a decision): the card travels with the event, so no screen re-reads the chat. */
@@ -641,14 +641,14 @@ const lookText = (name: string, a: any): string => {
 /** One tool call from the model or a fast path: unknown tools are refused, writes become proposals, reads run. */
 async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, McpTool>, auto: AutoCheck, name: string, args0: any, meta: RunMeta = {}): Promise<Executed> {
   const tool = byName.get(name);
-  const dm = c.harness === 'dm';
-  const note = (kind: 'look' | 'do' | 'ask' | 'skip' | 'error', text: string, extra: { actionId?: string; detail?: string } = {}) => { if (dm) think(d, c.worldId, { source: meta.source ?? 'assistant', kind, text, runId: meta.runId, chatId, ...extra }); };
+  const gm = c.harness === 'gm';
+  const note = (kind: 'look' | 'do' | 'ask' | 'skip' | 'error', text: string, extra: { actionId?: string; detail?: string } = {}) => { if (gm) think(d, c.worldId, { source: meta.source ?? 'assistant', kind, text, runId: meta.runId, chatId, ...extra }); };
   let args = args0;
   try {
     // The player harness never lists write tools, and a call to one is refused here too.
     if (!tool) {
       // A near miss ("search" for search_library) is named, so the next call gets it right.
-      const near = nearestToolNames(name, [...byName.keys()].filter((n) => dm || !byName.get(n)?.write));
+      const near = nearestToolNames(name, [...byName.keys()].filter((n) => gm || !byName.get(n)?.write));
       note('error', `Tried a tool that does not exist: ${name}${near.length ? ` (meant ${near[0]}?)` : ''}.`);
       return { content: `Unknown tool "${name}".${near.length ? ` Did you mean ${near.map((n) => `"${n}"`).join(' or ')}? Call that instead.` : ' Use only the tools you were given.'}`, cites: [] };
     }
@@ -676,8 +676,8 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
     const t = await runTool(d, c, tool, args);
     if (tool.write) note(t.ok ? 'do' : 'error', t.ok ? `Did it (${meta.source === 'task' ? 'task' : 'Auto'}): ${describeCall(name, args)}.` : `Tried “${describeCall(name, args)}” but it did not work: ${t.text.slice(0, 160)}`);
     else if (!t.ok) note('error', `${name} answered ${t.status}: ${t.text.slice(0, 160)}`);
-    if (c.harness === 'dm') audit(d, c.worldId, c.accountId, tool.write ? 'agent.action' : 'agent.read', `${name} ${JSON.stringify(args ?? {})}${tool.write ? ` auto-approved -> ${t.status}` : ''}`);
-    if (c.harness === 'dm' && tool.write) {
+    if (c.harness === 'gm') audit(d, c.worldId, c.accountId, tool.write ? 'agent.action' : 'agent.read', `${name} ${JSON.stringify(args ?? {})}${tool.write ? ` auto-approved -> ${t.status}` : ''}`);
+    if (c.harness === 'gm' && tool.write) {
       logAgentCall(d, c.worldId, { tool: name, args, summary: describeCall(name, args), ok: t.ok, result: t.text, via: 'auto-approved' });
       // The chat shows what was applied without asking, as a card already settled.
       const aid = id('act_');
@@ -737,16 +737,16 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
  * The tool names to offer for a message. The player harness always uses the keyword selection. The GM harness follows
  * `opts.tools` (see options.ts); an embedding mode with no embeddings model answering falls back to the keyword selection.
  */
-export async function chooseTools(d: Deps, opts: ReturnType<typeof agentOptions>, selText: string, requestText: string, tools: McpTool[], names: string[], dm: boolean): Promise<string[]> {
+export async function chooseTools(d: Deps, opts: ReturnType<typeof agentOptions>, selText: string, requestText: string, tools: McpTool[], names: string[], gm: boolean): Promise<string[]> {
   const keywords = () => {
-    const out = selectTools(selText, names, undefined, dm);
+    const out = selectTools(selText, names, undefined, gm);
     // Words the category rules do not know still find a tool: the best matches by name and description are offered too.
-    if (dm) for (const t of matchTools(tools, requestText, true, 3)) out.push(t.name);
+    if (gm) for (const t of matchTools(tools, requestText, true, 3)) out.push(t.name);
     return out;
   };
-  if (!dm || opts.tools === 'keywords') return keywords();
+  if (!gm || opts.tools === 'keywords') return keywords();
   const have = new Set(names);
-  const core = DM_CORE_TOOLS.filter((n) => have.has(n));
+  const core = GM_CORE_TOOLS.filter((n) => have.has(n));
   if (opts.tools === 'all') return names.filter((n) => !n.startsWith('my_'));
   if (opts.tools === 'core') return core;
   const near = await nearestTools(d, requestText, tools.filter((t) => !t.name.startsWith('my_')), opts.embedK);
@@ -778,15 +778,15 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
   try {
     let tools = await harnessTools(c.harness);
     const opts = agentOptions(d);
-    if (c.harness === 'dm') {
+    if (c.harness === 'gm') {
       if (!opts.bible) tools = tools.filter((t) => t.name !== 'story_bible' && t.name !== 'related_pages');
       if (opts.desc === 'concise') tools = tools.map((t) => (CONCISE[t.name] ? { ...t, description: CONCISE[t.name] } : t));
     }
-    const exec = c.harness === 'dm' ? input.exec : undefined;
+    const exec = c.harness === 'gm' ? input.exec : undefined;
     const meta: Required<RunMeta> = { runId: input.replyId, source: exec ? 'task' : 'assistant' };
-    if (c.harness === 'dm') think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: `${exec ? `Task (${exec.mode === 'do' ? 'doing it' : 'proposing'})` : 'Working on'}: “${input.text.slice(0, 160)}”` });
+    if (c.harness === 'gm') think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: `${exec ? `Task (${exec.mode === 'do' ? 'doing it' : 'proposing'})` : 'Working on'}: “${input.text.slice(0, 160)}”` });
     // The GM's own chat asks the settings at every call (the per-tool list and the Auto switch); a player's never runs a write.
-    let auto: AutoCheck = c.harness === 'dm' ? (name) => runsWithoutAsking(d, c.worldId, name) : () => false;
+    let auto: AutoCheck = c.harness === 'gm' ? (name) => runsWithoutAsking(d, c.worldId, name) : () => false;
     if (exec) {
       const allow = new Set(exec.allow?.length ? exec.allow : TASK_DEFAULT_TOOLS);
       tools = tools.filter((t) => (t.write ? allow.has(t.name) && !TASK_DENY.test(t.name) : TASK_READS.includes(t.name) || allow.has(t.name)));
@@ -806,7 +806,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         tell();
         return;
       }
-      if (!hasJob(d, c.harness === 'dm' ? 'dm' : 'player')) {
+      if (!hasJob(d, c.harness === 'gm' ? 'gm' : 'player')) {
         finish("I could not match that to anything in the fight, and no chat model is set to work it out.", 'done');
         tell();
         return;
@@ -818,10 +818,10 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     hits = built.hits;
     T.prepMs = built.prepMs;
     T.snippets = hits.length;
-    if (c.harness === 'dm') T.hits = hits.map((x) => x.title);
-    const dmHarness = c.harness === 'dm';
+    if (c.harness === 'gm') T.hits = hits.map((x) => x.title);
+    const gmHarness = c.harness === 'gm';
     // The GM's guides: a request that matches one (its triggers, or "use guide X") gets the guide and what its steps found.
-    if (dmHarness) {
+    if (gmHarness) {
       const g = await applyGuides(d, { worldId: c.worldId, viewer: c.viewer, chatId: input.chatId, text: input.text, exec: (n, a) => execCall(d, c, input.chatId, byName, auto, n, a, meta) }).catch((e) => { console.error('agent: guides failed', e); return null; });
       if (g) {
         setGuideNotes(d.db, input.replyId, g.notes);
@@ -831,30 +831,30 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         addCites(g.cites as Citation[]);
       }
     }
-    if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `Read the context in ${took(built.prepMs)}: ${hits.length ? `${hits.length} library match${hits.length === 1 ? '' : 'es'} (${hits.slice(0, 3).map((h) => h.title).join(', ')}${hits.length > 3 ? ', …' : ''})` : 'no library matches'}.` });
+    if (gmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `Read the context in ${took(built.prepMs)}: ${hits.length ? `${hits.length} library match${hits.length === 1 ? '' : 'es'} (${hits.slice(0, 3).map((h) => h.title).join(', ')}${hits.length > 3 ? ', …' : ''})` : 'no library matches'}.` });
     const names = tools.map((t) => t.name);
     const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
-    const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
+    const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, gmHarness));
     // House rules that are on and that this message is about: their guidance for this person, the exact calls, what
     // they may see, and the tools (plus feature tools a rule names). The GM's assistant and a player's helper only.
-    if (dmHarness || c.mode === 'helper') {
-      const hr = ruleHints(d.db, c.worldId, `${input.text} ${input.context.selection ?? ''}`, dmHarness, c.accountId);
+    if (gmHarness || c.mode === 'helper') {
+      const hr = ruleHints(d.db, c.worldId, `${input.text} ${input.context.selection ?? ''}`, gmHarness, c.accountId);
       if (hr.text) {
         built.text += `\n\n${hr.text}`;
         for (const n of hr.tools) if (byName.has(n)) picked.add(n);
-        if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `House rules this is about: ${hr.mods.join(', ')}.` });
+        if (gmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `House rules this is about: ${hr.mods.join(', ')}.` });
       }
     }
     // The sound tools carry what the sound library really holds (moods with a track, layer kinds), so the model does not guess.
-    const soundMod = dmHarness ? await import('../sound/index.ts') : null;
-    const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(dmHarness ? [MORE_TOOLS_TOOL] : [])];
+    const soundMod = gmHarness ? await import('../sound/index.ts') : null;
+    const offerNow = (): ChatTool[] => [...tools.filter((t) => picked.has(t.name)).map((t) => asChatTool(soundMod && SOUND_TOOLS.has(t.name) ? { ...t, description: `${t.description} Available now: ${soundMod.soundHint(d, c.worldId)}` } : t)), ...(gmHarness ? [MORE_TOOLS_TOOL] : [])];
     T.toolsOffered = offerNow().length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
     const base = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...playerTexts(d, c.worldId, c.accountId), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
     // The broker never gives the GM's assistant away: her name, or that it works for the GM, blocks the reply like GM-only text does.
     const check = base ? (t: string) => { const g = personaGiveaway(t, agentName(d, c.worldId)); return g ? { blocked: true, match: g } : base(t); } : null;
     const taskNote = exec ? `\n\nThis message is a TASK from a macro or a spoken command, not a conversation. ${exec.mode === 'do' ? 'Carry it out now by calling the tools: they run at once with no confirmation. Do all the steps in one go (call several tools together). Use only the tools offered. Never invent ids: read them first (get_combat, search_library, list_sound_library).' : 'Propose the steps with the write tools (the GM confirms each).'} Players see what you change on their screens, so only show them party-level pages. Finish with one short line saying what you did.` : '';
-    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c), opts.skills) + taskNote }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
+    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, gmPersona(d, c), opts.skills) + taskNote }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';
     let done = false;
@@ -872,7 +872,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       const tm = performance.now();
       let r;
       try {
-        r = await chatStream(d, c.harness === 'dm' ? 'dm' : 'player', { messages: fitToBudget(messages, budgetFor(d, c.harness).tokens), tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true, toolChoice: mustCall && !last ? 'required' : undefined }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
+        r = await chatStream(d, c.harness === 'gm' ? 'gm' : 'player', { messages: fitToBudget(messages, budgetFor(d, c.harness).tokens), tools: last ? undefined : offerNow(), parallelToolCalls: last ? undefined : true, toolChoice: mustCall && !last ? 'required' : undefined }, (t) => { if (g) g.push(t); else live.push(t); }, ac.signal);
         mustCall = false;
       } finally { T.modelMs += ms(tm); }
       T.rounds++;
@@ -886,7 +886,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       if (!r.toolCalls.length || last) {
         reply = r.content;
         // The reply says something was proposed or changed but no write tool ran: give the model the tools for that area and one more go.
-        if (dmHarness && !last && !retried && !wrote && claimsChange(reply, toolText(messages))) {
+        if (gmHarness && !last && !retried && !wrote && claimsChange(reply, toolText(messages))) {
           retried = true;
           live.reset();
           for (const t of [...matchTools(tools, `${input.text} ${reply}`, true, 8), ...tools.filter((x) => selectTools(input.text, names, 99, true).includes(x.name))]) if (t.write) picked.add(t.name);
@@ -905,16 +905,16 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
       messages.push({ role: 'assistant', content: r.content || null, tool_calls: r.toolCalls });
       live.status(r.toolCalls.map((tc) => tc.function.name).join(', '));
       // What the model says before it calls tools is its plan in its own words: the closest thing to its thinking.
-      if (dmHarness && r.content?.trim()) think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: r.content.trim().slice(0, 300) });
+      if (gmHarness && r.content?.trim()) think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: r.content.trim().slice(0, 300) });
       const tt = performance.now();
       let budget = Math.max(0, MAX_TOOL_CALLS - T.toolCalls);
       const results = await Promise.all(r.toolCalls.map(async (tc): Promise<Executed> => {
         const nm = tc.function?.name ?? '';
         const parsed = parseToolArgs(tc.function?.arguments);
         if (budget-- <= 0) return { content: 'Skipped: too many tool calls in one message. Answer from what you have.', cites: [] };
-        if (!parsed.ok) { if (dmHarness) think(d, c.worldId, { ...meta, kind: 'error', chatId: input.chatId, text: `My ${nm} call was garbled; asking the model to send it again.` }); return { content: `Not run: ${parsed.error} Call ${nm} again.`, cites: [] }; }
+        if (!parsed.ok) { if (gmHarness) think(d, c.worldId, { ...meta, kind: 'error', chatId: input.chatId, text: `My ${nm} call was garbled; asking the model to send it again.` }); return { content: `Not run: ${parsed.error} Call ${nm} again.`, cites: [] }; }
         const args = parsed.args;
-        if (nm === 'more_tools' && dmHarness) {
+        if (nm === 'more_tools' && gmHarness) {
           const found = matchTools(tools, String(args?.query ?? ''), true);
           for (const t of found) picked.add(t.name);
           think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `Looking for a tool for “${String(args?.query ?? '').slice(0, 80)}”: ${found.length ? found.slice(0, 5).map((t) => t.name).join(', ') : 'none found'}.` });
@@ -932,7 +932,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     // Still claiming a change nobody made: say so instead.
     // The history tags are for the model; a reply that copies one drops it.
     if (/\[(?:tool calls this turn:|no write tool calls this turn)/.test(reply)) { reply = reply.replace(/\n?\[(?:tool calls this turn:[^\]]*|no write tool calls this turn)\]/g, '').trim(); live.replace(reply); }
-    if (dmHarness && !wrote && claimsChange(reply, toolText(messages))) { reply = rewriteClaim(reply, toolText(messages)); live.replace(reply); }
+    if (gmHarness && !wrote && claimsChange(reply, toolText(messages))) { reply = rewriteClaim(reply, toolText(messages)); live.replace(reply); }
     let blocked = false;
     if (check) {
       const chk = check(reply);
@@ -941,7 +941,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         const match = chk.match ?? gate?.match ?? '';
         run(d.db, 'INSERT INTO agent_leaks (id, world_id, account_id, chat_id, matched, at) VALUES (?, ?, ?, ?, ?, ?)', id('lk_'), c.worldId, c.accountId, input.chatId, match, now());
         audit(d, c.worldId, c.accountId, 'agent.leak_blocked', `chat ${input.chatId}: reply shared GM-only text ("${match.slice(0, 80)}")`);
-        d.hub.emit(c.worldId, 'agent', { kind: 'leak', chatId: input.chatId }, dmOnly);
+        d.hub.emit(c.worldId, 'agent', { kind: 'leak', chatId: input.chatId }, gmOnly);
         reply = BLOCKED_REPLY;
         live.replace(BLOCKED_REPLY);
       } else gate?.end();
@@ -950,7 +950,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     if (escalated && !blocked && !reply.includes(LOOKING)) { reply = `${reply}\n\n${LOOKING}`; live.replace(reply); }
     if (!blocked) addCites(citedHits(reply, hits));
     finish(reply, 'done', blocked);
-    if (dmHarness) {
+    if (gmHarness) {
       const waiting = one<{ n: number }>(d.db, "SELECT COUNT(*) AS n FROM agent_actions WHERE chat_id = ? AND status = 'pending'", input.chatId)?.n ?? 0;
       think(d, c.worldId, { ...meta, kind: 'done', chatId: input.chatId, text: `Answered in ${took(T.totalMs)}${T.toolCalls ? `, ${T.toolCalls} tool call${T.toolCalls === 1 ? '' : 's'}` : ''}${waiting ? `. ${waiting} change${waiting === 1 ? '' : 's'} waiting for you` : ''}.`, detail: reply.slice(0, 600) });
     }
@@ -958,17 +958,17 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     if (err instanceof ModelPreempted) {
       // The GM needed the model and this answer gave way (GM first, core/ai.ts): keep what was shown and say why it stopped.
       const shown = (gate ? gate.sent : live.text).trim();
-      finish(`${shown ? `${shown}\n\n` : ''}${PAUSED_FOR_DM}`, 'done');
+      finish(`${shown ? `${shown}\n\n` : ''}${PAUSED_FOR_GM}`, 'done');
     } else if (err?.name === 'AbortError') {
       // Stopped by the user: keep what was shown (the player's is only what passed the check).
       const shown = (gate ? gate.sent : live.text).trim();
       finish(shown ? `${shown}\n\n_Stopped._` : '_Stopped._', 'done');
-      if (c.harness === 'dm') think(d, c.worldId, { runId: input.replyId, source: input.exec ? 'task' : 'assistant', kind: 'skip', chatId: input.chatId, text: 'Stopped.' });
+      if (c.harness === 'gm') think(d, c.worldId, { runId: input.replyId, source: input.exec ? 'task' : 'assistant', kind: 'skip', chatId: input.chatId, text: 'Stopped.' });
     } else {
       const msg = err instanceof ModelUnavailable ? `The chat model is not available: ${err.message}` : 'The agent hit an error. Try again.';
       if (!(err instanceof ModelUnavailable)) console.error('agent: run failed', err);
       finish(msg, 'error');
-      if (c.harness === 'dm') think(d, c.worldId, { runId: input.replyId, source: input.exec ? 'task' : 'assistant', kind: 'error', chatId: input.chatId, text: msg });
+      if (c.harness === 'gm') think(d, c.worldId, { runId: input.replyId, source: input.exec ? 'task' : 'assistant', kind: 'error', chatId: input.chatId, text: msg });
     }
   } finally {
     running.delete(input.chatId);

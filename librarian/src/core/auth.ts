@@ -182,13 +182,13 @@ export function loadWorld(db: DB) {
     const m = one<{ role: Role }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', world.id, auth.account.id);
     if (!m) throw new HttpError(404, 'World not found');
     // A write key only writes while its owner is a GM of this world.
-    if (auth.via !== 'session' && auth.access === 'write' && m.role !== 'dm') {
+    if (auth.via !== 'session' && auth.access === 'write' && m.role !== 'gm') {
       auth.access = 'read';
       if (!READ_METHODS.has(req.method)) throw new HttpError(403, 'Write keys work only for the GM of this world');
     }
     // A request from a model (the MCP server, the agent's tools) says so: a GM's copy of it then has no classified content. Spoofing only shows less.
     const fromModel = String(req.headers['x-alexandria-caller'] ?? '').toLowerCase() === 'model';
-    const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role, ...(fromModel && m.role === 'dm' ? { audience: 'ai' as const } : {}) } };
+    const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role, ...(fromModel && m.role === 'gm' ? { audience: 'ai' as const } : {}) } };
     res.locals.w = ctx;
     // What a model is told never repeats classified content, whatever route it came from (the MCP server, the agent's tools, a client that sends the marker).
     if (ctx.viewer.audience === 'ai') {
@@ -202,12 +202,12 @@ export function loadWorld(db: DB) {
   };
 }
 
-export function requireDM(req: Request, res: Response, next: NextFunction) {
-  if ((res.locals.w as WorldCtx).viewer.role !== 'dm') throw new HttpError(403, 'GMs only');
+export function requireGM(req: Request, res: Response, next: NextFunction) {
+  if ((res.locals.w as WorldCtx).viewer.role !== 'gm') throw new HttpError(403, 'GMs only');
   next();
 }
 
-export function requirePlayerOrDM(req: Request, res: Response, next: NextFunction) {
+export function requirePlayerOrGM(req: Request, res: Response, next: NextFunction) {
   if ((res.locals.w as WorldCtx).viewer.role === 'guest') throw new HttpError(403, 'Guests can only read');
   next();
 }

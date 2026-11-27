@@ -8,7 +8,7 @@ export default function ModeBadge({ phone = false }: { phone?: boolean }) {
   const st = useActive();
   const loc = useLocation();
   // The phone assistant covers the whole screen and has its own badge.
-  if (info?.role !== 'dm' || !st.data || (!phone && /\/gm\/phone\/?$/.test(loc.pathname))) return null;
+  if (info?.role !== 'gm' || !st.data || (!phone && /\/gm\/phone\/?$/.test(loc.pathname))) return null;
   const s = st.data;
   const active = s.effective === 'active';
   const label = s.takeoverOn ? 'Takeover' : active ? 'Active' : 'Assistant';

@@ -76,7 +76,7 @@ export async function applyGuides(d: Deps, r: GuideRun): Promise<Applied | null>
   const pinned = pinnedTemplate(d, r.chatId, list);
   let about = '';
   if (pinned) {
-    if (ABOUT_TEMPLATE.test(r.text)) about = `TEMPLATE CHAT: this chat is about the GM's ${KIND_LABEL[pinned.kind].toLowerCase()} "${pinned.name}" (id ${pinned.id}: change it with update_dm_template). It is now:\n${JSON.stringify({ name: pinned.name, description: pinned.description, triggers: pinned.triggers, spec: pinned.spec }).slice(0, 4000)}`;
+    if (ABOUT_TEMPLATE.test(r.text)) about = `TEMPLATE CHAT: this chat is about the GM's ${KIND_LABEL[pinned.kind].toLowerCase()} "${pinned.name}" (id ${pinned.id}: change it with update_gm_template). It is now:\n${JSON.stringify({ name: pinned.name, description: pinned.description, triggers: pinned.triggers, spec: pinned.spec }).slice(0, 4000)}`;
     else if (pinned.enabled && !matched.some((m) => m.t.id === pinned.id)) matched = [{ t: pinned, why: 'named' as const, hits: [pinned.name] }, ...matched].slice(0, 2);
   }
   // Like a guide: a template that would carry classified words is never sent.
@@ -195,7 +195,7 @@ export async function applyGuides(d: Deps, r: GuideRun): Promise<Applied | null>
   const save = [
     kinds.has('event') ? 'Save a quick event with save_encounter_template (kind event, with its places); it is sent later from Encounters → Story events.' : '',
     kinds.has('spell') ? 'Save a new spell with save_homebrew_spell (it stays GM only until the GM shares it).' : '',
-    [...kinds].some((k) => k !== 'event' && k !== 'spell') ? 'Write a new page with save_page: GM only (visibility dm) unless the GM asks otherwise, in the guide\'s folder. End the page with a "Sources" section: library pages as [[Title]], web results as links.' : '',
+    [...kinds].some((k) => k !== 'event' && k !== 'spell') ? 'Write a new page with save_page: GM only (visibility gm) unless the GM asks otherwise, in the guide\'s folder. End the page with a "Sources" section: library pages as [[Title]], web results as links.' : '',
   ].filter(Boolean).join('\n');
   return {
     context: `GUIDE IN USE: ${names}. The GM wrote ${notes.length === 1 ? 'this guide' : 'these guides'} for this kind of request; follow the steps, the structure and the tone. The chat already shows "Using guide: ${names}"; do not repeat it.\n${save}\n\n${ctx.join('\n\n---\n\n')}${about ? `\n\n${about}` : ''}`.slice(0, 14_000),

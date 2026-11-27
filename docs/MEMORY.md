@@ -25,7 +25,7 @@ Every row (chunk or fact) belongs to one scope, cut from one copy of the page.
 
 | scope    | cut from                                  | read by                                         |
 |----------|-------------------------------------------|-------------------------------------------------|
-| `dm`     | the AI copy (everything but classified)   | the GM, and every model on the GM's behalf      |
+| `gm`     | the AI copy (everything but classified)   | the GM, and every model on the GM's behalf      |
 | `broker` | the broker copy (party + broker content)  | the information broker                          |
 | `party`  | the player copy of a party-level page     | every player and guest                          |
 | `lifted` | the player copy of a page that is not party-level but that some account may open now | players, one page at a time |
@@ -39,7 +39,7 @@ it, so it is embedded once. Who may see it is decided live, on every read:
 A reader gets `base` plus (players only) the lifted rows of the pages they
 may open right now (`features/search/scopes.ts`, `reachOf`):
 
-- GM or model: `dm`. Broker: `broker`. Player: `party` + their lifted pages.
+- GM or model: `gm`. Broker: `broker`. Player: `party` + their lifted pages.
   Guest: `party` only.
 - Classified text is never embedded, never extracted and never sent to a
   model (`core/ai.ts` also refuses it). GM-only text is never in `party`,
@@ -72,7 +72,7 @@ somehow survives is never returned.
 ## Background jobs and the admin page
 
 - `search` feature: embeds stale pages every 20 s (`ALX_SEARCH_EMBED_MS`),
-  in the order party, lifted, broker, dm; budgeted per tick. Small edits are
+  in the order party, lifted, broker, gm; budgeted per tick. Small edits are
   handled here: one changed page is one small request.
 - `bible` feature: extracts facts for pages whose copy changed, every 30 s
   (`ALX_BIBLE_MS`), a few pages per tick, only when "When it reads" allows.

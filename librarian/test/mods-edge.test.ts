@@ -46,11 +46,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Edgeholm', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Edgeholm', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
@@ -58,7 +58,7 @@ before(async () => {
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-const POINTS = { kit: 2, id: 'edge-points', name: 'Edge points', resources: [{ id: 'pt', label: 'Point', max: 3 }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }, { id: 'spend', label: 'Spend', by: 'owner', resource: 'pt', add: -1 }] };
+const POINTS = { kit: 2, id: 'edge-points', name: 'Edge points', resources: [{ id: 'pt', label: 'Point', max: 3 }], actions: [{ id: 'give', label: 'Give', by: 'gm', resource: 'pt', add: 1 }, { id: 'spend', label: 'Spend', by: 'owner', resource: 'pt', add: -1 }] };
 const LIST = {
   kit: 2, id: 'edge-list', name: 'Edge list',
   records: {
@@ -68,7 +68,7 @@ const LIST = {
   recordActions: [
     { id: 'add-item', label: 'Add', by: 'any', record: 'item', do: 'create', ask: ['name', 'size', 'kind'] },
     { id: 'start', label: 'Start', by: 'owner', record: 'job', do: 'create', ask: ['item'] },
-    { id: 'bump', label: 'Bump', by: 'dm', record: 'job', do: 'add', field: 'done', amount: 'ask' },
+    { id: 'bump', label: 'Bump', by: 'gm', record: 'job', do: 'add', field: 'done', amount: 'ask' },
     { id: 'drop', label: 'Drop', by: 'owner', record: 'job', do: 'remove' },
     { id: 'rename', label: 'Rename', by: 'any', record: 'item', do: 'set', ask: ['name'] },
   ],
@@ -90,7 +90,7 @@ test('ModsEdge: prototype keys in a file are refused and never reach Object.prot
 
 test('ModsEdge: numbers that are not finite whole numbers, and wrong $option types, are refused', () => {
   for (const add of [1e308 * 10, 0.5, '1', '$nope']) {
-    const r = checkMod({ ...POINTS, id: 'num', actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add }] });
+    const r = checkMod({ ...POINTS, id: 'num', actions: [{ id: 'give', label: 'Give', by: 'gm', resource: 'pt', add }] });
     assert.equal(r.mod, null, `add ${String(add)}`);
   }
   const wrongType = checkMod({ ...POINTS, id: 'opt', options: { on: { type: 'boolean', default: true, label: 'On' } }, resources: [{ id: 'pt', label: 'Point', max: '$on' }] });
@@ -123,16 +123,16 @@ test('ModsEdge: a package with the same id twice, or that needs itself in a loop
   assert.match(dup.errors.join(), /edge-points/);
   const a = { kit: 2, id: 'loop-a', name: 'Loop A', requires: { mods: { 'loop-b': '^1' } } };
   const b = { kit: 2, id: 'loop-b', name: 'Loop B', requires: { mods: { 'loop-a': '^1' } } };
-  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, name: 'Loop', mods: [a, b] } });
-  const on = await call('PUT', `${M()}/loop-a/enabled`, T.dm, { on: true });
+  await ok('POST', `${M()}/import`, T.gm, { mod: { type: 'alexandria-house-rules', kit: 2, name: 'Loop', mods: [a, b] } });
+  const on = await call('PUT', `${M()}/loop-a/enabled`, T.gm, { on: true });
   assert.ok(on.status < 500, `no crash on a requires loop: ${on.status}`);
-  const list = (await ok('GET', M(), T.dm)).mods;
+  const list = (await ok('GET', M(), T.gm)).mods;
   const st = Object.fromEntries(list.filter((m: any) => m.id.startsWith('loop-')).map((m: any) => [m.id, m.enabled]));
   assert.equal(st['loop-a'], st['loop-b'], 'both on or both off');
-  const off = await call('PUT', `${M()}/loop-b/enabled`, T.dm, { on: false, cascade: true });
+  const off = await call('PUT', `${M()}/loop-b/enabled`, T.gm, { on: false, cascade: true });
   assert.ok(off.status < 500);
-  await ok('DELETE', `${M()}/loop-a`, T.dm);
-  await ok('DELETE', `${M()}/loop-b`, T.dm);
+  await ok('DELETE', `${M()}/loop-a`, T.gm);
+  await ok('DELETE', `${M()}/loop-b`, T.gm);
 });
 
 test('ModsEdge: version ranges that are nonsense do not parse; odd but valid ones do', () => {
@@ -146,8 +146,8 @@ test('ModsEdge: version ranges that are nonsense do not parse; odd but valid one
 // ---- play: players, values, rules going away ---------------------------------------------------------------------
 
 test('ModsEdge: record values from players are checked: range, enum, type, length, and fields that are not asked', async () => {
-  await ok('POST', `${M()}/import`, T.dm, { mod: LIST });
-  await ok('PUT', `${M()}/edge-list/enabled`, T.dm, { on: true });
+  await ok('POST', `${M()}/import`, T.gm, { mod: LIST });
+  await ok('PUT', `${M()}/edge-list/enabled`, T.gm, { on: true });
   const R = `${M()}/edge-list/records`;
   await refused('POST', `${R}/add-item`, T.jess, { values: { name: 'Huge', size: 11, kind: 'a' } }, /size/);
   await refused('POST', `${R}/add-item`, T.jess, { values: { name: 'Odd', size: 1, kind: 'q' } }, /kind/);
@@ -164,7 +164,7 @@ test('ModsEdge: record values from players are checked: range, enum, type, lengt
 
 test('ModsEdge: a player cannot touch another player\'s records, or run a GM action, even by id', async () => {
   const R = `${M()}/edge-list/records`;
-  const items = (await ok('GET', `${M()}/edge-list/records?kind=item`, T.dm)).records.item;
+  const items = (await ok('GET', `${M()}/edge-list/records?kind=item`, T.gm)).records.item;
   const rope = items.find((x: any) => x.name === 'Rope');
   const tomJob = (await ok('POST', `${R}/start`, T.tom, { values: { item: rope.id } })).record;
   await refused('POST', `${R}/drop`, T.jess, { recordId: tomJob.id });
@@ -174,15 +174,15 @@ test('ModsEdge: a player cannot touch another player\'s records, or run a GM act
   const asTom = (await ok('GET', `${M()}/edge-list/records?kind=job&player=${ID.tom}`, T.jess)).records.job;
   assert.equal(asTom.length, 0, 'a player asking for another player gets nothing');
   // The GM's add is clamped by the field's min, and odd amounts are refused.
-  const low = await ok('POST', `${R}/bump`, T.dm, { recordId: tomJob.id, amount: -50 });
+  const low = await ok('POST', `${R}/bump`, T.gm, { recordId: tomJob.id, amount: -50 });
   assert.equal(low.record.done, 0);
-  for (const amount of [Infinity, 'lots', null, 1e20]) await refused('POST', `${R}/bump`, T.dm, { recordId: tomJob.id, amount });
+  for (const amount of [Infinity, 'lots', null, 1e20]) await refused('POST', `${R}/bump`, T.gm, { recordId: tomJob.id, amount });
 });
 
 test('ModsEdge: a prompt answered twice, after closing, or by the GM is refused; one answer moves one record', async () => {
-  const items = (await ok('GET', `${M()}/edge-list/records?kind=item`, T.dm)).records.item;
+  const items = (await ok('GET', `${M()}/edge-list/records?kind=item`, T.gm)).records.item;
   const rope = items.find((x: any) => x.name === 'Rope');
-  const open = await ok('POST', `${M()}/edge-list/prompts/day`, T.dm, {});
+  const open = await ok('POST', `${M()}/edge-list/prompts/day`, T.gm, {});
   const round = open.round?.id ?? open.id;
   assert.ok(round, JSON.stringify(open));
   const A = `${M()}/edge-list/prompts/round/${round}/answer`;
@@ -193,114 +193,114 @@ test('ModsEdge: a prompt answered twice, after closing, or by the GM is refused;
   const jobs = (await ok('GET', `${M()}/edge-list/records?kind=job`, T.jess)).records.job;
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].done, 1, 'the day timer moved her new job once');
-  await ok('POST', `${M()}/edge-list/prompts/round/${round}/close`, T.dm, {});
+  await ok('POST', `${M()}/edge-list/prompts/round/${round}/close`, T.gm, {});
   await refused('POST', A, T.tom, { choice: 1 });
 });
 
 test('ModsEdge: a rule turned off stops its actions and prompts; removing it leaves nothing behind', async () => {
   const R = `${M()}/edge-list/records`;
-  const open = await ok('POST', `${M()}/edge-list/prompts/day`, T.dm, {});
+  const open = await ok('POST', `${M()}/edge-list/prompts/day`, T.gm, {});
   const round = open.round?.id ?? open.id;
-  await ok('PUT', `${M()}/edge-list/enabled`, T.dm, { on: false });
+  await ok('PUT', `${M()}/edge-list/enabled`, T.gm, { on: false });
   await refused('POST', `${R}/add-item`, T.jess, { values: { name: 'Late', size: 1, kind: 'a' } }, /off|No house rule/);
-  await refused('POST', `${R}/add-item`, T.dm, { values: { name: 'Late', size: 1, kind: 'a' } }, /off/);
+  await refused('POST', `${R}/add-item`, T.gm, { values: { name: 'Late', size: 1, kind: 'a' } }, /off/);
   await refused('POST', `${M()}/edge-list/prompts/round/${round}/answer`, T.jess, { choice: 1 });
   const openNow = (await ok('GET', `${M()}/prompts/open`, T.jess)).rounds;
   assert.ok(!openNow.some((r: any) => r.mod === 'edge-list'), 'an off rule shows no open prompt');
-  await ok('DELETE', `${M()}/edge-list`, T.dm);
-  await refused('GET', `${M()}/edge-list/records`, T.dm, undefined);
+  await ok('DELETE', `${M()}/edge-list`, T.gm);
+  await refused('GET', `${M()}/edge-list/records`, T.gm, undefined);
   // Importing it again starts clean: seeds again, no old records.
-  await ok('POST', `${M()}/import`, T.dm, { mod: LIST });
-  await ok('PUT', `${M()}/edge-list/enabled`, T.dm, { on: true });
-  const again = (await ok('GET', `${M()}/edge-list/records`, T.dm)).records;
+  await ok('POST', `${M()}/import`, T.gm, { mod: LIST });
+  await ok('PUT', `${M()}/edge-list/enabled`, T.gm, { on: true });
+  const again = (await ok('GET', `${M()}/edge-list/records`, T.gm)).records;
   assert.deepEqual(again.item.map((x: any) => x.name), ['Rope']);
   assert.equal(again.job.length, 0);
-  await ok('DELETE', `${M()}/edge-list`, T.dm);
+  await ok('DELETE', `${M()}/edge-list`, T.gm);
 });
 
 test('ModsEdge: counters hold at the cap and at zero, a lower max later clamps, ids that do not exist are plain errors', async () => {
-  await ok('POST', `${M()}/import`, T.dm, { mod: POINTS });
-  await ok('PUT', `${M()}/edge-points/enabled`, T.dm, { on: true });
+  await ok('POST', `${M()}/import`, T.gm, { mod: POINTS });
+  await ok('PUT', `${M()}/edge-points/enabled`, T.gm, { on: true });
   const act = (tok: string, body: unknown) => call('POST', `${M()}/edge-points/act`, tok, body);
   await refused('POST', `${M()}/edge-points/act`, T.jess, { action: 'spend' }, /No Point left/);
-  for (let i = 0; i < 3; i++) assert.ok((await act(T.dm, { action: 'give', player: ID.jess })).status < 300);
-  await refused('POST', `${M()}/edge-points/act`, T.dm, { action: 'give', player: ID.jess }, /most/);
-  await refused('POST', `${M()}/edge-points/act`, T.dm, { action: 'nope', player: ID.jess });
-  await refused('POST', `${M()}/edge-points/act`, T.dm, { action: 'give', player: 'acc_nobody' });
+  for (let i = 0; i < 3; i++) assert.ok((await act(T.gm, { action: 'give', player: ID.jess })).status < 300);
+  await refused('POST', `${M()}/edge-points/act`, T.gm, { action: 'give', player: ID.jess }, /most/);
+  await refused('POST', `${M()}/edge-points/act`, T.gm, { action: 'nope', player: ID.jess });
+  await refused('POST', `${M()}/edge-points/act`, T.gm, { action: 'give', player: 'acc_nobody' });
   await refused('POST', `${M()}/edge-points/act`, T.jess, { action: 'give', player: ID.jess });
-  await refused('POST', `${M()}/nope/act`, T.dm, { action: 'give', player: ID.jess });
+  await refused('POST', `${M()}/nope/act`, T.gm, { action: 'give', player: ID.jess });
   // A new version with a lower max: Jess's 3 become 2.
-  await ok('POST', `${M()}/import`, T.dm, { mod: { ...POINTS, version: '1.1.0', resources: [{ id: 'pt', label: 'Point', max: 2 }] } });
+  await ok('POST', `${M()}/import`, T.gm, { mod: { ...POINTS, version: '1.1.0', resources: [{ id: 'pt', label: 'Point', max: 2 }] } });
   const c = await ok('GET', `${M()}/counters`, T.jess);
   assert.equal(c.players[0].mods['edge-points'][0].value, 2);
-  await ok('DELETE', `${M()}/edge-points`, T.dm);
+  await ok('DELETE', `${M()}/edge-points`, T.gm);
 });
 
 test('ModsEdge: a world holds at most 50 of its own rules, and a package that does not fit adds none', async () => {
-  const have = (await ok('GET', M(), T.dm)).mods.filter((m: any) => m.source === 'imported').length;
+  const have = (await ok('GET', M(), T.gm)).mods.filter((m: any) => m.source === 'imported').length;
   const many = Array.from({ length: 25 }, (_, i) => ({ kit: 2, id: `bulk-${i}`, name: `Bulk ${i}` }));
-  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, name: 'A', mods: many } });
+  await ok('POST', `${M()}/import`, T.gm, { mod: { type: 'alexandria-house-rules', kit: 2, name: 'A', mods: many } });
   const rest = 50 - have - 25;
-  await ok('POST', `${M()}/import`, T.dm, { mod: { type: 'alexandria-house-rules', kit: 2, name: 'B', mods: many.slice(0, rest - 2).map((m, i) => ({ ...m, id: `bulk-${i + 25}` })) } });
+  await ok('POST', `${M()}/import`, T.gm, { mod: { type: 'alexandria-house-rules', kit: 2, name: 'B', mods: many.slice(0, rest - 2).map((m, i) => ({ ...m, id: `bulk-${i + 25}` })) } });
   const tooBig = { type: 'alexandria-house-rules', kit: 2, name: 'C', mods: [0, 1, 2].map((i) => ({ kit: 2, id: `late-${i}`, name: `Late ${i}` })) };
-  await refused('POST', `${M()}/import`, T.dm, { mod: tooBig }, /room for 2/);
-  const ids = (await ok('GET', M(), T.dm)).mods.map((m: any) => m.id);
+  await refused('POST', `${M()}/import`, T.gm, { mod: tooBig }, /room for 2/);
+  const ids = (await ok('GET', M(), T.gm)).mods.map((m: any) => m.id);
   assert.ok(!ids.some((x: string) => x.startsWith('late-')), 'none of the package was added');
-  await ok('POST', `${M()}/import`, T.dm, { mod: { ...tooBig, mods: tooBig.mods.slice(0, 2) } });
-  await refused('POST', `${M()}/import`, T.dm, { mod: { kit: 2, id: 'one-more', name: 'One too many' } }, /50/);
-  await ok('POST', `${M()}/import`, T.dm, { mod: { kit: 2, id: 'bulk-0', name: 'Bulk 0 again' } }, );
-  for (const id of (await ok('GET', M(), T.dm)).mods.filter((m: any) => /^(bulk|late)-/.test(m.id)).map((m: any) => m.id)) await ok('DELETE', `${M()}/${id}`, T.dm);
+  await ok('POST', `${M()}/import`, T.gm, { mod: { ...tooBig, mods: tooBig.mods.slice(0, 2) } });
+  await refused('POST', `${M()}/import`, T.gm, { mod: { kit: 2, id: 'one-more', name: 'One too many' } }, /50/);
+  await ok('POST', `${M()}/import`, T.gm, { mod: { kit: 2, id: 'bulk-0', name: 'Bulk 0 again' } }, );
+  for (const id of (await ok('GET', M(), T.gm)).mods.filter((m: any) => /^(bulk|late)-/.test(m.id)).map((m: any) => m.id)) await ok('DELETE', `${M()}/${id}`, T.gm);
 });
 
 // ---- the popular table rules that ship in mods/ ------------------------------------------------------------------
 
 test('ModsEdge: the party inspiration pool is shared, refuses a draw when empty, and turns inspiration rerolls off', async () => {
-  await ok('POST', `/api/worlds/${W}/sessionchat/sessions/start`, T.dm, { title: 'Table rules' });
-  await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: true });
-  const on = await ok('PUT', `${M()}/party-inspiration/enabled`, T.dm, { on: true });
+  await ok('POST', `/api/worlds/${W}/sessionchat/sessions/start`, T.gm, { title: 'Table rules' });
+  await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.gm, { on: true });
+  const on = await ok('PUT', `${M()}/party-inspiration/enabled`, T.gm, { on: true });
   assert.deepEqual(on.turnedOff ?? [], ['inspiration-rerolls']);
   const R = `${M()}/party-inspiration/records`;
   const pool = (await ok('GET', `${M()}/party-inspiration/records?kind=pool`, T.jess)).records.pool[0];
   assert.equal(pool.points, 0);
   await refused('POST', `${R}/draw`, T.jess, { recordId: pool.id }, /Not enough Points left/);
-  await ok('POST', `${R}/add`, T.dm, { recordId: pool.id, amount: 2, note: 'Great plan' });
+  await ok('POST', `${R}/add`, T.gm, { recordId: pool.id, amount: 2, note: 'Great plan' });
   await ok('POST', `${R}/draw`, T.jess, { recordId: pool.id, note: 'Sneaking past the guard' });
   const left = await ok('POST', `${R}/draw`, T.tom, { recordId: pool.id });
   assert.equal(left.record.points, 0, 'both players draw from the same pool');
   await refused('POST', `${R}/add`, T.jess, { recordId: pool.id, amount: 5 });
-  const capped = await ok('POST', `${R}/add`, T.dm, { recordId: pool.id, amount: 50 });
+  const capped = await ok('POST', `${R}/add`, T.gm, { recordId: pool.id, amount: 50 });
   assert.equal(capped.record.points, 10, 'the GM adding a lot holds at the most');
-  const chat = (await ok('GET', `/api/worlds/${W}/sessionchat/chat/table`, T.dm)).messages.map((x: any) => x.body).join('\n');
+  const chat = (await ok('GET', `/api/worlds/${W}/sessionchat/chat/table`, T.gm)).messages.map((x: any) => x.body).join('\n');
   assert.match(chat, /Jessamine draws on the party's inspiration \(1 left\)\. Sneaking past the guard/);
-  await ok('PUT', `${M()}/party-inspiration/enabled`, T.dm, { on: false });
+  await ok('PUT', `${M()}/party-inspiration/enabled`, T.gm, { on: false });
 });
 
 test('ModsEdge: lingering injuries heal over long rests; one of 0 days waits for magic', async () => {
-  await ok('PUT', `${M()}/lingering-injuries/enabled`, T.dm, { on: true });
+  await ok('PUT', `${M()}/lingering-injuries/enabled`, T.gm, { on: true });
   const R = `${M()}/lingering-injuries/records`;
-  const ribs = (await ok('POST', `${R}/injure`, T.dm, { player: ID.jess, values: { name: 'Broken ribs', effect: 'Disadvantage on Constitution saves', days: 2 } })).record;
-  const eye = (await ok('POST', `${R}/injure`, T.dm, { player: ID.jess, values: { name: 'Lost eye', effect: 'Disadvantage on sight-based Perception', days: 0 } })).record;
+  const ribs = (await ok('POST', `${R}/injure`, T.gm, { player: ID.jess, values: { name: 'Broken ribs', effect: 'Disadvantage on Constitution saves', days: 2 } })).record;
+  const eye = (await ok('POST', `${R}/injure`, T.gm, { player: ID.jess, values: { name: 'Lost eye', effect: 'Disadvantage on sight-based Perception', days: 0 } })).record;
   await refused('POST', `${R}/injure`, T.jess, { values: { name: 'Fake', effect: 'x', days: 1 } });
   const tomSees = (await ok('GET', `${M()}/lingering-injuries/records?kind=injury`, T.tom)).records.injury;
   assert.equal(tomSees.length, 0, "Tom does not see Jess's injuries");
-  for (let i = 0; i < 3; i++) await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'long-rest' });
+  for (let i = 0; i < 3; i++) await ok('POST', `/api/worlds/${W}/clock/advance`, T.gm, { preset: 'long-rest' });
   const mine = Object.fromEntries((await ok('GET', `${M()}/lingering-injuries/records?kind=injury`, T.jess)).records.injury.map((r: any) => [r.id, r]));
   assert.equal(mine[ribs.id].status, 'healed');
   assert.equal(mine[eye.id].status, 'open', 'magic only');
-  await ok('POST', `${R}/heal`, T.dm, { recordId: eye.id, note: 'Regenerate' });
-  await refused('POST', `${R}/heal`, T.dm, { recordId: eye.id });
-  const chat = (await ok('GET', `/api/worlds/${W}/sessionchat/chat/table`, T.dm)).messages.map((x: any) => x.body).join('\n');
+  await ok('POST', `${R}/heal`, T.gm, { recordId: eye.id, note: 'Regenerate' });
+  await refused('POST', `${R}/heal`, T.gm, { recordId: eye.id });
+  const chat = (await ok('GET', `/api/worlds/${W}/sessionchat/chat/table`, T.gm)).messages.map((x: any) => x.body).join('\n');
   assert.match(chat, /Jessamine suffers a lingering injury: Broken ribs\. Disadvantage on Constitution saves/);
   assert.match(chat, /Jessamine's Broken ribs has healed\./);
   assert.match(chat, /Jessamine's Lost eye has healed\./);
-  await ok('PUT', `${M()}/lingering-injuries/enabled`, T.dm, { on: false });
+  await ok('PUT', `${M()}/lingering-injuries/enabled`, T.gm, { on: false });
 });
 
 test('ModsEdge: every rules-only table rule turns on, adds its glossary term, and tells the assistant', async () => {
   for (const id of ['potion-bonus-action', 'flanking-bonus', 'skill-check-crits', 'hidden-death-saves', 'max-hp-level', 'gritty-rests']) {
-    await ok('PUT', `${M()}/${id}/enabled`, T.dm, { on: true });
+    await ok('PUT', `${M()}/${id}/enabled`, T.gm, { on: true });
     const rules = (await ok('GET', `${M()}/rules`, T.jess)).rules;
     assert.ok(rules.some((r: any) => r.mod === id), `${id} in the glossary`);
-    await ok('PUT', `${M()}/${id}/enabled`, T.dm, { on: false });
+    await ok('PUT', `${M()}/${id}/enabled`, T.gm, { on: false });
   }
 });

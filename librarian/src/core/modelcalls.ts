@@ -112,7 +112,7 @@ export function pruneCalls(db: DB) {
 
 // ---- who may use the gateway -------------------------------------------------------------------
 
-export interface Subject { accountId: string; keyId: string | null; isAdmin: boolean; isDm: boolean; viaSession: boolean; viaScribeKey: boolean }
+export interface Subject { accountId: string; keyId: string | null; isAdmin: boolean; isGm: boolean; viaSession: boolean; viaScribeKey: boolean }
 
 export interface Allowance { allowed: boolean; why: string; dailyRequests: number; dailyTokens: number; ratePerMinute: number }
 
@@ -120,7 +120,7 @@ const num = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) &&
 
 /** Is this caller allowed through /v1, and with which limits? The admin and a GM (signed in, not by a scribe key) by default; anyone else only when listed. */
 export function allowanceOf(db: DB, s: Subject, env: Record<string, string | undefined>): Allowance {
-  const staffLimits = { dailyRequests: num(env.ALX_V1_DAILY_REQUESTS_DM, 5000), dailyTokens: num(env.ALX_V1_DAILY_TOKENS_DM, 2_000_000), ratePerMinute: num(env.ALX_V1_RATE_PER_MIN_DM, 120) };
+  const staffLimits = { dailyRequests: num(env.ALX_V1_DAILY_REQUESTS_GM ?? env.ALX_V1_DAILY_REQUESTS_DM, 5000), dailyTokens: num(env.ALX_V1_DAILY_TOKENS_GM ?? env.ALX_V1_DAILY_TOKENS_DM, 2_000_000), ratePerMinute: num(env.ALX_V1_RATE_PER_MIN_GM ?? env.ALX_V1_RATE_PER_MIN_DM, 120) };
   const guestLimits = { dailyRequests: num(env.ALX_V1_DAILY_REQUESTS, 200), dailyTokens: num(env.ALX_V1_DAILY_TOKENS, 100_000), ratePerMinute: num(env.ALX_V1_RATE_PER_MIN, 20) };
   const listed = (kind: 'account' | 'key', id: string | null) => (id ? one<any>(db, 'SELECT daily_requests, daily_tokens FROM model_access WHERE subject_kind = ? AND subject_id = ?', kind, id) : undefined);
   const key = listed('key', s.keyId);
@@ -129,7 +129,7 @@ export function allowanceOf(db: DB, s: Subject, env: Record<string, string | und
   const withRow = (base: typeof guestLimits) => ({ dailyRequests: row?.daily_requests ?? base.dailyRequests, dailyTokens: row?.daily_tokens ?? base.dailyTokens, ratePerMinute: base.ratePerMinute });
   // A key that is not the admin's own session is listed by itself: a leaked scribe key must not be able to spend the model credit just because its owner is the GM.
   if (s.viaScribeKey) return key ? { allowed: true, why: 'key listed', ...withRow(guestLimits) } : { allowed: false, why: 'scribe keys do not reach the model gateway unless listed', ...guestLimits };
-  if (s.isAdmin || s.isDm) return { allowed: true, why: s.isAdmin ? 'admin' : 'dm', ...withRow(staffLimits) };
+  if (s.isAdmin || s.isGm) return { allowed: true, why: s.isAdmin ? 'admin' : 'gm', ...withRow(staffLimits) };
   if (row) return { allowed: true, why: 'listed', ...withRow(guestLimits) };
   return { allowed: false, why: 'only the GM and the admin use the model gateway', ...guestLimits };
 }
@@ -163,11 +163,11 @@ export function gatewayLog(db: DB, env: Record<string, string | undefined>, opts
   for (const r of all<any>(db, `SELECT subject_id FROM model_access WHERE subject_kind = 'account'`)) ids.add(r.subject_id);
   const users = [...ids].map((id) => {
     const acct = one<any>(db, 'SELECT id, username, is_admin FROM accounts WHERE id = ?', id);
-    const isDm = !!one(db, `SELECT 1 FROM members WHERE account_id = ? AND role = 'dm'`, id);
-    const a = allowanceOf(db, { accountId: id, keyId: null, isAdmin: !!acct?.is_admin, isDm, viaSession: true, viaScribeKey: false }, env);
+    const isGm = !!one(db, `SELECT 1 FROM members WHERE account_id = ? AND role = 'gm'`, id);
+    const a = allowanceOf(db, { accountId: id, keyId: null, isAdmin: !!acct?.is_admin, isGm, viaSession: true, viaScribeKey: false }, env);
     const t = today.find((x) => x.account_id === id);
     return {
-      accountId: id, username: acct?.username ?? null, role: acct?.is_admin ? 'admin' : isDm ? 'dm' : a.allowed ? 'listed' : 'not allowed', allowed: a.allowed,
+      accountId: id, username: acct?.username ?? null, role: acct?.is_admin ? 'admin' : isGm ? 'gm' : a.allowed ? 'listed' : 'not allowed', allowed: a.allowed,
       requests: Number(t?.n ?? 0), tokens: Number(t?.t ?? 0), refused: Number(t?.refused ?? 0), limited: Number(t?.limited ?? 0), errors: Number(t?.errors ?? 0), lastAt: t?.last_at ?? null,
       caps: { dailyRequests: a.dailyRequests, dailyTokens: a.dailyTokens, ratePerMinute: a.ratePerMinute },
     };

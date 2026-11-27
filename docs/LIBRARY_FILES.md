@@ -35,7 +35,7 @@ interval. Browsers play sound only after one click: the screen shows a single
 "Click to start" overlay (also full screen) and the desktop app needs none.
 
 Each file has a **kind** (`map`, `handout`, `item`, `rules`, `other`) and a
-**level** (`party`, `broker`, `dm`, `classified`). No level means `dm`; a level
+**level** (`party`, `broker`, `gm`, `classified`). No level means `gm`; a level
 that is not one of the four is refused, never defaulted to party.
 
 ## Where a file lives
@@ -53,7 +53,7 @@ Players cannot upload (there is no player notes feature to attach files to).
 
 A viewer gets a file only when they may see the **page** and the **file's
 level**: players party-level files on shared pages, the broker up to broker, a
-model acting for the GM up to dm (never `classified`), the GM everything. Lists
+model acting for the GM up to gm (never `classified`), the GM everything. Lists
 and tickets are built per viewer; levels are shown to the GM only. A GM-only
 page's files are not found for a player even at party level.
 

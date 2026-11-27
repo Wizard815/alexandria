@@ -15,7 +15,7 @@ import { rarityLabel, STATUS_LABEL, statusChip, type Line, type Order, type Shop
 import './shop.css';
 
 export default function PlayerShop() {
-  const { w, info, isDM } = useWorld();
+  const { w, info, isGM } = useWorld();
   const [sp, setSp] = useSearchParams();
   const list = useLoad<{ shops: Shop[]; config: ShopConfig }>(() => w.call('GET', '/shop/shops'), [w], ['shop', 'settings']);
   const sid = sp.get('shop') ?? '';
@@ -30,7 +30,7 @@ export default function PlayerShop() {
 
   return (
     <div className="page shop-page">
-      <PageHead title="Shop" lead={isDM ? 'What players see: open and closed shops, never hidden ones.' : 'Browse what is for sale and buy with your own coin or the party pouch.'} />
+      <PageHead title="Shop" lead={isGM ? 'What players see: open and closed shops, never hidden ones.' : 'Browse what is for sale and buy with your own coin or the party pouch.'} />
       {!shops.length ? <Empty>No shop is open to you right now. Your GM opens shops when you reach one.</Empty> : (
         <div className="cols">
           <nav className="col-1 stack" aria-label="Shops">
@@ -120,7 +120,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
                   </details>
                   <span className="stack tight">
                     <button type="button" className="btn small primary" data-testid="buy-btn" disabled={l.priceCp === null || l.qty === 0} onClick={() => setBuying(l)}>Buy</button>
-                    {s.haggles && info.role !== 'dm' && l.priceCp !== null && l.qty !== 0 && !l.dealPct && <button type="button" className="btn small ghost" data-testid="haggle-btn" onClick={() => setHaggling(l)}>Haggle</button>}
+                    {s.haggles && info.role !== 'gm' && l.priceCp !== null && l.qty !== 0 && !l.dealPct && <button type="button" className="btn small ghost" data-testid="haggle-btn" onClick={() => setHaggling(l)}>Haggle</button>}
                   </span>
                 </li>
               ))}

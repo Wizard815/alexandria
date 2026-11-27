@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 
-export const DM_SECRET = 'The harbour council secretly answers to the smuggler queen Velmira every single night';
+export const GM_SECRET = 'The harbour council secretly answers to the smuggler queen Velmira every single night';
 export const cleanups: (() => void)[] = [];
 
 export interface Model { calls: any[]; reply: (blank: any[], body: any) => any }
@@ -52,16 +52,16 @@ export async function boot(withModel: boolean, opts: { modelUp?: boolean } = {})
   };
   const T: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Sculptland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Sculptland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
-  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] GM\n> ${DM_SECRET}.\n`);
+  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown });
+  await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] GM\n> ${GM_SECRET}.\n`);
   void opts;
   const S = `/api/worlds/${W}/sculpt`;
   return { made, model, T, W, S, call, ok, base };
 }
 export type Env = Awaited<ReturnType<typeof boot>>;
-export const tplId = async (e: Env, name: string) => (await e.ok('GET', `${e.S}/templates`, e.T.dm)).templates.find((t: any) => t.name === name || t.key === name).id;
+export const tplId = async (e: Env, name: string) => (await e.ok('GET', `${e.S}/templates`, e.T.gm)).templates.find((t: any) => t.name === name || t.key === name).id;

@@ -57,20 +57,20 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Quickland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Quickland', gmAccountId: ID.gm })).id;
   for (const [name, ch] of [['jess', 'Brindle'], ['tom', 'Oskar']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: ch });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: '# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] GM\n> The council answers to the smuggler queen Velmira.\n' });
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Velmira', visibility: 'dm', markdown: '# Velmira\nVelmira keeps her treasury beneath the lighthouse in Saltmarsh.\n' });
-  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Rope of climbing', qty: 1, reason: 'Loot' });
-  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.tom, name: 'Wand of secrets', qty: 1, reason: 'Found it' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'places/Saltmarsh', visibility: 'party', markdown: '# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] GM\n> The council answers to the smuggler queen Velmira.\n' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'gm/Velmira', visibility: 'gm', markdown: '# Velmira\nVelmira keeps her treasury beneath the lighthouse in Saltmarsh.\n' });
+  await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: 'Rope of climbing', qty: 1, reason: 'Loot' });
+  await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.tom, name: 'Wand of secrets', qty: 1, reason: 'Found it' });
 });
 
 after(async () => {
@@ -120,9 +120,9 @@ test('TestQuickHelper_BriefHasOnlyWhatThePlayerMaySee', async () => {
   assert.ok(b.sections.some((s: any) => s.label === 'Library (shared with the party)'));
   assert.ok(b.lore.some((l: any) => l.title === 'Saltmarsh'));
   // The GM can look at what a player's helper is given, as that player sees it.
-  const dmView = await ok('GET', `${Q()}/brief?task=sheet&account=${ID.tom}`, T.dm);
-  assert.match(JSON.stringify(dmView.sections), /Wand of secrets/);
-  assert.equal((await call('GET', `${Q()}/brief?task=sheet`, T.dm)).status, 400);
+  const gmView = await ok('GET', `${Q()}/brief?task=sheet&account=${ID.tom}`, T.gm);
+  assert.match(JSON.stringify(gmView.sections), /Wand of secrets/);
+  assert.equal((await call('GET', `${Q()}/brief?task=sheet`, T.gm)).status, 400);
 });
 
 test('TestQuickHelper_ModelHandoffGoesToTheBroker', async () => {
@@ -155,9 +155,9 @@ test('TestQuickHelper_HardQuestionsSkipTheSmallModel', async () => {
 
 test('TestQuickHelper_TurnOptionsSeeTheCombat', async () => {
   reply = '- Attack the goblin\n- Dodge';
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Goblin', initiative: 5, hp: 7, maxHp: 7 });
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Brindle', accountId: ID.jess, initiative: 15, hp: 12, maxHp: 12 });
-  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: true, round: 2, turn: 0 });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Goblin', initiative: 5, hp: 7, maxHp: 7 });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Brindle', accountId: ID.jess, initiative: 15, hp: 12, maxHp: 12 });
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.gm, { active: true, round: 2, turn: 0 });
   const r = await ok('POST', Q(), T.jess, { task: 'turn' });
   assert.match(r.answer, /Attack/);
   const u = userText(last());
@@ -165,7 +165,7 @@ test('TestQuickHelper_TurnOptionsSeeTheCombat', async () => {
   // With the player sheet in, adding them to the tracker seeds their sheet; before it, the tracker line is used.
   assert.match(u, /HP: 12 of 12( \(combat tracker\))?\./, 'their own HP from the sheet or the tracker');
   assert.match(u, /Question: What can I do on my turn\?/);
-  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: false });
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.gm, { active: false });
 });
 
 test('TestQuickHelper_ModelDownHandsOff', async () => {
@@ -177,13 +177,13 @@ test('TestQuickHelper_ModelDownHandsOff', async () => {
   } finally { down = false; }
 });
 
-test('TestQuickHelper_OnlyPlayersAndTheDMCanTurnItOff', async () => {
-  assert.equal((await call('POST', Q(), T.dm, { task: 'ask', question: 'hi' })).status, 403);
+test('TestQuickHelper_OnlyPlayersAndTheGMCanTurnItOff', async () => {
+  assert.equal((await call('POST', Q(), T.gm, { task: 'ask', question: 'hi' })).status, 403);
   assert.equal((await call('POST', Q(), T.jess, { task: 'nope' })).status, 400);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { quickHelper: false });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { quickHelper: false });
   assert.equal((await call('POST', Q(), T.jess, { task: 'sheet' })).status, 403);
   assert.equal((await ok('GET', Q(), T.jess)).on, false);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { quickHelper: true });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { quickHelper: true });
   void run;
 });
 
@@ -227,9 +227,9 @@ test('TestQuickHelper_UnsetUsesThePlayersModel', async () => {
 });
 
 test('TestQuickHelper_TurnKnowsWeaponsFeaturesAndSpells', async () => {
-  await ok('PUT', `/api/worlds/${W}/spells/characters/${ID.jess}`, T.dm, { class: 'Rogue', level: 3, abilities: { dex: 16, str: 10 } });
-  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Shortsword', qty: 1, reason: 'Loot' });
-  await ok('POST', `/api/worlds/${W}/spells/characters/${ID.jess}/known`, T.dm, { spell: 'Minor Illusion' });
+  await ok('PUT', `/api/worlds/${W}/spells/characters/${ID.jess}`, T.gm, { class: 'Rogue', level: 3, abilities: { dex: 16, str: 10 } });
+  await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: 'Shortsword', qty: 1, reason: 'Loot' });
+  await ok('POST', `/api/worlds/${W}/spells/characters/${ID.jess}/known`, T.gm, { spell: 'Minor Illusion' });
   reply = '- Attack with the Shortsword\n- Cunning Action: Hide';
   await ok('POST', Q(), T.jess, { task: 'turn' });
   const u = userText(last());

@@ -18,7 +18,7 @@ export default function ConnectAI() {
   const [made, setMade] = useState<McpConnection | null>(null);
   const [adminKey, setAdminKey] = useState<string | null>(null);
   const a = useAction();
-  const isDM = w?.role === 'dm';
+  const isGM = w?.role === 'gm';
 
   const make = (access: 'read' | 'write') => void a.run(async () => {
     if (!w) {
@@ -42,7 +42,7 @@ export default function ConnectAI() {
       <PageHead
         title={w ? 'Connect AI' : 'Keys & AI'}
         lead={w
-          ? isDM
+          ? isGM
             ? 'Give an AI app access to this world through MCP. A read key only looks things up; a write key can also change things as the GM.'
             : 'Give an AI app access to this world through MCP. Your key is read-only: it sees only what you can see and cannot change anything. One was made for you when you joined; make another for each app.'
           : 'Admin keys work with the admin API (accounts, worlds, sources). For a world’s AI connection, open the world and use “Connect an AI”.'}
@@ -53,7 +53,7 @@ export default function ConnectAI() {
           {w ? (
             <>
               <button type="button" className="btn primary" disabled={a.busy} onClick={() => make('read')}>Make a read-only key</button>
-              {isDM && <button type="button" className="btn danger" disabled={a.busy} onClick={() => make('write')}>Make a GM write key</button>}
+              {isGM && <button type="button" className="btn danger" disabled={a.busy} onClick={() => make('write')}>Make a GM write key</button>}
             </>
           ) : (
             <button type="button" className="btn primary" disabled={a.busy} onClick={() => make('write')}>Make an admin key</button>

@@ -4,20 +4,20 @@ import { Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import * as F from '../registry.ts';
 import { PANELS, panelById, type PanelDef } from '../screens/panels.tsx';
-import { DM_NAMES } from '../../lib/dmnames.ts';
-import { menuEntries } from '../../layouts/DMMenu.tsx';
+import { GM_NAMES } from '../../lib/gmnames.ts';
+import { menuEntries } from '../../layouts/GMMenu.tsx';
 import { routeOfPage } from '../../lib/workspace.ts';
-import DMTable from '../../pages/dm/Table.tsx';
-import DMInbox from '../../pages/dm/Inbox.tsx';
-import DMCombat from '../../pages/dm/Combat.tsx';
-import DMQuickEvents from '../../pages/dm/QuickEvents.tsx';
-import DMParty from '../../pages/dm/Party.tsx';
-import DMPeople from '../../pages/dm/People.tsx';
-import DMRelations from '../../pages/dm/Relations.tsx';
-import DMSharing from '../../pages/dm/Sharing.tsx';
-import DMSettings from '../../pages/dm/Settings.tsx';
+import GMTable from '../../pages/gm/Table.tsx';
+import GMInbox from '../../pages/gm/Inbox.tsx';
+import GMCombat from '../../pages/gm/Combat.tsx';
+import GMQuickEvents from '../../pages/gm/QuickEvents.tsx';
+import GMParty from '../../pages/gm/Party.tsx';
+import GMPeople from '../../pages/gm/People.tsx';
+import GMRelations from '../../pages/gm/Relations.tsx';
+import GMSharing from '../../pages/gm/Sharing.tsx';
+import GMSettings from '../../pages/gm/Settings.tsx';
 import LibraryPage from '../../pages/library/LibraryPage.tsx';
-import DMBroker from '../../pages/broker/DMBroker.tsx';
+import GMBroker from '../../pages/broker/GMBroker.tsx';
 import Messages from '../../pages/shared/Messages.tsx';
 import Calendar from '../../pages/shared/Calendar.tsx';
 import Whiteboard from '../../pages/shared/Whiteboard.tsx';
@@ -32,26 +32,26 @@ export interface PaneRoute { path: string; element: ReactNode }
 export function paneRoutes(): PaneRoute[] {
   const core: PaneRoute[] = [
     { path: 'library', element: <LibraryPage /> },
-    { path: 'broker', element: <DMBroker /> },
-    { path: 'inbox', element: <DMInbox /> },
+    { path: 'broker', element: <GMBroker /> },
+    { path: 'inbox', element: <GMInbox /> },
     { path: 'approvals', element: <Navigate to="../inbox?tab=approvals" replace /> },
     { path: 'requests', element: <Navigate to="../inbox?tab=requests" replace /> },
-    { path: 'combat', element: <DMCombat /> },
-    { path: 'quick', element: <DMQuickEvents /> },
-    { path: 'party', element: <DMParty /> },
-    { path: 'people', element: <DMPeople /> },
-    { path: 'relations', element: <DMRelations /> },
+    { path: 'combat', element: <GMCombat /> },
+    { path: 'quick', element: <GMQuickEvents /> },
+    { path: 'party', element: <GMParty /> },
+    { path: 'people', element: <GMPeople /> },
+    { path: 'relations', element: <GMRelations /> },
     { path: 'map', element: <MapBoard /> },
     { path: 'messages', element: <Messages /> },
     { path: 'calendar', element: <Calendar /> },
     { path: 'whiteboard', element: <Whiteboard /> },
-    { path: 'settings', element: <DMSettings /> },
-    { path: 'sharing', element: <DMSharing /> },
+    { path: 'settings', element: <GMSettings /> },
+    { path: 'sharing', element: <GMSharing /> },
     { path: 'connect', element: <ConnectAI /> },
   ];
-  return [...core, ...F.dmRoutes.filter((r) => r.path !== 'ws')];
+  return [...core, ...F.gmRoutes.filter((r) => r.path !== 'ws')];
 }
-export const tablePage = <DMTable />;
+export const tablePage = <GMTable />;
 
 export interface PageMeta { id: string; title: string; icon: string; desc: string; /** The menu group, for the picker. */ group: string }
 
@@ -62,7 +62,7 @@ export function pageMeta(id: string): PageMeta | null {
   const route = routeOfPage(id);
   const e = menuEntries().find((m) => m.to === route);
   if (e) return { id, title: e.label, icon: e.icon, desc: e.desc, group: e.group };
-  const n = DM_NAMES[route];
+  const n = GM_NAMES[route];
   return n ? { id, title: n.label, icon: n.icon, desc: n.desc, group: n.group } : null;
 }
 

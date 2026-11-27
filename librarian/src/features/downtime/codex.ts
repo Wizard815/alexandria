@@ -7,7 +7,7 @@
 import { one, run } from '../../core/db.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { id, now } from '../../core/util.ts';
-import { dmAnd } from '../../core/events.ts';
+import { gmAnd } from '../../core/events.ts';
 import { recipeById, recipes } from '../spells/craft.ts';
 import { knownIds, spellById } from '../spells/store.ts';
 import { NO_REWARD, tierForSpellLevel, type Activity } from './catalog.ts';
@@ -40,7 +40,7 @@ addDowntimeLink({
     if (one(d.db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND recipe_id = ? AND status = 'pending'", worldId, task.account_id, rc.id)) return 'A learn request was already waiting in the Codex';
     const lid = id('lrn_');
     run(d.db, 'INSERT INTO spells_learn (id, world_id, account_id, recipe_id, spell_id, status, note, at) VALUES (?,?,?,?,?,?,?,?)', lid, worldId, task.account_id, rc.id, rc.resultId, 'pending', `Finished in downtime: ${task.name}`.slice(0, 300), now());
-    d.hub.emit(worldId, 'spells-learn', { id: lid, accountId: task.account_id, status: 'pending' }, dmAnd(task.account_id));
+    d.hub.emit(worldId, 'spells-learn', { id: lid, accountId: task.account_id, status: 'pending' }, gmAnd(task.account_id));
     return 'Sent to the Codex for the GM to approve';
   },
 });

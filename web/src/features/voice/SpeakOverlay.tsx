@@ -8,8 +8,8 @@ export interface Preset { id: string; name: string; voice: string; speed: number
 const WHERE = { table: 'table', players: 'players', both: 'table + players' };
 
 export default function SpeakOverlay() {
-  const { isDM } = useWorld();
-  return isDM ? <SpeakMenu /> : null;
+  const { isGM } = useWorld();
+  return isGM ? <SpeakMenu /> : null;
 }
 
 function SpeakMenu() {

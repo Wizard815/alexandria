@@ -14,7 +14,7 @@ import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
 import { HttpError, id as newId, now, parseJson } from '../../core/util.ts';
 import { groupUtterances, MAX_UTTERANCE_MS, mergeGroup, similarity, token, utterances, type Word } from './merge.ts';
 import { cleanWords, echoesPrompt, junkReason, QUIET_LEVEL, type Pw } from './clean.ts';
-import { buildHint, containsTerm, dmOnlyTerms } from './hint.ts';
+import { buildHint, containsTerm, gmOnlyTerms } from './hint.ts';
 import { notifyLine } from './hooks.ts';
 import { runRecordingRetention, rewriteTranscript } from './recordings.ts';
 import { chooseOffsets, dedupeLines, tidyLines, type OffsetEstimate } from './final.ts';
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS audio_lines (
   text TEXT NOT NULL,
   words TEXT NOT NULL DEFAULT '[]',
   sources TEXT NOT NULL DEFAULT '[]',
-  audience TEXT NOT NULL DEFAULT 'dm',
+  audience TEXT NOT NULL DEFAULT 'gm',
   audience_override TEXT,
   rev INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL
@@ -127,7 +127,7 @@ export const HOLD_KINDS = ['talk', 'mute', 'aside'] as const;
 export interface MicRow { id: string; world_id: string; account_id: string; device_id: string; label: string; mode: Mode; players_transcript: number; aside: number; room: number; created_at: string }
 export interface LineRow {
   id: string; session_id: string; world_id: string; start_ms: number; end_ms: number; speaker_account: string | null; speaker_label: string;
-  text: string; words: string; sources: string; audience: 'players' | 'dm'; audience_override: 'players' | 'dm' | null; rev: number; updated_at: string;
+  text: string; words: string; sources: string; audience: 'players' | 'gm'; audience_override: 'players' | 'gm' | null; rev: number; updated_at: string;
 }
 
 // A line is GM-only only if it overlaps the aside (plus a little for clock jitter between devices); the lines either side stay with the table.
@@ -152,10 +152,10 @@ export const TABLE = 'Table';
 const overlaps = (a0: number, a1: number, b0: number, b1: number) => a0 < b1 && a1 > b0;
 
 /** What each kind of viewer is sent for a line. Players never get sources, words or the audience field. */
-export function lineView(l: LineRow, dm: boolean, nameOf: (accountId: string) => string) {
+export function lineView(l: LineRow, gm: boolean, nameOf: (accountId: string) => string) {
   const speaker = l.speaker_account ? nameOf(l.speaker_account) : l.speaker_label;
   const base = { id: l.id, sessionId: l.session_id, start: l.start_ms, end: l.end_ms, speaker, speakerId: l.speaker_account, text: l.text, rev: l.rev, updatedAt: l.updated_at };
-  if (!dm) return base;
+  if (!gm) return base;
   return { ...base, audience: l.audience, override: l.audience_override, sources: parseJson<string[]>(l.sources, []), words: parseJson<unknown[]>(l.words, []) };
 }
 
@@ -189,11 +189,11 @@ export class Engine {
   resetHint(worldId?: string) { if (worldId) this.hints.delete(worldId); else this.hints.clear(); this.terms.clear(); }
 
   /** GM-only titles and aliases of a world, as token lists (cached for a short while). */
-  private dmTerms(worldId: string): string[][] {
+  private gmTerms(worldId: string): string[][] {
     const c = this.terms.get(worldId);
     if (c && Date.now() - c.at < 15_000) return c.list;
     let list: string[][] = [];
-    try { list = dmOnlyTerms(this.d.db, worldId); } catch { /* none */ }
+    try { list = gmOnlyTerms(this.d.db, worldId); } catch { /* none */ }
     this.terms.set(worldId, { at: Date.now(), list });
     return list;
   }
@@ -465,7 +465,7 @@ export class Engine {
     if (p.finished) { sets.push('finished_at = ?'); vals.push(now()); }
     if (sets.length) run(this.d.db, `UPDATE audio_final SET ${sets.join(', ')} WHERE session_id = ?`, ...vals, sessionId);
     const row = one<any>(this.d.db, 'SELECT status, step, pct FROM audio_final WHERE session_id = ?', sessionId);
-    if (row) this.d.hub.emit(worldId, 'transcript-final', { sessionId, status: row.status, step: row.step, pct: row.pct }, (v) => v.role === 'dm');
+    if (row) this.d.hub.emit(worldId, 'transcript-final', { sessionId, status: row.status, step: row.step, pct: row.pct }, (v) => v.role === 'gm');
   }
 
   /** The final pass of a session (running, finished or undone), for the GM. */
@@ -617,7 +617,7 @@ export class Engine {
   }
   flushAll() { for (const k of [...this.dirty.keys()]) this.flush(k); }
 
-  private merge(sessionId: string, from: number, to: number, keepDm = false, opts: { offsets?: Map<string, number>; final?: boolean } = {}) {
+  private merge(sessionId: string, from: number, to: number, keepGm = false, opts: { offsets?: Map<string, number>; final?: boolean } = {}) {
     const { db } = this.d;
     const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
     if (!session) return;
@@ -699,7 +699,7 @@ export class Engine {
     const existing = all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ? AND end_ms >= ? AND start_ms <= ? ORDER BY start_ms', sessionId, lowest, highest);
     const used = new Set<string>();
     const nm = this.nameOf(session.world_id);
-    const terms = this.dmTerms(session.world_id);
+    const terms = this.gmTerms(session.world_id);
 
     for (const l of lines) {
       // Speaker: a personal mic is credited only when it is clearly the close one; otherwise it is the table.
@@ -718,14 +718,14 @@ export class Engine {
       const anyPlayersMic = l.mics.some((id) => mics.get(id)?.players_transcript === 1);
       // A GM-only title in a line that only one mic heard may be the speech model repeating something it was given: GM-only.
       const echoRisk = l.mics.length < 2 && containsTerm(l.text, terms);
-      const computed: 'players' | 'dm' = !anyPlayersMic || inAside || echoRisk ? 'dm' : 'players';
+      const computed: 'players' | 'gm' = !anyPlayersMic || inAside || echoRisk ? 'gm' : 'players';
 
       const match = this.findExisting(existing, used, l.start, l.end, l.text);
       const sources = JSON.stringify(l.mics);
       const words = JSON.stringify(l.words.map((w) => ({ w: w.w, s: w.s, e: w.e, c: Math.round(w.c * 1000) / 1000, mic: w.mic })));
       if (match) {
         used.add(match.id);
-        const audience = match.audience_override ?? (keepDm && match.audience === 'dm' ? 'dm' : computed);
+        const audience = match.audience_override ?? (keepGm && match.audience === 'gm' ? 'gm' : computed);
         if (match.text === l.text && match.start_ms === l.start && match.end_ms === l.end && match.audience === audience && match.speaker_account === speakerAccount && match.speaker_label === speakerLabel && match.sources === sources) continue;
         const next: LineRow = { ...match, start_ms: l.start, end_ms: l.end, text: l.text, words, sources, speaker_account: speakerAccount, speaker_label: speakerLabel, audience, rev: match.rev + 1, updated_at: now() };
         run(db, 'UPDATE audio_lines SET start_ms = ?, end_ms = ?, text = ?, words = ?, sources = ?, speaker_account = ?, speaker_label = ?, audience = ?, rev = ?, updated_at = ? WHERE id = ?',
@@ -771,10 +771,10 @@ export class Engine {
   }
 
   /** Live event: the GM gets every revision; a player only lines that are (or were just) theirs. */
-  emitLine(l: LineRow, prevAudience: 'players' | 'dm' | null, nameOf: (id: string) => string, removed = false) {
+  emitLine(l: LineRow, prevAudience: 'players' | 'gm' | null, nameOf: (id: string) => string, removed = false) {
     notifyLine(this.d, l.world_id, l.id, removed);
     this.d.hub.emitPer(l.world_id, 'transcript-line', (v) => {
-      if (v.role === 'dm') return removed ? { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id } : { ...lineView(l, true, nameOf) };
+      if (v.role === 'gm') return removed ? { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id } : { ...lineView(l, true, nameOf) };
       if (v.role !== 'player') return null;
       if (!removed && l.audience === 'players') return lineView(l, false, nameOf);
       // It was visible and now is not (marked GM-only, or gone): tell players to drop it.
@@ -784,10 +784,10 @@ export class Engine {
   }
 
   /** GM marks a line (or clears the mark with 'auto'). */
-  setAudience(line: LineRow, to: 'players' | 'dm' | 'auto', worldId: string) {
+  setAudience(line: LineRow, to: 'players' | 'gm' | 'auto', worldId: string) {
     const override = to === 'auto' ? null : to;
-    let audience: 'players' | 'dm' = override ?? line.audience;
-    if (to === 'auto') audience = 'dm'; // until the next merge recomputes it: fail closed
+    let audience: 'players' | 'gm' = override ?? line.audience;
+    if (to === 'auto') audience = 'gm'; // until the next merge recomputes it: fail closed
     const next: LineRow = { ...line, audience_override: override, audience, rev: line.rev + 1, updated_at: now() };
     run(this.d.db, 'UPDATE audio_lines SET audience = ?, audience_override = ?, rev = ?, updated_at = ? WHERE id = ?', next.audience, override, next.rev, next.updated_at, next.id);
     this.emitLine(next, line.audience, this.nameOf(worldId));

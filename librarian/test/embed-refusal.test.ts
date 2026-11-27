@@ -47,19 +47,19 @@ async function boot() {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r.body;
   };
-  const world = (await ok('POST', '/api/admin/worlds', { name: 'Saltreach', dmAccountId: a.account.id })).id as string;
-  const put = (path: string, visibility: 'party' | 'dm', markdown: string) => ok('PUT', `/api/worlds/${world}/library/pages`, { path, visibility, markdown });
+  const world = (await ok('POST', '/api/admin/worlds', { name: 'Saltreach', gmAccountId: a.account.id })).id as string;
+  const put = (path: string, visibility: 'party' | 'gm', markdown: string) => ok('PUT', `/api/worlds/${world}/library/pages`, { path, visibility, markdown });
   return { ...made, call, ok, world, put, tok };
 }
 
 const FOOTER = '_This work includes material from the System Reference Document 5.2 ("SRD 5.2") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode._';
 
-test('TestEmbeddings_BareUrlInTheDmCopyIsNotClassifiedText', async () => {
+test('TestEmbeddings_BareUrlInTheGmCopyIsNotClassifiedText', async () => {
   const h = await boot();
-  await h.put('Generated/Monsters/Giant Spider', 'dm', `# Giant Spider\n\n## Concept\n\nLarge beast, CR 2.\n\n> [!secret] Tactics\n> Uses the terrain: attacks from cover and breaks off if hurt.\n\n**Saving throws** str +6, dex +5  \n**Skills** Perception +5, Stealth +7  \n\n${FOOTER}\n`);
+  await h.put('Generated/Monsters/Giant Spider', 'gm', `# Giant Spider\n\n## Concept\n\nLarge beast, CR 2.\n\n> [!secret] Tactics\n> Uses the terrain: attacks from cover and breaks off if hurt.\n\n**Saving throws** str +6, dex +5  \n**Skills** Perception +5, Stealth +7  \n\n${FOOTER}\n`);
   assert.equal(h.deps.library.classifiedGrams().size, 0, 'nothing here is classified');
   // A real classified passage is still found.
-  await h.put('Vault/Code', 'dm', '# Vault\n\n> [!classified] The code\n> The vault under the old lighthouse opens only for bearers of three silver keys.\n');
+  await h.put('Vault/Code', 'gm', '# Vault\n\n> [!classified] The code\n> The vault under the old lighthouse opens only for bearers of three silver keys.\n');
   const idx = h.deps.library.classifiedGrams();
   assert.ok(idx.size > 0, 'a classified callout is indexed');
   assert.ok([...idx].some((g) => g.includes('silver keys') || g.includes('three silver')), 'its words are in the index');
@@ -70,8 +70,8 @@ test('TestEmbeddings_RefusedPageIsNotSentAgainEveryTick', async () => {
   forgetRefusals();
   const h = await boot();
   const bad = 'The keeper of the drowned bell whispers a long rhyme about the tide and the moon over the harbour wall';
-  await h.put('Notes/Poison', 'dm', `# Poison\n\n${bad}.\n`);
-  for (const n of ['Alpha', 'Beta', 'Gamma']) await h.put(`Notes/${n}`, 'dm', `# ${n}\n\nPlain words about ${n} and the market square at dawn.\n`);
+  await h.put('Notes/Poison', 'gm', `# Poison\n\n${bad}.\n`);
+  for (const n of ['Alpha', 'Beta', 'Gamma']) await h.put(`Notes/${n}`, 'gm', `# ${n}\n\nPlain words about ${n} and the market square at dawn.\n`);
   // The guard's index says the first words of that page are classified.
   const idx = new ClassifiedIndex();
   idx.put([...levelWords(bad)][0]!, `${h.world}|pg_poison`);
@@ -89,7 +89,7 @@ test('TestEmbeddings_RefusedPageIsNotSentAgainEveryTick', async () => {
   const cov = embeddingCoverage(h.deps, h.world);
   assert.equal(cov.progress.refused, 1);
   // Editing the page makes it fresh again.
-  await h.put('Notes/Poison', 'dm', '# Poison\n\nA different text about nothing in particular, the lamp and the harbour.\n');
+  await h.put('Notes/Poison', 'gm', '# Poison\n\nA different text about nothing in particular, the lamp and the harbour.\n');
   const after = await syncEmbeddings(h.deps, { worldId: h.world });
   assert.equal(after.pages, 1);
   assert.equal(refusals(), 1);
@@ -98,7 +98,7 @@ test('TestEmbeddings_RefusedPageIsNotSentAgainEveryTick', async () => {
 test('TestEmbeddings_ScopesAreReadInTurnAndProgressIsReported', async () => {
   forgetRefusals();
   const h = await boot();
-  for (let i = 0; i < 6; i++) await h.put(`Notes/GM ${i}`, 'dm', `# GM ${i}\n\nSomething only the GM knows about thing number ${i}.\n`);
+  for (let i = 0; i < 6; i++) await h.put(`Notes/GM ${i}`, 'gm', `# GM ${i}\n\nSomething only the GM knows about thing number ${i}.\n`);
   await h.put('Open/Party Page', 'party', '# Party Page\n\nEveryone may read this page about the harbour.\n');
   const before = embeddingCoverage(h.deps, h.world);
   assert.equal(before.progress.indexed, 0);
@@ -108,9 +108,9 @@ test('TestEmbeddings_ScopesAreReadInTurnAndProgressIsReported', async () => {
   const r = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 4 });
   assert.equal(r.pages, 4);
   const cov = embeddingCoverage(h.deps, h.world);
-  assert.ok(cov.scopes.dm.indexed >= 3, 'the GM copy has its turn in the same round');
+  assert.ok(cov.scopes.gm.indexed >= 3, 'the GM copy has its turn in the same round');
   assert.ok(cov.scopes.party.indexed === 1, 'the party copy is not starved either');
-  assert.ok(cov.scopes.dm.pending > 0 && cov.progress.pending > 0);
+  assert.ok(cov.scopes.gm.pending > 0 && cov.progress.pending > 0);
   assert.equal(cov.progress.indexed, cov.progress.eligible - cov.progress.pending);
   await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 50 });
   const done = embeddingCoverage(h.deps, h.world);

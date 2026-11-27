@@ -9,7 +9,7 @@ import { insertKey } from '../src/features/sourcekeys/store.ts';
 
 const SECRET = 'SECRETKEYVALUE-GW1';
 const HIDDEN = 'HIDDENCTX-GW2';
-const ANSWER = 'DMANSWER-GW3';
+const ANSWER = 'GMANSWER-GW3';
 const STOPPED = 'STOPPEDTEXT-GW4';
 const PW = 'correct horse battery';
 
@@ -29,13 +29,13 @@ const call = async (method: string, url: string, token?: string, body?: unknown)
 const admin = (await call('POST', '/api/setup', undefined, { username: 'wizard', password: PW })).body;
 const adminToken = admin.token as string;
 const player = (await call('POST', '/api/admin/accounts', adminToken, { username: 'jess', password: 'jess password 123' })).body.account;
-const world = (await call('POST', '/api/admin/worlds', adminToken, { name: 'Gatewayland', dmAccountId: admin.account.id })).body.id as string;
+const world = (await call('POST', '/api/admin/worlds', adminToken, { name: 'Gatewayland', gmAccountId: admin.account.id })).body.id as string;
 await call('PUT', `/api/admin/worlds/${world}/members/${player.id}`, adminToken, { role: 'player' });
 const playerToken = (await call('POST', '/api/auth/login', undefined, { username: 'jess', password: 'jess password 123' })).body.token as string;
 
 run(deps.db, `INSERT INTO sources (id, world_id, kind, name) VALUES ('src_gw', ?, 'kanka', 'Campaign notes')`, world);
 const key = insertKey(deps.db, { worldId: world, sourceId: 'src_gw', ownerId: player.id, label: 'Jess key', secret: SECRET, trust: 'per-user', claimed: 'per-user', users: [player.id], uses: ['library'], verified: true, probe: { verdict: 'per-user', note: HIDDEN } });
-run(deps.db, `INSERT INTO sourcekeys_escalations (id, world_id, account_id, question, origin, mode, status, hidden, answer, created_at) VALUES ('esc_gw', ?, ?, 'Who funds the guild?', 'direct', 'dm-question', 'open', ?, ?, ?)`,
+run(deps.db, `INSERT INTO sourcekeys_escalations (id, world_id, account_id, question, origin, mode, status, hidden, answer, created_at) VALUES ('esc_gw', ?, ?, 'Who funds the guild?', 'direct', 'gm-question', 'open', ?, ?, ?)`,
   world, player.id, JSON.stringify({ reason: HIDDEN, items: [{ title: 't', source: 's', text: HIDDEN }] }), ANSWER, new Date().toISOString());
 run(deps.db, `INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, NULL, 'agent.leak_blocked', ?, ?)`, world, `chat 1: reply shared GM-only text ("${STOPPED}")`, new Date().toISOString());
 run(deps.db, `INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, NULL, 'ai.classified_refused', ?, ?)`, world, `chat request refused: repeats classified text of page p1 ${STOPPED}`, new Date().toISOString());

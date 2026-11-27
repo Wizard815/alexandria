@@ -36,7 +36,7 @@
       "flanking",
       "opposite side"
     ],
-    "dm": "Flanking at this table is a flat bonus to hit (the rule's option, +2 by default), not advantage. It does not stack with itself.",
+    "gm": "Flanking at this table is a flat bonus to hit (the rule's option, +2 by default), not advantage. It does not stack with itself.",
     "player": "Flanking at this table gives a flat bonus to hit (usually +2), not advantage. Both attackers need to be on opposite sides of the foe and able to act."
   }
 }

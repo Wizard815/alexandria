@@ -53,8 +53,8 @@ const recordWebm = (page, ms, hue) => page.evaluate(async ({ ms, hue }) => {
 }, { ms, hue });
 
 try {
-  const { ctx, page } = await signIn(open, base, 'dm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { ctx, page } = await signIn(open, base, 'gm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${token}` }, body: raw ? raw : body ? JSON.stringify(body) : undefined });
@@ -69,8 +69,8 @@ try {
   const up1 = await put('a-intro.webm', 'Clips', 'Clip A', 'party', v1);
   const up2 = await put('c-outro.webm', 'Clips', 'Clip C', 'party', v2);
   const upg = await put('b-spark.gif', 'Clips', 'Spark', 'party', GIF);
-  const dmOnly = await put('secret.webm', 'Private', 'Secret clip', 'dm', v1);
-  check([up1, up2, upg, dmOnly].every((u) => u.status === 201), `uploads: ${[up1, up2, upg, dmOnly].map((u) => u.status)} ${JSON.stringify(up1.json)}`);
+  const gmOnly = await put('secret.webm', 'Private', 'Secret clip', 'gm', v1);
+  check([up1, up2, upg, gmOnly].every((u) => u.status === 201), `uploads: ${[up1, up2, upg, gmOnly].map((u) => u.status)} ${JSON.stringify(up1.json)}`);
   check(up1.json?.family === 'video' && up1.json?.mime === 'video/webm', 'a recorded WebM should be sniffed as video/webm');
 
   // Range request from the browser, the way a <video> seeks.

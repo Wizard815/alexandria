@@ -83,7 +83,7 @@ account id or character name):
 - `GET /:aid/recent`: recently seen people and places, as that player sees them.
 - `GET /log[?account=]`: HP and mana changes, newest first.
 - `GET /party` (GM): every player's health, mana and re-rolls.
-- `POST /:aid/rerolls { kind: personal|party|dm, delta, note? }` (re-rolls on; the GM gives or takes back, a player spends their own).
-- `POST /:aid/dm-notes { kind: note|goal, text }` (GM), `PATCH /:aid/dm-notes/:id` (GM: text/kind/done; the player: done on a goal), `DELETE /:aid/dm-notes/:id` (GM).
+- `POST /:aid/rerolls { kind: personal|party|gm, delta, note? }` (re-rolls on; the GM gives or takes back, a player spends their own).
+- `POST /:aid/gm-notes { kind: note|goal, text }` (GM), `PATCH /:aid/gm-notes/:id` (GM: text/kind/done; the player: done on a goal), `DELETE /:aid/gm-notes/:id` (GM).
 
 Assistant tools: `party_status` (read), and `change_player_hp` and `give_reroll` (writes the GM approves).

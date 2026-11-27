@@ -34,7 +34,7 @@ test('TestIntake_PlayerBlocksFailClosed', () => {
   const s = JSON.stringify(pl);
   for (const leak of ['hidden under', 'gm only', 'widget', 'Secret Cult', 'Okiku']) assert.ok(!s.includes(leak), leak);
   assert.ok(s.includes('(hidden)') && s.includes('the mother'), 'a link keeps its own words, never the hidden title');
-  assert.deepEqual(playerProperties([{ title: 'Facts', rows: [{ key: 'Age', value: [{ text: '40' }] }, { key: 'dm notes', value: [{ text: 'x' }] }] }, { title: 'Secret', rows: [{ key: 'a', value: [{ text: 'b' }] }] }], () => false),
+  assert.deepEqual(playerProperties([{ title: 'Facts', rows: [{ key: 'Age', value: [{ text: '40' }] }, { key: 'gm notes', value: [{ text: 'x' }] }] }, { title: 'Secret', rows: [{ key: 'a', value: [{ text: 'b' }] }] }], () => false),
     [{ title: 'Facts', rows: [{ key: 'Age', value: [{ text: '40' }] }] }]);
 });
 
@@ -42,13 +42,13 @@ test('TestIntake_FrontmatterBecomesFacts', () => {
   const g = frontmatterGroups({ age: 40, home: '[[Nanyo]]', tags: ['x'], secret: { lover: 'Tamsin' } } as any);
   assert.equal(g[0].title, 'Facts');
   assert.deepEqual(g[0].rows.map((r) => r.key), ['age', 'home']);
-  assert.ok(g[1].dm, 'secret: map is a GM-only group');
-  const e = markdownEntry('people/Han.md', '---\nvisibility: party\nknowledge: deep\naliases: [Mikey]\n---\n# Han\nA druid. #pc', 'dm');
+  assert.ok(g[1].gm, 'secret: map is a GM-only group');
+  const e = markdownEntry('people/Han.md', '---\nvisibility: party\nknowledge: deep\naliases: [Mikey]\n---\n# Han\nA druid. #pc', 'gm');
   assert.equal(e.visibility, 'party');
   assert.equal(e.knowledge, 'deep');
   assert.deepEqual(e.aliases, ['Mikey']);
   assert.ok(e.tags!.includes('pc'));
-  assert.equal(markdownEntry('a.md', 'no frontmatter', 'dm').visibility, 'dm');
+  assert.equal(markdownEntry('a.md', 'no frontmatter', 'gm').visibility, 'gm');
 });
 
 test('TestIntake_GenericApiConnectorMapsAndFailsClosed', async () => {
@@ -66,7 +66,7 @@ test('TestIntake_GenericApiConnectorMapsAndFailsClosed', async () => {
   const got = [];
   for await (const e of genericApi.sync(cfg, ctx)) got.push(e);
   assert.equal(pagesServed.length, 2, 'stops at the empty page');
-  assert.deepEqual(got.map((e) => [e.title, e.visibility]), [['Shared', 'party'], ['Private', 'dm'], ['No flag', 'dm']]);
+  assert.deepEqual(got.map((e) => [e.title, e.visibility]), [['Shared', 'party'], ['Private', 'gm'], ['No flag', 'gm']]);
   assert.ok(got[0].blocks.some((b: any) => b.kind === 'paragraph'));
   assert.deepEqual(got[0].tags, ['t']);
 });
@@ -88,7 +88,7 @@ test('TestIntake_AdminConnectorsTestAndBackgroundSync', async () => {
     const t = (await call('POST', '/api/admin/sources/test', a.token, { kind: 'api', config: cfg })).body;
     assert.equal(t.ok, true, t.message);
     assert.equal((await call('POST', '/api/admin/sources/test', a.token, { kind: 'api', config: { url: 'ftp://nope' } })).status, 400);
-    const w = (await call('POST', '/api/admin/worlds', a.token, { name: 'W', dmAccountId: a.account.id })).body;
+    const w = (await call('POST', '/api/admin/worlds', a.token, { name: 'W', gmAccountId: a.account.id })).body;
     const src = (await call('POST', `/api/admin/worlds/${w.id}/sources`, a.token, { kind: 'api', name: 'Wiki', config: { ...cfg, token: 'secret-token-123' }, defaultVisibility: 'party' })).body;
     assert.equal(src.config.token, '••••');
     const started = await call('POST', `/api/admin/sources/${src.id}/sync`, a.token);

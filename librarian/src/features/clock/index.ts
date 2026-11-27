@@ -3,12 +3,12 @@
 // module other features import.
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 import { all, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { gmOnly } from '../../core/events.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import * as clock from './api.ts';
 import { BUILTIN_CALENDARS, MINUTES_PER_DAY, dateToMinutes, normalizeCalendar } from './calendar.ts';
 
@@ -80,7 +80,7 @@ const feature: Feature = {
       description TEXT NOT NULL DEFAULT '',
       start_minutes INTEGER NOT NULL,
       end_minutes INTEGER,
-      visibility TEXT NOT NULL DEFAULT 'dm' CHECK (visibility IN ('dm', 'party')),
+      visibility TEXT NOT NULL DEFAULT 'gm' CHECK (visibility IN ('gm', 'party')),
       repeat_rule TEXT,
       kind TEXT NOT NULL DEFAULT 'custom',
       created_by TEXT,
@@ -114,7 +114,7 @@ const feature: Feature = {
 
     r.get('/', (_req, res) => {
       const out: any = snapshot(res);
-      if (isDM(res)) {
+      if (isGM(res)) {
         out.longRestMode = featureSetting(settings(res), 'longRestMode');
         out.builtins = Object.entries(BUILTIN_CALENDARS).map(([key, def]) => ({ key, name: def.name }));
         out.sources = clock.sourceCalendars(db, wid(res)).map((s) => ({ sourceId: s.sourceId, externalId: s.externalId, name: s.name, usable: !!s.definition, current: s.current }));
@@ -122,7 +122,7 @@ const feature: Feature = {
       res.json(out);
     });
 
-    r.put('/calendar', requireDM, (req, res) => {
+    r.put('/calendar', requireGM, (req, res) => {
       const b = req.body ?? {};
       let def; let source: string; let current: { year: number; month: number; day: number } | null = null;
       try {
@@ -149,7 +149,7 @@ const feature: Feature = {
       res.json({ ...snapshot(res), entry: result.entry });
     });
 
-    r.post('/advance', requireDM, (req, res) => {
+    r.post('/advance', requireGM, (req, res) => {
       const b = req.body ?? {};
       const reason = typeof b.reason === 'string' ? b.reason : '';
       let entry;
@@ -162,15 +162,15 @@ const feature: Feature = {
       res.json({ ...snapshot(res), entry });
     });
 
-    r.post('/set', requireDM, (req, res) => {
+    r.post('/set', requireGM, (req, res) => {
       const b = req.body ?? {};
       const date = b.date ?? b;
       const entry = clock.setDate(db, hub, wid(res), { year: date.year, month: date.month, day: date.day, hour: date.hour, minute: date.minute }, typeof b.reason === 'string' ? b.reason : '', me(res));
       res.json({ ...snapshot(res), entry });
     });
 
-    r.get('/log', requireDM, (req, res) => res.json(clock.listLog(db, wid(res), Number(req.query.limit) || 100)));
-    r.post('/log/:id/undo', requireDM, (req, res) => {
+    r.get('/log', requireGM, (req, res) => res.json(clock.listLog(db, wid(res), Number(req.query.limit) || 100)));
+    r.post('/log/:id/undo', requireGM, (req, res) => {
       const entry = clock.undo(db, hub, wid(res), String(req.params.id), me(res));
       res.json({ ...snapshot(res), entry });
     });
@@ -183,31 +183,31 @@ const feature: Feature = {
       res.json(clock.listEvents(db, wid(res), role(res), from, to));
     });
     r.get('/events/:id', (req, res) => res.json(clock.getEvent(db, wid(res), String(req.params.id), role(res))));
-    r.post('/events', requireDM, (req, res) => {
+    r.post('/events', requireGM, (req, res) => {
       const b = { ...(req.body ?? {}) };
       // "after": { amount, unit: days|weeks|months } from the world's current date and hour, for "in 3 months".
       if (b.start === undefined && b.after !== undefined) b.start = afterNow(db, wid(res), b.after);
       delete b.after;
       res.status(201).json(clock.addEvent(db, hub, wid(res), b, me(res)));
     });
-    r.patch('/events/:id', requireDM, (req, res) => res.json(clock.updateEvent(db, hub, wid(res), String(req.params.id), req.body ?? {})));
-    r.delete('/events/:id', requireDM, (req, res) => { clock.deleteEvent(db, hub, wid(res), String(req.params.id)); res.json({ ok: true }); });
+    r.patch('/events/:id', requireGM, (req, res) => res.json(clock.updateEvent(db, hub, wid(res), String(req.params.id), req.body ?? {})));
+    r.delete('/events/:id', requireGM, (req, res) => { clock.deleteEvent(db, hub, wid(res), String(req.params.id)); res.json({ ok: true }); });
 
     // "Someday": things the GM wants to happen with no date yet. GM-only; dating one turns it into a world event.
-    r.get('/someday', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT id, title, created_at FROM clock_someday WHERE world_id = ? ORDER BY created_at, rowid', wid(res))));
-    r.post('/someday', requireDM, (req, res) => {
+    r.get('/someday', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT id, title, created_at FROM clock_someday WHERE world_id = ? ORDER BY created_at, rowid', wid(res))));
+    r.post('/someday', requireGM, (req, res) => {
       const t = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
       if (!t) throw new HttpError(400, 'title is required');
       if (t.length > 200) throw new HttpError(400, 'title is longer than 200 characters');
       const row = { id: id('sdy_'), title: t, created_at: now() };
       run(db, 'INSERT INTO clock_someday (id, world_id, title, created_at) VALUES (?, ?, ?, ?)', row.id, wid(res), row.title, row.created_at);
-      hub.emit(wid(res), 'clock-someday', { action: 'created', id: row.id }, dmOnly);
+      hub.emit(wid(res), 'clock-someday', { action: 'created', id: row.id }, gmOnly);
       res.status(201).json(row);
     });
-    r.delete('/someday/:id', requireDM, (req, res) => {
+    r.delete('/someday/:id', requireGM, (req, res) => {
       const done = run(db, 'DELETE FROM clock_someday WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
       if (!done) throw new HttpError(404, 'Not found');
-      hub.emit(wid(res), 'clock-someday', { action: 'deleted', id: String(req.params.id) }, dmOnly);
+      hub.emit(wid(res), 'clock-someday', { action: 'deleted', id: String(req.params.id) }, gmOnly);
       res.json({ ok: true });
     });
     r.get('/prefs', (_req, res) => res.json({ upcomingDays: clock.getUpcomingDays(db, wid(res), me(res)) }));
@@ -236,7 +236,7 @@ const feature: Feature = {
     {
       name: 'add_world_event', write: true,
       description: 'Put an event on the world calendar, at start or after an amount of days, weeks or months from now. GM-only unless visibility is party.',
-      props: { title: S('Title'), description: S('Details'), start: DATE, after: { type: 'object', description: 'Instead of start: how long from now, e.g. { amount: 3, unit: "months" }', properties: { amount: { type: 'integer' }, unit: { type: 'string', enum: ['days', 'weeks', 'months'] } }, required: ['amount', 'unit'] }, end: DATE, durationMinutes: N('Alternative to end'), visibility: { type: 'string', enum: ['dm', 'party'] }, repeat: { type: 'string', enum: ['yearly'] }, kind: { type: 'string', enum: [...clock.EVENT_KINDS] } },
+      props: { title: S('Title'), description: S('Details'), start: DATE, after: { type: 'object', description: 'Instead of start: how long from now, e.g. { amount: 3, unit: "months" }', properties: { amount: { type: 'integer' }, unit: { type: 'string', enum: ['days', 'weeks', 'months'] } }, required: ['amount', 'unit'] }, end: DATE, durationMinutes: N('Alternative to end'), visibility: { type: 'string', enum: ['gm', 'party'] }, repeat: { type: 'string', enum: ['yearly'] }, kind: { type: 'string', enum: [...clock.EVENT_KINDS] } },
       required: ['title'],
       call: (a) => ({ method: 'POST', path: '/clock/events', body: a }),
     },

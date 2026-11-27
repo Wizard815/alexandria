@@ -5,18 +5,18 @@ import { splitFrontmatter } from '../src/core/frontmatter.ts';
 import { relationsFromFrontmatter } from '../src/core/library.ts';
 
 test('TestPolicy_VisibilityRules', () => {
-  const dm = { accountId: 'd', role: 'dm' as const };
+  const gm = { accountId: 'd', role: 'gm' as const };
   const p = { accountId: 'p', role: 'player' as const };
   assert.equal(canSee(p, 'party'), true);
-  assert.equal(canSee(p, 'dm'), false);
-  assert.equal(canSee(p, 'dm', 'p'), true, 'owner sees their own GM-shared item');
-  assert.equal(canSee(dm, 'me', 'p'), false, '"only me" hides it from the GM too');
+  assert.equal(canSee(p, 'gm'), false);
+  assert.equal(canSee(p, 'gm', 'p'), true, 'owner sees their own GM-shared item');
+  assert.equal(canSee(gm, 'me', 'p'), false, '"only me" hides it from the GM too');
   assert.equal(canSee(p, 'weird-value'), false, 'unknown visibility fails closed');
   assert.equal(canSee(p, undefined as any), false);
 });
 
-test('TestPolicy_UnclosedDmMarkerHidesTheRest', () => {
-  const out = redactMarkdown('Open text.\n<!-- dm -->\nSecret plan forever');
+test('TestPolicy_UnclosedGmMarkerHidesTheRest', () => {
+  const out = redactMarkdown('Open text.\n<!-- gm -->\nSecret plan forever');
   assert.ok(out.includes('Open text') && !out.includes('Secret plan'));
 });
 
@@ -31,7 +31,7 @@ test('TestPolicy_SecretCalloutsAllVariants', () => {
   assert.ok(!/x1|x2|\by\b/.test(out));
 });
 
-test('TestPolicy_FrontmatterDmKeysStripped', () => {
+test('TestPolicy_FrontmatterGmKeysStripped', () => {
   const { fm } = splitFrontmatter('---\ntitle: X\ndm_notes: hush\ngm: a\nsecret:\n  a: b\nfacts:\n  age: 40\n  secret: bastard\n---\nbody');
   assert.deepEqual(playerFrontmatter(fm), { title: 'X', facts: { age: 40 } });
 });

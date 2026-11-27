@@ -86,7 +86,7 @@ export async function pictureRecord(ctx: ConnectorContext, a: { externalId: stri
   const lim = ctx.imageLimits ?? { maxBytes: 20 * 1024 * 1024, perRun: 20, maxHeld: 500, maxMapBytes: 60 * 1024 * 1024 };
   const held = ctx.heldImages ?? new Map<string, string>();
   const marker = `${a.url}|${a.updated ?? ''}`;
-  const rec: SyncRecord = { kind: 'image', externalId: a.externalId, pageRef: a.pageRef, name: a.name, marker, url: a.url, visibility: a.visible ? 'party' : 'dm', ...(a.map ? { map: true } : {}) };
+  const rec: SyncRecord = { kind: 'image', externalId: a.externalId, pageRef: a.pageRef, name: a.name, marker, url: a.url, visibility: a.visible ? 'party' : 'gm', ...(a.map ? { map: true } : {}) };
   if (held.get(a.externalId) === marker) return rec;
   const n = downloadedBy.get(ctx) ?? 0;
   const keepOld = (): SyncRecord | null => (held.has(a.externalId) ? { ...rec, marker: held.get(a.externalId)! } : null);
@@ -119,7 +119,7 @@ export function entryPictures(e: Entry): SyncRecord[] {
   const add = (url: string, name: string, inline: boolean, secret: boolean) => {
     if (seen.has(url) || out.length >= MAX_PICTURES_A_PAGE) return;
     seen.add(url);
-    out.push({ kind: 'image', externalId: `${e.externalId}#pic:${shortHash(url)}`, pageRef: e.externalId, name: name.slice(0, 300), marker: url, url, later: true, visibility: shared && !secret ? 'party' : 'dm', ...(inline ? { inline: true } : {}) });
+    out.push({ kind: 'image', externalId: `${e.externalId}#pic:${shortHash(url)}`, pageRef: e.externalId, name: name.slice(0, 300), marker: url, url, later: true, visibility: shared && !secret ? 'party' : 'gm', ...(inline ? { inline: true } : {}) });
   };
   // A map page's picture is the map itself, which the connector stores as a map (Kanka gives it as the entity's image too).
   if (httpUrl(e.banner) && e.type !== 'map') add(e.banner, e.title, false, false);

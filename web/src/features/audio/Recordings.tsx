@@ -17,7 +17,7 @@ interface FinalView {
   status: 'running' | 'done' | 'failed' | 'undone'; step: string; pct: number; startedAt: string; finishedAt: string | null; error: string | null;
   offsets: Record<string, { ms: number; method: string; votes: number }>; stats: { mics?: number; words?: number; liveLines?: number; finalLines?: number; retranscribed?: boolean }; hasLive: boolean;
 }
-interface Line { id: string; start: number; end: number; speaker: string; text: string; audience?: 'players' | 'dm' }
+interface Line { id: string; start: number; end: number; speaker: string; text: string; audience?: 'players' | 'gm' }
 
 const clock = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const x = s % 60; return `${h ? h + ':' + String(m).padStart(2, '0') : m}:${String(x).padStart(2, '0')}`; };
 const long = (ms: number) => { if (ms < 60000) return `${Math.max(1, Math.round(ms / 1000))} s`; const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
@@ -45,11 +45,11 @@ const safeName = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').tr
 
 function transcriptText(name: string, date: string, lines: Line[], md: boolean): string {
   const head = md ? `# ${name}\n\n${date}\n\n` : `${name}\n${date}\n\n`;
-  return head + lines.map((l) => (md ? `- \`${clock(l.start)}\` **${l.speaker}**${l.audience === 'dm' ? ' (**GM only**)' : ''}: ${l.text}` : `[${clock(l.start)}] ${l.speaker}${l.audience === 'dm' ? ' (GM only)' : ''}: ${l.text}`)).join('\n') + '\n';
+  return head + lines.map((l) => (md ? `- \`${clock(l.start)}\` **${l.speaker}**${l.audience === 'gm' ? ' (**GM only**)' : ''}: ${l.text}` : `[${clock(l.start)}] ${l.speaker}${l.audience === 'gm' ? ' (GM only)' : ''}: ${l.text}`)).join('\n') + '\n';
 }
 
 /** The transcript; a click on a line moves the player to that moment. */
-function Transcript({ lines, now, onSeek, dm }: { lines: Line[]; now: number; onSeek: (ms: number) => void; dm: boolean }) {
+function Transcript({ lines, now, onSeek, gm }: { lines: Line[]; now: number; onSeek: (ms: number) => void; gm: boolean }) {
   const active = useMemo(() => { let a = -1; lines.forEach((l, i) => { if (l.start <= now) a = i; }); return a; }, [lines, now]);
   const box = useRef<HTMLOListElement>(null);
   useEffect(() => {
@@ -64,7 +64,7 @@ function Transcript({ lines, now, onSeek, dm }: { lines: Line[]; now: number; on
         <li key={l.id} className={i === active ? 'on' : ''}>
           <button type="button" className="rec-line" onClick={() => onSeek(l.start)} aria-label={`Play from ${clock(l.start)}`}>
             <span className="rec-t">{clock(l.start)}</span>
-            <span className="rec-s">{l.speaker}{dm && l.audience === 'dm' && <em className="au-tag">GM only</em>}</span>
+            <span className="rec-s">{l.speaker}{gm && l.audience === 'gm' && <em className="au-tag">GM only</em>}</span>
             <span className="rec-x">{l.text}</span>
           </button>
         </li>
@@ -86,7 +86,7 @@ function TrackRow({ t, audioRef, main }: { t: Track; audioRef?: (el: HTMLAudioEl
 }
 
 /** One session: players, transcript beside them and downloads. */
-function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: string; tracks?: Track[]; zipUrl?: string | null }; lines: Line[]; dm: boolean }) {
+function SessionView({ s, lines, gm }: { s: { id: string; name: string; date: string; tracks?: Track[]; zipUrl?: string | null }; lines: Line[]; gm: boolean }) {
   const main = useRef<HTMLAudioElement | null>(null);
   const [now, setNow] = useState(0);
   const tracks = s.tracks ?? [];
@@ -112,11 +112,11 @@ function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: st
         {s.zipUrl && (
           <div className="row between wrap" style={{ gap: 6 }}>
             <a className="btn small" href={s.zipUrl} download data-testid="rec-download-all" aria-label={`Download everything for ${s.name}`}><i className="fa-solid fa-file-zipper" aria-hidden="true" /> Download all (.zip)</a>
-            <span className="tiny muted">{dm ? 'The full session, every mic, the transcripts, the approved summary and session.json.' : 'Your own microphone, the players’ transcript and the players’ summary.'}</span>
+            <span className="tiny muted">{gm ? 'The full session, every mic, the transcripts, the approved summary and session.json.' : 'Your own microphone, the players’ transcript and the players’ summary.'}</span>
           </div>
         )}
         {lead ? <TrackRow key={lead.id} t={lead} audioRef={(el) => { main.current = el; }} main /> : <Empty>No audio to play.</Empty>}
-        {tracks.filter((t) => t !== lead).length > 0 && <h3 className="rec-h">{dm ? 'Each microphone' : 'Your microphone'}</h3>}
+        {tracks.filter((t) => t !== lead).length > 0 && <h3 className="rec-h">{gm ? 'Each microphone' : 'Your microphone'}</h3>}
         {tracks.filter((t) => t !== lead).map((t) => <TrackRow key={t.id} t={t} />)}
       </div>
       <div className="rec-transcript stack">
@@ -130,7 +130,7 @@ function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: st
           )}
         </div>
         {lead && lines.length > 0 && <p className="tiny muted" style={{ margin: 0 }}>Click a line to play the recording from there.</p>}
-        <Transcript lines={lines} now={now} onSeek={seek} dm={dm} />
+        <Transcript lines={lines} now={now} onSeek={seek} gm={gm} />
       </div>
     </div>
   );
@@ -307,7 +307,7 @@ function SummaryBox({ s }: { s: RecSession }) {
   );
 }
 
-export function RecordingsDM() {
+export function RecordingsGM() {
   const { w } = useWorld();
   const list = useLoad<{ sessions: RecSession[]; ffmpeg: boolean }>(() => w.call('GET', '/audio/recordings'), [w], ['recording', 'transcript-final']);
   const [sel, setSel] = useState<string | null>(null);
@@ -343,7 +343,7 @@ export function RecordingsDM() {
               <>
                 <h2 style={{ margin: 0 }}>{cur.name} <span className="muted small">{cur.date}</span></h2>
                 <StatusBox s={cur} reload={reload} />
-                <SessionView s={{ id: cur.id, name: cur.name, date: cur.date, tracks: d && !d.audioDeleted && d.status === 'ready' ? d.tracks : [], zipUrl: d?.zipUrl ?? null }} lines={lines.data ?? []} dm />
+                <SessionView s={{ id: cur.id, name: cur.name, date: cur.date, tracks: d && !d.audioDeleted && d.status === 'ready' ? d.tracks : [], zipUrl: d?.zipUrl ?? null }} lines={lines.data ?? []} gm />
                 <FinalBox s={cur} reload={reload} />
                 <SummaryBox s={cur} />
                 <KeepAudio s={cur} reload={reload} />
@@ -384,7 +384,7 @@ export function MyRecordings() {
           {cur && (
             <>
               <p className="small muted" style={{ margin: 0 }}>{STATUS[cur.status] ?? cur.status}{cur.durationMs ? ` · ${long(cur.durationMs)}` : ''}{cur.deletesAt && !cur.audioDeleted ? ` · ${retentionText({ audioDeleted: false, retention: { mode: 'default', days: null, effectiveDays: 1, deletesAt: cur.deletesAt, daysLeft: cur.daysLeft } })}` : ''}</p>
-              <SessionView s={cur} lines={lines.data ?? []} dm={false} />
+              <SessionView s={cur} lines={lines.data ?? []} gm={false} />
             </>
           )}
         </div>

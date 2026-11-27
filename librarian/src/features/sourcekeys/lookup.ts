@@ -35,19 +35,19 @@ function throttle(accountId: string) {
 
 const clip = (s: unknown, n: number) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-export async function lookup(d: Deps, a: { worldId: string; accountId: string; role: 'dm' | 'player' | 'guest'; q: string; question?: string; /** The caller is a model (the agent, MCP): a classified page is not even named to it. */ ai?: boolean }): Promise<LookupResult> {
+export async function lookup(d: Deps, a: { worldId: string; accountId: string; role: 'gm' | 'player' | 'guest'; q: string; question?: string; /** The caller is a model (the agent, MCP): a classified page is not even named to it. */ ai?: boolean }): Promise<LookupResult> {
   const q = a.q.trim().slice(0, 200);
   if (!q) throw new HttpError(400, 'q is required');
   if (a.role === 'guest') throw new HttpError(403, 'Not available to guests');
   throttle(a.accountId);
-  const dm = a.role === 'dm';
+  const gm = a.role === 'gm';
   const keys = keysFor(d.db, a.worldId, a.accountId, 'agent').slice(0, 4);
   const out: LookupResult = { results: [], escalated: false, message: '' };
   if (!keys.length) { out.message = 'No source key of yours can be used for a live lookup here.'; return out; }
   // The model's own words for the question, kept short; the escalation says what the player was after.
   const question = (a.question?.trim() || q).slice(0, 500);
   const hidden: HiddenItem[] = [];
-  let needsDm = false;
+  let needsGm = false;
   let via = '';
   const seen = new Set<string>();
   for (const k of keys) {
@@ -62,11 +62,11 @@ export async function lookup(d: Deps, a: { worldId: string; accountId: string; r
     const perUser = isPerUser({ trust: now.trust });
     for (const h of hits) {
       const pg = one<any>(d.db, 'SELECT id, path, title, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', a.worldId, src.id, h.externalId);
-      if (dm) {
+      if (gm) {
         if (a.ai && pg && normLevel(pg.visibility) === 'classified') continue;
         // The GM's agent reads the AI copy (never classified); a page it cannot read by id is only named.
         let snippet = '';
-        if (pg) { try { snippet = clip((d.library.get(a.worldId, pg.id, { accountId: a.accountId, role: 'dm', audience: 'ai' } as Viewer) as any).body, 600); } catch { /* classified: title only */ } }
+        if (pg) { try { snippet = clip((d.library.get(a.worldId, pg.id, { accountId: a.accountId, role: 'gm', audience: 'ai' } as Viewer) as any).body, 600); } catch { /* classified: title only */ } }
         if (!seen.has(`${src.id}|${h.externalId}`)) { seen.add(`${src.id}|${h.externalId}`); out.results.push({ id: pg?.id ?? '', title: pg?.title ?? h.title, path: pg?.path ?? '', snippet }); }
         continue;
       }
@@ -78,10 +78,10 @@ export async function lookup(d: Deps, a: { worldId: string; accountId: string; r
           shown = true;
         } catch { /* a page above this player's level */ }
       }
-      if (!shown) { needsDm = true; via ||= `${src.name}, key "${k.label || k.id}" (${perUser ? 'per-user' : 'treated as blanket'})`; hidden.push(excerpt(d, a.worldId, src, h.externalId, h.title)); }
+      if (!shown) { needsGm = true; via ||= `${src.name}, key "${k.label || k.id}" (${perUser ? 'per-user' : 'treated as blanket'})`; hidden.push(excerpt(d, a.worldId, src, h.externalId, h.title)); }
     }
   }
-  if (needsDm) {
+  if (needsGm) {
     escalate(d, { worldId: a.worldId, accountId: a.accountId, question, origin: 'agent', hidden: { reason: 'A live lookup through the asker\'s own key found pages their view does not include.', via, items: hidden.slice(0, 12) } });
     out.escalated = true;
     out.message = LOOKING;

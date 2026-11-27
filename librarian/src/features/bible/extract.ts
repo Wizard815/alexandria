@@ -2,7 +2,7 @@
 // page copy by the chat model, stored per page per scope in bible_facts.
 //
 // Each scope is extracted from the same copy text the semantic index uses
-// (search/copies.ts): 'dm' from the AI copy (never classified), 'broker',
+// (search/copies.ts): 'gm' from the AI copy (never classified), 'broker',
 // 'party' and 'lifted' from the player-side copies, so a fact never holds text
 // its scope's readers may not have. Incremental: a page is read again only
 // when its copy changed (state row per page and scope). Without a chat model,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS bible_facts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   page_id TEXT NOT NULL,
-  scope TEXT NOT NULL CHECK (scope IN ('dm', 'party', 'broker', 'lifted')),
+  scope TEXT NOT NULL CHECK (scope IN ('gm', 'party', 'broker', 'lifted')),
   subject TEXT NOT NULL,
   subject_norm TEXT NOT NULL,
   kind TEXT NOT NULL,
@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS bible_facts_page ON bible_facts (page_id, scope);
 CREATE INDEX IF NOT EXISTS bible_facts_wsp ON bible_facts (world_id, scope, page_id);
 CREATE TABLE IF NOT EXISTS bible_state (
   page_id TEXT NOT NULL,
-  scope TEXT NOT NULL CHECK (scope IN ('dm', 'party', 'broker', 'lifted')),
+  scope TEXT NOT NULL CHECK (scope IN ('gm', 'party', 'broker', 'lifted')),
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   updated_at TEXT NOT NULL,
   sig INTEGER NOT NULL,
@@ -52,7 +52,7 @@ const PROMPT_VERSION = 'bible1';
 const MAX_TEXT = 6000;
 const MAX_FACTS = 30;
 /** Scopes are taken in turn, a few pages each (the party's copy, then the GM's, in each turn), so none waits for the others to finish. */
-const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
+const ORDER: VecScope[] = ['party', 'gm', 'lifted', 'broker'];
 const PER_TURN = 3;
 
 const SYSTEM = `You build the "story bible" of a tabletop role-playing campaign. Read the page and list the durable facts it states about people, places, factions, items, events and lore.

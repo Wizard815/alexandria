@@ -146,7 +146,7 @@ class Bot {
     return r?.id ? String(r.id) : null;
   }
 
-  async dm(user: string, content: string) {
+  async gm(user: string, content: string) {
     let ch = this.dmChannels.get(user);
     if (!ch) {
       const r = await this.rest('POST', '/users/@me/channels', { recipient_id: user });
@@ -402,7 +402,7 @@ export class Manager {
     const text = status === 'answered'
       ? `🕯️ **The broker has an answer** for you in ${md(worldName(this.d, c.worldId))}.\n${asked}\n\n${c.brokerText && q.answer ? q.answer : `Read it in the app${url ? `: ${url}` : '.'}`}`
       : `🕯️ **The broker names a price** for your question in ${md(worldName(this.d, c.worldId))}: ${money(Number(q.cost_cp || 0))}.\n${asked}\nPay or decline in the app${url ? `: ${url}` : '.'}`;
-    await bot.dm(user, text);
+    await bot.gm(user, text);
   }
 
   private async offerNote(bot: Bot, worldId: string, oid: string) {
@@ -417,7 +417,7 @@ export class Manager {
     const text = `🕯️ **The broker has an offer**: ${md(o.title)} for ${money(Number(o.price_cp))}.${o.teaser ? `\n${o.teaser}` : ''}\nSee it in the app${url ? `: ${url}` : '.'}`;
     for (const aid of to) {
       const user = discordUserOf(this.d.db, worldId, aid);
-      if (user) await bot.dm(user, text).catch((e) => { bot.status.error = `A broker offer: ${e?.message ?? e}`; });
+      if (user) await bot.gm(user, text).catch((e) => { bot.status.error = `A broker offer: ${e?.message ?? e}`; });
     }
   }
 }

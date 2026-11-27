@@ -4,12 +4,12 @@ import { useLoad, useWorld } from '../../lib/world.tsx';
 export type Setting = 'auto' | 'ask' | 'off' | 'draft';
 export interface LogRow {
   id: string; at: string; mode: 'assistant' | 'active'; trigger: string; lineId: string | null; speaker: string; cue: string; category: string; tool: string; args: unknown; summary: string;
-  source: string; confidence: number; status: string; result: string; reversible: boolean; visible: 'dm' | 'table' | 'players'; wrong: boolean; expiresAt: string | null; latencyMs: number | null; ruleKey: string;
+  source: string; confidence: number; status: string; result: string; reversible: boolean; visible: 'gm' | 'table' | 'players'; wrong: boolean; expiresAt: string | null; latencyMs: number | null; ruleKey: string;
 }
 export interface ActiveState {
   mode: 'assistant' | 'active'; effective: 'assistant' | 'active'; recording: boolean; sessionId: string | null; sessionOverride: 'assistant' | 'active' | null;
   wakeWord: string; cats: Record<string, Setting>; presets: Record<string, { name: string; cats: Record<string, Setting> }>; takeoverOn: boolean;
-  listen: { dm: boolean; players: boolean; room: boolean }; askTtlMin: number; scan: boolean; categories: string[]; model: { audit: boolean; chat: boolean }; cards: LogRow[];
+  listen: { gm: boolean; players: boolean; room: boolean }; askTtlMin: number; scan: boolean; categories: string[]; model: { audit: boolean; chat: boolean }; cards: LogRow[];
 }
 
 export const CATEGORY_INFO: Record<string, { label: string; help: string }> = {
@@ -27,8 +27,8 @@ export const CATEGORY_INFO: Record<string, { label: string; help: string }> = {
 export function useActive() {
   const { w, info } = useWorld();
   // Active mode is the GM's: a player's page never asks (the server would answer 403 on every page load).
-  const dm = info?.role === 'dm';
-  return useLoad<ActiveState | null>(() => (dm ? w.call<ActiveState>('GET', '/active') : Promise.resolve(null)), [w, dm], ['active', 'recording']);
+  const gm = info?.role === 'gm';
+  return useLoad<ActiveState | null>(() => (gm ? w.call<ActiveState>('GET', '/active') : Promise.resolve(null)), [w, gm], ['active', 'recording']);
 }
 export function useActiveLog(limit = 100) {
   const { w } = useWorld();

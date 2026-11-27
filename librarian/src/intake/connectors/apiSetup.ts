@@ -372,10 +372,10 @@ export function analyzeSpec(spec: Spec, baseUrl: string): { endpoints: ApiEndpoi
       let props = schemaProps(spec, sch);
       const wrap = props.length === 1 || props.some((p) => p.name === 'data') ? props.find((p) => p.kind === 'object' && (props.length === 1 || p.name === 'data')) : undefined;
       if (wrap) { props = schemaProps(spec, findProp(spec, sch, wrap.name)); ep.detailItemPath = wrap.name; }
-      const dm = mapFields(props);
-      if (!ep.bodyField && dm.fields.bodyField) { ep.bodyField = dm.fields.bodyField; ep.bodyFormat = dm.fields.bodyFormat; }
-      if (!ep.summaryField && dm.fields.summaryField) ep.summaryField = dm.fields.summaryField;
-      if (dm.fields.bodyField) ep.note = `${ep.note ?? ''}; the body comes from the detail endpoint`.replace(/^; /, '');
+      const gm = mapFields(props);
+      if (!ep.bodyField && gm.fields.bodyField) { ep.bodyField = gm.fields.bodyField; ep.bodyFormat = gm.fields.bodyFormat; }
+      if (!ep.summaryField && gm.fields.summaryField) ep.summaryField = gm.fields.summaryField;
+      if (gm.fields.bodyField) ep.note = `${ep.note ?? ''}; the body comes from the detail endpoint`.replace(/^; /, '');
     }
   }
   // Role-less lists with no usable mapping are left out of the table's "use" column, never switched on.

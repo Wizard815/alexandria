@@ -10,8 +10,8 @@ interface Status { chat: boolean; building?: boolean; configured: boolean; model
   log: { at: string; pageId: string; title: string; scope: string; ok: boolean; facts: number; ms: number }[]; scopes: Record<string, Scope>; progress?: Progress }
 interface Finding { kind: string; pageId: string; title: string; scope: string; note: string }
 interface Audit { facts: number; counts: Record<string, number>; findings: Finding[] }
-const READERS: [string, string][] = [['party', 'Players'], ['broker', 'Broker'], ['dm', 'GM']];
-const WHO: Record<string, string> = { party: 'players', broker: 'broker', dm: 'GM', lifted: 'shared with some' };
+const READERS: [string, string][] = [['party', 'Players'], ['broker', 'Broker'], ['gm', 'GM']];
+const WHO: Record<string, string> = { party: 'players', broker: 'broker', gm: 'GM', lifted: 'shared with some' };
 const KINDS: Record<string, string> = { failed: 'Could not be read', empty: 'Read, but nothing found', unsupported: 'Names something the page does not' };
 
 export function BibleControls({ left, onChanged }: { left: string; onChanged: () => void }) {

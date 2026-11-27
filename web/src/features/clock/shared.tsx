@@ -17,7 +17,7 @@ export interface ClockState {
   sources?: { sourceId: string; externalId: string; name: string; usable: boolean; current: { year: number; month: number; day: number } | null }[];
 }
 export interface WEvent {
-  id: string; title: string; description: string; start: number; end: number | null; visibility: 'dm' | 'party';
+  id: string; title: string; description: string; start: number; end: number | null; visibility: 'gm' | 'party';
   repeat: 'yearly' | null; kind: string; startLabel: string; startDate: DateParts; endDate: DateParts | null;
   occursAt?: number; occursLabel?: string; daysAway?: number;
 }

@@ -79,7 +79,7 @@ export const ruleReaches = (r: FolderRule, accountId: string): boolean => r.mode
 
 /** May a grant lift this page? Only a GM-only page with no broker or classified marker. */
 export const liftable = (p: { visibility?: unknown; marker_level?: unknown }): boolean =>
-  normLevel(p.visibility) === 'dm' && (p.marker_level == null || p.marker_level === 'party');
+  normLevel(p.visibility) === 'gm' && (p.marker_level == null || p.marker_level === 'party');
 
 const isPlayer = (db: DB, worldId: string, accountId: string) => one<any>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, accountId)?.role === 'player';
 
@@ -105,11 +105,11 @@ export function fileGranted(db: DB, f: { id: string; world_id: string; page_id: 
   if (!accountId) return false;
   try {
     const lvl = normLevel(f.level);
-    if (lvl !== 'party' && lvl !== 'dm') return false;
+    if (lvl !== 'party' && lvl !== 'gm') return false;
     const pg = one<any>(db, 'SELECT visibility, marker_level, folder, source_id FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
     if (!pg) return false;
     const pl = normLevel(pg.visibility);
-    if ((pl !== 'party' && pl !== 'dm') || (pg.marker_level != null && pg.marker_level !== 'party')) return false;
+    if ((pl !== 'party' && pl !== 'gm') || (pg.marker_level != null && pg.marker_level !== 'party')) return false;
     if (!isPlayer(db, f.world_id, accountId)) return false;
     if (one(db, `SELECT 1 FROM libshare_files WHERE world_id = ? AND file_id = ? AND (to_id = '*' OR to_id = ?)`, f.world_id, f.id, accountId)) return true;
     return rulesOf(db, f.world_id).some((r) => ruleReaches(r, accountId) && inRule(r, pg.source_id, pg.folder));

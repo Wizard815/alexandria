@@ -27,8 +27,8 @@ interface TestResult { ok: boolean; ms: number; sample?: string; error?: string 
 interface Status { providers: Record<string, { ok: boolean; error?: string }>; jobs: Record<string, { primary?: Seen; fallback?: Seen }> }
 interface All { jobs: JobView[]; providers: Provider[] }
 
-const NAMES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank (optional)', dm: 'GM assistant', player: 'Players', bible: 'Story bible', helper: 'Quick helper (small model)' };
-const JOB_ORDER = ['chat', 'dm', 'player', 'helper', 'bible', 'audit', 'audio', 'voice', 'extra', 'rerank'];
+const NAMES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank (optional)', gm: 'GM assistant', player: 'Players', bible: 'Story bible', helper: 'Quick helper (small model)' };
+const JOB_ORDER = ['chat', 'gm', 'player', 'helper', 'bible', 'audit', 'audio', 'voice', 'extra', 'rerank'];
 const KIND_NAMES: Record<Kind, string> = { argos: 'Argos', openai: 'OpenAI', ollama: 'Ollama', lmstudio: 'LM Studio', 'openai-compatible': 'Other OpenAI-compatible' };
 const CLOUD_WARNING = 'World text will leave this server for this cloud provider whenever the main one cannot answer.';
 const STATUS_TEXT: Record<Seen, string> = { loaded: 'loaded', unloaded: 'unloaded (loads on request)', unknown: 'status unknown', missing: 'model not found there', unreachable: 'provider not reachable' };
@@ -412,8 +412,8 @@ export default function ModelsPage() {
   );
 }
 
-interface DmFirst { preempt: boolean; reserve: number; holdPlayers: boolean }
-interface QueueRow { server: string; model: string; max: number; running: number; waiting: number; local?: boolean; reserve?: number; dmRunning?: number; dmWaiting?: number; preempted?: number }
+interface GmFirst { preempt: boolean; reserve: number; holdPlayers: boolean }
+interface QueueRow { server: string; model: string; max: number; running: number; waiting: number; local?: boolean; reserve?: number; gmRunning?: number; gmWaiting?: number; preempted?: number }
 
 /**
  * The queue in front of each model, live: how many requests run now and how many wait. Waiting requests go in order:
@@ -424,41 +424,41 @@ interface QueueRow { server: string; model: string; max: number; running: number
 function QueueCard() {
   const { client } = useAuth();
   const [rows, setRows] = useState<QueueRow[] | null>(null);
-  const [dm, setDm] = useState<DmFirst | null>(null);
+  const [gm, setGm] = useState<GmFirst | null>(null);
   const a = useAction();
   useEffect(() => {
     let alive = true;
-    const tick = () => client.request<{ models: QueueRow[]; dmFirst: DmFirst }>('GET', '/api/admin/models/queue').then((r) => { if (alive) { setRows(r.models); setDm(r.dmFirst); } }).catch(() => {});
+    const tick = () => client.request<{ models: QueueRow[]; gmFirst: GmFirst }>('GET', '/api/admin/models/queue').then((r) => { if (alive) { setRows(r.models); setGm(r.gmFirst); } }).catch(() => {});
     void tick();
     const t = setInterval(tick, 2000);
     return () => { alive = false; clearInterval(t); };
   }, [client]);
-  const save = (patch: Partial<DmFirst>) => a.run(async () => {
-    const r = await client.request<{ models: QueueRow[]; dmFirst: DmFirst }>('PUT', '/api/admin/models/dm-first', patch);
-    setDm(r.dmFirst);
+  const save = (patch: Partial<GmFirst>) => a.run(async () => {
+    const r = await client.request<{ models: QueueRow[]; gmFirst: GmFirst }>('PUT', '/api/admin/models/gm-first', patch);
+    setGm(r.gmFirst);
     setRows(r.models);
   });
   const busy = (rows ?? []).filter((r) => r.running || r.waiting);
   return (
     <>
-      <div className="card" data-testid="dm-first">
+      <div className="card" data-testid="gm-first">
         <strong>GM first</strong>
         <p className="muted small" style={{ margin: '4px 0 8px' }}>When players are using the models, the GM's assistant still answers first. These settings say how hard it pushes in front.</p>
-        {!dm ? <p className="muted small">Loading…</p> : (
+        {!gm ? <p className="muted small">Loading…</p> : (
           <div className="stack">
             <label className="row between">
               <span>Stop a player's request when the GM needs the model<div className="muted small">The newest player or background request gives way at once. One that has not shown any text yet starts again after the GM; an answer already being written ends with "Paused so the GM could go first".</div></span>
-              <Switch checked={dm.preempt} onChange={(v) => void save({ preempt: v })} label="Stop a player's request when the GM needs the model" />
+              <Switch checked={gm.preempt} onChange={(v) => void save({ preempt: v })} label="Stop a player's request when the GM needs the model" />
             </label>
             <label className="row between">
               <span>Slots kept for the GM on each local model<div className="muted small">Players and background work share the rest (one is always left for them). Use it when a model takes 3 or more at once.</div></span>
-              <select value={dm.reserve} onChange={(e) => void save({ reserve: Number(e.target.value) })} aria-label="Slots kept for the GM on each local model" disabled={a.busy}>
+              <select value={gm.reserve} onChange={(e) => void save({ reserve: Number(e.target.value) })} aria-label="Slots kept for the GM on each local model" disabled={a.busy}>
                 {[0, 1, 2, 3].map((n) => <option key={n} value={n}>{n === 0 ? 'None' : n}</option>)}
               </select>
             </label>
             <label className="row between">
               <span>Players wait while the GM's request runs<div className="muted small">For one GPU: while the GM's assistant is working, players and background work do not start on any local model, the players' small helper model included.</div></span>
-              <Switch checked={dm.holdPlayers} onChange={(v) => void save({ holdPlayers: v })} label="Players wait while the GM's request runs" />
+              <Switch checked={gm.holdPlayers} onChange={(v) => void save({ holdPlayers: v })} label="Players wait while the GM's request runs" />
             </label>
             <ErrorBox error={a.error} />
           </div>
@@ -473,8 +473,8 @@ function QueueCard() {
             <tbody>{rows.map((r) => (
               <tr key={r.server + r.model}>
                 <td>{r.model}<div className="muted small">{r.server}</div></td>
-                <td>{r.running} / {r.max}{r.reserve ? <div className="muted small">{r.reserve} kept for the GM</div> : null}{r.dmRunning ? <div className="muted small">{r.dmRunning} for the GM</div> : null}</td>
-                <td>{r.waiting ? <strong>{r.waiting}</strong> : 0}{r.dmWaiting ? <div className="muted small">{r.dmWaiting} for the GM</div> : null}</td>
+                <td>{r.running} / {r.max}{r.reserve ? <div className="muted small">{r.reserve} kept for the GM</div> : null}{r.gmRunning ? <div className="muted small">{r.gmRunning} for the GM</div> : null}</td>
+                <td>{r.waiting ? <strong>{r.waiting}</strong> : 0}{r.gmWaiting ? <div className="muted small">{r.gmWaiting} for the GM</div> : null}</td>
                 <td>{r.preempted ?? 0}</td>
               </tr>
             ))}</tbody>

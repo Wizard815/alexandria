@@ -441,7 +441,7 @@ function entryOf(r: Rec, ctx: ConnectorContext): Entry {
     properties: r.properties,
     blocks: [...kankaBlocks(r.entry), ...postBlocks(r.posts, r.trustPosts ? (p: any) => p.is_hidden === false : postShared, (p) => postLevel(p, r.tagName))],
     // Kanka's own private flag always wins; the workspace then applies the page's level.
-    visibility: r.isPrivate === false && ctx.shareVisible ? 'party' : 'dm',
+    visibility: r.isPrivate === false && ctx.shareVisible ? 'party' : 'gm',
     url: r.url,
     updatedAt: r.updatedAt,
   } as Entry;

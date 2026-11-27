@@ -7,7 +7,7 @@
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { searchTerms } from '../agent/intent.ts';
@@ -35,7 +35,7 @@ export function startArc(d: Deps, worldId: string, title: string, by: string | n
   run(d.db, 'INSERT INTO minerva_arcs (id, world_id, n, slug, title, status, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id('arc_'), worldId, n, sl, t, 'open', now());
   audit(d, worldId, by, 'minerva.arc_start', sl);
   refreshHome(d, worldId, by);
-  d.hub.emit(worldId, 'minerva', { kind: 'arc' }, dmOnly);
+  d.hub.emit(worldId, 'minerva', { kind: 'arc' }, gmOnly);
   return findArc(d.db, worldId, sl)!;
 }
 
@@ -102,7 +102,7 @@ export function memoryLog(d: Deps, worldId: string, a: { text: string; about?: s
   const line = `${new Date().toISOString().slice(0, 10)}: ${text}${a.about ? ` (about ${clean(a.about, 80)})` : ''}`;
   const base = cur?.body ?? `# Session ${n}\n\n`;
   writePage(d, worldId, rel, {
-    title: cur?.title ?? `Session ${n}`, fm: cur ? undefined : { type: 'session', level: 'dm', arc: arc.slug, tags: [] },
+    title: cur?.title ?? `Session ${n}`, fm: cur ? undefined : { type: 'session', level: 'gm', arc: arc.slug, tags: [] },
     body: setSection(base, 'Log', secretLines(sectionOf(base, 'Log')?.text ?? '', line)), by,
   });
   return { rel };
@@ -131,7 +131,7 @@ export function conversationLog(d: Deps, worldId: string, a: { lines: { speaker:
   const cur = readPage(d, worldId, rel);
   let sec = sectionOf(cur?.body ?? '', 'Conversation')?.text ?? '';
   for (const l of lines) sec = secretLines(sec, `${l.speaker}: ${l.text}`);
-  writePage(d, worldId, rel, { title: cur?.title ?? `Session ${n}`, fm: cur ? undefined : { type: 'session', level: 'dm', arc: arc.slug, tags: [] }, body: setSection(cur?.body ?? `# Session ${n}\n\n`, 'Conversation', sec), by });
+  writePage(d, worldId, rel, { title: cur?.title ?? `Session ${n}`, fm: cur ? undefined : { type: 'session', level: 'gm', arc: arc.slug, tags: [] }, body: setSection(cur?.body ?? `# Session ${n}\n\n`, 'Conversation', sec), by });
   return { journals: byPlayer.size, rel };
 }
 
@@ -155,13 +155,13 @@ export function hadActivity(title: string, corpus: string): boolean {
   return keys.length === 1 ? have === 1 : have >= 2 && have / keys.length >= 0.6;
 }
 
-async function modelStatus(d: Deps, worldId: string, summary: string, dmNotes = ''): Promise<{ changed: string[]; next: string[] } | null> {
+async function modelStatus(d: Deps, worldId: string, summary: string, gmNotes = ''): Promise<{ changed: string[]; next: string[] } | null> {
   if (!hasJob(d, 'chat') || !summary.trim()) return null;
   try {
     const status = readPage(d, worldId, STATUS_PATH);
     const j: any = await chatJson(d, 'chat', [
       { role: 'system', content: 'You help a Game Master keep a campaign status document current. From the session recap, say what changed and what to prepare next. Use only the material; never invent. JSON only: {"changed": ["short bullet", ...], "next": ["short bullet", ...]} with at most 6 bullets each.' },
-      { role: 'user', content: `Current status "Now":\n${(status ? sectionOf(status.body, 'Now')?.text : '') ?? ''}\n\nSession recap (what the players know):\n${summary.slice(0, 6000)}${dmNotes ? `\n\nThe GM's running notes of the session (GM-only developments included):\n${dmNotes.slice(0, 4000)}` : ''}` },
+      { role: 'user', content: `Current status "Now":\n${(status ? sectionOf(status.body, 'Now')?.text : '') ?? ''}\n\nSession recap (what the players know):\n${summary.slice(0, 6000)}${gmNotes ? `\n\nThe GM's running notes of the session (GM-only developments included):\n${gmNotes.slice(0, 4000)}` : ''}` },
     ]);
     const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => clean(x, 240)).filter(Boolean).slice(0, 6) : []);
     const out = { changed: list(j?.changed), next: list(j?.next) };
@@ -180,10 +180,10 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   const arc = arcForSession(d, worldId, by);
   const rel = sessionRel(arc.slug, n);
   const cur = readPage(d, worldId, rel);
-  const draft = entry.draft_id ? one<any>(d.db, 'SELECT dm_notes, audio_session_id, from_at, to_at FROM sessionlog_drafts WHERE id = ?', entry.draft_id) : null;
+  const draft = entry.draft_id ? one<any>(d.db, 'SELECT gm_notes, audio_session_id, from_at, to_at FROM sessionlog_drafts WHERE id = ?', entry.draft_id) : null;
   const log = sectionOf(cur?.body ?? '', 'Log')?.text ?? '';
   const conv = sectionOf(cur?.body ?? '', 'Conversation')?.text ?? '';
-  const notes = clean(draft?.dm_notes, 4000) && String(draft!.dm_notes).trim().split('\n').map((l: string) => `> ${l.replace(/^[-*]\s+/, '- ')}`).join('\n');
+  const notes = clean(draft?.gm_notes, 4000) && String(draft!.gm_notes).trim().split('\n').map((l: string) => `> ${l.replace(/^[-*]\s+/, '- ')}`).join('\n');
   let body = `# Session ${n}: ${entry.title}\n\nIn the world: ${entry.world_from_label === entry.world_to_label ? entry.world_from_label : `${entry.world_from_label} to ${entry.world_to_label}`}.\n\n${String(entry.summary).trim()}\n`;
   if (log) body = setSection(body, 'Log', log);
   if (conv) body = setSection(body, 'Conversation', conv);
@@ -202,8 +202,8 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
 
   // 1. The status doc: what changed, what is next, the threads by heat.
   // The GM's running summary of the recording, when there was one: what happened that the players did not see.
-  const dmRun = draft?.audio_session_id ? String(one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'dm'", draft.audio_session_id)?.text ?? '') : '';
-  const ms = await modelStatus(d, worldId, summary, dmRun);
+  const gmRun = draft?.audio_session_id ? String(one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'gm'", draft.audio_session_id)?.text ?? '') : '';
+  const ms = await modelStatus(d, worldId, summary, gmRun);
   const changed = ms?.changed.length ? ms.changed : [...moments, ...recap.slice(0, moments.length ? 0 : 4)].slice(0, 8);
   const next = ms?.next.length ? ms.next : open.slice(0, 6);
   if (changed.length) add('status', 'Status: what changed last session', STATUS_SECTION_OPS(changed.map((x) => `- ${x}`).join('\n'), 'What changed last session'));
@@ -212,10 +212,10 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   // 2. Hooks and goals: heat follows what happened.
   const lines = sessionTexts(d, worldId, draft);
   // Everything this session produced: the recap, the GM's notes on it, what the players said, the log kept at the table.
-  const corpus = `${summary}\n${draft?.dm_notes ?? ''}\n${log}\n${conv}\n${[...lines.values()].flat().join('\n')}`;
+  const corpus = `${summary}\n${draft?.gm_notes ?? ''}\n${log}\n${conv}\n${[...lines.values()].flat().join('\n')}`;
   const threads: { title: string; heat: string }[] = [];
   const heatStep: Record<string, string> = { on: 'ongoing', ongoing: 'simmering', simmering: 'sleeping' };
-  for (const h of listPages(d, worldId, 'dm/hooks/')) {
+  for (const h of listPages(d, worldId, 'gm/hooks/')) {
     const heat = String(h.fm.heat ?? 'ongoing');
     // A hook that came up this session is never cooled; it is raised to on. One that did not cools a step if it was on.
     const hit = hadActivity(h.title, corpus);
@@ -270,7 +270,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   }
   refreshHome(d, worldId, by);
   audit(d, worldId, by, 'minerva.file_session', `${rel} ${count} drafts`);
-  d.hub.emit(worldId, 'minerva', { kind: 'review', review }, dmOnly);
+  d.hub.emit(worldId, 'minerva', { kind: 'review', review }, gmOnly);
   return { number: n, rel, review, drafts: count };
 }
 
@@ -279,7 +279,7 @@ function sessionTexts(d: Deps, worldId: string, draft: { audio_session_id?: stri
   const out = new Map<string, string[]>();
   if (!draft) return out;
   const sessions = listSessions(d.db, worldId).filter((s) => (draft.audio_session_id ? s.id === draft.audio_session_id : (!draft.from_at || (s.stoppedAt ?? '9') >= draft.from_at) && (!draft.to_at || s.startedAt <= draft.to_at)));
-  for (const s of sessions) for (const l of sessionLines(d.db, worldId, s.id, { includeDm: false })) if (l.speakerId) out.set(l.speakerId, [...(out.get(l.speakerId) ?? []), l.text]);
+  for (const s of sessions) for (const l of sessionLines(d.db, worldId, s.id, { includeGm: false })) if (l.speakerId) out.set(l.speakerId, [...(out.get(l.speakerId) ?? []), l.text]);
   return out;
 }
 
@@ -300,7 +300,7 @@ function sessionTexts(d: Deps, worldId: string, draft: { audio_session_id?: stri
 export type HandoffResult = 'off' | 'none' | 'created' | 'updated' | 'added' | 'kept';
 export function draftHandoff(d: Deps, worldId: string, sessionId: string, opts: { refresh?: boolean; source?: 'live' | 'final' } = {}): HandoffResult {
   try { requireEnabled(d.db, worldId); } catch { return 'off'; }
-  const sum = one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'dm'", sessionId);
+  const sum = one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'gm'", sessionId);
   const s = one<any>(d.db, 'SELECT name, stopped_at FROM audio_sessions WHERE id = ? AND world_id = ?', sessionId, worldId);
   if (!sum?.text || !s) return 'none';
   const review = `handoff-${sessionId}`;
@@ -320,7 +320,7 @@ export function draftHandoff(d: Deps, worldId: string, sessionId: string, opts: 
   if (lastText === text) return 'kept';
   if (last.status === 'pending') {
     run(d.db, "UPDATE minerva_drafts SET op = ?, title = ? WHERE id = ? AND status = 'pending'", JSON.stringify(op), title(drafts.length > 1).slice(0, 200), last.id);
-    d.hub.emit(worldId, 'minerva', { kind: 'draft', id: last.id }, dmOnly);
+    d.hub.emit(worldId, 'minerva', { kind: 'draft', id: last.id }, gmOnly);
     return 'updated';
   }
   if (last.status === 'approved') {

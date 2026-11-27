@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS agent_chats (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  harness TEXT NOT NULL CHECK (harness IN ('dm', 'player')),
+  harness TEXT NOT NULL CHECK (harness IN ('gm', 'player')),
   title TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -74,14 +74,14 @@ export const chatFolder = (v: unknown): string => {
   return parts.join('/');
 };
 
-export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '', o: { folder?: string; template?: string; incognito?: boolean } = {}) => {
+export const newChat = (db: DB, worldId: string, accountId: string, harness: 'gm' | 'player', title = '', o: { folder?: string; template?: string; incognito?: boolean } = {}) => {
   const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), folder: o.folder ?? '', template: (o.template ?? '').slice(0, 80), incognito: o.incognito ? 1 : 0, created_at: now(), updated_at: now() };
   run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, folder, template, incognito, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.folder, c.template, c.incognito, c.created_at, c.updated_at);
   return c;
 };
 
 export const ownChat = (db: DB, worldId: string, accountId: string, chatId: string) =>
-  one<{ id: string; world_id: string; account_id: string; harness: 'dm' | 'player'; title: string; created_at: string; updated_at: string }>(db, 'SELECT * FROM agent_chats WHERE id = ? AND world_id = ? AND account_id = ?', chatId, worldId, accountId);
+  one<{ id: string; world_id: string; account_id: string; harness: 'gm' | 'player'; title: string; created_at: string; updated_at: string }>(db, 'SELECT * FROM agent_chats WHERE id = ? AND world_id = ? AND account_id = ?', chatId, worldId, accountId);
 
 export const addMessage = (db: DB, chatId: string, role: 'user' | 'assistant', content: string, extra: { status?: 'done' | 'working' | 'error'; citations?: Citation[]; context?: unknown; blocked?: boolean } = {}) => {
   const m = { id: id('msg_'), chat_id: chatId, role, content, status: extra.status ?? 'done', created_at: now() };

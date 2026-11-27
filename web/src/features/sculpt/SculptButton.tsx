@@ -7,9 +7,9 @@ import type { OutputKey, SculptContext, Values } from './types.ts';
 export default function SculptButton({ template, label, values, context, autoSculpt, preset, onDone, className = 'btn small' }: {
   template: string; label: string; values?: Values; context?: SculptContext; autoSculpt?: boolean; preset?: Partial<Record<OutputKey, boolean>>; onDone?: (what: string) => void; className?: string;
 }) {
-  const { isDM } = useWorld();
+  const { isGM } = useWorld();
   const [open, setOpen] = useState(false);
-  if (!isDM) return null;
+  if (!isGM) return null;
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>{label}</button>

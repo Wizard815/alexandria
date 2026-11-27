@@ -74,8 +74,8 @@ async function boot(host: string, env: Record<string, string> = {}) {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r;
   };
-  const world = (await ok('POST', '/api/admin/worlds', { name: 'Bulkhaven', dmAccountId: a.account.id })).body.id as string;
-  const put = async (path: string, markdown: string, visibility = 'dm') => (await ok('PUT', `/api/worlds/${world}/library/pages`, { path, visibility, markdown })).body;
+  const world = (await ok('POST', '/api/admin/worlds', { name: 'Bulkhaven', gmAccountId: a.account.id })).body.id as string;
+  const put = async (path: string, markdown: string, visibility = 'gm') => (await ok('PUT', `/api/worlds/${world}/library/pages`, { path, visibility, markdown })).body;
   return { ...made, call, ok, world, put };
 }
 
@@ -97,7 +97,7 @@ test('TestBulk_EmbeddingsPackManyPagesIntoFewParallelRequests', async () => {
   assert.ok(stats.embedCalls <= 6, `few requests (${stats.embedCalls})`);
   // A local model takes two at a time (the queue in core/ai.ts): both slots are used, never more.
   assert.equal(stats.maxEmbedInFlight, 2, `in flight at once: ${stats.maxEmbedInFlight}`);
-  const perPage = all<any>(h.deps.db, `SELECT page_id, count(*) AS n FROM search_chunks WHERE world_id = ? AND scope = 'dm' GROUP BY page_id`, h.world);
+  const perPage = all<any>(h.deps.db, `SELECT page_id, count(*) AS n FROM search_chunks WHERE world_id = ? AND scope = 'gm' GROUP BY page_id`, h.world);
   assert.equal(perPage.length, 40);
   assert.ok(perPage.every((x) => Number(x.n) === 1), 'each page has its own chunks, none mixed up');
 
@@ -227,7 +227,7 @@ test('TestBulk_DocumentAndQueryPrefixesFromTheModelOptions', async () => {
   await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 1_000_000 });
   assert.ok(sentInputs.length > 0 && sentInputs.every((t) => t.startsWith('search_document: Place ')), sentInputs[0]);
   sentInputs.length = 0;
-  await semanticPages(h.deps, h.world, 'dm', 'lanterns by the harbour');
+  await semanticPages(h.deps, h.world, 'gm', 'lanterns by the harbour');
   assert.deepEqual(sentInputs, ['search_query: lanterns by the harbour']);
   // The prefix is part of what the chunks were made with: changing it embeds the world again.
   const state = all<any>(h.deps.db, 'SELECT DISTINCT model FROM search_chunk_state WHERE world_id = ?', h.world).map((x) => x.model);

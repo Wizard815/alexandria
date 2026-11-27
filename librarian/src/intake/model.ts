@@ -27,10 +27,10 @@ export interface Inline {
   mention?: Mention;
 }
 
-export interface MapPin { name: string; lat: number; lng: number; type?: string; /** Source id of the page this pin is for. */ ref?: string; dm?: boolean; /** The pin's colour in its source, as #rrggbb. */ color?: string }
+export interface MapPin { name: string; lat: number; lng: number; type?: string; /** Source id of the page this pin is for. */ ref?: string; gm?: boolean; /** The pin's colour in its source, as #rrggbb. */ color?: string }
 export interface PropertyRow { key: string; value: Inline[] }
-/** `dm: true` is the older way to say level `dm`; `level` can also be broker or classified. */
-export interface PropertyGroup { title: string; rows: PropertyRow[]; dm?: boolean; level?: Level }
+/** `gm: true` is the older way to say level `gm`; `level` can also be broker or classified. */
+export interface PropertyGroup { title: string; rows: PropertyRow[]; gm?: boolean; level?: Level }
 
 export type Block =
   | { kind: 'heading'; level: number; content: Inline[] }
@@ -40,7 +40,7 @@ export type Block =
   | { kind: 'table'; children: Block[] }
   | { kind: 'tableRow'; children: Block[] }
   | { kind: 'tableCell'; header?: boolean; children: Block[] }
-  /** A hidden block: `level` is dm unless it says broker or classified. */
+  /** A hidden block: `level` is gm unless it says broker or classified. */
   | { kind: 'secret'; children: Block[]; level?: Level }
   | { kind: 'callout'; variant: string; title?: Inline[]; children: Block[] }
   | { kind: 'toggle'; title: Inline[]; children: Block[] }
@@ -50,7 +50,7 @@ export type Block =
   | { kind: 'image'; url: string; alt?: string; width?: number; caption?: Inline[] }
   | { kind: 'infobox'; layout?: string; width?: number; groups: PropertyGroup[] }
   | { kind: 'collection'; title?: string; filter?: unknown }
-  /** A map with pins (LegendKeeper map documents). `dm` pins and pins that link to GM-only pages never reach players. */
+  /** A map with pins (LegendKeeper map documents). `gm` pins and pins that link to GM-only pages never reach players. */
   | { kind: 'map'; title?: string; image?: string; width?: number; height?: number; /** The coordinate frame pins are in: [[minLat, minLng], [maxLat, maxLng]]. */ bounds?: [[number, number], [number, number]]; pins: MapPin[] }
   | { kind: 'unsupported'; sourceKind: string };
 
@@ -69,8 +69,8 @@ export interface Entry {
   banner?: string | null;
   properties?: PropertyGroup[];
   blocks: Block[];
-  /** dm or party. Adapters must fail closed: anything unsure is dm. */
-  visibility: 'dm' | 'party' | 'broker' | 'classified';
+  /** gm or party. Adapters must fail closed: anything unsure is gm. */
+  visibility: 'gm' | 'party' | 'broker' | 'classified';
   /** A secrecy level the source worked out (for example from a private tag). The library raises the page to it. */
   level?: Level;
   /** How hard this is to learn, for the information broker. */
@@ -275,7 +275,7 @@ function tokensToBlocks(tokens: Token[]): Block[] {
           const variant = m[1].toLowerCase();
           const rest = q.text.slice(m[0].length);
           const children = tokensToBlocks(marked.lexer(rest));
-          if (variant === 'secret' || variant === 'dm' || variant === 'gm' || variant === 'broker' || variant === 'classified') {
+          if (variant === 'secret' || variant === 'gm' || variant === 'gm' || variant === 'broker' || variant === 'classified') {
             const level = variant === 'broker' || variant === 'classified' ? variant : undefined;
             out.push({ kind: 'secret', ...(level ? { level } : {}), children: m[3] ? [{ kind: 'heading', level: 3, content: [{ text: m[3] }] }, ...children] : children });
           }
@@ -292,7 +292,7 @@ function tokensToBlocks(tokens: Token[]): Block[] {
         out.push({ kind: 'table', children: [{ kind: 'tableRow', children: tb.header.map((c) => cell(c, true)) }, ...tb.rows.map((r) => ({ kind: 'tableRow' as const, children: r.map((c) => cell(c, false)) }))] });
         break;
       }
-      case 'html': break; // HTML comments (<!-- dm -->) are handled by the leak guard before parsing
+      case 'html': break; // HTML comments (<!-- gm -->) are handled by the leak guard before parsing
       case 'space': break;
       case 'text': { const tt = t as Tokens.Text; const content = inlineTokens(tt.tokens ?? [tt as Token]); if (content.length) out.push({ kind: 'paragraph', content }); break; }
       default: break;

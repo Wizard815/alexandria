@@ -39,17 +39,17 @@ mostly about leaks).
 
 All rules live in `src/core/policy.ts`.
 
-1. **Every record has a visibility**: `dm` (GMs and the owner), `party`
+1. **Every record has a visibility**: `gm` (GMs and the owner), `party`
    (everyone in the world) or `me` (only the owner, so a player's "only me"
    notes are hidden from the GM too). Anything missing or unknown counts as
-   `dm`.
+   `gm`.
 2. **Library pages are GM-only unless marked** `visibility: party`.
 3. **Player copies are made when a page is saved**, not when it is read.
    The copy drops:
-   - frontmatter keys `secret:`, `dm_*` and `gm_*`
+   - frontmatter keys `secret:`, `gm_*` and `gm_*`
    - `> [!secret]`, `> [!dm]` and `> [!gm]` callouts
    - `%% comments %%`
-   - `<!-- dm -->…<!-- /dm -->` blocks (an unclosed one hides the rest of
+   - `<!-- gm -->…<!-- /gm -->` blocks (an unclosed one hides the rest of
      the page)
    - headings marked `(GM)`, `[GM]` or "GM only", or titled Secrets or
      GM notes, along with everything under them
@@ -79,16 +79,16 @@ All rules live in `src/core/policy.ts`.
 
 ## Secrecy levels
 
-Pages, blocks, fact groups and frontmatter keys carry one of four levels (`src/core/levels.ts`). `pages.visibility` is `party`, `broker`, `dm` or `classified`; the most secret level wins and anything unknown is `dm`.
+Pages, blocks, fact groups and frontmatter keys carry one of four levels (`src/core/levels.ts`). `pages.visibility` is `party`, `broker`, `gm` or `classified`; the most secret level wins and anything unknown is `gm`.
 
 | Level | Players | Broker (may sell it) | Any AI or model context | The GM in the app |
 |---|---|---|---|---|
 | `party` | yes | yes | yes | yes |
 | `broker` | no | yes, held for GM review by default (`brokerLevelDelivery`: `review` or `auto`) | yes | yes |
-| `dm` | no | no | yes | yes |
+| `gm` | no | no | yes | yes |
 | `classified` | no | no | never sent to any model or MCP client, never embedded | yes, in a red "Classified: never shared with any AI" frame |
 
-Each page stores four copies, rebuilt on every save and sync (and once on start for older databases): the player copy (`player_*`), the broker copy (`broker_*`, party plus broker), the AI copy (`ai_*`, everything except classified) and the GM copy. Each has its own search index (`fts_party`, `fts_broker`, `fts_ai`, `fts_dm`), and the GM's semantic index is cut from the AI copy. Requests from the MCP server and the agent's tools send `X-Alexandria-Caller: model` and are served the AI copy. `copyFor(page, 'player' | 'broker' | 'ai' | 'dm')` returns a page's stored blocks, markdown, properties and frontmatter for an audience. How to mark each level in each source is in `docs/CONNECTORS.md`.
+Each page stores four copies, rebuilt on every save and sync (and once on start for older databases): the player copy (`player_*`), the broker copy (`broker_*`, party plus broker), the AI copy (`ai_*`, everything except classified) and the GM copy. Each has its own search index (`fts_party`, `fts_broker`, `fts_ai`, `fts_gm`), and the GM's semantic index is cut from the AI copy. Requests from the MCP server and the agent's tools send `X-Alexandria-Caller: model` and are served the AI copy. `copyFor(page, 'player' | 'broker' | 'ai' | 'gm')` returns a page's stored blocks, markdown, properties and frontmatter for an audience. How to mark each level in each source is in `docs/CONNECTORS.md`.
 
 ## Keys and the MCP endpoint
 

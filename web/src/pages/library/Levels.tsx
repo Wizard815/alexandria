@@ -1,12 +1,12 @@
 // The four secrecy levels (see librarian/src/core/levels.ts): party, broker,
-// dm and classified. Classified is never sent to any AI model or MCP client.
-export type Level = 'party' | 'broker' | 'dm' | 'classified';
+// gm and classified. Classified is never sent to any AI model or MCP client.
+export type Level = 'party' | 'broker' | 'gm' | 'classified';
 
-export const LEVELS: Level[] = ['party', 'broker', 'dm', 'classified'];
-export const LEVEL_LABEL: Record<Level, string> = { party: 'Shared with the party', broker: 'Broker may sell it', dm: 'GM only (AI can read)', classified: 'Classified: never shared with any AI' };
-const SHORT: Record<Level, string> = { party: 'Party', broker: 'Broker', dm: 'GM', classified: 'Classified' };
+export const LEVELS: Level[] = ['party', 'broker', 'gm', 'classified'];
+export const LEVEL_LABEL: Record<Level, string> = { party: 'Shared with the party', broker: 'Broker may sell it', gm: 'GM only (AI can read)', classified: 'Classified: never shared with any AI' };
+const SHORT: Record<Level, string> = { party: 'Party', broker: 'Broker', gm: 'GM', classified: 'Classified' };
 
-export const levelOf = (v: unknown): Level => (v === 'party' || v === 'broker' || v === 'classified' ? v : 'dm');
+export const levelOf = (v: unknown): Level => (v === 'party' || v === 'broker' || v === 'classified' ? v : 'gm');
 /** The level words a title can start with ("Broker", "Classified"). */
 export const titleLevel = (t: unknown): Level | null => { const m = /^\s*(broker|classified)\b/i.exec(String(t ?? '')); return m ? (m[1].toLowerCase() as Level) : null; };
 
@@ -33,7 +33,7 @@ export function ClassifiedFrame() {
 export const LEVEL_CSS = `
 .lvl-chip { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid transparent; }
 .lvl-broker { background: #fff3d1; color: #7a4a00; border-color: #e0a526; }
-.lvl-dm { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger); }
+.lvl-gm { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger); }
 .lvl-classified { background: #111; color: #fff; border-color: #000; }
 .lvl-party { background: var(--panel-2); color: var(--muted); }
 .lvl-frame { margin: 0 22px 8px; padding: 10px 14px; border: 2px solid var(--danger); border-radius: 8px; background: var(--danger-bg); color: var(--danger-text); }

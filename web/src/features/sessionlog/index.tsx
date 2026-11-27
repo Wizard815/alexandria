@@ -1,11 +1,11 @@
 import type { WebFeature } from '../registry.ts';
-import { SessionLogDM, SessionLogPlayer } from './pages.tsx';
+import { SessionLogGM, SessionLogPlayer } from './pages.tsx';
 
 const feature: WebFeature = {
   id: 'sessionlog',
-  dmRoutes: [{ path: 'sessionlog', element: <SessionLogDM /> }],
+  gmRoutes: [{ path: 'sessionlog', element: <SessionLogGM /> }],
   playerRoutes: [{ path: 'log', element: <SessionLogPlayer /> }],
-  dmNav: [{ to: 'sessionlog' }],
+  gmNav: [{ to: 'sessionlog' }],
   playerNav: [{ to: 'log', label: 'Session log', icon: 'fa-scroll' }],
 };
 export default feature;

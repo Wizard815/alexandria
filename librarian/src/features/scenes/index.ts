@@ -12,8 +12,8 @@ import { Router, type Request } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { all, one, run, tx } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
-import { dmOnly } from '../../core/events.ts';
+import { requireGM } from '../../core/auth.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, id as newId, now, parseJson, str } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
 import { applyParts, captureParts, snapshotFor, undoParts, type Call } from './apply.ts';
@@ -72,7 +72,7 @@ const feature: Feature = {
   worldMount: 'scenes',
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
-    r.use(requireDM);
+    r.use(requireGM);
     const { db } = d;
     const W = (res: any) => ctx(res).world.id;
     const rows = (w: string) => all<Row>(db, 'SELECT * FROM scenes WHERE world_id = ? ORDER BY pos, created_at', w);
@@ -82,7 +82,7 @@ const feature: Feature = {
       if (!s) throw new HttpError(404, 'Scene not found');
       return s;
     };
-    const changed = (w: string) => d.hub.emit(w, 'scenes', { at: now() }, dmOnly);
+    const changed = (w: string) => d.hub.emit(w, 'scenes', { at: now() }, gmOnly);
     const audit = (w: string, by: string, action: string, detail: string) =>
       run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', w, by, action, detail.slice(0, 500), now());
     const lastOf = (w: string) => {
@@ -194,7 +194,7 @@ const feature: Feature = {
     return r;
   },
   mcpTools: [
-    { name: 'list_scenes', dmOnly: true, description: "GM: the saved scenes (one-button presets that set the players' TV, sound, lights and the table map): name and which parts each sets.", props: {}, call: () => ({ method: 'GET', path: '/scenes' }) },
+    { name: 'list_scenes', gmOnly: true, description: "GM: the saved scenes (one-button presets that set the players' TV, sound, lights and the table map): name and which parts each sets.", props: {}, call: () => ({ method: 'GET', path: '/scenes' }) },
     {
       name: 'activate_scene', write: true,
       description: "GM: activate a saved scene by name or id: sets the players' TV, sound, lights and table map in one go, and reports per part (one failing part does not stop the others). Scenes are listed by list_scenes.",

@@ -3,10 +3,10 @@ import { randomBytes } from 'node:crypto';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { all, one, run } from '../core/db.ts';
-import { type Auth, bearer, requireDM } from '../core/auth.ts';
+import { type Auth, bearer, requireGM } from '../core/auth.ts';
 import { mergeSettings, settingsFor } from '../core/policy.ts';
 import { HttpError, int, now, oneOf, sha256 } from '../core/util.ts';
-import { ctx, isDM, me, settings } from './_shared.ts';
+import { ctx, isGM, me, settings } from './_shared.ts';
 
 export function listMyWorlds(d: Deps) {
   return (_req: Request, res: Response) => {
@@ -34,7 +34,7 @@ export default function worldRoutes(d: Deps) {
   });
 
   r.get('/settings', (_req, res) => res.json(settingsFor(settings(res), ctx(res).viewer.role)));
-  r.patch('/settings', requireDM, (req, res) => {
+  r.patch('/settings', requireGM, (req, res) => {
     const c = ctx(res);
     let next;
     try {
@@ -49,7 +49,7 @@ export default function worldRoutes(d: Deps) {
   });
 
   // Invite codes for players and guests. The code is shown once.
-  r.post('/invites', requireDM, (req, res) => {
+  r.post('/invites', requireGM, (req, res) => {
     const c = ctx(res);
     const role = oneOf(req.body?.role, 'role', ['player', 'guest'] as const, 'player');
     const days = int(req.body?.days, 'days', { min: 1, max: 30, optional: true }) ?? 7;
@@ -74,11 +74,11 @@ export default function worldRoutes(d: Deps) {
     d.hub.subscribe(c.world.id, c.viewer, res, alive);
   });
 
-  r.get('/audit', requireDM, (req, res) => {
+  r.get('/audit', requireGM, (req, res) => {
     res.json(all(db, 'SELECT * FROM audit WHERE world_id = ? ORDER BY id DESC LIMIT ?', ctx(res).world.id, Math.min(Number(req.query.limit) || 100, 1000)));
   });
 
-  r.get('/whoami', (_req, res) => res.json({ ...ctx(res).viewer, dm: isDM(res), at: now() }));
+  r.get('/whoami', (_req, res) => res.json({ ...ctx(res).viewer, gm: isGM(res), at: now() }));
 
   return r;
 }

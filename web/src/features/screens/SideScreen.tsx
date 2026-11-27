@@ -18,7 +18,7 @@ const MIN_H = 120, MAX_H = 2600;
 const clamp = (h: number) => Math.max(MIN_H, Math.min(MAX_H, Math.round(h)));
 
 export default function SideScreen() {
-  const { isDM, info } = useWorld();
+  const { isGM, info } = useWorld();
   const [stack, setStack] = useState<SidePanel[]>(() => loadSide(DEFAULT).filter((p) => panelById(p.id)));
   const [picking, setPicking] = useState(false);
   useEffect(() => { document.title = `Side screen · ${info?.name ?? 'Alexandria'}`; }, [info?.name]);
@@ -32,7 +32,7 @@ export default function SideScreen() {
     change(n);
   };
 
-  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">The side screen is for the GM.</p></div></div>;
+  if (!isGM) return <div className="t-fantasy"><div className="page"><p className="muted">The side screen is for the GM.</p></div></div>;
   const spare = PANELS.filter((p) => !stack.some((s) => s.id === p.id));
   return (
     <div className="t-fantasy sc-side" data-testid="side-screen">

@@ -13,7 +13,7 @@ export const CORNERS: Record<string, { x: number; y: number }> = {
   combat: { x: 1, y: 1 },
 };
 
-export interface Mood { x: number; y: number; src: 'folder' | 'yaml' | 'dm' }
+export interface Mood { x: number; y: number; src: 'folder' | 'yaml' | 'gm' }
 export interface Track { id: string; kind: 'music'; path: string; area: string; sub: string; title: string; duration: number | null; mood: Mood | null }
 export interface AmbienceFile { id: string; kind: 'ambience'; path: string; layer: string; name: string; duration: number | null }
 export interface SfxFile { id: string; kind: 'sfx'; path: string; bank: string; name: string; duration: number | null }
@@ -135,7 +135,7 @@ export function scan(dataDir: string | null): Index {
 
 /** Apply the GM's own spots (they beat moods.yaml and folder names). */
 export function withOverrides(tracks: Track[], over: Map<string, { x: number; y: number }>): Track[] {
-  return tracks.map((t) => (over.has(t.id) ? { ...t, mood: { ...over.get(t.id)!, src: 'dm' as const } } : t));
+  return tracks.map((t) => (over.has(t.id) ? { ...t, mood: { ...over.get(t.id)!, src: 'gm' as const } } : t));
 }
 
 /** Is the track in this area (a top-level folder, or "area/sub")? No area means any. */

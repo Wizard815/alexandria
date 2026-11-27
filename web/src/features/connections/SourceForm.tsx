@@ -51,7 +51,7 @@ export async function saveDraft(client: AlexandriaClient, worldId: string, d: Dr
   }
   if (!c.hasConnection) own = pickConfig(c, { ...d.connValues, ...d.values }, 'source');
   return client.request<Source>('POST', `/api/admin/worlds/${worldId}/sources`, {
-    ...(connectionId ? { connectionId } : { kind: c.id }), name: d.name.trim(), config: own, defaultVisibility: d.audience === 'auto' && d.share ? 'party' : 'dm',
+    ...(connectionId ? { connectionId } : { kind: c.id }), name: d.name.trim(), config: own, defaultVisibility: d.audience === 'auto' && d.share ? 'party' : 'gm',
     scheduleMinutes: d.schedule ? Number(d.schedule) : null, audience: d.audience, ...(d.audience === 'party' ? { confirmParty: true } : {}),
   });
 }

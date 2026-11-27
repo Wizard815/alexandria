@@ -15,7 +15,7 @@ import type {
   Item,
   TravelLog,
   Transcript,
-  DmNote,
+  GmNote,
 } from '@alexandria/schema';
 
 export class DndClient {

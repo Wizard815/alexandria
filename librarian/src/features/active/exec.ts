@@ -21,11 +21,11 @@ export const setPort = (d: Deps, p: number | undefined) => { if (p) ports.set(d,
 export const portOf = (d: Deps): number => ports.get(d) ?? (Number(d.env.LIBRARIAN_PORT) || 8090);
 
 const sessions = new Map<string, { token: string; accountId: string; exp: number }>();
-export function dmAuth(d: Deps, worldId: string): { token: string; accountId: string } | null {
+export function gmAuth(d: Deps, worldId: string): { token: string; accountId: string } | null {
   const key = `${worldId}`;
   const c = sessions.get(key);
   if (c && c.exp - Date.now() > 60_000) return c;
-  const m = one<{ account_id: string }>(d.db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' ORDER BY rowid LIMIT 1", worldId);
+  const m = one<{ account_id: string }>(d.db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'gm' ORDER BY rowid LIMIT 1", worldId);
   if (!m) return null;
   const token = secret('alx_ses_');
   const exp = Date.now() + 15 * 60_000;
@@ -38,7 +38,7 @@ export function dmAuth(d: Deps, worldId: string): { token: string; accountId: st
 
 const enc = encodeURIComponent;
 async function http(d: Deps, worldId: string, method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; text: string }> {
-  const a = dmAuth(d, worldId);
+  const a = gmAuth(d, worldId);
   if (!a) return { ok: false, status: 403, text: 'No GM in this world' };
   try {
     const r = await d.fetch(`http://127.0.0.1:${portOf(d)}/api/worlds/${enc(worldId)}${path}`, { method, headers: { Authorization: `Bearer ${a.token}`, 'Content-Type': 'application/json', 'X-Alexandria-Caller': 'model' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -54,8 +54,8 @@ export async function callOne(d: Deps, worldId: string, c: Call): Promise<CallRe
   else if (c.tool === 'inventory_delete') r = await http(d, worldId, 'DELETE', `/inventory/${enc(String(c.args.id))}?reason=${enc('Undone at the table')}`);
   else if (c.tool === 'clock_undo') r = await http(d, worldId, 'POST', `/clock/log/${enc(String(c.args.id))}/undo`, {});
   else {
-    const a = dmAuth(d, worldId);
-    const tool = (await harnessTools('dm')).find((t) => t.name === c.tool);
+    const a = gmAuth(d, worldId);
+    const tool = (await harnessTools('gm')).find((t) => t.name === c.tool);
     if (!a || !tool) return { ok: false, text: 'That tool is not available', json: null };
     r = await runTool(d, { worldId, token: a.token, port: portOf(d) }, tool, c.args);
   }

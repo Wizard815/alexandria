@@ -42,7 +42,7 @@ const PORT = Number(process.env.TABLENIGHT_PORT || 8930);
 const base = `http://127.0.0.1:${PORT}`;
 const W = `${base}/w/saltreach`;
 const API = '/api/worlds/saltreach';
-const PASS = { dm: 'game master 123', player: 'player pass 123', admin: 'library admin 123' };
+const PASS = { gm: 'game master 123', player: 'player pass 123', admin: 'library admin 123' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 const log = (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0).padStart(4)}s] ${m}`);
@@ -80,7 +80,7 @@ const UA_LINUX = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, lik
 const UA_MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
 const UA_WIN = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const SPEC = {
-  dm: { opts: { viewport: { width: 1920, height: 1080 }, userAgent: UA_LINUX }, label: 'GM desktop (Ubuntu Chrome 1920x1080)' },
+  gm: { opts: { viewport: { width: 1920, height: 1080 }, userAgent: UA_LINUX }, label: 'GM desktop (Ubuntu Chrome 1920x1080)' },
   side: { opts: { viewport: { width: 1080, height: 1920 }, userAgent: UA_LINUX }, label: 'GM side screen (portrait 1080x1920)' },
   tv: { opts: { viewport: { width: 1920, height: 1080 }, userAgent: UA_LINUX }, label: "Players' TV (1920x1080)" },
   table: { opts: { viewport: { width: 1920, height: 1080 }, userAgent: UA_LINUX }, label: 'Table screen (1920x1080)' },
@@ -134,7 +134,7 @@ async function http(token, method, p, body, raw) {
 }
 const login1 = async (u, p) => (await http(null, 'POST', '/api/auth/login', { username: u, password: p })).token;
 let TK = {};
-const dmApi = (m, p, b, raw) => http(TK.dm, m, API + p, b, raw);
+const gmApi = (m, p, b, raw) => http(TK.gm, m, API + p, b, raw);
 const asApi = (who, m, p, b) => http(TK[who], m, API + p, b);
 
 const hasText = (text) => (t) => document.body.innerText.includes(t) || [...document.querySelectorAll('img')].some((i) => (i.alt || '').includes(t));
@@ -214,30 +214,30 @@ try {
   S.admin = admin;
   const t = await http(admin, 'POST', '/api/admin/models/chat/test', {}).catch((e) => ({ error: e.message }));
   log(`chat test: ${JSON.stringify(t).slice(0, 160)}`);
-  TK = { dm: await login1('dm', PASS.dm), jess: await login1('jess', PASS.player), tom: await login1('tom', PASS.player), ana: await login1('ana', PASS.player) };
-  const members = await dmApi('GET', '/members');
+  TK = { gm: await login1('gm', PASS.gm), jess: await login1('jess', PASS.player), tom: await login1('tom', PASS.player), ana: await login1('ana', PASS.player) };
+  const members = await gmApi('GET', '/members');
   S.acc = Object.fromEntries(members.map((m) => [(m.display_name || '').toLowerCase(), m.id]));
   log(`members: ${Object.keys(S.acc).join(', ')}`);
 
   // Content: a GM-only page with a unique marker, the rules module, a picture for the TV and one for the table map.
-  await dmApi('PUT', '/library/pages', { path: 'Secrets/The Black Pearl', visibility: 'dm', markdown: `# The Black Pearl\nThe cult of the Black Pearl meets under the lighthouse. Password: ${MARKER}.\n` });
-  await dmApi('PUT', '/modules/enabled', { ids: ['dnd-2024'] }).catch((e) => log(`modules: ${e.message}`));
-  const img = await dmApi('POST', '/stage/images', png(640, 360, [30, 90, 140]), 'image/png');
-  S.card = await dmApi('POST', '/stage/cards', { kind: 'image', ref: img.id, caption: 'Saltmarsh harbour at dusk', show: false });
-  const mp = await dmApi('POST', `/files?${new URLSearchParams({ name: 'harbour-map.png', folder: 'Maps', title: 'Harbour map', level: 'party', kind: 'map' })}`, png(800, 600, [60, 120, 90]), 'image/png');
+  await gmApi('PUT', '/library/pages', { path: 'Secrets/The Black Pearl', visibility: 'gm', markdown: `# The Black Pearl\nThe cult of the Black Pearl meets under the lighthouse. Password: ${MARKER}.\n` });
+  await gmApi('PUT', '/modules/enabled', { ids: ['dnd-2024'] }).catch((e) => log(`modules: ${e.message}`));
+  const img = await gmApi('POST', '/stage/images', png(640, 360, [30, 90, 140]), 'image/png');
+  S.card = await gmApi('POST', '/stage/cards', { kind: 'image', ref: img.id, caption: 'Saltmarsh harbour at dusk', show: false });
+  const mp = await gmApi('POST', `/files?${new URLSearchParams({ name: 'harbour-map.png', folder: 'Maps', title: 'Harbour map', level: 'party', kind: 'map' })}`, png(800, 600, [60, 120, 90]), 'image/png');
   S.mapPic = `lib:${mp.id}`;
-  S.scene = await dmApi('POST', '/scenes', { name: 'Arrival at the harbour', color: '#e9c46a', parts: { tv: { mode: 'card', cardId: S.card.id }, table: { mapId: 'world', pic: S.mapPic, fog: 'keep' } } });
+  S.scene = await gmApi('POST', '/scenes', { name: 'Arrival at the harbour', color: '#e9c46a', parts: { tv: { mode: 'card', cardId: S.card.id }, table: { mapId: 'world', pic: S.mapPic, fog: 'keep' } } });
 
   // ================================================================================================================
   await step(1, 'sign in on every device', async () => {
     for (const n of Object.keys(SPEC)) if (n !== 'p4a') await open(n);
-    await Promise.all([login('dm', 'dm', PASS.dm), login('side', 'dm', PASS.dm), login('tv', 'dm', PASS.dm), login('table', 'dm', PASS.dm), login('phone', 'dm', PASS.dm), login('p1', 'jess'), login('p2', 'tom'), login('p3', 'ana')]);
+    await Promise.all([login('gm', 'gm', PASS.gm), login('side', 'gm', PASS.gm), login('tv', 'gm', PASS.gm), login('table', 'gm', PASS.gm), login('phone', 'gm', PASS.gm), login('p1', 'jess'), login('p2', 'tom'), login('p3', 'ana')]);
     // Player 4 is invited the way a GM does it: an invite code from Settings, then the Join page on the player's phone.
-    const dm = pg('dm');
-    await dm.goto(`${W}/gm/settings`);
-    await dm.getByRole('tab', { name: /invite players/i }).click().catch(() => dm.getByText(/Invite players/).first().click());
-    await dm.getByRole('button', { name: /make an invite code/i }).click();
-    const code = (await dm.locator('.ok-box .mono').first().innerText({ timeout: 8000 })).trim();
+    const gm = pg('gm');
+    await gm.goto(`${W}/gm/settings`);
+    await gm.getByRole('tab', { name: /invite players/i }).click().catch(() => gm.getByText(/Invite players/).first().click());
+    await gm.getByRole('button', { name: /make an invite code/i }).click();
+    const code = (await gm.locator('.ok-box .mono').first().innerText({ timeout: 8000 })).trim();
     check(code.length > 6, 'the invite code is shown');
     const a = await open('p4a');
     await a.page.goto(`${base}/join?code=${encodeURIComponent(code)}`);
@@ -249,11 +249,11 @@ try {
     await a.page.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
     await login('p4w', 'mira');
     TK.mira = await login1('mira', PASS.player);
-    S.acc.mira = (await dmApi('GET', '/members')).find((m) => (m.character_name || m.display_name || '').toLowerCase().includes('mira'))?.id ?? '';
+    S.acc.mira = (await gmApi('GET', '/members')).find((m) => (m.character_name || m.display_name || '').toLowerCase().includes('mira'))?.id ?? '';
     for (const p of ['jess', 'tom', 'ana', 'mira']) await asApi(p, 'POST', '/audio/consent', { agree: true }).catch((e) => note(`consent ${p}: ${e.message}`));
     // Everyone is where they will be for the first steps.
     await Promise.all([
-      pg('dm').goto(`${W}/gm`), pg('side').goto(`${W}/screen/side`), pg('tv').goto(`${W}/screen/players`), pg('table').goto(`${W}/screen/table`), pg('phone').goto(`${W}/gm/phone`),
+      pg('gm').goto(`${W}/gm`), pg('side').goto(`${W}/screen/side`), pg('tv').goto(`${W}/screen/players`), pg('table').goto(`${W}/screen/table`), pg('phone').goto(`${W}/gm/phone`),
       pg('p1').goto(`${W}/live`), pg('p2').goto(`${W}/live`), pg('p3').goto(`${W}/live`), pg('p4a').goto(`${W}/live`), pg('p4w').goto(`${W}/live`),
     ]);
     await sleep(2500);
@@ -266,64 +266,64 @@ try {
     check(await pg('side').getByTestId('side-screen').isVisible().catch(() => false), 'side screen did not open');
     check(await pg('tv').locator('.ps').isVisible().catch(() => false), 'TV did not open');
     check(await pg('table').getByTestId('table-screen').isVisible().catch(() => false), 'table screen did not open');
-    check(await pg('phone').getByTestId('dmphone').isVisible().catch(() => false), 'GM phone page did not open');
+    check(await pg('phone').getByTestId('gmphone').isVisible().catch(() => false), 'GM phone page did not open');
     const standalone = await pg('phone').evaluate(() => window.matchMedia('(display-mode: standalone)').matches);
     note(`phone standalone emulation: ${standalone}`);
   });
 
   // ================================================================================================================
   await step(2, 'recording, live transcript, rules terms, running summary', async () => {
-    const rec = await dmApi('POST', '/audio/sessions', { name: 'Table night' });
+    const rec = await gmApi('POST', '/audio/sessions', { name: 'Table night' });
     S.sid = rec.id ?? rec.session?.id;
-    const tableMic = await dmApi('POST', '/audio/mics', { deviceId: 'tn-table', label: 'Table', mode: 'always', playersTranscript: true });
+    const tableMic = await gmApi('POST', '/audio/mics', { deviceId: 'tn-table', label: 'Table', mode: 'always', playersTranscript: true });
     const jessMic = await asApi('jess', 'POST', '/audio/mics', { deviceId: 'tn-jess', label: "Jessamine's phone", mode: 'always' });
-    S.mics = { dm: tableMic.id ?? tableMic.mic?.id, jess: jessMic.id ?? jessMic.mic?.id };
-    const seq = { dm: 0, jess: 0 };
+    S.mics = { gm: tableMic.id ?? tableMic.mic?.id, jess: jessMic.id ?? jessMic.mic?.id };
+    const seq = { gm: 0, jess: 0 };
     let clock = 0;
     const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01]);
     S.say = async (who, text, ms = 5000) => {
-      const tok = who === 'dm' ? TK.dm : TK.jess;
+      const tok = who === 'gm' ? TK.gm : TK.jess;
       const q = new URLSearchParams({ mic: S.mics[who], seq: String(seq[who]++), start: String(clock), end: String(clock + ms), level: '0.6' });
       clock += ms;
       await http(tok, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
     };
-    const hs = await dmApi('POST', '/audio/mics', { deviceId: 'tn-headset', label: 'GM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
+    const hs = await gmApi('POST', '/audio/mics', { deviceId: 'tn-headset', label: 'GM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
     S.mics.hs = hs.id ?? hs.mic?.id;
     // A GM aside: the headset holds, the table mic hears it too, and it must stay GM-only.
     S.aside = async (text) => {
       const start = clock;
-      await dmApi('POST', `/audio/sessions/${S.sid}/holds`, { micId: S.mics.hs, kind: 'aside', start, end: start + 5000 });
+      await gmApi('POST', `/audio/sessions/${S.sid}/holds`, { micId: S.mics.hs, kind: 'aside', start, end: start + 5000 });
       const q = (mic, sq) => new URLSearchParams({ mic, seq: String(sq), start: String(start), end: String(start + 5000), level: '0.7' });
-      await http(TK.dm, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q(S.mics.hs, 0)}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
-      await http(TK.dm, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q(S.mics.dm, seq.dm++)}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
+      await http(TK.gm, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q(S.mics.hs, 0)}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
+      await http(TK.gm, 'POST', `${API}/audio/sessions/${S.sid}/chunks?${q(S.mics.gm, seq.gm++)}`, Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]), 'audio/webm');
       clock += 5000;
     };
-    const dmPages = ['dm', 'side', 'phone'];
+    const gmPages = ['gm', 'side', 'phone'];
     const SCRIPT = [
-      ['dm', 'The ferry bumps against the harbour wall at Saltmarsh and gulls wheel over the grey water.'],
+      ['gm', 'The ferry bumps against the harbour wall at Saltmarsh and gulls wheel over the grey water.'],
       ['jess', 'I step off the ferry and look for the harbour council hall near the quay.'],
-      ['dm', 'Old Hennet the lighthouse keeper waves you over and says the lamp has been dark for a month.'],
+      ['gm', 'Old Hennet the lighthouse keeper waves you over and says the lamp has been dark for a month.'],
       ['jess', 'Can I counter spell that if the smuggler casts Fireball at us on the pier?'],
-      ['dm', 'You can use your reaction for Counterspell but the Fireball needs concentration from the caster no more.'],
+      ['gm', 'You can use your reaction for Counterspell but the Fireball needs concentration from the caster no more.'],
     ];
     // The first line shows on the GM's screens; the rules terms in it are highlighted.
-    await pg('dm').getByRole('button', { name: /open the transcript/i }).click({ timeout: 5000 }).catch(() => note('dm: transcript button not found (already open?)'));
+    await pg('gm').getByRole('button', { name: /open the transcript/i }).click({ timeout: 5000 }).catch(() => note('gm: transcript button not found (already open?)'));
     const from = Date.now();
     await S.say(...SCRIPT[0]);
     const first = 'ferry bumps against the harbour wall';
-    const seen = await Promise.all([['dm', pg('dm')], ['side', pg('side')], ['phone', pg('phone')]].map(async ([n]) => {
+    const seen = await Promise.all([['gm', pg('gm')], ['side', pg('side')], ['phone', pg('phone')]].map(async ([n]) => {
       if (n === 'phone') { await pg('phone').getByRole('tab', { name: /^Notes/ }).click().catch(() => {}); }
       return [n, await appears(n, first, from, 20000)];
     }));
     for (const [n, ms] of seen) { if (ms === null) fail(`first transcript line never reached ${n}`); else cur.appear[`line1 @${n}`] = ms; }
     for (const [who, text] of SCRIPT.slice(1)) { await S.say(who, text); await sleep(700); }
-    for (const n of dmPages) { const ms = await appears(n, 'Fireball', Date.now(), 20000); if (ms === null) fail(`the last scripted line never reached ${n}`); }
+    for (const n of gmPages) { const ms = await appears(n, 'Fireball', Date.now(), 20000); if (ms === null) fail(`the last scripted line never reached ${n}`); }
     await S.aside(`Remember the cult password is ${MARKER} and do not say it aloud.`);
-    for (const n of dmPages) { const ms = await appears(n, MARKER, Date.now(), 20000); if (ms === null) fail(`the GM aside never reached ${n}`); }
+    for (const n of gmPages) { const ms = await appears(n, MARKER, Date.now(), 20000); if (ms === null) fail(`the GM aside never reached ${n}`); }
     const marks = await pg('side').evaluate(() => [...document.querySelectorAll('mark.au-kw')].map((m) => m.textContent));
-    const marksDm = await pg('dm').evaluate(() => [...document.querySelectorAll('mark.au-kw')].map((m) => m.textContent));
-    note(`highlighted terms: side ${JSON.stringify(marks)}, dm ${JSON.stringify(marksDm)}`);
-    if (!marks.length && !marksDm.length) fail('no rules term (Fireball, Counterspell, Concentration) was highlighted on the GM screens');
+    const marksGm = await pg('gm').evaluate(() => [...document.querySelectorAll('mark.au-kw')].map((m) => m.textContent));
+    note(`highlighted terms: side ${JSON.stringify(marks)}, gm ${JSON.stringify(marksGm)}`);
+    if (!marks.length && !marksGm.length) fail('no rules term (Fireball, Counterspell, Concentration) was highlighted on the GM screens');
     // Players with the transcript open see the table's lines (the table mic allows it) but never the aside.
     // (On a phone the transcript button sits in the round "..." menu, so only the Mac opens it here.)
     await pg('p1').getByRole('button', { name: /open the transcript/i }).click({ timeout: 4000 }).catch(() => note('p1: the transcript is already open or has no button'));
@@ -333,9 +333,9 @@ try {
     await shots('02a-transcript');
     // The running summary: the GM presses Update (a real model call).
     const sm = Date.now();
-    const sum = await dmApi('POST', `/audio/sessions/${S.sid}/summary/refresh`, {}).catch((e) => ({ error: e.message }));
+    const sum = await gmApi('POST', `/audio/sessions/${S.sid}/summary/refresh`, {}).catch((e) => ({ error: e.message }));
     cur.model.push(`summary refresh ${Date.now() - sm} ms`);
-    const text = (await dmApi('GET', `/audio/sessions/${S.sid}/summary`).catch(() => ({}))).text ?? sum?.text ?? '';
+    const text = (await gmApi('GET', `/audio/sessions/${S.sid}/summary`).catch(() => ({}))).text ?? sum?.text ?? '';
     if (!text || text.length < 40) fail(`the running summary is empty (${JSON.stringify(sum).slice(0, 160)})`);
     else if (!/saltmarsh|harbo|ferry|hennet|lighthouse/i.test(text)) fail(`the running summary does not mention the scene: ${text.slice(0, 120)}`);
     else note(`summary (${text.length} chars): ${text.replace(/\s+/g, ' ').slice(0, 140)}`);
@@ -349,7 +349,7 @@ try {
   await step(3, 'a scene: TV picture and table map', async () => {
     const tvBefore = await pg('tv').evaluate(() => document.body.innerText.includes('Saltmarsh harbour at dusk'));
     if (tvBefore) fail('the TV showed the picture before the scene');
-    const before = (await dmApi('GET', '/fog/table').catch(() => ({}))).pic;
+    const before = (await gmApi('GET', '/fog/table').catch(() => ({}))).pic;
     const from = Date.now();
     await pg('side').goto(`${W}/panel/scenes`).catch(() => {});
     const btn = pg('side').locator('[data-testid=scene-btn][data-scene="Arrival at the harbour"]');
@@ -362,7 +362,7 @@ try {
       try { return atob(m[1].replace(/-/g, '+').replace(/_/g, '/')).includes(id); } catch { return false; }
     }, S.mapPic.slice(4), { timeout: 15000 }).then(() => Date.now() - from, () => null);
     if (mapMs === null) fail('the table map never changed'); else cur.appear['scene map @table'] = mapMs;
-    const after = (await dmApi('GET', '/fog/table').catch(() => ({}))).pic;
+    const after = (await gmApi('GET', '/fog/table').catch(() => ({}))).pic;
     if (after !== S.mapPic) fail(`table display says ${after}, wanted ${S.mapPic} (was ${before})`);
     const report = await pg('side').getByTestId('scene-report').innerText({ timeout: 5000 }).catch(() => '');
     if (/failed/i.test(report)) fail(`the scene reported a failed part: ${report.slice(0, 160)}`);
@@ -402,8 +402,8 @@ try {
       ['p1 broker', askAssistant('p1', 'Who rules Saltmarsh and what is the harbour like?')],
       ['p3 broker', askAssistant('p3', 'How much does the Greywater Ferry cost?')],
       ['p2 helper', askAssistant('p2', 'What does the Shield spell do?')],
-      ['dm side assistant', askAssistant('side', 'Who is concentrating right now?', { scope: sideAssistant })],
-      ['dm phone assistant', askAssistant('phone', 'Recap the last 10 minutes of the session in three lines.')],
+      ['gm side assistant', askAssistant('side', 'Who is concentrating right now?', { scope: sideAssistant })],
+      ['gm phone assistant', askAssistant('phone', 'Recap the last 10 minutes of the session in three lines.')],
     ];
     const t = Date.now();
     const res = await Promise.all(jobs.map(([n, p]) => p.then((r) => [n, r])));
@@ -419,8 +419,8 @@ try {
     const rows = sample.flat().filter(Boolean);
     const peakWait = Math.max(0, ...rows.map((m) => Number(m.waiting ?? m.queued ?? 0)));
     const peakRun = Math.max(0, ...rows.map((m) => Number(m.running ?? m.active ?? 0)));
-    const dmChats = (await dmApi('GET', '/agent/chats').catch(() => ({ chats: [] }))).chats ?? [];
-    for (const c of dmChats.slice(0, 3)) { const v = await dmApi('GET', `/agent/chats/${c.id}`).catch(() => null); note(`GM chat "${c.title}": ${(v?.messages ?? []).map((m) => `${m.role[0]}:${String(m.text).replace(/\s+/g, ' ').slice(0, 40)}`).join(' | ')}`); }
+    const gmChats = (await gmApi('GET', '/agent/chats').catch(() => ({ chats: [] }))).chats ?? [];
+    for (const c of gmChats.slice(0, 3)) { const v = await gmApi('GET', `/agent/chats/${c.id}`).catch(() => null); note(`GM chat "${c.title}": ${(v?.messages ?? []).map((m) => `${m.role[0]}:${String(m.text).replace(/\s+/g, ' ').slice(0, 40)}`).join(' | ')}`); }
     note(`model queue seen: peak running ${peakRun}, peak waiting ${peakWait}; sample row ${JSON.stringify(rows.find((m) => Number(m.waiting ?? 0) > 0) ?? rows.find((m) => /openrouter/.test(m.server ?? '')) ?? rows[0] ?? {})}`);
     if (peakWait < 1) fail('with the chat job limited to 2 at a time, five concurrent questions never queued');
     if (!rows.length) fail('the model queue endpoint gave nothing while the assistants ran');
@@ -440,18 +440,18 @@ try {
   await step(6, 'combat: start, monsters, initiative, turns, damage, a condition', async () => {
     const all = ['p1', 'p2', 'p3', 'p4a', 'p4w'];
     // The monsters and the players' initiative, as the GM would enter them.
-    await dmApi('PATCH', '/settings', { monsterHealth: 'exact', initiativeVisible: true }).catch(() => {});
+    await gmApi('PATCH', '/settings', { monsterHealth: 'exact', initiativeVisible: true }).catch(() => {});
     const mon = {};
-    for (const [name, init, hp] of [['Harbour Thug', 12, 22], ['Smuggler Mage', 9, 18], ['Dock Rat', 3, 4]]) mon[name] = (await dmApi('POST', '/live/combatants', { name, initiative: init, hp, maxHp: hp, monster: true })).id;
+    for (const [name, init, hp] of [['Harbour Thug', 12, 22], ['Smuggler Mage', 9, 18], ['Dock Rat', 3, 4]]) mon[name] = (await gmApi('POST', '/live/combatants', { name, initiative: init, hp, maxHp: hp, monster: true })).id;
     const pcs = {};
-    for (const [who, init] of [['jess', 17], ['tom', 14], ['ana', 8], ['mira', 11]]) pcs[who] = (await dmApi('POST', '/live/combatants', { name: { jess: 'Jessamine', tom: 'Tomas', ana: 'Anselm', mira: 'Mira' }[who], accountId: S.acc[who], initiative: init, hp: 30, maxHp: 30 })).id;
+    for (const [who, init] of [['jess', 17], ['tom', 14], ['ana', 8], ['mira', 11]]) pcs[who] = (await gmApi('POST', '/live/combatants', { name: { jess: 'Jessamine', tom: 'Tomas', ana: 'Anselm', mira: 'Mira' }[who], accountId: S.acc[who], initiative: init, hp: 30, maxHp: 30 })).id;
     S.mon = mon; S.pcs = pcs;
-    await pg('dm').goto(`${W}/gm/combat`);
+    await pg('gm').goto(`${W}/gm/combat`);
     await pg('phone').getByRole('tab', { name: /^Now/ }).click();
     // Start from the phone.
     let from = Date.now();
     await pg('phone').getByRole('button', { name: /^Start combat/ }).click({ timeout: 10000 });
-    await everywhere('combat order', ['table', 'tv', 'dm'], 'Harbour Thug', null, 15000);
+    await everywhere('combat order', ['table', 'tv', 'gm'], 'Harbour Thug', null, 15000);
     cur.appear['combat start @phone-click'] = Date.now() - from;
     const turn = async (names, who, label) => {
       const t = Date.now();
@@ -472,20 +472,20 @@ try {
     const onPhone = await appears('phone', 'Tomas', from, 8000);
     if (onPhone === null) fail('the phone does not show whose turn it is');
     // Damage, healing, a condition and a hidden foe with armor class (as the desktop combat page would send them).
-    await dmApi('POST', '/live/combatants', { name: 'Ambusher in the loft', initiative: 5, hp: 20, maxHp: 20, ac: 17, hidden: true, monster: true });
-    await dmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { ac: 15 }).catch(() => {});
+    await gmApi('POST', '/live/combatants', { name: 'Ambusher in the loft', initiative: 5, hp: 20, maxHp: 20, ac: 17, hidden: true, monster: true });
+    await gmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { ac: 15 }).catch(() => {});
     from = Date.now();
-    await dmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { damage: 9 });
-    await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { damage: 12 });
-    await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { heal: 5 });
-    const cond = await dmApi('PATCH', `/live/combatants/${pcs.mira}`, { effects: [{ name: 'Poisoned', rounds: 3 }] }).catch((e) => e.message);
+    await gmApi('PATCH', `/live/combatants/${mon['Harbour Thug']}`, { damage: 9 });
+    await gmApi('PATCH', `/live/combatants/${pcs.mira}`, { damage: 12 });
+    await gmApi('PATCH', `/live/combatants/${pcs.mira}`, { heal: 5 });
+    const cond = await gmApi('PATCH', `/live/combatants/${pcs.mira}`, { effects: [{ name: 'Poisoned', rounds: 3 }] }).catch((e) => e.message);
     if (typeof cond === 'string') fail(`condition: ${cond.slice(0, 120)}`);
     for (const n of ['table', 'tv', 'p4a', 'p4w']) { const m = await appears(n, 'Poisoned', from, 12000); if (m === null) fail(`${n} never showed the Poisoned condition`); else cur.appear[`condition @${n}`] = m; }
     const hp = await appears('p4a', '23', from, 8000);
     note(`Mira's HP on her phone (30 - 12 + 5 = 23): ${hp === null ? 'not shown' : 'shown'}`);
     // The desktop moves the turn too: Harbour Thug (12) is next.
     from = Date.now();
-    const nextBtn = pg('dm').getByRole('button', { name: /^next turn/i }).first();
+    const nextBtn = pg('gm').getByRole('button', { name: /^next turn/i }).first();
     if (await nextBtn.isVisible().catch(() => false)) {
       await nextBtn.click();
       const cur1 = await pg('tv').waitForFunction(() => /Harbour Thug/.test(document.querySelector('.ps-order li.current')?.innerText ?? ''), null, { timeout: 10000 }).then(() => Date.now() - from, () => null);
@@ -505,7 +505,7 @@ try {
   await step(7, 'quick event to one player', async () => {
     const TITLE = 'Dexterity save: falling crates';
     const from = Date.now();
-    const ev = await dmApi('POST', '/quick-events', { kind: 'save', title: TITLE, prompt: 'Crates tumble from the loft. Make a Dexterity saving throw.', skill: 'Dexterity', dc: 13, audience: [S.acc.tom], timerS: 120 });
+    const ev = await gmApi('POST', '/quick-events', { kind: 'save', title: TITLE, prompt: 'Crates tumble from the loft. Make a Dexterity saving throw.', skill: 'Dexterity', dc: 13, audience: [S.acc.tom], timerS: 120 });
     S.ev = ev.id;
     const ms = await appears('p2', TITLE, from, 12000);
     if (ms === null) fail('p2 (Tomas) never got the quick event sheet'); else cur.appear['quick event @p2'] = ms;
@@ -518,10 +518,10 @@ try {
     // Tomas answers; the GM resolves.
     await pg('p2').getByRole('button', { name: /^Roll for me$/ }).click({ timeout: 5000 }).catch(() => fail('p2: no Roll for me button on the sheet'));
     await sleep(800);
-    const evs = await dmApi('GET', '/quick-events').catch(() => []);
+    const evs = await gmApi('GET', '/quick-events').catch(() => []);
     const mine = (Array.isArray(evs) ? evs : []).find((e) => e.id === S.ev);
     if (!(mine?.responses ?? []).some((x) => x.account_id === S.acc.tom)) fail(`the GM does not see Tomas's answer: ${JSON.stringify(mine).slice(0, 200)}`);
-    await dmApi('POST', `/quick-events/${S.ev}/resolve`, {}).catch((e) => note(`resolve: ${e.message.slice(0, 80)}`));
+    await gmApi('POST', `/quick-events/${S.ev}/resolve`, {}).catch((e) => note(`resolve: ${e.message.slice(0, 80)}`));
     const gone = await pg('p2').waitForFunction((t) => !document.querySelector('[role=dialog]') || !document.querySelector('[role=dialog]').innerText.includes(t), TITLE, { timeout: 10000 }).then(() => true, () => false);
     if (!gone) note('the sheet stays after resolving (the player closes it)');
   });
@@ -533,7 +533,7 @@ try {
     // Both of Mira's devices watch her combat condition and the same table chat.
     await Promise.all([pg('p4a').goto(`${W}/chat`), pg('p4w').goto(`${W}/chat`)]);
     await sleep(1500);
-    const sess = await dmApi('POST', '/sessionchat/sessions/start', { title: 'Table night chat' }).catch(() => null);
+    const sess = await gmApi('POST', '/sessionchat/sessions/start', { title: 'Table night chat' }).catch(() => null);
     await sleep(800);
     let from = Date.now();
     await post();
@@ -574,13 +574,13 @@ try {
 
   // ================================================================================================================
   await step(9, 'end the recording, hand-off draft', async () => {
-    await S.say('dm', 'The fight ends with the smugglers fleeing along the pier and Old Hennet promising to light the lamp again.');
+    await S.say('gm', 'The fight ends with the smugglers fleeing along the pier and Old Hennet promising to light the lamp again.');
     await sleep(2500);
     const from = Date.now();
-    await dmApi('POST', `/audio/sessions/${S.sid}/stop`, {});
+    await gmApi('POST', `/audio/sessions/${S.sid}/stop`, {});
     let draft = null;
     for (let i = 0; i < 90 && !draft; i++) {
-      const r = await dmApi('GET', '/minerva/review').catch(() => ({ drafts: [] }));
+      const r = await gmApi('GET', '/minerva/review').catch(() => ({ drafts: [] }));
       draft = (r.drafts ?? []).find((x) => x.review === `handoff-${S.sid}`) ?? null;
       if (!draft) await sleep(1000);
     }
@@ -590,9 +590,9 @@ try {
     const body = JSON.stringify(draft);
     if (body.includes(MARKER)) note('the GM-only aside is in the GM hand-off draft (the GM status doc is GM-only)');
     if (!/harbo|ferry|hennet|lighthouse|smuggl/i.test(body)) fail('the hand-off draft does not mention the night');
-    const out = await dmApi('POST', `/minerva/review/${draft.id}`, { decision: 'approve' }).catch((e) => ({ error: e.message }));
+    const out = await gmApi('POST', `/minerva/review/${draft.id}`, { decision: 'approve' }).catch((e) => ({ error: e.message }));
     if (out?.error) fail(`approving the draft: ${out.error}`);
-    const after = await dmApi('GET', '/minerva/review');
+    const after = await gmApi('GET', '/minerva/review');
     if ((after.drafts ?? []).some((x) => x.id === draft.id)) fail('the draft is still pending after approving');
     // Approved, the hand-off is in the GM's notes: a player's assistant must still not repeat the aside.
     const chat = await asApi('ana', 'POST', '/agent/chats', { title: 'After the night' });
@@ -602,7 +602,7 @@ try {
     for (let i = 0; i < 60; i++) { const v = await asApi('ana', 'GET', `/agent/chats/${cid}`); const m = (v.messages ?? []).filter((x) => x.role === 'assistant'); if (m.length && m.every((x) => x.status !== 'working')) { reply = m.map((x) => x.text).join('\n'); break; } await sleep(1000); }
     if (!reply) fail('the player assistant gave no answer after the hand-off'); else if (reply.includes(MARKER) || /black pearl/i.test(reply)) fail(`a player's assistant repeated the GM-only aside: ${reply.slice(0, 160)}`); else note(`player assistant after the hand-off: ${reply.replace(/\s+/g, ' ').slice(0, 120)}`);
     await pg('phone').goto(`${W}/gm/phone`);
-    const ph = await pg('phone').evaluate(() => /recording/i.test(document.querySelector('[data-testid=dmphone]')?.innerText ?? ''));
+    const ph = await pg('phone').evaluate(() => /recording/i.test(document.querySelector('[data-testid=gmphone]')?.innerText ?? ''));
     note(`phone still shows a recording: ${ph}`);
   });
 } catch (e) {

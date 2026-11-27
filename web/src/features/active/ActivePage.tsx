@@ -78,7 +78,7 @@ function Settings() {
       <div className="card">
         <h3 style={{ margin: 0 }}>Listening</h3>
         <div className="row">
-          <label className="row"><input type="checkbox" checked={s.listen.dm} onChange={(e) => void put({ listen: { ...s.listen, dm: e.target.checked } })} /> Your voice (GM mic)</label>
+          <label className="row"><input type="checkbox" checked={s.listen.gm} onChange={(e) => void put({ listen: { ...s.listen, gm: e.target.checked } })} /> Your voice (GM mic)</label>
           <label className="row"><input type="checkbox" checked={s.listen.players} onChange={(e) => void put({ listen: { ...s.listen, players: e.target.checked } })} /> The players' mics (only their own rolls and item use)</label>
           <label className="row" title="A room mic hears everybody and names no speaker. Turn this on only if your table mic is the GM's voice; the wake word never counts from it."><input type="checkbox" checked={s.listen.room} onChange={(e) => void put({ listen: { ...s.listen, room: e.target.checked } })} /> The room mic counts as my voice</label>
           <label className="row"><input type="checkbox" checked={s.scan} onChange={(e) => void put({ scan: e.target.checked })} /> Use the audit model to read narration the rules miss</label>

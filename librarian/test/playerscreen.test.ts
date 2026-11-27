@@ -40,14 +40,14 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
 };
 const upload = async (name: string, query: Record<string, string>) => {
   const q = new URLSearchParams({ name, ...query });
-  const r = await call('POST', `/api/worlds/${W}/files?${q}`, T.dm, PNG);
+  const r = await call('POST', `/api/worlds/${W}/files?${q}`, T.gm, PNG);
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body;
 };
 const screen = (tok: string) => ok('GET', `${SC()}/players`, tok);
-const dmMedia = () => ok('GET', `${SC()}/media`, T.dm);
-const addYt = (id = 'dQw4w9WgXcQ', extra: Record<string, unknown> = {}) => ok('POST', `${SC()}/media/items`, T.dm, { kind: 'youtube', url: `https://youtu.be/${id}`, ...extra });
-const wipe = () => ok('POST', `${SC()}/media/clear`, T.dm, {});
+const gmMedia = () => ok('GET', `${SC()}/media`, T.gm);
+const addYt = (id = 'dQw4w9WgXcQ', extra: Record<string, unknown> = {}) => ok('POST', `${SC()}/media/items`, T.gm, { kind: 'youtube', url: `https://youtu.be/${id}`, ...extra });
+const wipe = () => ok('POST', `${SC()}/media/clear`, T.gm, {});
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-pscreen-'));
@@ -57,11 +57,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Screenland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Screenland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'jess' });
   T.jess = j.token;
   ID.jess = j.account.id;
@@ -85,10 +85,10 @@ test('TestPlayerScreen_YoutubeLinksAreValidated', () => {
 
 test('TestPlayerScreen_RouteRefusesBadYoutubeLinks', async () => {
   for (const url of ['https://evil.com/watch?v=dQw4w9WgXcQ', 'https://youtube.com/watch?v=nope', 'javascript:alert(1)']) {
-    assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'youtube', url })).status, 400, url);
+    assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'youtube', url })).status, 400, url);
   }
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'video', ref: 'lf_x' })).status, 400);
-  assert.equal((await dmMedia()).items.length, 0);
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'video', ref: 'lf_x' })).status, 400);
+  assert.equal((await gmMedia()).items.length, 0);
   // Only the 11-character id is stored and embedded.
   const m = await addYt('dQw4w9WgXcQ', { play: true });
   assert.equal(m.items[0].ref, 'dQw4w9WgXcQ');
@@ -97,7 +97,7 @@ test('TestPlayerScreen_RouteRefusesBadYoutubeLinks', async () => {
   await wipe();
 });
 
-test('TestPlayerScreen_WritesAreDMOnly', async () => {
+test('TestPlayerScreen_WritesAreGMOnly', async () => {
   const m = await addYt();
   const iid = m.items[0].id;
   const writes: [string, string, unknown][] = [
@@ -109,17 +109,17 @@ test('TestPlayerScreen_WritesAreDMOnly', async () => {
   assert.equal((await call('GET', `${SC()}/media`, T.jess)).status, 403);
   assert.equal((await call('GET', `${SC()}/media/sources`, T.jess)).status, 403);
   assert.equal((await call('POST', `${SC()}/media/clear`, undefined, {})).status, 401);
-  assert.equal((await dmMedia()).items.length, 1, 'the refused writes changed nothing');
+  assert.equal((await gmMedia()).items.length, 1, 'the refused writes changed nothing');
   await wipe();
 });
 
-test('TestPlayerScreen_DMOnlyCardsAndPagesNeverReachTheScreen', async () => {
+test('TestPlayerScreen_GMOnlyCardsAndPagesNeverReachTheScreen', async () => {
   const S = `/api/worlds/${W}/stage`;
-  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
+  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown })).id;
   const open = await page('places/Harbour', 'party', '# Harbour\nGulls and rope.\n\n> [!secret] GM\n> The Sunken Crown is under pier nine.\n');
-  const closed = await page('dm/Vault', 'dm', '# Vault\nSunken Crown vault plans.\n');
-  const npc = (await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Hidden Duke', role: 'Villain', visibility: 'dm' })).id;
-  const add = (b: Record<string, unknown>) => ok('POST', `${S}/cards`, T.dm, b);
+  const closed = await page('gm/Vault', 'gm', '# Vault\nSunken Crown vault plans.\n');
+  const npc = (await ok('POST', `/api/worlds/${W}/people`, T.gm, { name: 'Hidden Duke', role: 'Villain', visibility: 'gm' })).id;
+  const add = (b: Record<string, unknown>) => ok('POST', `${S}/cards`, T.gm, b);
   // Staged for the GM only (never shown), shown to one player only, and shown to everyone.
   await add({ kind: 'text', title: 'STAGED-ONLY', text: 'staged-secret-1' });
   await add({ kind: 'text', title: 'ONE-PLAYER', text: 'whisper-secret-2', to: [ID.jess] });
@@ -128,22 +128,22 @@ test('TestPlayerScreen_DMOnlyCardsAndPagesNeverReachTheScreen', async () => {
   const shown = await add({ kind: 'text', title: 'For everyone', text: 'The bridge is out.', show: true });
   const place = await add({ kind: 'place', ref: open, show: true, spotlight: true });
   // A GM-only page and person cannot even be shown (the stage refuses), so nothing leaks that way either.
-  assert.equal((await call('POST', `${S}/cards`, T.dm, { kind: 'place', ref: closed, show: true })).status, 409);
-  assert.equal((await call('POST', `${S}/cards`, T.dm, { kind: 'person', ref: npc, show: true })).status, 409);
+  assert.equal((await call('POST', `${S}/cards`, T.gm, { kind: 'place', ref: closed, show: true })).status, 409);
+  assert.equal((await call('POST', `${S}/cards`, T.gm, { kind: 'person', ref: npc, show: true })).status, 409);
   // A foe in hiding and the GM-only numbers of a visible one.
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Goblin', initiative: 12, hp: 4, maxHp: 10, ac: 15 });
-  await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Lurking Assassin', initiative: 18, hp: 30, maxHp: 30, hidden: true, ac: 17 });
-  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: true });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Goblin', initiative: 12, hp: 4, maxHp: 10, ac: 15 });
+  await ok('POST', `/api/worlds/${W}/live/combatants`, T.gm, { name: 'Lurking Assassin', initiative: 18, hp: 30, maxHp: 30, hidden: true, ac: 17 });
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.gm, { active: true });
 
   for (const mode of ['words', 'none', 'exact']) {
-    await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { monsterHealth: mode });
-    const forDm = await screen(T.dm);
+    await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { monsterHealth: mode });
+    const forGm = await screen(T.gm);
     const forPlayer = await screen(T.jess);
     // The GM's token gets exactly what a player's gets.
-    assert.deepEqual(forDm.stage, forPlayer.stage, `GM token gets the player view (${mode})`);
-    for (const view of [forDm, forPlayer]) {
+    assert.deepEqual(forGm.stage, forPlayer.stage, `GM token gets the player view (${mode})`);
+    for (const view of [forGm, forPlayer]) {
       const s = JSON.stringify(view);
-      for (const bad of ['STAGED-ONLY', 'staged-secret-1', 'ONE-PLAYER', 'whisper-secret-2', 'Sunken Crown', 'Vault', 'Hidden Duke', 'Lurking', '"ac"', '"temp_hp"', 'concentration', '"hidden"', 'dm_note']) assert.ok(!s.includes(bad), `screen leaked ${bad} (${mode}): ${s.slice(0, 400)}`);
+      for (const bad of ['STAGED-ONLY', 'staged-secret-1', 'ONE-PLAYER', 'whisper-secret-2', 'Sunken Crown', 'Vault', 'Hidden Duke', 'Lurking', '"ac"', '"temp_hp"', 'concentration', '"hidden"', 'gm_note']) assert.ok(!s.includes(bad), `screen leaked ${bad} (${mode}): ${s.slice(0, 400)}`);
       assert.deepEqual(view.stage.cards.map((c: any) => c.id).sort(), [shown.id, place.id].sort());
       assert.equal(view.stage.spotlightId, place.id);
       const gob = view.stage.combat.combatants.find((x: any) => x.name === 'Goblin');
@@ -152,28 +152,28 @@ test('TestPlayerScreen_DMOnlyCardsAndPagesNeverReachTheScreen', async () => {
       assert.equal(view.stage.monsterHealth, mode);
     }
   }
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { monsterHealth: 'words' });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { monsterHealth: 'words' });
   // Nothing about combat while no fight is on.
-  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: false });
-  assert.equal((await screen(T.dm)).stage.combat, null);
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.gm, { active: false });
+  assert.equal((await screen(T.gm)).stage.combat, null);
   // Taking a card off the board takes it off the screen; the combat card is not repeated among the cards.
-  await ok('POST', `${S}/cards/${shown.id}/hide`, T.dm);
-  assert.deepEqual((await screen(T.dm)).stage.cards.map((c: any) => c.id), [place.id]);
-  await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: true });
+  await ok('POST', `${S}/cards/${shown.id}/hide`, T.gm);
+  assert.deepEqual((await screen(T.gm)).stage.cards.map((c: any) => c.id), [place.id]);
+  await ok('PUT', `/api/worlds/${W}/live/combat`, T.gm, { active: true });
   await add({ kind: 'combat', show: true });
-  assert.ok((await screen(T.dm)).stage.cards.every((c: any) => c.kind !== 'combat'));
+  assert.ok((await screen(T.gm)).stage.cards.every((c: any) => c.kind !== 'combat'));
 });
 
 test('TestPlayerScreen_HiddenMediaIsNeverSent', async () => {
   const a = (await addYt('aaaaaaaaaaa', { title: 'Secret reveal' })).items[0].id;
   const b = (await addYt('bbbbbbbbbbb', { title: 'Opening scene' })).items[1].id;
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'queue' });
-  const m1 = await ok('POST', `${SC()}/media/focus`, T.dm, { id: b });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'queue' });
+  const m1 = await ok('POST', `${SC()}/media/focus`, T.gm, { id: b });
   assert.equal(m1.focusId, b);
-  await ok('POST', `${SC()}/media/focus`, T.dm, { id: null });
+  await ok('POST', `${SC()}/media/focus`, T.gm, { id: null });
   // Hiding the current item: the screen moves to the next visible one; the hidden one is nowhere in what players get.
-  await ok('PATCH', `${SC()}/media/items/${a}`, T.dm, { hidden: true });
-  for (const tok of [T.jess, T.dm]) {
+  await ok('PATCH', `${SC()}/media/items/${a}`, T.gm, { hidden: true });
+  for (const tok of [T.jess, T.gm]) {
     const s = await screen(tok);
     const text = JSON.stringify(s);
     assert.ok(!text.includes('aaaaaaaaaaa') && !text.includes('Secret reveal'), 'hidden item leaked');
@@ -181,45 +181,45 @@ test('TestPlayerScreen_HiddenMediaIsNeverSent', async () => {
     assert.ok(!('items' in s.media), 'the queue itself is not sent, only the current item');
   }
   // The GM still sees and can unhide it.
-  const dm = await dmMedia();
-  assert.equal(dm.items.find((i: any) => i.id === a).hidden, true);
+  const gm = await gmMedia();
+  assert.equal(gm.items.find((i: any) => i.id === a).hidden, true);
   // A hidden item cannot be focused.
-  assert.equal((await call('POST', `${SC()}/media/focus`, T.dm, { id: a })).status, 409);
+  assert.equal((await call('POST', `${SC()}/media/focus`, T.gm, { id: a })).status, 409);
   // Mode off: nothing is current.
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'off' });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'off' });
   assert.equal((await screen(T.jess)).media.current, null);
   await wipe();
 });
 
 test('TestPlayerScreen_LibraryPicturesNeedPartyLevelAndAreRecheckedOnFetch', async () => {
   const open = await upload('torch.png', { level: 'party', folder: 'Handouts', title: 'Torch' });
-  const closed = await upload('vault-map.png', { level: 'dm', folder: 'Handouts', title: 'Vault map' });
+  const closed = await upload('vault-map.png', { level: 'gm', folder: 'Handouts', title: 'Vault map' });
   const secret = await upload('seal.png', { level: 'classified', folder: 'Handouts', title: 'Seal' });
   // A classified file is refused (fail closed); a GM-only one is the GM's choice to show (see screenvideo.test.ts).
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: secret.id })).status, 409);
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: closed.id })).status, 201);
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: secret.id })).status, 409);
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: closed.id })).status, 201);
   await wipe();
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: 'lf_nope' })).status, 400);
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: 'stg_nope' })).status, 400);
-  const m = await ok('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: open.id, play: true });
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: 'lf_nope' })).status, 400);
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: 'stg_nope' })).status, 400);
+  const m = await ok('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: open.id, play: true });
   const cur = (await screen(T.jess)).media.current;
   assert.equal(cur.kind, 'image');
   const got = await call('GET', cur.url);
   assert.equal(got.status, 200);
   assert.equal(got.buf.length, PNG.length);
   // A hidden item's picture is not served; neither is any picture once the media is off.
-  await ok('PATCH', `${SC()}/media/items/${m.items[0].id}`, T.dm, { hidden: true });
+  await ok('PATCH', `${SC()}/media/items/${m.items[0].id}`, T.gm, { hidden: true });
   assert.equal((await call('GET', cur.url)).status, 404, 'hidden picture is gone');
-  await ok('PATCH', `${SC()}/media/items/${m.items[0].id}`, T.dm, { hidden: false });
+  await ok('PATCH', `${SC()}/media/items/${m.items[0].id}`, T.gm, { hidden: false });
   assert.equal((await call('GET', cur.url)).status, 200);
   // The file stops being for players: the ticket stops working at once.
   // (a GM-only file is still shown while it is the current item: that is the GM's choice) but classified never is.
-  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'dm' });
+  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.gm, { level: 'gm' });
   assert.equal((await call('GET', cur.url)).status, 200, 'GM-level and current: still served');
-  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'classified' });
+  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.gm, { level: 'classified' });
   assert.equal((await call('GET', cur.url)).status, 404, 'level changed to classified');
-  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'party' });
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'off' });
+  await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.gm, { level: 'party' });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'off' });
   assert.equal((await call('GET', cur.url)).status, 404, 'media off');
   // A forged ticket is nothing.
   assert.equal((await call('GET', '/api/media/screen/abc.def')).status, 404);
@@ -228,38 +228,38 @@ test('TestPlayerScreen_LibraryPicturesNeedPartyLevelAndAreRecheckedOnFetch', asy
 
 test('TestPlayerScreen_StagePicturesServeWhileShownOrQueued', async () => {
   const S = `/api/worlds/${W}/stage`;
-  const up = await ok('POST', `${S}/images`, T.dm, { dataBase64: PNG.toString('base64') });
-  const m = await ok('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: up.id, play: true });
-  const url = (await screen(T.dm)).media.current.url;
+  const up = await ok('POST', `${S}/images`, T.gm, { dataBase64: PNG.toString('base64') });
+  const m = await ok('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: up.id, play: true });
+  const url = (await screen(T.gm)).media.current.url;
   assert.equal((await call('GET', url)).status, 200);
-  await ok('DELETE', `${SC()}/media/items/${m.items[0].id}`, T.dm);
+  await ok('DELETE', `${SC()}/media/items/${m.items[0].id}`, T.gm);
   assert.equal((await call('GET', url)).status, 404, 'removed from the queue');
   // On a card shown to everyone it is on the board, and the board's picture url is a screen ticket.
-  const card = await ok('POST', `${S}/cards`, T.dm, { kind: 'image', ref: up.id, show: true });
-  const boardUrl = (await screen(T.dm)).stage.cards.find((c: any) => c.id === card.id).data.url;
+  const card = await ok('POST', `${S}/cards`, T.gm, { kind: 'image', ref: up.id, show: true });
+  const boardUrl = (await screen(T.gm)).stage.cards.find((c: any) => c.id === card.id).data.url;
   assert.ok(boardUrl.startsWith('/api/media/screen/'));
   assert.equal((await call('GET', boardUrl)).status, 200);
-  await ok('POST', `${S}/cards/${card.id}/hide`, T.dm);
+  await ok('POST', `${S}/cards/${card.id}/hide`, T.gm);
   assert.equal((await call('GET', boardUrl)).status, 404, 'card hidden');
-  await ok('DELETE', `${S}/cards/${card.id}`, T.dm);
+  await ok('DELETE', `${S}/cards/${card.id}`, T.gm);
 });
 
 test('TestPlayerScreen_FolderBecomesASlideshowAndSkipsUnsharedPictures', async () => {
   await upload('one.png', { level: 'party', folder: 'Maps/Coast', title: 'Coast one' });
   await upload('two.png', { level: 'party', folder: 'Maps/Coast', title: 'Coast two' });
-  await upload('three.png', { level: 'dm', folder: 'Maps/Coast', title: 'Coast three' });
-  await upload('dm.png', { level: 'dm', folder: 'Maps/Hidden', title: 'Hidden one' });
-  const src = await ok('GET', `${SC()}/media/sources`, T.dm);
+  await upload('three.png', { level: 'gm', folder: 'Maps/Coast', title: 'Coast three' });
+  await upload('gm.png', { level: 'gm', folder: 'Maps/Hidden', title: 'Hidden one' });
+  const src = await ok('GET', `${SC()}/media/sources`, T.gm);
   assert.deepEqual(src.folders.find((f: any) => f.folder === 'Maps/Coast'), { folder: 'Maps/Coast', images: 3, videos: 0, shared: 2, showable: 3 });
-  const r = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Coast', intervalSec: 5 });
+  const r = await ok('POST', `${SC()}/media/folder`, T.gm, { folder: 'Maps/Coast', intervalSec: 5 });
   assert.equal(r.loaded, 3, 'a GM-only picture is loaded too: showing it is the GM\'s choice');
   assert.equal(r.skipped, 0);
   assert.equal(r.mode, 'slideshow');
   assert.equal(r.intervalSec, 5);
   assert.equal(r.items.length, 3);
-  assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Hidden' })).status, 200, 'a GM-only folder can be shown');
-  assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Nowhere' })).status, 404);
-  assert.equal((await call('PUT', `${SC()}/media`, T.dm, { intervalSec: 1 })).status, 400);
+  assert.equal((await call('POST', `${SC()}/media/folder`, T.gm, { folder: 'Maps/Hidden' })).status, 200, 'a GM-only folder can be shown');
+  assert.equal((await call('POST', `${SC()}/media/folder`, T.gm, { folder: 'Nowhere' })).status, 404);
+  assert.equal((await call('PUT', `${SC()}/media`, T.gm, { intervalSec: 1 })).status, 400);
   await wipe();
 });
 
@@ -267,13 +267,13 @@ test('TestPlayerScreen_SlideshowClockNextPreviousLoopAndFocus', async () => {
   const p = await upload('s1.png', { level: 'party', folder: 'Show', title: 'S1' });
   const q = await upload('s2.png', { level: 'party', folder: 'Show', title: 'S2' });
   const r3 = await upload('s3.png', { level: 'party', folder: 'Show', title: 'S3' });
-  const loaded = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Show', intervalSec: 3 });
+  const loaded = await ok('POST', `${SC()}/media/folder`, T.gm, { folder: 'Show', intervalSec: 3 });
   const [i1, i2, i3] = loaded.items.map((i: any) => i.id);
   assert.deepEqual(loaded.items.map((i: any) => i.ref), [p.id, q.id, r3.id]);
   const cur = async () => (await screen(T.jess)).media.current?.id;
   assert.equal(await cur(), i1);
   // Hide the middle one: the slideshow skips it.
-  await ok('PATCH', `${SC()}/media/items/${i2}`, T.dm, { hidden: true });
+  await ok('PATCH', `${SC()}/media/items/${i2}`, T.gm, { hidden: true });
   const t0 = Date.now() + 10_000;
   assert.equal(tick(deps, Date.now() + 1000), 0, 'interval not up yet');
   assert.equal(tick(deps, t0), 1);
@@ -281,52 +281,52 @@ test('TestPlayerScreen_SlideshowClockNextPreviousLoopAndFocus', async () => {
   assert.equal(tick(deps, t0 + 3000), 1);
   assert.equal(await cur(), i1, 'loops');
   // Paused: the clock does nothing.
-  await ok('PUT', `${SC()}/media`, T.dm, { playing: false });
+  await ok('PUT', `${SC()}/media`, T.gm, { playing: false });
   assert.equal(tick(deps, Date.now() + 999_000), 0);
   // Manual next / previous work while paused.
-  await ok('POST', `${SC()}/media/next`, T.dm, {});
+  await ok('POST', `${SC()}/media/next`, T.gm, {});
   assert.equal(await cur(), i3);
-  await ok('POST', `${SC()}/media/previous`, T.dm, {});
+  await ok('POST', `${SC()}/media/previous`, T.gm, {});
   assert.equal(await cur(), i1);
   // Without loop a slideshow stops at the end.
-  await ok('PUT', `${SC()}/media`, T.dm, { playing: true, loop: false });
-  await ok('POST', `${SC()}/media/next`, T.dm, {});
-  await ok('POST', `${SC()}/media/next`, T.dm, {});
+  await ok('PUT', `${SC()}/media`, T.gm, { playing: true, loop: false });
+  await ok('POST', `${SC()}/media/next`, T.gm, {});
+  await ok('POST', `${SC()}/media/next`, T.gm, {});
   assert.equal(await cur(), i3);
-  assert.equal((await dmMedia()).playing, false, 'paused at the end');
+  assert.equal((await gmMedia()).playing, false, 'paused at the end');
   // Focus shows one item only; next/previous are refused; the slideshow clock is off; unfocus restores the mode.
-  await ok('PUT', `${SC()}/media`, T.dm, { playing: true, loop: true });
-  await ok('POST', `${SC()}/media/focus`, T.dm, { id: i3 });
+  await ok('PUT', `${SC()}/media`, T.gm, { playing: true, loop: true });
+  await ok('POST', `${SC()}/media/focus`, T.gm, { id: i3 });
   assert.equal((await screen(T.jess)).media.mode, 'focus');
   assert.equal(await cur(), i3);
-  assert.equal((await call('POST', `${SC()}/media/next`, T.dm, {})).status, 409);
+  assert.equal((await call('POST', `${SC()}/media/next`, T.gm, {})).status, 409);
   assert.equal(tick(deps, Date.now() + 999_000), 0);
-  await ok('POST', `${SC()}/media/focus`, T.dm, { id: null });
+  await ok('POST', `${SC()}/media/focus`, T.gm, { id: null });
   assert.equal((await screen(T.jess)).media.mode, 'slideshow');
   // Removing the focused item ends the focus; reorder is honoured.
-  await ok('POST', `${SC()}/media/focus`, T.dm, { id: i1 });
-  await ok('DELETE', `${SC()}/media/items/${i1}`, T.dm);
-  assert.equal((await dmMedia()).focusId, null);
+  await ok('POST', `${SC()}/media/focus`, T.gm, { id: i1 });
+  await ok('DELETE', `${SC()}/media/items/${i1}`, T.gm);
+  assert.equal((await gmMedia()).focusId, null);
   assert.equal((await screen(T.jess)).media.mode, 'slideshow');
-  const o = await ok('PUT', `${SC()}/media/order`, T.dm, { ids: [i3, i2] });
+  const o = await ok('PUT', `${SC()}/media/order`, T.gm, { ids: [i3, i2] });
   assert.deepEqual(o.items.map((i: any) => i.id), [i3, i2]);
-  const c = await ok('POST', `${SC()}/media/clear`, T.dm, {});
+  const c = await ok('POST', `${SC()}/media/clear`, T.gm, {});
   assert.deepEqual([c.items.length, c.mode], [0, 'off']);
 });
 
 test('TestPlayerScreen_ShowOneQueuedItemNow', async () => {
   const a = (await addYt('aaaaaaaaaaa')).items[0].id;
   const b = (await addYt('bbbbbbbbbbb')).items[1].id;
-  const m = await ok('PUT', `${SC()}/media`, T.dm, { mode: 'queue', currentId: b });
+  const m = await ok('PUT', `${SC()}/media`, T.gm, { mode: 'queue', currentId: b });
   assert.equal(m.currentId, b);
   assert.equal((await screen(T.jess)).media.current.id, b);
-  await ok('PATCH', `${SC()}/media/items/${a}`, T.dm, { hidden: true });
-  assert.equal((await call('PUT', `${SC()}/media`, T.dm, { currentId: a })).status, 409, 'a hidden item cannot be shown');
-  assert.equal((await call('PUT', `${SC()}/media`, T.dm, { currentId: 'nope' })).status, 404);
+  await ok('PATCH', `${SC()}/media/items/${a}`, T.gm, { hidden: true });
+  assert.equal((await call('PUT', `${SC()}/media`, T.gm, { currentId: a })).status, 409, 'a hidden item cannot be shown');
+  assert.equal((await call('PUT', `${SC()}/media`, T.gm, { currentId: 'nope' })).status, 404);
   await wipe();
 });
 
-test('TestPlayerScreen_AgentToolsAreDMWrites', () => {
+test('TestPlayerScreen_AgentToolsAreGMWrites', () => {
   const tools = feature.mcpTools!;
   assert.deepEqual(tools.map((t) => t.name), ['queue_media', 'show_media']);
   assert.ok(tools.every((t) => t.write === true));

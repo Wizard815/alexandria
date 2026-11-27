@@ -14,7 +14,7 @@ import { all, one, run } from '../../core/db.ts';
 import type { Auth } from '../../core/auth.ts';
 import { HttpError, id, now, secret, sha256 } from '../../core/util.ts';
 import type { Feature } from '../types.ts';
-import { ctx, isDM, readerFor } from '../../routes/_shared.ts';
+import { ctx, isGM, readerFor } from '../../routes/_shared.ts';
 import { RECORDS_SCHEMA, calendarsFor, imageVisibleTo, initRecords, mapImagesFor, markersFor, timelinesFor } from '../../intake/records.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
 import { capabilityUnion, connectorFor } from '../../intake/registry.ts';
@@ -205,7 +205,7 @@ const feature: Feature = {
       const sources = all<any>(d.db, 'SELECT id, name, kind, config FROM sources WHERE world_id = ? ORDER BY name', w);
       res.json({
         capabilities: capabilityUnion(sources),
-        ...(isDM(res) ? { sources: sources.map((s) => ({ id: s.id, name: s.name, kind: s.kind, capabilities: capabilityUnion([s]) })) } : {}),
+        ...(isGM(res) ? { sources: sources.map((s) => ({ id: s.id, name: s.name, kind: s.kind, capabilities: capabilityUnion([s]) })) } : {}),
       });
     });
     r.get('/calendars', (_req, res) => res.json(calendarsFor(d.db, ctx(res).world.id, ctx(res).viewer)));
@@ -215,13 +215,13 @@ const feature: Feature = {
     // ?view=players lists what a player would get (for the table screen, which the players see).
     r.get('/map-images', (req, res) => {
       const c = ctx(res);
-      res.json(mapImagesFor(d.db, c.world.id, readerFor(req, res, true).role === 'dm' ? 'dm' : 'player').map((m) => ({ ...m, url: `/api/media/intake/${mintTicket({ w: c.world.id, k: 'intake', f: m.id, a: c.viewer.accountId })}` })));
+      res.json(mapImagesFor(d.db, c.world.id, readerFor(req, res, true).role === 'gm' ? 'gm' : 'player').map((m) => ({ ...m, url: `/api/media/intake/${mintTicket({ w: c.world.id, k: 'intake', f: m.id, a: c.viewer.accountId })}` })));
     });
     r.get('/markers', (_req, res) => res.json(markersFor(d.db, ctx(res).world.id, ctx(res).viewer)));
     // The GM makes source keys for this world's sources.
     r.use((req, res, next) => {
       if (!/^\/(sources\/[^/]+\/keys|keys\/[^/]+)$/.test(req.path)) return next();
-      if (!isDM(res)) throw new HttpError(403, 'Only the GM can manage source keys');
+      if (!isGM(res)) throw new HttpError(403, 'Only the GM can manage source keys');
       next();
     });
     r.use(keyRoutes(d, (_req, res) => ctx(res).world.id, accountId));

@@ -12,9 +12,9 @@
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { all } from '../../core/db.ts';
-import { requirePlayerOrDM } from '../../core/auth.ts';
+import { requirePlayerOrGM } from '../../core/auth.ts';
 import { HttpError } from '../../core/util.ts';
-import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { QUICK_TASKS, askQuick, quickBrief, quickStatus, type QuickTask } from './quick.ts';
@@ -41,16 +41,16 @@ const feature: Feature = {
   worldMount: 'helper',
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
-    r.use(requirePlayerOrDM);
+    r.use(requirePlayerOrGM);
 
     r.get('/journal-draft', (req, res) => {
-      if (isDM(res)) throw new HttpError(403, 'This helper is for players');
+      if (isGM(res)) throw new HttpError(403, 'This helper is for players');
       const w = ctx(res).world.id;
       const sessions = listSessions(d.db, w);
       const s = (typeof req.query.session === 'string' && sessions.find((x) => x.id === req.query.session)) || sessions[0];
       if (!s) return res.json({ session: null, markdown: '', note: 'No session has been recorded yet.' });
       // Only lines the whole table heard.
-      const lines = sessionLines(d.db, w, s.id, { includeDm: false });
+      const lines = sessionLines(d.db, w, s.id, { includeGm: false });
       const mine = lines.filter((l) => l.speakerId === me(res)).map((l) => clip(l.text.replace(/\s+/g, ' ').trim(), 200)).filter((t) => t.split(' ').length >= 4);
       const others = lines.filter((l) => l.speakerId !== me(res)).map((l) => ({ who: l.speaker, text: clip(l.text.replace(/\s+/g, ' ').trim(), 200) })).filter((x) => x.text.split(' ').length >= 8).sort((a, b) => b.text.length - a.text.length).slice(0, 8);
       const md = [
@@ -77,7 +77,7 @@ const feature: Feature = {
     r.get('/quick/brief', async (req, res) => {
       const c = ctx(res);
       let aid = me(res);
-      if (isDM(res)) {
+      if (isGM(res)) {
         aid = typeof req.query.account === 'string' ? req.query.account : '';
         if (!memberIds(d.db, c.world.id, ['player']).includes(aid)) throw new HttpError(400, 'Pick a player (account)');
       }
@@ -87,7 +87,7 @@ const feature: Feature = {
     });
 
     r.post('/quick', async (req, res) => {
-      if (isDM(res)) throw new HttpError(403, 'The quick helper is for players');
+      if (isGM(res)) throw new HttpError(403, 'The quick helper is for players');
       if (!quickOn(res)) throw new HttpError(403, 'The GM has turned the quick helper off');
       const c = ctx(res);
       try {

@@ -15,8 +15,8 @@ export interface TradeInput {
 }
 
 const sameItem = (db: DB, worldId: string, owner: string, it: any, exceptId: string) =>
-  one<any>(db, `SELECT * FROM items WHERE world_id = ? AND owner = ? AND status = 'approved' AND lower(name) = lower(?) AND IFNULL(link, '') = IFNULL(?, '') AND IFNULL(image, '') = IFNULL(?, '') AND IFNULL(page_id, '') = IFNULL(?, '') AND dm_note = ? AND IFNULL(weight, -1) = IFNULL(?, -1) AND id <> ?`,
-    worldId, owner, it.name, it.link, it.image, it.page_id, it.dm_note, it.weight, exceptId);
+  one<any>(db, `SELECT * FROM items WHERE world_id = ? AND owner = ? AND status = 'approved' AND lower(name) = lower(?) AND IFNULL(link, '') = IFNULL(?, '') AND IFNULL(image, '') = IFNULL(?, '') AND IFNULL(page_id, '') = IFNULL(?, '') AND gm_note = ? AND IFNULL(weight, -1) = IFNULL(?, -1) AND id <> ?`,
+    worldId, owner, it.name, it.link, it.image, it.page_id, it.gm_note, it.weight, exceptId);
 
 /** An item a player owns outright: approved, theirs, no change waiting for the GM, enough in the stack. */
 export function ownedItem(db: DB, worldId: string, owner: string, itemId: string, qty: number) {
@@ -37,8 +37,8 @@ function moveItem(db: DB, worldId: string, it: any, to: string, qty: number, by:
     if (same) run(db, 'UPDATE items SET qty = qty + ?, updated_at = ?, updated_by = ? WHERE id = ?', qty, now(), by, same.id);
     else {
       const nid = id('itm_');
-      run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
-        nid, worldId, to, it.name, qty, it.weight, it.note, it.dm_note, it.link, it.image, now(), by);
+      run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, gm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
+        nid, worldId, to, it.name, qty, it.weight, it.note, it.gm_note, it.link, it.image, now(), by);
       if (it.page_id) run(db, 'UPDATE items SET page_id = ? WHERE id = ?', it.page_id, nid);
     }
   }

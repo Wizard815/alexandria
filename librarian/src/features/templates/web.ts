@@ -8,7 +8,7 @@ import { HttpError, now, parseJson } from '../../core/util.ts';
 import { webConfig, type WebConfig } from './store.ts';
 
 export interface WebResult { title: string; url: string; snippet: string; query: string }
-export interface Blocked { query: string; term: string; level: 'dm' | 'classified' }
+export interface Blocked { query: string; term: string; level: 'gm' | 'classified' }
 
 // Everyday words (and the ones every fantasy world uses) never count as a secret on their own.
 const COMMON = new Set(`the and for with from that this these those there their them they then than what when where which while who whom whose why how
@@ -33,7 +33,7 @@ const blockText = (json: string | null | undefined): string => {
   return out.join(' ');
 };
 
-export interface SecretTerms { dm: Set<string>; classified: Set<string> }
+export interface SecretTerms { gm: Set<string>; classified: Set<string> }
 const cache = new Map<string, { key: string; terms: SecretTerms }>();
 
 /**
@@ -51,28 +51,28 @@ export function secretTerms(d: Deps, worldId: string): SecretTerms {
   if (hit && hit.key === key) return hit.terms;
   const pub = new Set<string>();
   const ai = new Set<string>();
-  const dmAll = new Set<string>();
-  const dmNames = new Set<string>();
+  const gmAll = new Set<string>();
+  const gmNames = new Set<string>();
   const rows = all<any>(d.db, `SELECT title, visibility, aliases, body, blocks, properties, ${has('ai_body')} AS ai_body, ${has('ai_blocks')} AS ai_blocks, ${has('ai_properties')} AS ai_properties, player_body, ${has('player_blocks')} AS player_blocks, ${has('player_properties')} AS player_properties FROM pages WHERE world_id = ?`, worldId);
   for (const p of rows) {
     const aliases = parseJson<string[]>(p.aliases, []).join(' ');
-    const dmText = flat(p.title, aliases, p.body, blockText(p.blocks), blockText(p.properties));
+    const gmText = flat(p.title, aliases, p.body, blockText(p.blocks), blockText(p.properties));
     const classifiedPage = p.visibility === 'classified';
     const aiText = classifiedPage ? '' : flat(p.title, aliases, p.ai_body ?? p.body, blockText(p.ai_blocks ?? p.blocks), blockText(p.ai_properties ?? p.properties));
-    for (const w of wordsOf(dmText)) dmAll.add(w);
+    for (const w of wordsOf(gmText)) gmAll.add(w);
     for (const w of wordsOf(aiText)) ai.add(w);
     if (p.visibility === 'party') for (const w of wordsOf(flat(p.title, p.player_body, blockText(p.player_blocks), blockText(p.player_properties)))) pub.add(w);
     // Names in what the GM's copy holds beyond the players' (a GM-only page's title counts whole).
-    for (const w of capsOf(aiText)) dmNames.add(w);
-    if (p.visibility !== 'party') for (const w of wordsOf(flat(p.title, aliases))) dmNames.add(w);
+    for (const w of capsOf(aiText)) gmNames.add(w);
+    if (p.visibility !== 'party') for (const w of wordsOf(flat(p.title, aliases))) gmNames.add(w);
   }
   for (const l of lines) {
     if (l.audience === 'players') for (const w of wordsOf(l.text)) pub.add(w);
-    else for (const w of capsOf(l.text)) dmNames.add(w);
+    else for (const w of capsOf(l.text)) gmNames.add(w);
   }
-  const classified = new Set([...dmAll].filter((w) => keep(w) && !ai.has(w) && !pub.has(w)));
-  const dm = new Set([...dmNames].filter((w) => keep(w) && !pub.has(w) && !classified.has(w)));
-  const terms = { dm, classified };
+  const classified = new Set([...gmAll].filter((w) => keep(w) && !ai.has(w) && !pub.has(w)));
+  const gm = new Set([...gmNames].filter((w) => keep(w) && !pub.has(w) && !classified.has(w)));
+  const terms = { gm, classified };
   cache.set(worldId, { key, terms });
   return terms;
 }
@@ -85,7 +85,7 @@ export function blockedQuery(d: Deps, worldId: string, queries: string[], cfg: W
     if (wouldBeRefused(d, q)) return { query: q, term: '', level: 'classified' };
     for (const w of wordsOf(q)) {
       if (terms.classified.has(w)) return { query: q, term: w, level: 'classified' };
-      if (terms.dm.has(w) && !allowed.has(w)) return { query: q, term: w, level: 'dm' };
+      if (terms.gm.has(w) && !allowed.has(w)) return { query: q, term: w, level: 'gm' };
     }
   }
   return null;

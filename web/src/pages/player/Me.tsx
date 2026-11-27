@@ -6,10 +6,10 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { PageHead, Loading, ErrorBox, Empty, Tabs, Field, VisibilityPicker, VisChip, Modal, Switch, useAction, useToast } from '../../ui/index.tsx';
 
 type Section = 'story' | 'traits' | 'goals' | 'bonds' | 'basics';
-interface Block { id: string; section: Section; title: string; body: string; visibility: 'me' | 'dm' | 'party'; sort: number }
+interface Block { id: string; section: Section; title: string; body: string; visibility: 'me' | 'gm' | 'party'; sort: number }
 
 const SECTIONS: [Section, string][] = [['story', 'Story'], ['traits', 'Traits'], ['goals', 'Goals'], ['bonds', 'Bonds'], ['basics', 'Basics']];
-const VIS_LABELS = { me: 'Only me', dm: 'Me and the GM', party: 'The party can see' };
+const VIS_LABELS = { me: 'Only me', gm: 'Me and the GM', party: 'The party can see' };
 const RACES = ['human', 'elf', 'half-elf', 'dwarf', 'halfling', 'gnome', 'half-orc', 'orc', 'tiefling', 'dragonborn', 'goliath', 'aasimar'];
 
 export default function PlayerMe() {
@@ -83,7 +83,7 @@ function BlockModal({ block, onClose, onSaved }: { block: Partial<Block>; onClos
       <Field label="Text"><textarea rows={6} value={b.body ?? ''} onChange={(e) => setB({ ...b, body: e.target.value })} /></Field>
       <div className="stack tight">
         <span className="small" style={{ fontWeight: 500 }}>Who can read this</span>
-        <VisibilityPicker value={b.visibility ?? 'me'} onChange={(v) => setB({ ...b, visibility: v })} options={['me', 'dm', 'party']} labels={VIS_LABELS} />
+        <VisibilityPicker value={b.visibility ?? 'me'} onChange={(v) => setB({ ...b, visibility: v })} options={['me', 'gm', 'party']} labels={VIS_LABELS} />
       </div>
       <ErrorBox error={act.error} />
       <div className="row end">

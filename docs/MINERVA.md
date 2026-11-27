@@ -30,14 +30,14 @@ Alexandria already holds most of a campaign. Minerva links to it and never copie
 ```
 Minerva/
 ├── HOME.md                          dashboard: status, active arc, open threads, review queue
-├── dm/                              level dm (whole tree)
+├── gm/                              level gm (whole tree)
 │   ├── state/Campaign Status.md     THE living doc. Read before every session. Everything feeds it;
 │   │                                nothing replaces it. Sections: Now · Active threads (with heat) ·
 │   │                                NPC agendas · What changed last session · Next session · Open questions
 │   ├── revelations/<mystery>.md     conclusion → clues (at least 3) → which PC found which, when
 │   ├── session-prep/<date>.md       strong start, scenes, secrets & clues to drop, NPCs, places, rewards
 │   ├── hooks/<hook>.md              planted / waiting / sprung / dropped
-│   ├── hidden-lore/<topic>.md       the truth behind things (dm or classified)
+│   ├── hidden-lore/<topic>.md       the truth behind things (gm or classified)
 │   └── players/<id>.md              Minerva's notes on each player: what they enjoy, what they're
 │                                    after, hooks aimed at them, table notes. Never shown to players.
 ├── chronicle/                       level party unless marked
@@ -72,7 +72,7 @@ carry more retrieval weight than folders once a campaign is long (60+ sessions).
 ```yaml
 type: status | revelation | prep | hook | lore | arc | session | timeline | codex | profile | goal | journal | knowledge | bonds | note
 kind: npc | pc | place | region | organization | trade-route | family | creature | race | item | quest | map | topic   # codex only
-level: party | broker | dm | classified      # who may read it; "> [!secret]" blocks inside are always dm
+level: party | broker | gm | classified      # who may read it; "> [!secret]" blocks inside are always gm
 entity: <library page id>                     # codex: the source page this remembers (stable key)
 aliases: []                                   # other names, used to find the page again
 player: <account id>                          # players/ pages and player-specific notes
@@ -100,8 +100,8 @@ sources: []                                   # library page ids / session ids i
    The broker only ever uses what that PC's `knowledge.md` and party pages say.
 5. **Arcs keep volume readable:** sessions file under the current arc; at the end of an arc
    write its one-page summary. Read summaries, not logs, unless asked.
-6. **Whose is it?** About one player → their root (or `dm/players/<id>.md` if it's the GM's
-   view of them). Shared world → `codex/` or `chronicle/`. The GM's plans → `dm/`. Something one
+6. **Whose is it?** About one player → their root (or `gm/players/<id>.md` if it's the GM's
+   view of them). Shared world → `codex/` or `chronicle/`. The GM's plans → `gm/`. Something one
    player says about another goes in the teller's root. Can't tell → ask the GM.
 7. **Two tiers.** Short-term: session transcripts, the session's log, the broker's
    conversations, quick captures. Long-term: everything above, written as drafts and approved.
@@ -113,7 +113,7 @@ sources: []                                   # library page ids / session ids i
 
 | Path | GM | That player | Other players | Broker answers |
 |---|---|---|---|---|
-| `dm/**` | yes | never | never | never |
+| `gm/**` | yes | never | never | never |
 | `chronicle/**` | yes | party-level parts | party-level parts | party-level parts |
 | `codex/**` | yes | party-level parts | party-level parts | broker-level and below |
 | `players/<id>/**` | yes | yes (party level) | only `profile.md` "Shared with the party" | that player only |
@@ -125,7 +125,7 @@ shares). Leak checks cover every path above.
 
 ## 6. Retrieval order (long campaigns)
 
-1. `dm/state/Campaign Status.md` (GM) or the player's `knowledge.md` + `goals/` (player)
+1. `gm/state/Campaign Status.md` (GM) or the player's `knowledge.md` + `goals/` (player)
 2. The active arc's `summary.md` and the last session page
 3. Codex pages for the entities in play (by `entity`, aliases, tags)
 4. Story bible facts and smart connections (permission-filtered)
@@ -192,7 +192,7 @@ only a made-up example world, never real campaign content).
 - **Decision: the vault is always in the library under `Minerva/`.** If WorldLore points at a source (LegendKeeper, Kanka, Markdown), Minerva still keeps her vault in the library: a source root cannot hold per-player levels or this layout. WorldLore is not touched.
 - **Decision: vault pages are stored GM-only (or broker, classified) in the library, never party.** The vault level in front matter (`level`) says who may read; a party-level vault page in the library would show its path (`Minerva/...`) to players. Players read the party-level parts through neutral routes (`/minerva/me`, shown as "My journal"), which serve the library's own player copy (secret blocks cut out). No share rows are used.
 - **Decision: "Shared with the party" is its own page** (`players/<id>/shared.md`, level party), because one page cannot have two reader sets. Players add to it through the journal page; it waits for the GM like every player write.
-- **Decision: new codex pages start at `dm` level** (PCs at party); the GM opens them with `PUT /minerva/page {level}`. Session and arc pages are party, with the GM's notes and log in `> [!secret]` blocks.
+- **Decision: new codex pages start at `gm` level** (PCs at party); the GM opens them with `PUT /minerva/page {level}`. Session and arc pages are party, with the GM's notes and log in `> [!secret]` blocks.
 - **Decision: player tool names** are `my_context`, `my_who_is`, `my_memory_log`, `my_memory_capture`, `my_goal_update` (a tool cannot be both a write and a read). They are not write tools, so they never become agent pending actions; they create drafts on the review page, applied at once when the tool is on the auto-approve list. Extras: `revelation_create`, `arc_start`.
 - **Decision: a mystery's title is shown to a player who found one of its clues**; name mysteries as questions. A conclusion reaches a player only when the GM marks them `reached`.
 - **Decision: the leak checks count party-level vault text as party text** (`features/minerva/partyText.ts`), so the broker may repeat it and the session log check does not flag it.

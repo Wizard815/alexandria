@@ -11,11 +11,11 @@
 //   POST /templates/:id/shop   a shop draft from the shop generator, with this template's guide
 //   GET /templates/starters, POST /templates/starters/add { pack, names? }   the starter templates (starters.ts)
 //   GET /templates/export?ids=a,b&kind=k   a package (.alxtemplates.json); POST /templates/import { file }  (share.ts)
-//   MCP  list_dm_templates, get_dm_template, create_dm_template, update_dm_template, web_research
+//   MCP  list_gm_templates, get_gm_template, create_gm_template, update_gm_template, web_research
 import { Router } from 'express';
 import type { Feature, McpTool } from '../types.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { hasJob, wouldBeRefused } from '../../core/ai.ts';
 import { run } from '../../core/db.ts';
 import { HttpError, now, oneOf, str } from '../../core/util.ts';
@@ -42,7 +42,7 @@ const brief = (t: ReturnType<typeof listTemplates>[number]) => ({ id: t.id, kind
 
 function routes(d: Deps) {
   const r = Router({ mergeParams: true });
-  r.use(requireDM);
+  r.use(requireGM);
   const W = (res: any): string => ctx(res).world.id;
   const found = (res: any, tid: string) => { const t = getTemplate(d.db, W(res), tid); if (!t) throw new HttpError(404, 'Template not found'); return t; };
 
@@ -199,19 +199,19 @@ const enc = encodeURIComponent;
 
 const tools: McpTool[] = [
   {
-    name: 'list_dm_templates', dmOnly: true,
+    name: 'list_gm_templates', gmOnly: true,
     description: "GM: the GM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop, library page, quick event and spell templates): id, kind, name, triggers, on or off, version.",
     props: { kind: { type: 'string', enum: [...KINDS], description: 'Only this kind' } },
     call: (a) => ({ method: 'GET', path: `/templates${a?.kind ? `?kind=${enc(a.kind)}` : ''}` }),
   },
   {
-    name: 'get_dm_template', dmOnly: true,
+    name: 'get_gm_template', gmOnly: true,
     description: 'GM: one template or guide in full (its steps, sections, tone, exemplar pages, triggers) and its earlier versions. Give its id or its name.',
     props: { id: S('Template id or name') }, required: ['id'],
     call: (a) => ({ method: 'GET', path: `/templates/${enc(String(a.id ?? ''))}` }),
   },
   {
-    name: 'create_dm_template', write: true,
+    name: 'create_gm_template', write: true,
     description: 'GM: save a new template or guide. kind guide: spec {task, instructions, steps: [{kind: library|neighbours|exemplars|web|instruction, text, query}], sections: [...], tone, folder, exemplars: [page ids]}; a web step query may use {reference} for the real-world place a request names. kind event (quick events): spec {places: [town|city|village|market|tavern|road|woods|cave|dungeon|ruins|coast|mountains|swamp], theme, instructions, tone, choices: 2-4, checks: true|false, maxRewardCp, consequences}. kind spell: spec {minLevel, maxLevel, schools, classes, lines (spell line names), balance, mana, naming, instructions, higherLevels}. triggers: words in a request that call for it (town, village, city).',
     props: {
       kind: { type: 'string', enum: [...KINDS], description: 'guide, generator, macro, assist, shop, library, event or spell' },
@@ -224,7 +224,7 @@ const tools: McpTool[] = [
     call: (a) => ({ method: 'POST', path: '/templates', body: { kind: a.kind, name: a.name, description: a.description, triggers: a.triggers, spec: a.spec, enabled: a.enabled } }),
   },
   {
-    name: 'update_dm_template', write: true,
+    name: 'update_gm_template', write: true,
     description: 'GM: change a template or guide (a new version; the old one is kept). Give its id or name and only what changes: name, description, triggers, enabled, spec (the whole spec).',
     props: { id: S('Template id or name'), name: S('New name'), description: S('New description'), triggers: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' }, spec: { type: 'object' } },
     required: ['id'],
@@ -237,12 +237,12 @@ const tools: McpTool[] = [
       name: S('Spell name'), level: { type: 'integer', description: '0 for a cantrip, up to 9' }, school: S('e.g. Evocation'), classes: { type: 'array', items: { type: 'string' } },
       castingTime: S('e.g. 1 action'), ritual: { type: 'boolean' }, range: S('e.g. 60 feet'), components: S('e.g. V, S, M (a pinch of soot)'), duration: S('e.g. Instantaneous'),
       concentration: { type: 'boolean' }, damageTypes: { type: 'array', items: { type: 'string' } }, saves: { type: 'array', items: { type: 'string' } }, attack: { type: 'string', enum: ['', 'melee', 'ranged'] },
-      text: S('What the spell does, in Markdown'), lines: { type: 'array', items: { type: 'string' }, description: 'Spell lines (Fire, Frost ...)' }, dmNotes: S('Notes for the GM only'),
+      text: S('What the spell does, in Markdown'), lines: { type: 'array', items: { type: 'string' }, description: 'Spell lines (Fire, Frost ...)' }, gmNotes: S('Notes for the GM only'),
     },
     required: ['name', 'level', 'text'],
     call: (a) => {
-      const notes = [typeof a.dmNotes === 'string' ? a.dmNotes : '', Array.isArray(a.lines) && a.lines.length ? `Spell lines: ${a.lines.map(String).join(', ')}` : ''].filter(Boolean).join('\n');
-      return { method: 'POST', path: '/spells/s', body: { name: a.name, level: a.level, school: a.school, classes: a.classes, castingTime: a.castingTime, ritual: a.ritual, range: a.range, components: a.components, duration: a.duration, concentration: a.concentration, damageTypes: a.damageTypes, saves: a.saves, attack: a.attack, text: a.text, source: 'Homebrew', ...(notes ? { dmNotes: notes } : {}) } };
+      const notes = [typeof a.gmNotes === 'string' ? a.gmNotes : '', Array.isArray(a.lines) && a.lines.length ? `Spell lines: ${a.lines.map(String).join(', ')}` : ''].filter(Boolean).join('\n');
+      return { method: 'POST', path: '/spells/s', body: { name: a.name, level: a.level, school: a.school, classes: a.classes, castingTime: a.castingTime, ritual: a.ritual, range: a.range, components: a.components, duration: a.duration, concentration: a.concentration, damageTypes: a.damageTypes, saves: a.saves, attack: a.attack, text: a.text, source: 'Homebrew', ...(notes ? { gmNotes: notes } : {}) } };
     },
   },
   {

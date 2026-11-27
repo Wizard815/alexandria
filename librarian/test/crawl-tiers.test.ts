@@ -17,7 +17,7 @@ after(() => { for (const c of cleanups) c(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const LK_BASE = 'https://www.legendkeeper.com/api/v3/projects/p1';
 const LK_CFG = { apiUrl: LK_BASE, apiKey: 'lk_testkey_1234567890' };
-const dmViewer = { accountId: 'a', role: 'dm' as const };
+const gmViewer = { accountId: 'a', role: 'gm' as const };
 const player = { accountId: 'p', role: 'player' as const };
 
 // ---- a fake LegendKeeper project ---------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ async function boot(env: Record<string, string> = {}) {
     return r.body;
   };
   const accounts = new Map<string, string>();
-  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
+  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, gmAccountId: a.account.id })).id as string;
   const addPlayer = async (wid: string) => {
     const inv = await ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
     const j = (await call('POST', '/api/join', null, { code: inv.code, username: 'jess' + Math.random().toString(36).slice(2, 6), password: 'player pass 123', characterName: 'Jess' })).body;
@@ -181,7 +181,7 @@ async function lkWorld(t: T, n: number, opts: { audience?: string } = {}) {
   return { wid, sid: src.id as string };
 }
 const sync = (t: T, sid: string, body: unknown = {}) => t.ok('POST', `/api/admin/sources/${sid}/sync?wait=1`, body);
-const pageId = (t: T, wid: string, title: string) => (t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === title)!.id as string;
+const pageId = (t: T, wid: string, title: string) => (t.deps.library.list(wid, gmViewer) as any[]).find((p) => p.title === title)!.id as string;
 const depthOf = (t: T, wid: string, title: string) => one<any>(t.deps.db, 'SELECT depth FROM pages WHERE world_id = ? AND title = ?', wid, title)?.depth as string;
 const getPage = (t: T, wid: string, token: string, id: string) => t.call('GET', `/api/worlds/${wid}/library/pages/${id}`, token);
 
@@ -213,7 +213,7 @@ test('CrawlTiers_IndexMakesListCallsOnlyNotOnePerPage', async () => {
   assert.ok(!row.body.includes('LKBODY'), 'the body has not been read');
 });
 
-test('CrawlTiers_IndexPagesAreDmOnlyUntilKnown', async () => {
+test('CrawlTiers_IndexPagesAreGmOnlyUntilKnown', async () => {
   const t = await boot();
   const { wid, sid } = await lkWorld(t, 30);
   await sync(t, sid);
@@ -223,13 +223,13 @@ test('CrawlTiers_IndexPagesAreDmOnlyUntilKnown', async () => {
   assert.equal((await t.call('GET', `/api/worlds/${wid}/library/pages`, tok)).body.length, 0);
   assert.equal(all<any>(t.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND player_body IS NOT NULL', wid).length, 0, 'no player copy exists');
   assert.equal((t.deps.library.search(wid, 'Page', player) as any[]).length, 0);
-  assert.equal((t.deps.library.list(wid, dmViewer) as any[]).length, 30, 'the GM has every page');
+  assert.equal((t.deps.library.list(wid, gmViewer) as any[]).length, 30, 'the GM has every page');
   assert.ok(!all<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ?', wid).some((r) => r.visibility === 'party'));
 });
 
 // ---- tier 3: on demand ------------------------------------------------------------------------------------------------------
 
-test('CrawlTiers_OpeningAPageReadsItFirst_ForTheDmAndForAPlayer', async () => {
+test('CrawlTiers_OpeningAPageReadsItFirst_ForTheGmAndForAPlayer', async () => {
   const t = await boot();
   const { wid, sid } = await lkWorld(t, 20);
   lk.res[4].text = 'LKBODY5 open words';
@@ -264,9 +264,9 @@ test('CrawlTiers_OpeningAPageReadsItFirst_ForTheDmAndForAPlayer', async () => {
     const id = pageId(t, wid, title);
     assert.equal((await getPage(t, wid, tok, id)).status, 404, `${title} is not the player's`);
     assert.ok(!all<any>(t.deps.db, 'SELECT player_body, player_blocks FROM pages WHERE id = ?', id).some((r) => JSON.stringify(r).includes(word)));
-    const dm = await getPage(t, wid, t.admin, id);
-    assert.equal(dm.status, 200);
-    assert.ok(dm.text.includes(word), 'the GM has the content');
+    const gm = await getPage(t, wid, t.admin, id);
+    assert.equal(gm.status, 200);
+    assert.ok(gm.text.includes(word), 'the GM has the content');
     assert.equal(depthOf(t, wid, title), 'full');
     assert.equal((await getPage(t, wid, tok, id)).status, 404, 'still not the player\'s after it was read');
   }
@@ -274,7 +274,7 @@ test('CrawlTiers_OpeningAPageReadsItFirst_ForTheDmAndForAPlayer', async () => {
   assert.ok(!leaks.includes('HIDDENDM') && !leaks.includes('NOACCESS'));
 });
 
-test('CrawlTiers_ASearchReadsItsBestIndexHitsForTheDm', async () => {
+test('CrawlTiers_ASearchReadsItsBestIndexHitsForTheGm', async () => {
   const t = await boot();
   const { wid, sid } = await lkWorld(t, 12);
   lk.res[6].name = 'Zephyr Keep';
@@ -424,7 +424,7 @@ test('CrawlTiers_RemovalOnlyAfterACompleteListing', async () => {
   const ok = await sync(t, sid);
   assert.equal(ok.stats.removed, 1);
   assert.equal(depthCounts(t.deps.db, sid).total, 149);
-  assert.equal((t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === 'Page 11'), undefined);
+  assert.equal((t.deps.library.list(wid, gmViewer) as any[]).find((p) => p.title === 'Page 11'), undefined);
 });
 
 // ---- Kanka: the list already has the entry ---------------------------------------------------------------------------------------------------
@@ -443,7 +443,7 @@ test('CrawlTiers_KankaListsCarryTheWholeEntryAndLaterListingsAskOnlyForChanges',
   const counts = depthCounts(t.deps.db, src.id);
   assert.deepEqual([counts.total, counts.full, counts.index], [100, 100, 0], 'the list gave the whole page');
   // Private entries stay GM-only; shared ones are the player\'s.
-  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', wid, 'Hero 1').visibility, 'dm');
+  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', wid, 'Hero 1').visibility, 'gm');
   assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', wid, 'Hero 2').visibility, 'party');
   assert.ok(one<any>(t.deps.db, 'SELECT body FROM pages WHERE world_id = ? AND title = ?', wid, 'Hero 2').body.includes('KKBODY2'));
 
@@ -548,9 +548,9 @@ test('CrawlTiers_CrawlProgressShowsCallsAndWhatIsRead', async () => {
 
 // ---- the leak guard at every depth ---------------------------------------------------------------------------------------------------------------
 
-test('CrawlTiers_ASourceSetToDmOnlyStaysDmOnlyAtEveryDepth', async () => {
+test('CrawlTiers_ASourceSetToGmOnlyStaysGmOnlyAtEveryDepth', async () => {
   const t = await boot();
-  const { wid, sid } = await lkWorld(t, 8, { audience: 'dm' });
+  const { wid, sid } = await lkWorld(t, 8, { audience: 'gm' });
   await sync(t, sid);
   const tok = await t.addPlayer(wid);
   await getPage(t, wid, t.admin, pageId(t, wid, 'Page 4'));
@@ -582,25 +582,25 @@ test('CrawlTiers_KankaMapPicturesAreStoredAsMapsWithTheirOwnSizeCapAndFollowThei
   assert.deepEqual(imgCalls.sort(), ['images.kanka.io/m1-3000.png', 'images.kanka.io/m2-2000.png', 'images.kanka.io/m3-9000.png'], 'a map with no custom image is not downloaded');
   assert.equal(first.stats.detailCalls, 3, 'downloads are detail calls');
   const rows = all<any>(t.deps.db, "SELECT external_id, kind, visibility, size FROM intake_images ORDER BY external_id");
-  assert.deepEqual(rows.map((r) => [r.external_id, r.kind, r.visibility]), [['kanka:mapimg:2001', 'map', 'party'], ['kanka:mapimg:2002', 'map', 'dm']], 'the huge map is over the map cap and is refused; a private map is the GM\'s');
+  assert.deepEqual(rows.map((r) => [r.external_id, r.kind, r.visibility]), [['kanka:mapimg:2001', 'map', 'party'], ['kanka:mapimg:2002', 'map', 'gm']], 'the huge map is over the map cap and is refused; a private map is the GM\'s');
   assert.ok(rows[0].size > 1000, 'a map may be bigger than a picture');
 
   const tok = await t.addPlayer(wid);
-  const dmPage = (await getPage(t, wid, t.admin, pageId(t, wid, 'Realm Map'))).body;
-  assert.equal(dmPage.pictures.length, 1);
-  assert.equal(dmPage.pictures[0].map, true);
-  assert.equal(dmPage.banner, dmPage.pictures[0].url, 'the banner Kanka gave the page is its map, served from here');
-  assert.equal(dmPage.pictures[0].primary, true);
-  assert.equal((await fetch(t.base + dmPage.pictures[0].url)).status, 200);
+  const gmPage = (await getPage(t, wid, t.admin, pageId(t, wid, 'Realm Map'))).body;
+  assert.equal(gmPage.pictures.length, 1);
+  assert.equal(gmPage.pictures[0].map, true);
+  assert.equal(gmPage.banner, gmPage.pictures[0].url, 'the banner Kanka gave the page is its map, served from here');
+  assert.equal(gmPage.pictures[0].primary, true);
+  assert.equal((await fetch(t.base + gmPage.pictures[0].url)).status, 200);
   const playerPage = (await getPage(t, wid, tok, pageId(t, wid, 'Realm Map'))).body;
   assert.equal(playerPage.pictures.length, 1, 'a shared map follows its shared page');
   assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'Secret Map'))).status, 404);
   assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'Secret Map'))).body.pictures.length, 1, 'the GM has the private map');
 
   // The Map page can pick imported maps: the GM sees both, a player only the shared one.
-  const dmMaps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, t.admin)).body;
-  assert.deepEqual(dmMaps.map((m: any) => m.name).sort(), ['Realm Map', 'Secret Map']);
-  assert.equal((await fetch(t.base + dmMaps[0].url)).status, 200);
+  const gmMaps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, t.admin)).body;
+  assert.deepEqual(gmMaps.map((m: any) => m.name).sort(), ['Realm Map', 'Secret Map']);
+  assert.equal((await fetch(t.base + gmMaps[0].url)).status, 200);
   const playerMaps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body;
   assert.deepEqual(playerMaps.map((m: any) => m.name), ['Realm Map']);
   assert.ok(!JSON.stringify(playerMaps).includes(mapRow(t, 'kanka:mapimg:2002').id), 'no id of a private map reaches a player');
@@ -617,8 +617,8 @@ test('CrawlTiers_KankaMapPicturesAreStoredAsMapsWithTheirOwnSizeCapAndFollowThei
   assert.deepEqual(imgCalls, ['images.kanka.io/m1-3000.png']);
 
   // The source's audience can keep every map GM-only.
-  run(t.deps.db, "UPDATE sources SET audience = 'dm' WHERE id = ?", src.id);
-  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'dm' });
+  run(t.deps.db, "UPDATE sources SET audience = 'gm' WHERE id = ?", src.id);
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'gm' });
   await sync(t, src.id, { full: true });
   assert.deepEqual((await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body, []);
 });
@@ -647,7 +647,7 @@ test('CrawlTiers_KankaPortraitsAndPicturesInTextAreStoredHere', async () => {
   assert.deepEqual(imgCalls, [], 'nothing is downloaded again');
 });
 
-test('CrawlTiers_LegendKeeperMapImagesComeWithTheMapPageWhenItIsReadAndStayDmOnlyForAHiddenOne', async () => {
+test('CrawlTiers_LegendKeeperMapImagesComeWithTheMapPageWhenItIsReadAndStayGmOnlyForAHiddenOne', async () => {
   imgCalls.length = 0;
   const t = await boot();
   const { wid, sid } = await lkWorld(t, 4);
@@ -661,7 +661,7 @@ test('CrawlTiers_LegendKeeperMapImagesComeWithTheMapPageWhenItIsReadAndStayDmOnl
   assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'World Map'))).status, 200);
   assert.equal((await getPage(t, wid, t.admin, pageId(t, wid, 'Hidden Map'))).status, 200);
   assert.deepEqual(imgCalls.sort(), ['cdn.lk.example/secret-2500.png', 'cdn.lk.example/world-2500.png']);
-  assert.deepEqual(all<any>(t.deps.db, 'SELECT kind, visibility FROM intake_images ORDER BY name').map((r) => [r.kind, r.visibility]), [['map', 'dm'], ['map', 'party']]);
+  assert.deepEqual(all<any>(t.deps.db, 'SELECT kind, visibility FROM intake_images ORDER BY name').map((r) => [r.kind, r.visibility]), [['map', 'gm'], ['map', 'party']]);
   const maps = (await t.call('GET', `/api/worlds/${wid}/intake/map-images`, tok)).body;
   assert.deepEqual(maps.map((m: any) => m.name), ['World Map']);
   assert.equal((await getPage(t, wid, tok, pageId(t, wid, 'World Map'))).body.pictures.length, 1);
@@ -795,7 +795,7 @@ test('CrawlTiers_ChangingTheDefaultVisibilityReLevelsPagesAlreadyReadInFull_AndN
   lk.res[1].isHidden = true; lk.res[1].text = 'HIDDENDM words';            // Page 2: hidden at the source
   lk.res[2].perms = { MEMBER: 0, ADMIN: 3, OWNER: 3 };                     // Page 3: players have no access
   const wid = await t.world('Relevel World');
-  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { kind: 'legendkeeper-api', name: 'Lore', config: LK_CFG, defaultVisibility: 'dm' });
+  const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { kind: 'legendkeeper-api', name: 'Lore', config: LK_CFG, defaultVisibility: 'gm' });
   await sync(t, src.id);
   const tok = await t.addPlayer(wid);
   // The GM opens pages 4, 2 and 3 (read in full). Page 9 stays listed only.
@@ -819,7 +819,7 @@ test('CrawlTiers_ChangingTheDefaultVisibilityReLevelsPagesAlreadyReadInFull_AndN
   assert.ok(p4.includes('LKBODY4') && !p4.includes('HIDDENDM'));
   assert.ok(!all<any>(t.deps.db, `SELECT player_body FROM pages WHERE world_id = ? AND title IN ('Page 2', 'Page 3', 'Page 9')`, wid).some((r) => r.player_body), 'no player copy exists for them');
   // And back: sharing stops at once.
-  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { defaultVisibility: 'dm' });
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { defaultVisibility: 'gm' });
   assert.equal(await sees(4), false);
   // The whole source shared with players (confirmed): pages only listed so far are still not shared, and neither is a hidden page that is only listed.
   lk.res[5].isHidden = true;
@@ -832,36 +832,36 @@ test('CrawlTiers_ChangingTheDefaultVisibilityReLevelsPagesAlreadyReadInFull_AndN
 
 // ---- why players see nothing, and a refused key ---------------------------------------------------------------------------------
 
-test('CrawlTiers_WhenEveryPageIsDmOnlyTheDmIsToldWhyAndWhatToDo_AndAPlayerIsToldNothing', async () => {
+test('CrawlTiers_WhenEveryPageIsGmOnlyTheGmIsToldWhyAndWhatToDo_AndAPlayerIsToldNothing', async () => {
   resetFailures(); resetBuckets();
   const t = await boot();
-  const { wid, sid } = await lkWorld(t, 10, { audience: 'dm' });
+  const { wid, sid } = await lkWorld(t, 10, { audience: 'gm' });
   await sync(t, sid);
   const tok = await t.addPlayer(wid);
   const st = await t.ok('GET', `/api/worlds/${wid}/world-sources/status`);
   assert.equal(st.pages, 10);
-  assert.equal(st.dmOnly.pages, 10);
-  assert.ok(st.dmOnly.reasons.some((r: any) => r.kind === 'audience' && r.count === 10), JSON.stringify(st.dmOnly));
-  assert.ok(st.dmOnly.actions.some((a: string) => /audience/i.test(a)));
+  assert.equal(st.gmOnly.pages, 10);
+  assert.ok(st.gmOnly.reasons.some((r: any) => r.kind === 'audience' && r.count === 10), JSON.stringify(st.gmOnly));
+  assert.ok(st.gmOnly.actions.some((a: string) => /audience/i.test(a)));
   // The world page (admin overview) says the same.
   const ov = await t.ok('GET', `/api/admin/worlds/${wid}/overview`);
-  assert.equal(ov.status.dmOnly.pages, 10);
+  assert.equal(ov.status.gmOnly.pages, 10);
   // Not GM-only by audience but only listed: the reason is "not read yet", with what to do.
   await t.ok('PATCH', `/api/admin/sources/${sid}`, { audience: 'auto' });
   const st2 = await t.ok('GET', `/api/worlds/${wid}/world-sources/status`);
-  assert.ok(st2.dmOnly.reasons.some((r: any) => r.kind === 'unread' && r.count === 10));
-  assert.ok(st2.dmOnly.actions.some((a: string) => /details/i.test(a)));
+  assert.ok(st2.gmOnly.reasons.some((r: any) => r.kind === 'unread' && r.count === 10));
+  assert.ok(st2.gmOnly.actions.some((a: string) => /details/i.test(a)));
   // A player gets nothing, not even the counts.
   const ps = await t.call('GET', `/api/worlds/${wid}/world-sources/status`, tok);
   assert.equal(ps.status, 200);
-  assert.equal(ps.body.dmOnly, null);
+  assert.equal(ps.body.gmOnly, null);
   assert.equal(ps.body.pages, 0);
   assert.deepEqual(ps.body.refused, []);
   assert.ok(!ps.text.includes('Lore'), 'no source name');
   // Once pages are shared the banner goes away.
   await t.ok('PATCH', `/api/admin/sources/${sid}`, { audience: 'party', confirmParty: true });
   await getPage(t, wid, t.admin, pageId(t, wid, 'Page 4'));
-  assert.equal((await t.ok('GET', `/api/worlds/${wid}/world-sources/status`)).dmOnly, null);
+  assert.equal((await t.ok('GET', `/api/worlds/${wid}/world-sources/status`)).gmOnly, null);
 });
 
 test('CrawlTiers_AKeyThatListsButIsRefusedForContentSaysSoOnTheSource', async () => {
@@ -878,7 +878,7 @@ test('CrawlTiers_AKeyThatListsButIsRefusedForContentSaysSoOnTheSource', async ()
   assert.match(st.refused[0].message, /LegendKeeper keys need Admin to read page text and hidden pages/);
   const tiers = await t.ok('GET', `/api/admin/connections/tiers/world/${wid}`);
   assert.match(tiers[0].refused, /Admin/);
-  assert.ok(st.dmOnly.reasons.some((x: any) => x.kind === 'refused'));
+  assert.ok(st.gmOnly.reasons.some((x: any) => x.kind === 'refused'));
   // The key is fixed: the next read works and the notice goes.
   lk.blocks401 = false;
   resetFailures(); resetBuckets();

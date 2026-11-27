@@ -40,11 +40,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Quickland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Quickland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' });
   T.jess = j.token;
   ID.jess = j.account.id;
@@ -141,7 +141,7 @@ test('QuickGen_items: mundane gear uses its listed cost', () => {
 });
 
 test('QuickGen_items: pages tagged item join the pool', async () => {
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'items/Moonlit Lantern', visibility: 'dm', markdown: `---\ntags: [item]\nrarity: rare\ntype: wondrous item\nprice: 1200 gp\n---\n# Moonlit Lantern\nA pale lantern that never gutters.\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'items/Moonlit Lantern', visibility: 'gm', markdown: `---\ntags: [item]\nrarity: rare\ntype: wondrous item\nprice: 1200 gp\n---\n# Moonlit Lantern\nA pale lantern that never gutters.\n` });
   const r = genItems(deps.db, W, { rarity: 'rare', type: 'wondrous item', count: 200, seed: 'lib' });
   const mine = r.items.find((i) => i.name === 'Moonlit Lantern');
   assert.ok(mine, 'library item present');
@@ -175,60 +175,60 @@ test('QuickGen_coins: scales with level, repeats with a seed, total adds up', ()
 });
 
 test('QuickGen_routes: options, names, items, coins as the GM; coins follow the world setting', async () => {
-  const o = await ok('GET', `${QG()}/options`, T.dm);
+  const o = await ok('GET', `${QG()}/options`, T.gm);
   assert.ok(o.races.includes('dragonborn') && o.rarities.includes('very rare') && o.types.includes('wondrous item') && o.genders.length === 3);
-  const n = await ok('GET', `${QG()}/names?race=dwarf&gender=female&count=5&seed=z`, T.dm);
+  const n = await ok('GET', `${QG()}/names?race=dwarf&gender=female&count=5&seed=z`, T.gm);
   assert.equal(n.names.length, 5);
-  assert.deepEqual(n, await ok('GET', `${QG()}/names?race=dwarf&gender=female&count=5&seed=z`, T.dm));
-  const it = await ok('GET', `${QG()}/items?rarity=uncommon&type=ring&count=3&seed=z`, T.dm);
+  assert.deepEqual(n, await ok('GET', `${QG()}/names?race=dwarf&gender=female&count=5&seed=z`, T.gm));
+  const it = await ok('GET', `${QG()}/items?rarity=uncommon&type=ring&count=3&seed=z`, T.gm);
   assert.ok(it.items.length > 0 && it.items.every((x: any) => x.rarity === 'uncommon' && x.type === 'ring'));
-  assert.equal((await call('GET', `${QG()}/items?rarity=nope`, T.dm)).status, 400);
-  const c1 = await ok('GET', `${QG()}/coins?mode=hoard&level=15&seed=z`, T.dm);
+  assert.equal((await call('GET', `${QG()}/items?rarity=nope`, T.gm)).status, 400);
+  const c1 = await ok('GET', `${QG()}/coins?mode=hoard&level=15&seed=z`, T.gm);
   assert.equal(c1.coinSetting, 'gsc');
   assert.equal(c1.pp + c1.ep, 0);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { coins: 'all' });
-  const c2 = await ok('GET', `${QG()}/coins?mode=hoard&level=18&seed=z`, T.dm);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { coins: 'all' });
+  const c2 = await ok('GET', `${QG()}/coins?mode=hoard&level=18&seed=z`, T.gm);
   assert.equal(c2.coinSetting, 'all');
   assert.ok(c2.pp > 0);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { coins: 'gold' });
-  const c3 = await ok('GET', `${QG()}/coins?mode=individual&cr=3&seed=z`, T.dm);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { coins: 'gold' });
+  const c3 = await ok('GET', `${QG()}/coins?mode=individual&cr=3&seed=z`, T.gm);
   assert.deepEqual([c3.pp, c3.ep, c3.sp, c3.cp], [0, 0, 0, 0]);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { coins: 'gsc' });
-  assert.equal((await call('GET', `${QG()}/coins?mode=hoard&level=40`, T.dm)).status, 400);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { coins: 'gsc' });
+  assert.equal((await call('GET', `${QG()}/coins?mode=hoard&level=40`, T.gm)).status, 400);
 });
 
 test('QuickGen_players: 403 unless quickgenPlayers is on, and then names only', async () => {
   for (const p of ['names', 'items?rarity=rare', 'coins?level=3', 'options']) assert.equal((await call('GET', `${QG()}/${p}`, T.jess)).status, 403, p);
   assert.equal((await call('GET', `${QG()}/names`)).status, 401);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { quickgenPlayers: true });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { quickgenPlayers: true });
   const n = await ok('GET', `${QG()}/names?count=4&seed=p`, T.jess);
   assert.equal(n.names.length, 4);
   const o = await ok('GET', `${QG()}/options`, T.jess);
-  assert.deepEqual([o.rarities, o.types, o.dm], [[], [], false]);
+  assert.deepEqual([o.rarities, o.types, o.gm], [[], [], false]);
   assert.equal((await call('GET', `${QG()}/items?rarity=rare`, T.jess)).status, 403);
   assert.equal((await call('GET', `${QG()}/coins?level=3`, T.jess)).status, 403);
   assert.equal((await call('POST', `${QG()}/flavour`, T.jess, { text: 'x' })).status, 403);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { quickgenPlayers: false });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { quickgenPlayers: false });
   assert.equal((await call('GET', `${QG()}/names`, T.jess)).status, 403);
-  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { quickgenPlayers: 'yes' })).status, 400);
+  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.gm, { quickgenPlayers: 'yes' })).status, 400);
 });
 
 test('QuickGen_give: a rolled item and coin land in the inventory and the purse', async () => {
-  const it = (await ok('GET', `${QG()}/items?rarity=common&type=potion&count=1&seed=give`, T.dm)).items[0];
-  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: it.name, qty: 1, note: `${it.rarity} ${it.type}`, reason: 'Quick gen' });
-  const inv = await ok('GET', `/api/worlds/${W}/inventory?owner=${ID.jess}`, T.dm);
+  const it = (await ok('GET', `${QG()}/items?rarity=common&type=potion&count=1&seed=give`, T.gm)).items[0];
+  await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: it.name, qty: 1, note: `${it.rarity} ${it.type}`, reason: 'Quick gen' });
+  const inv = await ok('GET', `/api/worlds/${W}/inventory?owner=${ID.jess}`, T.gm);
   assert.ok(inv.items.some((x: any) => x.name === it.name));
-  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: 'party', name: it.name, qty: 1, reason: 'Quick gen' });
-  assert.ok((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.dm)).items.some((x: any) => x.name === it.name));
-  const c = await ok('GET', `${QG()}/coins?mode=hoard&level=6&seed=give`, T.dm);
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: 'party', amountCp: c.totalCp, note: 'Quick gen hoard' });
-  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.dm)).cp, c.totalCp);
+  await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: 'party', name: it.name, qty: 1, reason: 'Quick gen' });
+  assert.ok((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.gm)).items.some((x: any) => x.name === it.name));
+  const c = await ok('GET', `${QG()}/coins?mode=hoard&level=6&seed=give`, T.gm);
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: 'party', amountCp: c.totalCp, note: 'Quick gen hoard' });
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.gm)).cp, c.totalCp);
 });
 
 test('QuickGen_flavour: falls back to null with no model', async () => {
-  const f = await ok('POST', `${QG()}/flavour`, T.dm, { kind: 'item', text: 'Ring of Protection' });
+  const f = await ok('POST', `${QG()}/flavour`, T.gm, { kind: 'item', text: 'Ring of Protection' });
   assert.equal(f.flavour, null);
-  assert.equal((await call('POST', `${QG()}/flavour`, T.dm, {})).status, 400);
+  assert.equal((await call('POST', `${QG()}/flavour`, T.gm, {})).status, 400);
 });
 
 test('QuickGen_mcp: read tools are listed, work for the GM and refuse a player key', async () => {
@@ -236,7 +236,7 @@ test('QuickGen_mcp: read tools are listed, work for the GM and refuse a player k
     const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
     return (await r.json()) as any;
   };
-  const dk = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', label: 'qg', worldId: W })).key;
+  const dk = (await ok('POST', '/api/keys', T.gm, { scope: 'scribe', label: 'qg', worldId: W })).key;
   const tools = (await rpc(dk, 'tools/list')).result.tools.map((t: any) => t.name);
   for (const t of ['generate_names', 'generate_items', 'generate_coins']) assert.ok(tools.includes(t), t);
   const n = await rpc(dk, 'tools/call', { name: 'generate_names', arguments: { race: 'elf', count: 3, seed: 'm' } });

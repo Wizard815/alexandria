@@ -11,12 +11,12 @@ import express, { Router, type Response } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { one, all, run, tx } from '../../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
-import { dmAnd } from '../../core/events.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
+import { gmAnd } from '../../core/events.ts';
 import { balance, money, spendable } from '../../core/coin.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { HttpError, id as newId, int, now, oneOf, parseJson, str } from '../../core/util.ts';
-import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { readTicket } from '../sound/ticket.ts';
 import { KINDS, PLAYER, canHave, dataFor, project, stockOf, worldSettings, type CardRow, type Kind } from './cards.ts';
 
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS stage_cards (
   caption TEXT NOT NULL DEFAULT '',
   x REAL NOT NULL DEFAULT 0, y REAL NOT NULL DEFAULT 0, w REAL NOT NULL DEFAULT 1, h REAL NOT NULL DEFAULT 1,
   z INTEGER NOT NULL DEFAULT 0,
-  visibility TEXT NOT NULL DEFAULT 'dm' CHECK (visibility IN ('all', 'players', 'dm')),
+  visibility TEXT NOT NULL DEFAULT 'gm' CHECK (visibility IN ('all', 'players', 'gm')),
   audience TEXT NOT NULL DEFAULT '[]',
   options TEXT NOT NULL DEFAULT '{}',
   shown_at TEXT,
@@ -82,9 +82,9 @@ const num = (v: unknown, field: string, min: number, max: number, dflt: number) 
 
 /** Who may fetch an uploaded picture: the GM, or a player/guest when a card shown to them uses it. */
 function mayFetchImage(d: Deps, worldId: string, imageId: string, accountId: string, role: string): boolean {
-  if (role === 'dm') return true;
+  if (role === 'gm') return true;
   const v: Viewer = { accountId, role: role as Viewer['role'] };
-  return all<CardRow>(d.db, `SELECT * FROM stage_cards WHERE world_id = ? AND ref = ? AND kind IN ('image', 'event') AND visibility <> 'dm'`, worldId, imageId).some((c) => canHave(c, v));
+  return all<CardRow>(d.db, `SELECT * FROM stage_cards WHERE world_id = ? AND ref = ? AND kind IN ('image', 'event') AND visibility <> 'gm'`, worldId, imageId).some((c) => canHave(c, v));
 }
 
 function sendImage(res: Response, u: any) {
@@ -140,7 +140,7 @@ const feature: Feature = {
       const s = worldSettings(db, wid);
       const list = cards(wid).map((c) => project(d, c, v, s)).filter(Boolean) as any[];
       const spot = list.some((c) => c.id === st.spotlight_id) ? st.spotlight_id : null;
-      return { version: st.version, layout: st.layout, spotlightId: spot, cards: v.role === 'dm' ? list : list.filter((c) => c.shownAt) };
+      return { version: st.version, layout: st.layout, spotlightId: spot, cards: v.role === 'gm' ? list : list.filter((c) => c.shownAt) };
     }
     const broadcast = (wid: string) => d.hub.emitPer(wid, 'stage', (v) => view(wid, v));
 
@@ -149,13 +149,13 @@ const feature: Feature = {
       const c = ctx(res);
       res.json(view(c.world.id, c.viewer));
     });
-    r.get('/history', requireDM, (req, res) => {
+    r.get('/history', requireGM, (req, res) => {
       const since = Number(req.query.since) || 0;
       res.json(all(db, 'SELECT id, at, by_id AS byId, action, card_id AS cardId, kind, label, detail FROM stage_history WHERE world_id = ? AND id > ? ORDER BY id DESC LIMIT 500', W(res), since));
     });
 
     // ---- pickers (GM) ----
-    r.get('/pickers', requireDM, (req, res) => {
+    r.get('/pickers', requireGM, (req, res) => {
       const w = W(res);
       const q = String(req.query.q ?? '').trim().toLowerCase().slice(0, 100);
       const pages = (d.library.list(w, ctx(res).viewer) as any[])
@@ -166,7 +166,7 @@ const feature: Feature = {
     });
 
     // ---- pictures ----
-    r.post('/images', requireDM, express.raw({ type: 'image/*', limit: MAX_IMAGE + 1 }), (req, res) => {
+    r.post('/images', requireGM, express.raw({ type: 'image/*', limit: MAX_IMAGE + 1 }), (req, res) => {
       const w = W(res);
       let buf: Buffer;
       if (Buffer.isBuffer(req.body)) buf = req.body;
@@ -262,7 +262,7 @@ const feature: Feature = {
       return { label, text, caption: str(b.caption, 'caption', { max: 300, optional: true }) };
     };
 
-    r.post('/cards', requireDM, (req, res) => {
+    r.post('/cards', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const kind = oneOf(b.kind, 'kind', KINDS);
@@ -273,7 +273,7 @@ const feature: Feature = {
       const n = one<any>(db, 'SELECT COUNT(*) AS n FROM stage_cards WHERE world_id = ?', w)!.n;
       tx(db, () => {
         run(db, `INSERT INTO stage_cards (id, world_id, kind, ref, label, text, caption, x, y, w, h, z, visibility, audience, options, created_at, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'dm', '[]', ?, ?, ?)`, cid, w, kind, ref, f.label, f.text, f.caption,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'gm', '[]', ?, ?, ?)`, cid, w, kind, ref, f.label, f.text, f.caption,
           num(b.x, 'x', 0, 100, (n % 3) * 33), num(b.y, 'y', 0, 100, Math.floor(n / 3) * 30), num(b.w, 'w', 1, 100, 1), num(b.h, 'h', 1, 100, 1), nextZ(w), JSON.stringify(optionsFrom(b)), now(), me(res));
         const c = card(w, cid);
         log(w, me(res), 'add', c);
@@ -284,7 +284,7 @@ const feature: Feature = {
       res.status(201).json(project(d, card(w, cid), ctx(res).viewer, worldSettings(db, w)));
     });
 
-    r.patch('/cards/:cid', requireDM, (req, res) => {
+    r.patch('/cards/:cid', requireGM, (req, res) => {
       const w = W(res);
       const c = card(w, String(req.params.cid));
       const b = req.body ?? {};
@@ -300,7 +300,7 @@ const feature: Feature = {
       res.json(project(d, card(w, c.id), ctx(res).viewer, worldSettings(db, w)));
     });
 
-    r.delete('/cards/:cid', requireDM, (req, res) => {
+    r.delete('/cards/:cid', requireGM, (req, res) => {
       const w = W(res);
       const c = card(w, String(req.params.cid));
       run(db, 'DELETE FROM stage_cards WHERE id = ?', c.id);
@@ -312,19 +312,19 @@ const feature: Feature = {
       res.json({ ok: true });
     });
 
-    r.post('/cards/:cid/show', requireDM, (req, res) => {
+    r.post('/cards/:cid/show', requireGM, (req, res) => {
       const w = W(res);
       const c = card(w, String(req.params.cid));
       tx(db, () => show(res, c, req.body?.to, req.body?.spotlight === true));
       broadcast(w);
       res.json(project(d, card(w, c.id), ctx(res).viewer, worldSettings(db, w)));
     });
-    r.post('/cards/:cid/hide', requireDM, (req, res) => {
+    r.post('/cards/:cid/hide', requireGM, (req, res) => {
       const w = W(res);
       const c = card(w, String(req.params.cid));
       const o = parseJson<Record<string, any>>(c.options, {});
       delete o.endsAt;
-      run(db, `UPDATE stage_cards SET visibility = 'dm', audience = '[]', shown_at = NULL, options = ? WHERE id = ?`, JSON.stringify(o), c.id);
+      run(db, `UPDATE stage_cards SET visibility = 'gm', audience = '[]', shown_at = NULL, options = ? WHERE id = ?`, JSON.stringify(o), c.id);
       log(w, me(res), 'hide', c);
       audit(w, me(res), 'stage.hide', `${c.kind} ${c.label || c.ref || ''}`);
       touch(w);
@@ -332,7 +332,7 @@ const feature: Feature = {
       res.json(project(d, card(w, c.id), ctx(res).viewer, worldSettings(db, w)));
     });
 
-    r.put('/layout', requireDM, (req, res) => {
+    r.put('/layout', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const layout = b.layout === undefined ? state(w).layout : oneOf(b.layout, 'layout', LAYOUTS);
@@ -349,10 +349,10 @@ const feature: Feature = {
     // ---- buying from a shop card ----
     // The price comes from the shop page's player copy, never from the request. Coin and item go
     // through the same approval rules as anything else a player does (World settings: playerChangesNeedApproval).
-    r.post('/cards/:cid/buy', requirePlayerOrDM, (req, res) => {
+    r.post('/cards/:cid/buy', requirePlayerOrGM, (req, res) => {
       const c0 = ctx(res);
       const w = c0.world.id;
-      if (isDM(res)) throw new HttpError(403, 'Players buy from a shop; the GM edits coin and items directly');
+      if (isGM(res)) throw new HttpError(403, 'Players buy from a shop; the GM edits coin and items directly');
       const c = card(w, String(req.params.cid));
       if (c.kind !== 'shop' || !canHave(c, c0.viewer) || !c.shown_at) throw new HttpError(404, 'Card not found');
       const data: any = dataFor(d, c, c0.viewer, worldSettings(db, w));
@@ -375,19 +375,19 @@ const feature: Feature = {
         const have = spendable(db, w, mine);
         if (have < total) throw new HttpError(402, `Not enough coin: ${total > 0 ? money(total) : ''} needed, you have ${money(Math.max(0, have))}`);
         run(db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, lid, w, mine, -total, `Bought ${itemName} x${qty} at ${shopName}`.slice(0, 200), mine, now(), pending ? 'pending' : 'approved');
-        run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, NULL, ?, '', NULL, NULL, ?, ?, ?)`, iid, w, mine, itemName, qty, `Bought at ${shopName}`.slice(0, 500), now(), mine, pending ? 'pending' : 'approved');
+        run(db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, gm_note, link, image, updated_at, updated_by, status) VALUES (?, ?, ?, ?, ?, NULL, ?, '', NULL, NULL, ?, ?, ?)`, iid, w, mine, itemName, qty, `Bought at ${shopName}`.slice(0, 500), now(), mine, pending ? 'pending' : 'approved');
         if (pending) {
-          const snap = { owner: mine, name: itemName, qty, weight: null, note: `Bought at ${shopName}`.slice(0, 500), dm_note: '', link: null, image: null };
+          const snap = { owner: mine, name: itemName, qty, weight: null, note: `Bought at ${shopName}`.slice(0, 500), gm_note: '', link: null, image: null };
           run(db, `INSERT INTO item_changes (id, world_id, item_id, owner, kind, after_json, reason, by_id, at, status) VALUES (?, ?, ?, ?, 'add', ?, ?, ?, ?, 'pending')`, chg, w, iid, mine, JSON.stringify(snap), `Bought from the stage: ${shopName}`, mine, now());
         }
       });
       audit(w, mine, pending ? 'stage.buy.request' : 'stage.buy', `${itemName} x${qty} ${total}cp at ${shopName}`);
       if (pending) {
-        d.hub.emit(w, 'approval', { kind: 'coin', id: lid }, dmAnd(mine));
-        d.hub.emit(w, 'approval', { id: chg, kind: 'add', status: 'pending' }, dmAnd(mine));
+        d.hub.emit(w, 'approval', { kind: 'coin', id: lid }, gmAnd(mine));
+        d.hub.emit(w, 'approval', { id: chg, kind: 'add', status: 'pending' }, gmAnd(mine));
       } else {
-        d.hub.emit(w, 'coin', { owner: mine, balance: balance(db, w, mine) }, dmAnd(mine));
-        d.hub.emit(w, 'item', { id: iid, owner: mine, name: itemName, qty, status: 'approved' }, dmAnd(mine));
+        d.hub.emit(w, 'coin', { owner: mine, balance: balance(db, w, mine) }, gmAnd(mine));
+        d.hub.emit(w, 'item', { id: iid, owner: mine, name: itemName, qty, status: 'approved' }, gmAnd(mine));
       }
       res.status(pending ? 202 : 201).json({ pending, item: itemName, qty, totalCp: total, coinEntryId: lid, itemId: iid, changeId: pending ? chg : null });
     });

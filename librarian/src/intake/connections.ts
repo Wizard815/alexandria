@@ -15,10 +15,10 @@ import { connectorFor } from './registry.ts';
 
 export const SECRET_MASK = '••••';
 
-export const AUDIENCES = ['auto', 'dm', 'party'] as const;
+export const AUDIENCES = ['auto', 'gm', 'party'] as const;
 export type SourceAudience = (typeof AUDIENCES)[number];
-export const normAudience = (v: unknown): SourceAudience => (v === 'dm' || v === 'party' ? v : 'auto');
-export const AUDIENCE_LABEL: Record<SourceAudience, string> = { auto: 'Follows the source', dm: 'GM only', party: 'Shared with players' };
+export const normAudience = (v: unknown): SourceAudience => (v === 'gm' || v === 'party' ? v : 'auto');
+export const AUDIENCE_LABEL: Record<SourceAudience, string> = { auto: 'Follows the source', gm: 'GM only', party: 'Shared with players' };
 
 const parse = (s: unknown): Record<string, any> => { try { const v = JSON.parse(String(s || '{}')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } };
 
@@ -116,15 +116,15 @@ export function migrateSources(db: DB): number {
   return n;
 }
 
-/** Records (relations, timelines, calendars, markers) a source gave: `dm` forces them GM-only. */
-export function forceRecordsDm(db: DB, sourceId: string) {
+/** Records (relations, timelines, calendars, markers) a source gave: `gm` forces them GM-only. */
+export function forceRecordsGm(db: DB, sourceId: string) {
   for (const t of ['intake_relations', 'intake_timelines', 'intake_calendars', 'intake_markers']) {
-    try { run(db, `UPDATE ${t} SET visibility = 'dm' WHERE source_id = ?`, sourceId); } catch { /* the intake tables are made by the intake feature */ }
+    try { run(db, `UPDATE ${t} SET visibility = 'gm' WHERE source_id = ?`, sourceId); } catch { /* the intake tables are made by the intake feature */ }
   }
   try {
     for (const t of all<any>(db, 'SELECT world_id, external_id, data FROM intake_timelines WHERE source_id = ?', sourceId)) {
       const groups = JSON.parse(t.data || '[]');
-      for (const g of groups) for (const e of g.events ?? []) e.visibility = 'dm';
+      for (const g of groups) for (const e of g.events ?? []) e.visibility = 'gm';
       run(db, 'UPDATE intake_timelines SET data = ? WHERE source_id = ? AND world_id = ? AND external_id = ?', JSON.stringify(groups), sourceId, t.world_id, t.external_id);
     }
   } catch { /* nothing to rewrite */ }

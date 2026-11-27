@@ -119,7 +119,7 @@ const NAME = /\b[A-Z][a-z'’]+(?:[ -](?:of |de )?[A-Z][a-z'’]+)+\b/g;
 const GAME_WORDS = new Set(('opportunity attack action actions bonus reaction saving save throw throws advantage disadvantage strength dexterity constitution '
   + 'intelligence wisdom charisma stealth perception athletics acrobatics insight investigation sleight hand armor armour class hit points dice '
   + 'short long rest sneak cunning inspiration initiative round turn help hide dash disengage dodge ready search use object magic cover heavily '
-  + 'lightly obscured difficult terrain concentration death dungeon master dm game player character potion healing srd d&d').split(' '));
+  + 'lightly obscured difficult terrain concentration death dungeon master gm game player character potion healing srd d&d').split(' '));
 /** Names of two or more capitalised words in the answer that the brief and the question never mention. */
 export function unknownNames(answer: string, known: string): string[] {
   const k = known.toLowerCase().replace(/\s+/g, ' ');
@@ -188,8 +188,8 @@ function characterPart(d: Deps, worldId: string, accountId: string): string {
       if (!L.some((x) => x.startsWith('Conditions:'))) L.push(`Conditions: ${fx.length ? fx.join(', ') : 'none'}.`);
     }
   }
-  if (tableExists(d, 'sheet_dm_notes')) {
-    const goals = all<any>(d.db, "SELECT text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 6", worldId, accountId);
+  if (tableExists(d, 'sheet_gm_notes')) {
+    const goals = all<any>(d.db, "SELECT text, done FROM sheet_gm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 6", worldId, accountId);
     if (goals.length) L.push(`Goals from the GM: ${goals.map((g) => `${clip(flat(g.text), 120)}${g.done ? ' (done)' : ''}`).join('; ')}.`);
   }
   return L.join('\n');
@@ -331,8 +331,8 @@ export function recapPart(d: Deps, worldId: string, accountId: string): string {
     if (v.goals.length) L.push(`Their goals and quests:\n${v.goals.map((g) => `- ${g.title} (${g.heat ?? 'ongoing'}): ${clip(plain(g.body.replace(/^#.*$/m, '')), 200)}`).join('\n')}`);
     if (v.journal.length) L.push(`Their latest journal:\n${v.journal.slice(-2).map((j) => `- ${j.title}: ${clip(plain(j.body.replace(/^#.*$/m, '')), 300)}`).join('\n')}`);
   }
-  if (tableExists(d, 'sheet_dm_notes')) {
-    const goals = all<any>(d.db, "SELECT text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 8", worldId, accountId);
+  if (tableExists(d, 'sheet_gm_notes')) {
+    const goals = all<any>(d.db, "SELECT text, done FROM sheet_gm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 8", worldId, accountId);
     if (goals.length) L.push(`Quests from the GM:\n${goals.map((g) => `- ${clip(plain(g.text), 160)}${g.done ? ' (done)' : ''}`).join('\n')}`);
   }
   if (tableExists(d, 'broker_requests')) {

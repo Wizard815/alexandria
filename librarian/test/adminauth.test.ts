@@ -34,16 +34,16 @@ async function boot(env: Record<string, string> = {}, extraAccounts = true) {
   };
   const tableAdmin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: PW })).token as string;
   let world = '';
-  let dm = '';
+  let gm = '';
   if (extraAccounts) {
     // The admin signs in at /admin/login: once there are two accounts, table sessions can't open admin routes.
     const ads = (await ok('POST', '/api/admin-auth/login', undefined, { username: 'wizard', password: PW })).token;
-    const acc = await ok('POST', '/api/admin/accounts', ads, { username: 'dungeon', password: 'dm password 123' });
-    dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-    world = (await ok('POST', '/api/admin/worlds', ads, { name: 'Authland', dmAccountId: acc.account.id })).id;
+    const acc = await ok('POST', '/api/admin/accounts', ads, { username: 'dungeon', password: 'gm password 123' });
+    gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+    world = (await ok('POST', '/api/admin/worlds', ads, { name: 'Authland', gmAccountId: acc.account.id })).id;
   }
   const actions = () => all<any>(deps.db, 'SELECT action, detail, account_id FROM audit ORDER BY rowid').map((a) => a.action);
-  return { server, call, ok, tableAdmin, dm, world, deps, actions, close: () => server.close() };
+  return { server, call, ok, tableAdmin, gm, world, deps, actions, close: () => server.close() };
 }
 
 const adminLogin = (h: Awaited<ReturnType<typeof boot>>, body: Record<string, unknown> = {}, ip?: string) =>
@@ -70,7 +70,7 @@ test('TestAdminAuth_SessionOpensAdminRoutesButNotWorlds', async () => {
     assert.equal((await h.call('POST', '/api/worlds/' + h.world + '/library/pages', t, {})).status, 403);
     // Wrong password, and a non-admin account, can't get one.
     assert.equal((await adminLogin(h, { password: 'nope nope nope' })).status, 401);
-    assert.equal((await adminLogin(h, { username: 'dungeon', password: 'dm password 123' })).status, 401);
+    assert.equal((await adminLogin(h, { username: 'dungeon', password: 'gm password 123' })).status, 401);
     // Signing out kills it.
     await h.ok('POST', '/api/admin-auth/logout', t);
     assert.equal((await h.call('GET', '/api/admin/accounts', t)).status, 401);
@@ -86,7 +86,7 @@ test('TestAdminAuth_TableSessionsAndAdminKeys', async () => {
     assert.match(r.body.error, /admin\/login/);
     assert.equal((await h.call('GET', '/api/admin-auth/me', h.tableAdmin)).status, 403);
     // A GM table session is not an admin either way.
-    assert.equal((await h.call('GET', '/api/admin/accounts', h.dm)).status, 403);
+    assert.equal((await h.call('GET', '/api/admin/accounts', h.gm)).status, 403);
     // The admin's table session still opens the admin's own worlds (membership permitting), unchanged.
     assert.equal((await h.call('GET', '/api/me', h.tableAdmin)).status, 200);
     // An admin key keeps working. Keys are made from a table session, which still can.
@@ -106,7 +106,7 @@ test('TestAdminAuth_TableSessionsAndAdminKeys', async () => {
     assert.equal((await s.call('GET', '/api/admin/accounts', s.tableAdmin)).status, 200);
     assert.equal((await s.call('GET', '/api/admin-auth/status')).body.tableLogin, true);
     // Adding a second account closes it.
-    await s.ok('POST', '/api/admin/accounts', s.tableAdmin, { username: 'dungeon', password: 'dm password 123' });
+    await s.ok('POST', '/api/admin/accounts', s.tableAdmin, { username: 'dungeon', password: 'gm password 123' });
     assert.equal((await s.call('GET', '/api/admin/accounts', s.tableAdmin)).status, 403);
   } finally { s.close(); }
 });
@@ -276,7 +276,7 @@ test('TestAdminAuth_AuditRecordsLoginsFailuresAndLogout', async () => {
   try {
     h.deps.db.exec(`DELETE FROM audit WHERE action LIKE 'admin.%'`);
     await adminLogin(h, { password: 'wrong wrong wrong' });
-    await adminLogin(h, { username: 'dungeon', password: 'dm password 123' });
+    await adminLogin(h, { username: 'dungeon', password: 'gm password 123' });
     const t = (await adminLogin(h)).body.token as string;
     await h.ok('POST', '/api/admin-auth/logout', t);
     const rows = all<any>(h.deps.db, `SELECT action, detail FROM audit WHERE action LIKE 'admin.%' ORDER BY rowid`);
@@ -306,7 +306,7 @@ test('TestAdminAuth_AdminKeysWorkFromAnAdminSession', async () => {
     assert.equal((await h.call('GET', '/api/admin/overview', made.key)).status, 200);
     assert.equal((await h.call('POST', '/api/admin/keys', made.key, { label: 'x' })).status, 403);
     // A player (non-admin) session never reaches them.
-    assert.ok([401, 403].includes((await h.call('GET', '/api/admin/keys', h.dm)).status));
+    assert.ok([401, 403].includes((await h.call('GET', '/api/admin/keys', h.gm)).status));
     await h.ok('DELETE', `/api/admin/keys/${made.id}`, t);
     assert.equal((await h.ok('GET', '/api/admin/keys', t))[0].revoked, 1);
     assert.equal((await h.call('GET', '/api/admin/overview', made.key)).status, 401);

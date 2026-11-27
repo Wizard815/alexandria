@@ -133,7 +133,7 @@ authenticate to it. The `/v1` gateway Alexandria itself offers is for the GM and
 
 ## 9. Choose the microphone and the speakers
 
-- **GM, Audio setup** (`/w/<world>/dm/audio`): the list of microphones
+- **GM, Audio setup** (`/w/<world>/gm/audio`): the list of microphones
   this computer has. Switch on the one(s) to record, then **Start recording**.
   The browser asks for microphone permission once. This needs **https** (or
   localhost).
@@ -144,7 +144,7 @@ authenticate to it. The `/v1` gateway Alexandria itself offers is for the GM and
   used for dictation. Remembered per browser.
 - **Players, Audio:** each player picks their own microphone and agrees to
   recording on their own device.
-- **GM, Recordings** (`/w/<world>/dm/recordings`): after a session stops the
+- **GM, Recordings** (`/w/<world>/gm/recordings`): after a session stops the
   audio is joined in the background (ffmpeg is in the Docker image). Play the
   full recording or any microphone, click a transcript line to jump there,
   download files, and choose per session how long the audio is kept (blank

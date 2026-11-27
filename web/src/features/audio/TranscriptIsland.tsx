@@ -47,7 +47,7 @@ export default function TranscriptOverlay() {
   // A guest has no transcript and no microphone: nothing here would load but 403s.
   if (info.role === 'guest') return null;
   // The GM can keep the island off the main monitor when the transcript lives on the side screen.
-  const onSideScreen = main.hideTranscript && info.role === 'dm';
+  const onSideScreen = main.hideTranscript && info.role === 'gm';
   return <><RecordingBadge /><ConsentPrompt />{!onSideScreen && <Island />}</>;
 }
 
@@ -65,13 +65,13 @@ function RecordingBadge() {
 }
 
 function ConsentPrompt() {
-  const { w, isDM } = useWorld();
+  const { w, isGM } = useWorld();
   const st = useEngine();
   const [text, setText] = useState('');
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { if (st.recording && !isDM && !st.consent) void w.call<any>('GET', '/audio/consent').then((c) => setText(c.text)).catch(() => {}); }, [st.recording, st.consent, isDM, w]);
-  if (isDM || !st.recording || st.consent || dismissed === st.sessionId) return null;
+  useEffect(() => { if (st.recording && !isGM && !st.consent) void w.call<any>('GET', '/audio/consent').then((c) => setText(c.text)).catch(() => {}); }, [st.recording, st.consent, isGM, w]);
+  if (isGM || !st.recording || st.consent || dismissed === st.sessionId) return null;
   return (
     <Modal title="This session is being recorded" onClose={() => setDismissed(st.sessionId)}>
       <p className="read">{text}</p>

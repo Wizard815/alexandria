@@ -27,7 +27,7 @@
       "nat 1",
       "critical check"
     ],
-    "dm": "On an ability check a natural 20 is the best result the task allows plus a small extra; a natural 1 adds a complication even if the total passes. Suggest one short complication or bonus that fits the scene, never an automatic success at the impossible.",
+    "gm": "On an ability check a natural 20 is the best result the task allows plus a small extra; a natural 1 adds a complication even if the total passes. Suggest one short complication or bonus that fits the scene, never an automatic success at the impossible.",
     "player": "At this table a natural 20 on a check gives the best result the task allows, and a natural 1 brings a complication even if you pass. It never makes the impossible possible."
   }
 }

@@ -10,7 +10,7 @@ the clock, the party) is resolved first and is fast.
 | Syntax | Meaning |
 | --- | --- |
 | `{{key}}` | A field's value. A line whose fields are all empty is dropped. |
-| `{{#dm}}...{{/dm}}` | GM-only: becomes a `> [!secret]` block on a page and never reaches players. |
+| `{{#gm}}...{{/gm}}` | GM-only: becomes a `> [!secret]` block on a page and never reaches players. |
 | `{{#if x}}...{{else}}...{{/if}}` | `x` is a field or context variable; `!x` negates. |
 | `{{#each list}}{{this}} {{@n}}{{/each}}` | Each line of a list field. `{{this.2}}` is the second `|` column. |
 | `{{gen:name race=elf gender=female}}` | An inline generator: `name`, `place`, `item`, `items`, `coins`, `encounter`, `weather`, `trap`, `rumour`, `bark`, `letter`, ... `$field` in a value reads another field. |

@@ -20,7 +20,7 @@ let W = '';
 let modelOn = false;
 const SL = () => `/api/worlds/${W}/sessionlog`;
 
-const DM_LINE = 'the baron is actually a vampire who feeds on the orphans of the lower docks';
+const GM_LINE = 'the baron is actually a vampire who feeds on the orphans of the lower docks';
 const ASIDE_LINE = 'privately the harbour master keeps a ledger of every smuggled crate beneath the north pier';
 const PAGE_SECRET = 'The council vault hides a cursed crown that whispers to anyone who wears it at midnight.';
 
@@ -58,32 +58,32 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Logland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Logland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' });
   T.jess = j.token; ID.jess = j.account.id;
 
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Crown', visibility: 'dm', markdown: `# Crown\n${PAGE_SECRET}\n` });
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nA fishing town.\n\n> [!secret] GM\n> The mayor poisons the wells with nightshade every single winter solstice.\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'gm/Crown', visibility: 'gm', markdown: `# Crown\n${PAGE_SECRET}\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nA fishing town.\n\n> [!secret] GM\n> The mayor poisons the wells with nightshade every single winter solstice.\n` });
 
   // A recorded session: a players' line, a GM-only line and an aside line.
   run(deps.db, "INSERT INTO audio_sessions (id, world_id, name, started_at, stopped_at) VALUES ('as1', ?, 'Table', '2026-01-01T18:00:00.000Z', '2026-01-01T21:00:00.000Z')", W);
-  run(deps.db, "INSERT INTO audio_mics (id, world_id, account_id, device_id, label, mode, players_transcript, aside, room, created_at) VALUES ('mic_a', ?, ?, 'd1', 'Aside mic', 'always', 0, 1, 0, '2026-01-01T00:00:00.000Z')", W, ID.dm);
+  run(deps.db, "INSERT INTO audio_mics (id, world_id, account_id, device_id, label, mode, players_transcript, aside, room, created_at) VALUES ('mic_a', ?, ?, 'd1', 'Aside mic', 'always', 0, 1, 0, '2026-01-01T00:00:00.000Z')", W, ID.gm);
   const line = (n: number, text: string, audience: string, sources = '[]') => run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', `l${n}`, 'as1', W, n * 10000, n * 10000 + 5000, 'Someone', text, audience, '2026-01-01T18:00:00.000Z');
   line(1, 'We rode into Saltmarsh and met Captain Aldous at the busy harbour gate', 'players');
-  line(2, DM_LINE, 'dm');
-  line(3, ASIDE_LINE, 'dm');
+  line(2, GM_LINE, 'gm');
+  line(3, ASIDE_LINE, 'gm');
   run(deps.db, "UPDATE audio_lines SET sources = '[\"mic_a\"]' WHERE id = 'l3'");
-  run(deps.db, 'INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 'lg1', W, 'party', 2500, 'Bandit purse', ID.dm, '2026-01-01T19:00:00.000Z', 'approved');
+  run(deps.db, 'INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 'lg1', W, 'party', 2500, 'Bandit purse', ID.gm, '2026-01-01T19:00:00.000Z', 'approved');
 });
 after(async () => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 test('SessionLog: a draft without a model uses only the players\' lines', async () => {
   modelOn = false;
-  const d = await ok('POST', `${SL()}/drafts`, T.dm, { audioSessionId: 'as1' });
+  const d = await ok('POST', `${SL()}/drafts`, T.gm, { audioSessionId: 'as1' });
   assert.equal(d.usedModel, false);
   assert.equal(d.proposal, null);
   assert.equal(d.version, 1);
@@ -92,73 +92,73 @@ test('SessionLog: a draft without a model uses only the players\' lines', async 
   assert.ok(d.markdown.includes('Bandit purse'));
   assert.ok(!d.markdown.includes('vampire'), 'GM line in summary');
   assert.ok(!d.markdown.includes('smuggled crate'), 'aside line in summary');
-  assert.ok(d.dmNotes.includes('vampire'), 'GM notes keep the GM lines');
-  assert.ok(d.dmNotes.includes('(aside)'));
+  assert.ok(d.gmNotes.includes('vampire'), 'GM notes keep the GM lines');
+  assert.ok(d.gmNotes.includes('(aside)'));
 });
 
 let draftId = '';
 test('SessionLog: with a model, a summary and a date proposal; revising makes a version', async () => {
   modelOn = true;
-  const d = await ok('POST', `${SL()}/drafts`, T.dm, { audioSessionId: 'as1', title: 'The road to Saltmarsh' });
+  const d = await ok('POST', `${SL()}/drafts`, T.gm, { audioSessionId: 'as1', title: 'The road to Saltmarsh' });
   draftId = d.id;
   assert.equal(d.usedModel, true);
   assert.ok(d.markdown.includes('met the council'));
   assert.equal(d.proposal.minutes, 4320);
   assert.equal(d.proposal.travel.to, 'Saltmarsh');
   assert.equal(d.dateStatus, 'pending');
-  const rev = await ok('POST', `${SL()}/drafts/${draftId}/revise`, T.dm, { instruction: 'Make it shorter' });
+  const rev = await ok('POST', `${SL()}/drafts/${draftId}/revise`, T.gm, { instruction: 'Make it shorter' });
   assert.equal(rev.version, 2);
   assert.ok(rev.markdown.includes('A shorter recap'));
-  const put = await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: '## Recap\nHand edit.\n' });
+  const put = await ok('PUT', `${SL()}/drafts/${draftId}`, T.gm, { markdown: '## Recap\nHand edit.\n' });
   assert.equal(put.version, 3);
   assert.equal(put.versions.length, 3);
-  const back = await ok('POST', `${SL()}/drafts/${draftId}/restore`, T.dm, { version: 1 });
+  const back = await ok('POST', `${SL()}/drafts/${draftId}/restore`, T.gm, { version: 1 });
   assert.equal(back.version, 4);
   assert.ok(back.markdown.includes('met the council'));
   modelOn = false;
-  const r = await call('POST', `${SL()}/drafts/${draftId}/revise`, T.dm, { instruction: 'x' });
+  const r = await call('POST', `${SL()}/drafts/${draftId}/revise`, T.gm, { instruction: 'x' });
   assert.equal(r.status, 503);
 });
 
 test('SessionLog: nothing moves until the GM accepts; accepting moves the clock and adds a travel event', async () => {
-  const before = await ok('GET', `/api/worlds/${W}/clock`, T.dm);
-  const d = await ok('GET', `${SL()}/drafts/${draftId}`, T.dm);
-  assert.equal((await ok('GET', `/api/worlds/${W}/clock`, T.dm)).minutes, before.minutes);
-  const out = await ok('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true, minutes: 2880 });
+  const before = await ok('GET', `/api/worlds/${W}/clock`, T.gm);
+  const d = await ok('GET', `${SL()}/drafts/${draftId}`, T.gm);
+  assert.equal((await ok('GET', `/api/worlds/${W}/clock`, T.gm)).minutes, before.minutes);
+  const out = await ok('POST', `${SL()}/drafts/${draftId}/date`, T.gm, { accept: true, minutes: 2880 });
   assert.equal(out.dateStatus, 'accepted');
   assert.equal(out.dateApplied.minutes, 2880);
-  const after = await ok('GET', `/api/worlds/${W}/clock`, T.dm);
+  const after = await ok('GET', `/api/worlds/${W}/clock`, T.gm);
   assert.equal(after.minutes, before.minutes + 2880);
-  const log = await ok('GET', `/api/worlds/${W}/clock/log`, T.dm);
+  const log = await ok('GET', `/api/worlds/${W}/clock/log`, T.gm);
   assert.ok(log.some((e: any) => /Saltmarsh/.test(e.reason)), JSON.stringify(log[0]));
-  const events = await ok('GET', `/api/worlds/${W}/clock/events?from=${before.minutes - 10}&to=${after.minutes + 10}`, T.dm);
+  const events = await ok('GET', `/api/worlds/${W}/clock/events?from=${before.minutes - 10}&to=${after.minutes + 10}`, T.gm);
   const list = Array.isArray(events) ? events : events.events;
   const travel = list.find((e: any) => e.kind === 'travel');
   assert.ok(travel && travel.visibility === 'party');
-  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true })).status, 409);
+  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/date`, T.gm, { accept: true })).status, 409);
   assert.ok(d.id);
 });
 
 test('SessionLog: publish blocks GM-only overlaps; asides never publish, even with force', async () => {
-  await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: `## Recap\nWe learned that ${PAGE_SECRET.toLowerCase()}\n` });
-  const blocked = await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {});
+  await ok('PUT', `${SL()}/drafts/${draftId}`, T.gm, { markdown: `## Recap\nWe learned that ${PAGE_SECRET.toLowerCase()}\n` });
+  const blocked = await call('POST', `${SL()}/drafts/${draftId}/publish`, T.gm, {});
   assert.equal(blocked.status, 409);
   assert.equal(blocked.body.forceAllowed, true);
   assert.ok(blocked.body.overlaps[0].text.toLowerCase().includes('cursed crown'));
-  assert.ok(blocked.body.overlaps[0].source.includes('dm/Crown'));
+  assert.ok(blocked.body.overlaps[0].source.includes('gm/Crown'));
 
-  await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: '## Recap\nThe mayor poisons the wells with nightshade every single winter solstice.\n' });
-  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {})).status, 409, 'secret block');
+  await ok('PUT', `${SL()}/drafts/${draftId}`, T.gm, { markdown: '## Recap\nThe mayor poisons the wells with nightshade every single winter solstice.\n' });
+  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.gm, {})).status, 409, 'secret block');
 
-  await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: `## Recap\nThe baron: ${DM_LINE}.\n` });
-  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {})).status, 409, 'GM line');
+  await ok('PUT', `${SL()}/drafts/${draftId}`, T.gm, { markdown: `## Recap\nThe baron: ${GM_LINE}.\n` });
+  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.gm, {})).status, 409, 'GM line');
 
-  await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: `## Recap\nWe heard ${ASIDE_LINE}.\n` });
-  const a = await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, { force: true });
+  await ok('PUT', `${SL()}/drafts/${draftId}`, T.gm, { markdown: `## Recap\nWe heard ${ASIDE_LINE}.\n` });
+  const a = await call('POST', `${SL()}/drafts/${draftId}/publish`, T.gm, { force: true });
   assert.equal(a.status, 409);
   assert.equal(a.body.forceAllowed, false);
   assert.ok(a.body.overlaps[0].aside);
-  assert.equal((await ok('GET', SL(), T.dm)).length, 0);
+  assert.equal((await ok('GET', SL(), T.gm)).length, 0);
 });
 
 test('SessionLog: players never see drafts or GM notes; a published entry reaches them with a live event', async () => {
@@ -174,8 +174,8 @@ test('SessionLog: players never see drafts or GM notes; a published entry reache
   const pump = (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; streamed += new TextDecoder().decode(value); } } catch { /* aborted */ } })();
   await new Promise((r) => setTimeout(r, 100));
 
-  await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: '## Recap\nThe party reached Saltmarsh and met Captain Aldous.\n' });
-  const pub = await ok('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {});
+  await ok('PUT', `${SL()}/drafts/${draftId}`, T.gm, { markdown: '## Recap\nThe party reached Saltmarsh and met Captain Aldous.\n' });
+  const pub = await ok('POST', `${SL()}/drafts/${draftId}/publish`, T.gm, {});
   assert.equal(pub.number, 1);
   assert.ok(pub.worldFrom && pub.worldTo);
   await new Promise((r) => setTimeout(r, 150));
@@ -187,23 +187,23 @@ test('SessionLog: players never see drafts or GM notes; a published entry reache
   assert.equal(list.length, 1);
   assert.ok(list[0].summary.includes('Captain Aldous'));
   const text = JSON.stringify(list) + JSON.stringify(await ok('GET', `${SL()}/${pub.id}`, T.jess));
-  for (const bad of ['vampire', 'smuggled', 'cursed crown', 'draftId', 'dmNotes']) assert.ok(!text.includes(bad), `leaked ${bad}`);
+  for (const bad of ['vampire', 'smuggled', 'cursed crown', 'draftId', 'gmNotes']) assert.ok(!text.includes(bad), `leaked ${bad}`);
 
   // The calendar shows the session.
   const events = await ok('GET', `/api/worlds/${W}/clock/events?from=0&to=99999999`, T.jess);
   assert.ok((Array.isArray(events) ? events : events.events).some((e: any) => e.kind === 'session'));
 
   // Unpublish hides it from players, and the GM can republish it under the same number.
-  await ok('POST', `${SL()}/${pub.id}/unpublish`, T.dm);
+  await ok('POST', `${SL()}/${pub.id}/unpublish`, T.gm);
   assert.deepEqual(await ok('GET', SL(), T.jess), []);
   assert.equal((await call('GET', `${SL()}/${pub.id}`, T.jess)).status, 404);
-  const again = await ok('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {});
+  const again = await ok('POST', `${SL()}/drafts/${draftId}/publish`, T.gm, {});
   assert.equal(again.number, 1);
   assert.equal((await ok('GET', SL(), T.jess)).length, 1);
 });
 
 test('SessionLog: MCP tools: players read the log, only the GM write key drafts', async () => {
-  const dk = await ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dm ai', access: 'write' });
+  const dk = await ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'gm ai', access: 'write' });
   const pk = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
   const rpc = async (key: string, method: string, params?: unknown) => JSON.stringify((await call('POST', '/mcp', key, { jsonrpc: '2.0', id: 1, method, params })).body);
   assert.ok((await rpc(dk.key, 'tools/list')).includes('draft_session_summary'));
@@ -216,10 +216,10 @@ test('SessionLog: MCP tools: players read the log, only the GM write key drafts'
 
 test('SessionLog: the assistant may only accept a date change a draft actually proposes', async () => {
   deps.db.prepare("UPDATE sessionlog_drafts SET date_status = 'none', proposal = NULL WHERE id = ?").run(draftId);
-  const r = await call('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true, requireProposal: true });
+  const r = await call('POST', `${SL()}/drafts/${draftId}/date`, T.gm, { accept: true, requireProposal: true });
   assert.equal(r.status, 409, JSON.stringify(r.body));
   assert.match(String(r.body?.error), /nothing to accept/);
-  const given = await ok('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true, minutes: 1440, requireProposal: true });
+  const given = await ok('POST', `${SL()}/drafts/${draftId}/date`, T.gm, { accept: true, minutes: 1440, requireProposal: true });
   assert.equal(given.dateStatus, 'accepted', 'a time the GM gave is set');
   const tool = (await import('../src/features/sessionlog/index.ts')).default.mcpTools!.find((t) => t.name === 'decide_session_date')!;
   assert.equal((tool.call({ draftId: 'x', accept: true }) as any).body.requireProposal, true, 'the tool always asks for a real proposal');

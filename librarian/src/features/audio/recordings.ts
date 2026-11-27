@@ -344,7 +344,7 @@ async function buildRecording(d: Deps, sessionId: string): Promise<void> {
     const names = new Set(checked.map((c) => c.name));
     for (const old of before) if (!names.has(old.file)) { try { fs.rmSync(path.join(dir, old.file), { force: true }); } catch { /* gone */ } }
     const stamp = now();
-    const dm = new Map(all<any>(db, 'SELECT a.id, m.role FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r.role]));
+    const gm = new Map(all<any>(db, 'SELECT a.id, m.role FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r.role]));
     db.exec('BEGIN');
     try {
       run(db, 'DELETE FROM audio_tracks WHERE session_id = ?', sessionId);
@@ -360,7 +360,7 @@ async function buildRecording(d: Deps, sessionId: string): Promise<void> {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
 
     writeTranscript(d, sessionRow(db, sessionId)!, dir);
-    writeSessionJson(d, sessionRow(db, sessionId)!, world?.name ?? '', dir, dm);
+    writeSessionJson(d, sessionRow(db, sessionId)!, world?.name ?? '', dir, gm);
     cleanChunks(d, sessionId);
     setProgress(d, sessionId, 100, 'Done');
   } catch (e) {
@@ -387,7 +387,7 @@ export function transcriptMarkdown(d: Deps, s: SessionRow, worldName: string): s
   }
   for (const l of lines) {
     const who = l.speaker_account ? people.get(l.speaker_account) ?? 'Someone' : l.speaker_label;
-    out.push(`- \`${fmtTime(l.start_ms)}\` **${who}**${l.audience === 'dm' ? ' (**GM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`);
+    out.push(`- \`${fmtTime(l.start_ms)}\` **${who}**${l.audience === 'gm' ? ' (**GM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`);
   }
   out.push('');
   return out.join('\n');

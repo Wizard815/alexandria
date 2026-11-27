@@ -7,7 +7,7 @@ Two promises, checked by tests that run with `npm test`:
 2. **Classified information never reaches any AI.** That means model
    requests, MCP answers and anything sent to the model gateway.
 
-The levels (`party`, `broker`, `dm`, `classified`) and the four copies of a
+The levels (`party`, `broker`, `gm`, `classified`) and the four copies of a
 page are described in `librarian/README.md` and `librarian/src/core/levels.ts`.
 This page is about the tests and the last lines of defence.
 
@@ -17,7 +17,7 @@ This page is about the tests and the last lines of defence.
 `security-world.ts` and helpers in `security-kit.ts`.
 
 **One world, a marker at every secret spot.** `seedContent()` gives each
-secret its own random token (for example `ZQX-DMPAGE-7f3a21`, new on every
+secret its own random token (for example `ZQX-GMPAGE-7f3a21`, new on every
 run) and says who may see it. Spots covered include:
 
 - pages at every level, and secret, broker and classified blocks, headings,
@@ -42,7 +42,7 @@ run) and says who may see it. Spots covered include:
 - a second world, whose pages must never show up in the first
 
 Look at `mark(id, seen, where)` calls: `seen` lists who may read it
-(`dm`, `jess`, `tom`, `guest`; `dm2` means nobody here).
+(`gm`, `jess`, `tom`, `guest`; `gm2` means nobody here).
 
 **The crawl.**
 
@@ -71,7 +71,7 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
 
 **Authorization.**
 
-- `PlayersCannotCallDmRoutes`: every POST, PUT, PATCH and DELETE route, called
+- `PlayersCannotCallGmRoutes`: every POST, PUT, PATCH and DELETE route, called
   by a player and a guest with real ids and an empty body, must answer 401,
   403 or 404. A 400 or 409 would mean the handler ran before it checked who
   was calling. The routes a player may call are listed by hand in
@@ -82,7 +82,7 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
   answer 404 or 403. Push keys read nothing. A key made for one world does
   nothing in another; a person in one world gets nothing from another.
 - Library files (`docs/LIBRARY_FILES.md`): a viewer gets a file only when they may see its page and its own level; a classified file is in no model's view; the admin library gives a non-GM admin only the party copy. The bytes live under `libfiles/` (exempt from the on-disk classified check: they are served only through those checks).
-- Gateway status pages (`/api/admin/gwstatus/*`, `librarian/src/features/gatewaystatus`): connection health, the world mirror, files held from sources and the search log. An admin who is not a world's GM gets counts only for that world (no page paths, file names or search words); errors are cleaned of tokens and keyed URLs before they are kept; searches keep a role, the words and counts for 30 days, never a result title. `TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead` reads them as an admin against the `dm_search_query` marker.
+- Gateway status pages (`/api/admin/gwstatus/*`, `librarian/src/features/gatewaystatus`): connection health, the world mirror, files held from sources and the search log. An admin who is not a world's GM gets counts only for that world (no page paths, file names or search words); errors are cleaned of tokens and keyed URLs before they are kept; searches keep a role, the words and counts for 30 days, never a result title. `TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheGmMayRead` reads them as an admin against the `gm_search_query` marker.
 - Media tickets are signed, for one account and one kind of file, expire, and
   are checked again on every use.
 - Revoked and signed-out credentials stop working.
@@ -158,7 +158,7 @@ behind a proxy that checks a key) so a neighbour on your LAN cannot use them eit
 `librarian/test/security-state.test.ts`:
 
 - Classified text lives only in the GM columns of `pages` and the GM search
-  index (`fts_dm`). No other table, no `player_*`, `broker_*` or `ai_*`
+  index (`fts_gm`). No other table, no `player_*`, `broker_*` or `ai_*`
   column, no other search index, and no file outside the GM's `vault/` folder
   holds it.
 - Changing a page's level, or deleting it, takes it out of every copy, every
@@ -168,14 +168,14 @@ behind a proxy that checks a key) so a neighbour on your LAN cannot use them eit
 - A broker-level answer waits for the GM.
 
 Semantic rows (`search_chunks`, `bible_facts`, see `docs/MEMORY.md`) have four
-scopes: `dm` (AI copy), `broker`, `party` and `lifted` (the player copy of a
+scopes: `gm` (AI copy), `broker`, `party` and `lifted` (the player copy of a
 GM-level page that some account may open through its own key, a grant or a
 share). Each viewer reads only their own: players `party` plus the `lifted`
 rows of the pages they may open right now. Unsharing, revoking a key,
 demoting a page at the source, a level change, a source audience change and a
 removal delete the rows they make wrong in the same step
 (`Library.changed`), and every read checks the page again.
-`memory.test.ts` and the markers `bible_dm`, `share_revoked` and
+`memory.test.ts` and the markers `bible_gm`, `share_revoked` and
 `demoted_page` in `security-world.ts` cover this.
 
 ## Adding a feature: how it gets covered
@@ -185,9 +185,9 @@ removal delete the rows they make wrong in the same step
 2. If your feature stores something that not everyone may see, add a marker to
    `seedContent()` in `security-world.ts`:
    ```ts
-   await dm('POST', '/myfeature/things', { title: mark('thing_dm', ['dm'], 'a GM-only thing') });
+   await gm('POST', '/myfeature/things', { title: mark('thing_gm', ['gm'], 'a GM-only thing') });
    ```
-   Use `mark('id', ['dm', 'jess'], ...)` for something one player owns, and
+   Use `mark('id', ['gm', 'jess'], ...)` for something one player owns, and
    `{ ai: false, long: true }` for classified text (a whole sentence). If the
    secret is a number, use `markNum`.
 3. If a path parameter of yours is not an id the crawler knows, add its table

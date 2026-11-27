@@ -12,9 +12,9 @@
 import { Router, type Request } from 'express';
 import type { Feature } from '../types.ts';
 import { all, one, run } from '../../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { HttpError, id, now, secret, sha256 } from '../../core/util.ts';
-import { ctx, isDM, me } from '../../routes/_shared.ts';
+import { ctx, isGM, me } from '../../routes/_shared.ts';
 import type { Deps } from '../../app.ts';
 import { ACTIONS, ActionError, actionById, actionView, canRun, validateArgs, type Role, type Runner } from './catalog.ts';
 import { SCOPES, normCombo, overlap, scopesFor } from './combo.ts';
@@ -102,14 +102,14 @@ const feature: Feature = {
     const W = (res: any): string => ctx(res).world.id;
     const role = (res: any): Role => {
       const v = ctx(res).viewer.role;
-      if (v !== 'dm' && v !== 'player') throw new HttpError(403, 'Guests cannot run actions');
+      if (v !== 'gm' && v !== 'player') throw new HttpError(403, 'Guests cannot run actions');
       return v;
     };
     const runnerFor = (req: Request, res: any): Runner => makeRunner(d, { worldId: W(res), accountId: me(res), role: role(res), token: bearer(req), port: req.socket.localPort ?? 0 });
     const macro = (res: any, ref: string): MacroRow => {
       const m = findMacro(d, W(res), ref);
       // A player never learns that a GM-only macro exists.
-      if (!m || (!isDM(res) && !m.player_run)) throw new HttpError(404, 'Macro not found');
+      if (!m || (!isGM(res) && !m.player_run)) throw new HttpError(404, 'Macro not found');
       return m;
     };
 
@@ -118,7 +118,7 @@ const feature: Feature = {
       const rl = ctx(res).viewer.role;
       res.json({ role: rl, actions: ACTIONS.filter((a) => canRun(a, rl)).map(actionView), serverNow: now() });
     });
-    r.post('/run', requirePlayerOrDM, async (req, res) => {
+    r.post('/run', requirePlayerOrGM, async (req, res) => {
       const a = actionById(String(req.body?.action ?? ''));
       if (!a || !canRun(a, role(res))) throw new HttpError(a ? 403 : 404, a ? 'You may not run that action' : 'Unknown action');
       const t0 = Date.now();
@@ -130,8 +130,8 @@ const feature: Feature = {
     });
 
     // ---- macros ----
-    r.get('/macro-templates', requireDM, (_req, res) => res.json(TEMPLATES));
-    r.post('/macro-templates/:tid/copy', requireDM, (req, res) => {
+    r.get('/macro-templates', requireGM, (_req, res) => res.json(TEMPLATES));
+    r.post('/macro-templates/:tid/copy', requireGM, (req, res) => {
       const t = TEMPLATES.find((x) => x.id === String(req.params.tid));
       if (!t) throw new HttpError(404, 'Template not found');
       let name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim().slice(0, 80) : t.name;
@@ -143,11 +143,11 @@ const feature: Feature = {
       res.status(201).json(macroOut(one<MacroRow>(db, 'SELECT * FROM actions_macros WHERE id = ?', mid)!, true));
     });
     r.get('/macros', (_req, res) => {
-      const dm = isDM(res);
-      res.json(all<MacroRow>(db, 'SELECT * FROM actions_macros WHERE world_id = ? ORDER BY name', W(res)).filter((m) => dm || m.player_run).map((m) => macroOut(m, dm)));
+      const gm = isGM(res);
+      res.json(all<MacroRow>(db, 'SELECT * FROM actions_macros WHERE world_id = ? ORDER BY name', W(res)).filter((m) => gm || m.player_run).map((m) => macroOut(m, gm)));
     });
-    r.get('/macros/:id', (req, res) => res.json(macroOut(macro(res, String(req.params.id)), isDM(res))));
-    r.post('/macros', requireDM, (req, res) => {
+    r.get('/macros/:id', (req, res) => res.json(macroOut(macro(res, String(req.params.id)), isGM(res))));
+    r.post('/macros', requireGM, (req, res) => {
       const m = cleanMacro(req.body);
       if (findMacro(d, W(res), m.name)) throw new HttpError(409, 'A macro with that name already exists');
       if (one<any>(db, 'SELECT COUNT(*) AS n FROM actions_macros WHERE world_id = ?', W(res))!.n >= 200) throw new HttpError(409, 'That is plenty of macros: remove one first');
@@ -156,24 +156,24 @@ const feature: Feature = {
       audit(d, W(res), me(res), 'macro.create', m.name);
       res.status(201).json(macroOut(one<MacroRow>(db, 'SELECT * FROM actions_macros WHERE id = ?', mid)!, true));
     });
-    r.put('/macros/:id', requireDM, (req, res) => {
+    r.put('/macros/:id', requireGM, (req, res) => {
       const cur = macro(res, String(req.params.id));
       const m = cleanMacro({ ...macroOut(cur, true), ...(req.body ?? {}) });
       const clash = findMacro(d, W(res), m.name);
       if (clash && clash.id !== cur.id) throw new HttpError(409, 'A macro with that name already exists');
       run(db, 'UPDATE actions_macros SET name = ?, description = ?, steps = ?, params = ?, player_run = ?, pinned = ?, updated_at = ? WHERE id = ?', m.name, m.description, JSON.stringify(m.steps), JSON.stringify(m.params), m.playerRun ? 1 : 0, m.pinned ? 1 : 0, now(), cur.id);
       // A macro players could run and now cannot takes its players' bindings with it.
-      if (!m.playerRun) run(db, `DELETE FROM actions_bindings WHERE macro_id = ? AND account_id IN (SELECT account_id FROM members WHERE world_id = ? AND role != 'dm')`, cur.id, W(res));
+      if (!m.playerRun) run(db, `DELETE FROM actions_bindings WHERE macro_id = ? AND account_id IN (SELECT account_id FROM members WHERE world_id = ? AND role != 'gm')`, cur.id, W(res));
       audit(d, W(res), me(res), 'macro.update', m.name);
       res.json(macroOut(one<MacroRow>(db, 'SELECT * FROM actions_macros WHERE id = ?', cur.id)!, true));
     });
-    r.delete('/macros/:id', requireDM, (req, res) => {
+    r.delete('/macros/:id', requireGM, (req, res) => {
       const cur = macro(res, String(req.params.id));
       run(db, 'DELETE FROM actions_macros WHERE id = ?', cur.id);
       audit(d, W(res), me(res), 'macro.delete', cur.name);
       res.json({ ok: true });
     });
-    r.post('/macros/:id/run', requirePlayerOrDM, async (req, res) => {
+    r.post('/macros/:id/run', requirePlayerOrGM, async (req, res) => {
       const m = macro(res, String(req.params.id));
       let report: RunReport;
       try { report = await runMacro(runnerFor(req, res), m, req.body?.args, 'app'); } catch (e) { throw failure(e); }
@@ -186,12 +186,12 @@ const feature: Feature = {
       const scope = typeof req.query.scope === 'string' && req.query.scope ? req.query.scope : 'all';
       if (scope !== 'all' && !(SCOPES as readonly string[]).includes(scope)) throw new HttpError(400, 'scope must be web, app or both');
       const marks = scopesFor(scope === 'both' ? 'all' : scope);
-      const dm = isDM(res);
+      const gm = isGM(res);
       const rows = all<any>(db, `SELECT b.*, m.name AS macro_name, m.player_run FROM actions_bindings b JOIN actions_macros m ON m.id = b.macro_id WHERE b.world_id = ? AND b.account_id = ? ORDER BY b.combo`, W(res), me(res))
-        .filter((b) => marks.includes(b.scope) && (dm || b.player_run));
+        .filter((b) => marks.includes(b.scope) && (gm || b.player_run));
       res.json({ scope, bindings: rows.map(bindingOut) });
     });
-    r.post('/bindings', requirePlayerOrDM, (req, res) => {
+    r.post('/bindings', requirePlayerOrGM, (req, res) => {
       const combo = normCombo(req.body?.combo);
       const scope = req.body?.scope === undefined ? 'both' : String(req.body.scope);
       if (!(SCOPES as readonly string[]).includes(scope)) throw new HttpError(400, 'scope must be web, app or both');
@@ -203,17 +203,17 @@ const feature: Feature = {
       run(db, 'INSERT INTO actions_bindings (id, world_id, account_id, combo, macro_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', bid, W(res), me(res), combo, m.id, scope, now());
       res.status(201).json(bindingOut({ id: bid, combo, macro_id: m.id, macro_name: m.name, scope }));
     });
-    r.delete('/bindings/:id', requirePlayerOrDM, (req, res) => {
+    r.delete('/bindings/:id', requirePlayerOrGM, (req, res) => {
       if (!run(db, 'DELETE FROM actions_bindings WHERE id = ? AND world_id = ? AND account_id = ?', String(req.params.id), W(res), me(res))) throw new HttpError(404, 'Binding not found');
       res.json({ ok: true });
     });
 
     // ---- trigger URLs (GM) ----
     const triggerOut = (t: any) => ({ id: t.id, macroId: t.macro_id, macroName: t.macro_name, label: t.label, prefix: t.prefix, perMinute: t.per_minute, createdAt: t.created_at, lastUsedAt: t.last_used_at, uses: t.uses, revoked: !!t.revoked });
-    r.get('/triggers', requireDM, (_req, res) => {
+    r.get('/triggers', requireGM, (_req, res) => {
       res.json(all<any>(db, 'SELECT t.*, m.name AS macro_name FROM actions_triggers t JOIN actions_macros m ON m.id = t.macro_id WHERE t.world_id = ? ORDER BY t.created_at DESC', W(res)).map(triggerOut));
     });
-    r.post('/macros/:id/triggers', requireDM, (req, res) => {
+    r.post('/macros/:id/triggers', requireGM, (req, res) => {
       const m = macro(res, String(req.params.id));
       const perMinute = req.body?.perMinute === undefined ? 6 : Number(req.body.perMinute);
       if (!Number.isInteger(perMinute) || perMinute < 1 || perMinute > 60) throw new HttpError(400, 'perMinute must be 1 to 60');
@@ -227,14 +227,14 @@ const feature: Feature = {
       // The only time the token is ever shown.
       res.status(201).json({ ...triggerOut({ id: tid, macro_id: m.id, macro_name: m.name, label, prefix: token.slice(0, 14), per_minute: perMinute, created_at: now(), last_used_at: null, uses: 0, revoked: 0 }), token, url, shownOnce: true });
     });
-    r.delete('/triggers/:id', requireDM, (req, res) => {
+    r.delete('/triggers/:id', requireGM, (req, res) => {
       if (!run(db, 'UPDATE actions_triggers SET revoked = 1 WHERE id = ? AND world_id = ?', String(req.params.id), W(res))) throw new HttpError(404, 'Trigger not found');
       audit(d, W(res), me(res), 'macro.trigger.revoke', String(req.params.id));
       res.json({ ok: true });
     });
 
     // ---- what ran lately (GM) ----
-    r.get('/runs', requireDM, (_req, res) => {
+    r.get('/runs', requireGM, (_req, res) => {
       res.json(all<any>(db, `SELECT a.action, a.detail, a.at, a.account_id AS accountId FROM audit a WHERE a.world_id = ? AND a.action IN ('macro.run', 'macro.trigger', 'action.run') ORDER BY a.at DESC, a.rowid DESC LIMIT 100`, W(res)));
     });
 
@@ -252,7 +252,7 @@ const feature: Feature = {
       const m = one<MacroRow>(d.db, 'SELECT * FROM actions_macros WHERE id = ?', t.macro_id);
       const mem = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', t.world_id, t.created_by);
       // The maker must still be in the world, with rights for this macro.
-      if (!m || !mem || (mem.role !== 'dm' && !(mem.role === 'player' && m.player_run))) return miss();
+      if (!m || !mem || (mem.role !== 'gm' && !(mem.role === 'player' && m.player_run))) return miss();
       // Overrides: ?arg=name=value (repeatable) or a JSON body { args: {...} }. Only the macro's own parameters are accepted.
       let overrides: Record<string, unknown>;
       try {

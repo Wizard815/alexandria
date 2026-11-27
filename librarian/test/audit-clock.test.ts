@@ -35,12 +35,12 @@ test('Audit_Clock: intercalary days have no weekday and do not move the week', (
 
 test('Audit_Clock: set and advance reject years that would leave the safe range of numbers', async () => {
   for (const year of [1e12, 4e15, -4e15, 1e300, 'x', null]) {
-    const r = await k.call('POST', `${C()}/set`, k.T.dm, { year, month: 1, day: 1 });
+    const r = await k.call('POST', `${C()}/set`, k.T.gm, { year, month: 1, day: 1 });
     assert.ok(r.status === 400 || r.status < 300, `year ${String(year)} -> ${r.status} ${r.text.slice(0, 100)}`);
     if (r.status < 300) {
-      const now = await k.ok('GET', C(), k.T.dm);
+      const now = await k.ok('GET', C(), k.T.gm);
       assert.ok(Number.isSafeInteger(now.minutes ?? now.clock?.minutes), `the clock holds ${JSON.stringify(now).slice(0, 200)} after setting year ${year}`);
-      await k.ok('POST', `${C()}/set`, k.T.dm, { year: 1492, month: 1, day: 1 });
+      await k.ok('POST', `${C()}/set`, k.T.gm, { year: 1492, month: 1, day: 1 });
     }
   }
 });

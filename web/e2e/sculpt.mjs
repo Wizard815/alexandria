@@ -31,7 +31,7 @@ try {
     const page = await ctx.newPage();
     page.on('pageerror', (e) => problems.push(`${label} page error: ${e.message}`));
     await page.goto(base + '/login');
-    await page.getByLabel(/username/i).fill('dm');
+    await page.getByLabel(/username/i).fill('gm');
     await page.getByLabel(/password/i).fill('game master 123');
     await page.getByRole('button', { name: /sign in|log in/i }).click();
     await page.waitForURL(/\/w\//, { timeout: 15000 });

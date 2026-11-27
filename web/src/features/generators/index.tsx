@@ -3,7 +3,7 @@ import GeneratorsPage from './GeneratorsPage.tsx';
 
 const feature: WebFeature = {
   id: 'generators',
-  dmRoutes: [{ path: 'generators', element: <GeneratorsPage /> }],
-  dmNav: [{ to: 'generators' }],
+  gmRoutes: [{ path: 'generators', element: <GeneratorsPage /> }],
+  gmNav: [{ to: 'generators' }],
 };
 export default feature;

@@ -18,7 +18,7 @@ const FAST_MS = 1000;
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('assistant'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tok = await login('dm', 'game master 123');
+const tok = await login('gm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tok } })).json())[0].id;
 const api = async (m, p, b) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: b ? JSON.stringify(b) : undefined }); return r.json().catch(() => ({})); };
 const combatant = async (name) => ((await api('GET', '/live/combat')).combatants ?? []).find((c) => c.name === name);
@@ -44,7 +44,7 @@ async function approveTimed(page, label) {
 
 try {
   await api('PATCH', '/settings', { agentAuto: false });
-  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
+  const { ctx, page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1400, height: 900 });
   watch(page, 'desktop');
   await page.goto(`${W}/gm`);
   await page.getByTestId('dock-agent').waitFor({ timeout: 15000 });
@@ -117,10 +117,10 @@ try {
   await card(pop, 'pending').filter({ hasText: 'Always asks first' }).first().waitFor({ timeout: 8000 }).catch(() => problems.push('the pop-out window does not show the waiting card'));
 
   // ---- the GM phone: the same card and the same mode ----
-  const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true, /\/w\/saltreach/);
+  const ph = await signIn(browser, base, 'gm', 'game master 123', { width: 390, height: 844 }, true, /\/w\/saltreach/);
   watch(ph.page, 'phone');
   await ph.page.goto(`${W}/gm/phone`);
-  await ph.page.getByTestId('dmphone').waitFor({ timeout: 10000 });
+  await ph.page.getByTestId('gmphone').waitFor({ timeout: 10000 });
   await ph.page.getByRole('tab', { name: /^Ask/ }).first().click();
   const pc = ph.page.getByRole('group', { name: 'Waiting for your approval' }).first();
   await pc.waitFor({ timeout: 10000 }).catch(() => problems.push('the phone Ask tab does not show the waiting card'));

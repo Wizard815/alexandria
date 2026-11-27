@@ -4,14 +4,14 @@
 // publishing to players, who only ever see published entries.
 import { Router } from 'express';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one, run, tx, type DB } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, id, now, str } from '../../core/util.ts';
-import { ctx, isDM, me } from '../../routes/_shared.ts';
+import { ctx, isGM, me } from '../../routes/_shared.ts';
 import { addEvent, advance, deleteEvent, formatDate, getCalendar, getClock, updateEvent } from '../clock/api.ts';
 import type { Feature } from '../types.ts';
-import { cleanProposal, draftOut, draftSummary, entryOut, gather, dmNotes, resolveRange, reviseSummary, type DateProposal } from './api.ts';
+import { cleanProposal, draftOut, draftSummary, entryOut, gather, gmNotes, resolveRange, reviseSummary, type DateProposal } from './api.ts';
 import { fullLeakCheck } from './leak.ts';
 
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
@@ -29,7 +29,7 @@ const feature: Feature = {
       to_at TEXT NOT NULL,
       world_start_minutes INTEGER NOT NULL DEFAULT 0,
       current_version INTEGER NOT NULL DEFAULT 1,
-      dm_notes TEXT NOT NULL DEFAULT '',
+      gm_notes TEXT NOT NULL DEFAULT '',
       used_model INTEGER NOT NULL DEFAULT 0,
       proposal TEXT,
       date_status TEXT NOT NULL DEFAULT 'none',
@@ -94,25 +94,25 @@ const feature: Feature = {
 
     /** Entries reach players only as published; GMs see all of them. */
     const announce = (worldId: string, action: 'published' | 'unpublished', row: any) => {
-      d.hub.emit(worldId, 'sessionlog', { action, entry: { ...entryOut(row), draftId: row.draft_id } }, dmOnly);
-      if (action === 'published') d.hub.emit(worldId, 'sessionlog', { action, entry: entryOut(row) }, (v) => v.role !== 'dm');
-      else d.hub.emit(worldId, 'sessionlog', { action, entry: { id: row.id } }, (v) => v.role !== 'dm');
+      d.hub.emit(worldId, 'sessionlog', { action, entry: { ...entryOut(row), draftId: row.draft_id } }, gmOnly);
+      if (action === 'published') d.hub.emit(worldId, 'sessionlog', { action, entry: entryOut(row) }, (v) => v.role !== 'gm');
+      else d.hub.emit(worldId, 'sessionlog', { action, entry: { id: row.id } }, (v) => v.role !== 'gm');
     };
 
     r.get('/', (_req, res) => {
       const c = ctx(res);
-      const dm = isDM(res);
-      const rows = all<any>(db, `SELECT * FROM sessionlog_entries WHERE world_id = ? ${dm ? '' : 'AND unpublished_at IS NULL'} ORDER BY number DESC`, c.world.id);
-      res.json(rows.map((x) => (dm ? { ...entryOut(x), draftId: x.draft_id } : entryOut(x))));
+      const gm = isGM(res);
+      const rows = all<any>(db, `SELECT * FROM sessionlog_entries WHERE world_id = ? ${gm ? '' : 'AND unpublished_at IS NULL'} ORDER BY number DESC`, c.world.id);
+      res.json(rows.map((x) => (gm ? { ...entryOut(x), draftId: x.draft_id } : entryOut(x))));
     });
 
     // ---- drafts (GM only) ----
-    r.get('/drafts', requireDM, (_req, res) => {
+    r.get('/drafts', requireGM, (_req, res) => {
       const rows = all<any>(db, 'SELECT * FROM sessionlog_drafts WHERE world_id = ? ORDER BY created_at DESC', ctx(res).world.id);
       res.json(rows.map((x) => { const o = draftOut(db, x); return { id: o.id, title: o.title, version: o.version, dateStatus: o.dateStatus, entryId: o.entryId, usedModel: o.usedModel, createdAt: o.createdAt, updatedAt: o.updatedAt }; }));
     });
 
-    r.post('/drafts', requireDM, async (req, res) => {
+    r.post('/drafts', requireGM, async (req, res) => {
       const c = ctx(res);
       const range = resolveRange(db, c.world.id, req.body ?? {});
       const g = gather(db, c.world.id, range);
@@ -120,8 +120,8 @@ const feature: Feature = {
       const did = id('sld_');
       const title = typeof req.body?.title === 'string' && req.body.title.trim() ? str(req.body.title, 'title', { max: 200 }) : 'Session summary';
       tx(db, () => {
-        run(db, `INSERT INTO sessionlog_drafts (id, world_id, title, audio_session_id, from_at, to_at, world_start_minutes, dm_notes, used_model, proposal, date_status, created_by, created_at, updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, did, c.world.id, title, g.audioSessionIds.length === 1 ? g.audioSessionIds[0] : null, g.from, g.to, g.worldStartMinutes, dmNotes(g), out.usedModel ? 1 : 0,
+        run(db, `INSERT INTO sessionlog_drafts (id, world_id, title, audio_session_id, from_at, to_at, world_start_minutes, gm_notes, used_model, proposal, date_status, created_by, created_at, updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, did, c.world.id, title, g.audioSessionIds.length === 1 ? g.audioSessionIds[0] : null, g.from, g.to, g.worldStartMinutes, gmNotes(g), out.usedModel ? 1 : 0,
           out.proposal ? JSON.stringify(out.proposal) : null, out.proposal ? 'pending' : 'none', me(res), now(), now());
         run(db, 'INSERT INTO sessionlog_versions (id, draft_id, n, markdown, note, created_by, created_at) VALUES (?,?,?,?,?,?,?)', id('slv_'), did, 1, out.markdown, out.usedModel ? 'drafted by the model' : 'drafted from the data (no model)', me(res), now());
       });
@@ -129,9 +129,9 @@ const feature: Feature = {
       res.status(201).json(draftOut(db, draftRow(c.world.id, did), true));
     });
 
-    r.get('/drafts/:id', requireDM, (req, res) => res.json(draftOut(db, draftRow(ctx(res).world.id, String(req.params.id)), true)));
+    r.get('/drafts/:id', requireGM, (req, res) => res.json(draftOut(db, draftRow(ctx(res).world.id, String(req.params.id)), true)));
 
-    r.put('/drafts/:id', requireDM, (req, res) => {
+    r.put('/drafts/:id', requireGM, (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       if (req.body?.title !== undefined) run(db, 'UPDATE sessionlog_drafts SET title = ?, updated_at = ? WHERE id = ?', str(req.body.title, 'title', { max: 200 }), now(), row.id);
@@ -139,13 +139,13 @@ const feature: Feature = {
       res.json(draftOut(db, draftRow(c.world.id, row.id), true));
     });
 
-    r.delete('/drafts/:id', requireDM, (req, res) => {
+    r.delete('/drafts/:id', requireGM, (req, res) => {
       const row = draftRow(ctx(res).world.id, String(req.params.id));
       run(db, 'DELETE FROM sessionlog_drafts WHERE id = ?', row.id);
       res.json({ ok: true });
     });
 
-    r.post('/drafts/:id/revise', requireDM, async (req, res) => {
+    r.post('/drafts/:id/revise', requireGM, async (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       const instruction = str(req.body?.instruction, 'instruction', { max: 2000 });
@@ -155,7 +155,7 @@ const feature: Feature = {
       res.json(draftOut(db, draftRow(c.world.id, row.id), true));
     });
 
-    r.post('/drafts/:id/restore', requireDM, (req, res) => {
+    r.post('/drafts/:id/restore', requireGM, (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       const n = Number(req.body?.version);
@@ -165,7 +165,7 @@ const feature: Feature = {
       res.json(draftOut(db, draftRow(c.world.id, row.id), true));
     });
 
-    r.get('/drafts/:id/versions/:n', requireDM, (req, res) => {
+    r.get('/drafts/:id/versions/:n', requireGM, (req, res) => {
       const row = draftRow(ctx(res).world.id, String(req.params.id));
       const v = one<any>(db, 'SELECT * FROM sessionlog_versions WHERE draft_id = ? AND n = ?', row.id, Number(req.params.n));
       if (!v) throw new HttpError(404, 'Version not found');
@@ -173,7 +173,7 @@ const feature: Feature = {
     });
 
     // Accept (or edit, or decline) the proposed date change. Nothing moves without this.
-    r.post('/drafts/:id/date', requireDM, (req, res) => {
+    r.post('/drafts/:id/date', requireGM, (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       if (row.date_status === 'accepted') throw new HttpError(409, 'The date change was already applied');
@@ -212,14 +212,14 @@ const feature: Feature = {
       res.json(draftOut(db, draftRow(c.world.id, row.id), true));
     });
 
-    r.get('/drafts/:id/leakcheck', requireDM, async (req, res) => {
+    r.get('/drafts/:id/leakcheck', requireGM, async (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       const { overlaps, audited } = await fullLeakCheck(d, c.world.id, draftOut(db, row).markdown);
       res.json({ overlaps, blocked: overlaps.some((o) => o.aside), audited });
     });
 
-    r.post('/drafts/:id/publish', requireDM, async (req, res) => {
+    r.post('/drafts/:id/publish', requireGM, async (req, res) => {
       const c = ctx(res);
       const row = draftRow(c.world.id, String(req.params.id));
       const draft = draftOut(db, row);
@@ -269,7 +269,7 @@ const feature: Feature = {
       res.json({ ...entryOut(out), draftId: row.id, overlaps });
     });
 
-    r.post('/:id/unpublish', requireDM, (req, res) => {
+    r.post('/:id/unpublish', requireGM, (req, res) => {
       const c = ctx(res);
       const e = one<any>(db, 'SELECT * FROM sessionlog_entries WHERE id = ? AND world_id = ?', String(req.params.id), c.world.id);
       if (!e) throw new HttpError(404, 'Entry not found');
@@ -285,15 +285,15 @@ const feature: Feature = {
       const c = ctx(res);
       const e = one<any>(db, 'SELECT * FROM sessionlog_entries WHERE id = ? AND world_id = ?', String(req.params.id), c.world.id);
       // A player gets "not found" for an unpublished entry, the same as for one that does not exist.
-      if (!e || (!isDM(res) && e.unpublished_at !== null)) throw new HttpError(404, 'Entry not found');
-      res.json(isDM(res) ? { ...entryOut(e), draftId: e.draft_id } : entryOut(e));
+      if (!e || (!isGM(res) && e.unpublished_at !== null)) throw new HttpError(404, 'Entry not found');
+      res.json(isGM(res) ? { ...entryOut(e), draftId: e.draft_id } : entryOut(e));
     });
 
     return r;
   },
   mcpTools: [
-    { name: 'list_session_log_drafts', dmOnly: true, description: 'GM: the session log drafts waiting for review (title, version, whether the proposed date change is pending).', props: {}, call: () => ({ method: 'GET', path: '/sessionlog/drafts' }) },
-    { name: 'read_session_log_draft', dmOnly: true, description: 'GM: one draft: its Markdown summary, the proposed date change and the versions.', props: { draftId: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'GET', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}` }) },
+    { name: 'list_session_log_drafts', gmOnly: true, description: 'GM: the session log drafts waiting for review (title, version, whether the proposed date change is pending).', props: {}, call: () => ({ method: 'GET', path: '/sessionlog/drafts' }) },
+    { name: 'read_session_log_draft', gmOnly: true, description: 'GM: one draft: its Markdown summary, the proposed date change and the versions.', props: { draftId: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'GET', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}` }) },
     { name: 'edit_session_log_draft', write: true, description: 'GM: replace the draft text and/or title (kept as a new version).', props: { draftId: { type: 'string' }, markdown: { type: 'string' }, title: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'PUT', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}`, body: { markdown: a.markdown, title: a.title } }) },
     { name: 'decide_session_date', write: true, description: "GM: accept (optionally with other minutes or a reason) or decline the in-world date change a draft proposes. Accept only what the draft proposes (dateStatus pending); with no proposal, say so, unless the GM gave the time (then pass minutes). Accepting moves the world clock.", props: { draftId: { type: 'string' }, accept: { type: 'boolean', description: 'false declines' }, minutes: { type: 'integer', description: 'Override the proposed minutes' }, reason: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'POST', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}/date`, body: { accept: a.accept !== false, minutes: a.minutes, reason: a.reason, requireProposal: true } }) },
     { name: 'publish_session_log', write: true, description: 'GM: publish a draft to the players as the next session log entry. Refused if it repeats GM asides; GM-only overlaps need force.', props: { draftId: { type: 'string' }, force: { type: 'boolean' } }, required: ['draftId'], call: (a) => ({ method: 'POST', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}/publish`, body: { force: a.force === true ? true : undefined } }) },

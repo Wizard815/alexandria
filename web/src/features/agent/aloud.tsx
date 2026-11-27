@@ -93,23 +93,23 @@ interface Spoken { chatId: string; text: string; request?: string; pending?: num
  * collapsed. Clicking the notice opens that chat; `onOpen` lets the panel unfold itself.
  */
 export function SpokenNotice({ onOpen, phone }: { onOpen?: () => void; phone?: boolean }) {
-  const { on, info, isDM } = useWorld();
+  const { on, info, isGM } = useWorld();
   const { client } = useAuth();
   const [shown, setShown] = useState<Spoken | null>(null);
   const world = info?.id ?? '';
 
   useEffect(() => {
-    if (!isDM) return;
+    if (!isGM) return;
     return on(['agent'], (e) => {
       const d: any = e.data;
       if (d?.kind !== 'spoken' || !d.chatId || typeof d.text !== 'string') return;
       // The GM phone covers the screen and shows its own notice; the layout's (behind it) must not take the event first.
-      if (!phone && document.querySelector('[data-testid="dmphone"]')) return;
+      if (!phone && document.querySelector('[data-testid="gmphone"]')) return;
       if (!claimSpoken(`${d.messageId ?? d.chatId}`)) return;
       setShown({ chatId: d.chatId, text: d.text, request: d.request, pending: d.pending });
       if (aloudNow()) void speakAloud(world, client.token, d.text);
     });
-  }, [on, isDM, client, world, phone]);
+  }, [on, isGM, client, world, phone]);
 
   useEffect(() => {
     if (!shown) return;
@@ -119,7 +119,7 @@ export function SpokenNotice({ onOpen, phone }: { onOpen?: () => void; phone?: b
 
   const open = useCallback(() => {
     if (!shown) return;
-    rememberChat(chatKey(world, 'dm'), shown.chatId);
+    rememberChat(chatKey(world, 'gm'), shown.chatId);
     window.dispatchEvent(new CustomEvent(OPEN_CHAT, { detail: { chatId: shown.chatId } }));
     onOpen?.();
     setShown(null);

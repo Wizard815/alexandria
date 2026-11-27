@@ -1,6 +1,6 @@
 // Revelations: every mystery has a conclusion, at least three clues, and for
 // each clue who found it and when (docs/MINERVA.md §4.4). The structured data
-// is in minerva_* tables for querying; the Markdown page under dm/revelations/
+// is in minerva_* tables for querying; the Markdown page under gm/revelations/
 // shows the same as a clue table and is rewritten from the tables. Each
 // player's knowledge.md is rebuilt from their marks, at party level for them.
 import type { Deps } from '../../app.ts';
@@ -62,7 +62,7 @@ function renderPage(d: Deps, worldId: string, m: Mystery): string {
 }
 
 function writeMysteryPage(d: Deps, worldId: string, m: Mystery, by: string | null) {
-  writePage(d, worldId, `dm/revelations/${m.slug}.md`, { title: m.title, fm: { type: 'revelation', level: 'dm', ...(m.arc ? { arc: m.arc } : {}), tags: ['revelation'], sources: [] }, body: renderPage(d, worldId, m), by });
+  writePage(d, worldId, `gm/revelations/${m.slug}.md`, { title: m.title, fm: { type: 'revelation', level: 'gm', ...(m.arc ? { arc: m.arc } : {}), tags: ['revelation'], sources: [] }, body: renderPage(d, worldId, m), by });
 }
 
 export function createMystery(d: Deps, worldId: string, a: { title: string; conclusion: string; clues: string[]; by?: string | null }): Mystery {
@@ -133,4 +133,4 @@ export function rebuildKnowledge(d: Deps, worldId: string, accountId: string, by
   writePage(d, worldId, `players/${accountId}/knowledge.md`, { title: 'Knowledge', fm: { type: 'knowledge', level: 'party', player: accountId, tags: [] }, body: knowledgeBody(d, worldId, accountId), by });
 }
 
-export const mysteryPage = (d: Deps, worldId: string, slugName: string) => readPage(d, worldId, `dm/revelations/${slugName}.md`);
+export const mysteryPage = (d: Deps, worldId: string, slugName: string) => readPage(d, worldId, `gm/revelations/${slugName}.md`);

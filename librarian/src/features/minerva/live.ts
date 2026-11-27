@@ -31,10 +31,10 @@ export const RECENT_LINES = 20;
 export const SUGGEST_PREFIX = 'suggest-';
 
 /** The lines of the session being recorded (or the latest), as the viewer may read them, with classified text left out. */
-export function liveLines(d: Deps, worldId: string, includeDm: boolean, limit = RECENT_LINES): { session: { id: string; name: string; active: boolean } | null; lines: TranscriptLine[] } {
+export function liveLines(d: Deps, worldId: string, includeGm: boolean, limit = RECENT_LINES): { session: { id: string; name: string; active: boolean } | null; lines: TranscriptLine[] } {
   const s = listSessions(d.db, worldId)[0];
   if (!s) return { session: null, lines: [] };
-  const lines = sessionLines(d.db, worldId, s.id, { includeDm }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
+  const lines = sessionLines(d.db, worldId, s.id, { includeGm }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
   return { session: { id: s.id, name: s.name, active: s.active }, lines: lines.slice(-limit) };
 }
 
@@ -138,7 +138,7 @@ export async function suggestionPass(d: Deps, worldId: string, opts: { force?: b
   const same = !!seen && seen.sessionId === s.id;
   const since = same ? seen!.seenAt : '';
   const sinceIds = same ? seen!.seenIds : new Set<string>();
-  const all_ = sessionLines(d.db, worldId, s.id, { includeDm: true }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
+  const all_ = sessionLines(d.db, worldId, s.id, { includeGm: true }).filter((l) => !d.library.containsClassified(worldId, l.text) && !wouldBeRefused(d, l.text));
   const fresh = all_.filter((l) => isFresh(l, since, sinceIds));
   if (!fresh.length) return { ran: false, reason: 'No new lines', lines: 0, drafted: 0 };
   const ago = seen?.lastAt ? (opts.at ?? Date.now()) - Date.parse(seen.lastAt) : Infinity;

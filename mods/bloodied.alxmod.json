@@ -25,7 +25,7 @@
       "half health",
       "how hurt"
     ],
-    "dm": "Bloodied is on: say when a creature drops to half its HP or below and describe how it looks hurt. When players ask how hurt an enemy is, answer with unhurt, hurt, bloodied or nearly dead.",
+    "gm": "Bloodied is on: say when a creature drops to half its HP or below and describe how it looks hurt. When players ask how hurt an enemy is, answer with unhurt, hurt, bloodied or nearly dead.",
     "player": "At this table the GM tells you when an enemy is bloodied (at half its HP or less), so you can see which foe is close to falling."
   }
 }

@@ -22,7 +22,7 @@ export interface WorldInfo {
 
 export const emptyWorld = (): WorldInfo => ({ worldId: '', coins: 'gsc', partyLevel: 3, places: [], factions: [], titles: new Set(), rumours: [] });
 
-const AI: Viewer = { accountId: 'generators-ai', role: 'dm', audience: 'ai' };
+const AI: Viewer = { accountId: 'generators-ai', role: 'gm', audience: 'ai' };
 const PARTY: Viewer = { accountId: 'generators-party', role: 'player' };
 const PLACE_RE = /\b(places?|locations?|cit(y|ies)|towns?|village|settlements?|regions?|districts?|landmarks?|dungeons?|taverns?|inns?|keeps?|castles?|realms?)\b/i;
 const FACTION_RE = /\b(factions?|organi[sz]ations?|guilds?|orders?|houses?|cults?|clans?|compan(y|ies)|brotherhoods?|courts?)\b/i;

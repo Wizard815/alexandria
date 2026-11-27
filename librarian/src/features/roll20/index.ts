@@ -21,10 +21,10 @@ import { fileURLToPath } from 'node:url';
 import { Router, type Express, type Request, type Response } from 'express';
 import { marked } from 'marked';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { combatViewFor } from '../../core/combatView.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { dmAnd, only } from '../../core/events.ts';
+import { gmAnd, only } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, now, parseJson, secret, sha256 } from '../../core/util.ts';
 import { ctx, me, names, settings } from '../../routes/_shared.ts';
@@ -65,7 +65,7 @@ const strList = (v: unknown, max = 40) => (Array.isArray(v) ? v.slice(0, max).ma
 
 /** Sheet and combat screens refresh after a change from Roll20. */
 function changed(d: Deps, worldId: string, aid: string, combat: boolean) {
-  d.hub.emit(worldId, 'sheet', { accountId: aid }, dmAnd(aid));
+  d.hub.emit(worldId, 'sheet', { accountId: aid }, gmAnd(aid));
   if (combat) { const s = settingsOf(d.db, worldId); d.hub.emitPer(worldId, 'combat', (v) => combatViewFor(d.db, worldId, v, s)); }
 }
 
@@ -149,7 +149,7 @@ function applyEvent(d: Deps, worldId: string, owner: string, s: WorldSettings, e
       }
       const label = String(e.label ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
       const roll = rollFrom(rolls, [author ? '' : who, label, 'Roll20'].filter(Boolean).join(' · '));
-      const role = author ? 'player' : 'dm';
+      const role = author ? 'player' : 'gm';
       const row = addMessage(db, worldId, { sessionId: sess.id, channel: 'table', authorId: author ?? owner, role, body: `/roll ${roll.expr} ${roll.note}`.slice(0, 2000), roll });
       firstTime(db, worldId, `msg:${row.id}`);
       for (const m of all<any>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId)) {
@@ -190,7 +190,7 @@ function bridgeOf(db: DB, req: Request) {
   const b = one<any>(db, 'SELECT * FROM roll20_bridges WHERE key_hash = ?', sha256(token));
   if (!b) throw new HttpError(401, 'That Roll20 bridge key is not valid (made a new one?)');
   // The key belongs to a GM; a GM who lost the world loses the bridge.
-  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", b.world_id, b.created_by)) throw new HttpError(403, 'The GM who made this key no longer runs the world');
+  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'gm'", b.world_id, b.created_by)) throw new HttpError(403, 'The GM who made this key no longer runs the world');
   run(db, 'UPDATE roll20_bridges SET last_seen_at = ? WHERE world_id = ?', now(), b.world_id);
   return b;
 }
@@ -207,7 +207,7 @@ function bridgeRoutes(app: Express, d: Deps) {
     // 'mod': the Alexandria Mod script does the work (Roll20 Pro); 'free': the bridge does it alone in the GM's tab.
     const mode = req.body?.mode === 'mod' || req.body?.mode === 'free' ? req.body.mode : null;
     run(db, 'UPDATE roll20_bridges SET mod_version = CASE WHEN ? = \'free\' THEN NULL ELSE COALESCE(?, mod_version) END, campaign = COALESCE(?, campaign), mode = COALESCE(?, mode) WHERE world_id = ?', mode, mod, campaign, mode, b.world_id);
-    d.hub.emit(b.world_id, 'roll20', {}, (v) => v.role === 'dm');
+    d.hub.emit(b.world_id, 'roll20', {}, (v) => v.role === 'gm');
     res.json({ world: w?.name ?? '', modVersion: MOD_VERSION, config: modConfig(settingsOf(db, b.world_id)) });
   });
 
@@ -231,7 +231,7 @@ function bridgeRoutes(app: Express, d: Deps) {
         activity(db, b.world_id, 'in', `Skipped a ${String(e?.t ?? 'bad')} event: ${err?.message ?? err}`);
       }
     }
-    if (lines) d.hub.emit(b.world_id, 'roll20', {}, (v) => v.role === 'dm');
+    if (lines) d.hub.emit(b.world_id, 'roll20', {}, (v) => v.role === 'gm');
     res.json({ acked });
   });
 
@@ -256,7 +256,7 @@ function bridgeRoutes(app: Express, d: Deps) {
     });
     for (const p of out.pushes) activity(db, w, 'out', `${p.name}: ${[p.hp !== undefined ? `HP ${p.hp}${p.maxHp != null ? `/${p.maxHp}` : ''}` : p.maxHp !== undefined ? `max HP ${p.maxHp}` : '', p.markers ? `markers ${p.markers.join(', ') || 'none'}` : ''].filter(Boolean).join(', ') || 'temporary HP'}`);
     for (const x of out.items) activity(db, w, 'out', x.kind === 'handout' ? `Handout "${x.name}"` : `Said: ${String(x.text ?? '').slice(0, 80)}`);
-    if (out.pushes.length || out.items.length) d.hub.emit(w, 'roll20', {}, (v) => v.role === 'dm');
+    if (out.pushes.length || out.items.length) d.hub.emit(w, 'roll20', {}, (v) => v.role === 'gm');
     res.json({ config: modConfig(s), ...out });
   });
 
@@ -267,7 +267,7 @@ function worldRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
   const W = (res: Response) => ctx(res).world.id;
-  r.use(requireDM);
+  r.use(requireGM);
 
   r.get('/', (_req, res) => {
     const w = W(res);
@@ -312,7 +312,7 @@ function worldRoutes(d: Deps) {
     if (aid && !one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'player'", w, aid)) throw new HttpError(400, 'Pick a player of this world');
     run(db, 'UPDATE roll20_links SET account_id = ? WHERE world_id = ? AND r20_id = ?', aid, w, l.r20_id);
     forget(db, w, l.r20_id);
-    d.hub.emit(w, 'roll20', {}, (v) => v.role === 'dm');
+    d.hub.emit(w, 'roll20', {}, (v) => v.role === 'gm');
     res.json({ ok: true });
   });
 
@@ -432,7 +432,7 @@ const feature: Feature = {
   appRoutes: bridgeRoutes,
   mcpTools: [
     {
-      name: 'roll20_status', dmOnly: true,
+      name: 'roll20_status', gmOnly: true,
       description: 'The Roll20 connection: whether the bridge is online, which Roll20 characters are linked to which players, and the latest things that moved between Roll20 and Alexandria.',
       props: {}, call: () => ({ method: 'GET', path: '/roll20' }),
     },

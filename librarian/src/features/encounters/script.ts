@@ -16,7 +16,7 @@ export type Effect =
   /** The player loses coin (a thief, a spill): up to what they have, never below nothing. */
   | { kind: 'lose'; cp: number }
   /** A note only the GM sees (and Minerva's session notes): "kept the stranger's purse". */
-  | { kind: 'dmnote'; text: string };
+  | { kind: 'gmnote'; text: string };
 
 /** An NPC who walks up and talks, or a quick event: something that happens to the player. */
 export const KINDS = ['npc', 'event'] as const;
@@ -103,8 +103,8 @@ function parseEffect(v: any, at: string): Effect {
     }
     case 'shop': return { kind: 'shop', shopId: text(v.shopId, `${at}.shopId`, 60, true) };
     case 'pay': case 'lose': return { kind: v.kind, cp: whole(v.cp, `${at}.cp`, 1, LIMITS.cp, 0) || (() => { throw bad(`${at}.cp is required`); })() };
-    case 'dmnote': return { kind: 'dmnote', text: text(v.text, `${at}.text`, 300) };
-    default: throw bad(`${at}.kind must be gold, item, shop, pay, lose or dmnote`);
+    case 'gmnote': return { kind: 'gmnote', text: text(v.text, `${at}.text`, 300) };
+    default: throw bad(`${at}.kind must be gold, item, shop, pay, lose or gmnote`);
   }
 }
 

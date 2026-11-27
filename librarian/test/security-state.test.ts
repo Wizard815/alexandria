@@ -48,13 +48,13 @@ const asText = (v: unknown): string => (typeof v === 'string' ? v : v instanceof
 
 function tablesOf(): string[] { return all<any>(deps.db, "SELECT name FROM sqlite_master WHERE type = 'table'").map((t) => t.name); }
 
-test('TestSecurityState_ClassifiedTextLivesOnlyInPagesAndTheDmIndex', () => {
+test('TestSecurityState_ClassifiedTextLivesOnlyInPagesAndTheGmIndex', () => {
   const probes = classified().map((m) => ({ m, p: probe(m)! }));
   assert.ok(probes.length >= 10);
   const found: string[] = [];
   for (const t of tablesOf()) {
     // A page's GM columns and the GM search index (and the internals of it) are where it may be.
-    if (t === 'pages' || /^fts_dm/.test(t)) continue;
+    if (t === 'pages' || /^fts_gm/.test(t)) continue;
     let rows: any[];
     try { rows = all<any>(deps.db, `SELECT * FROM "${t}"`); } catch { continue; }
     for (const row of rows) {
@@ -81,7 +81,7 @@ test('TestSecurityState_ClassifiedTextLivesOnlyInPagesAndTheDmIndex', () => {
     }
   }
   // The GM index does have it: the check above can find things.
-  assert.ok(one<any>(deps.db, 'SELECT count(*) AS n FROM fts_dm WHERE fts_dm MATCH ?', `"${probes[0].p}"`)!.n > 0, 'the GM index holds classified pages');
+  assert.ok(one<any>(deps.db, 'SELECT count(*) AS n FROM fts_gm WHERE fts_gm MATCH ?', `"${probes[0].p}"`)!.n > 0, 'the GM index holds classified pages');
   assert.deepEqual(found, []);
 });
 
@@ -109,7 +109,7 @@ test('TestSecurityState_FilesOnDiskFollowTheSameRules', () => {
 
 const W = () => `/api/worlds/${S.W}`;
 const asJess = (u: string) => call('GET', `${W()}${u}`, S.T.jess);
-const level = (id: string, l: string) => call('PUT', `${W()}/library/pages/${id}/level`, S.T.dm, { level: l });
+const level = (id: string, l: string) => call('PUT', `${W()}/library/pages/${id}/level`, S.T.gm, { level: l });
 
 test('TestSecurityState_UnsharingAPageTakesItBackEverywhere', async () => {
   const pg = S.pages.shared;
@@ -122,7 +122,7 @@ test('TestSecurityState_UnsharingAPageTakesItBackEverywhere', async () => {
   assert.ok(fs.existsSync(partyFile) && fs.existsSync(apiFile));
   // The page had been embedded for players: a stale chunk of its player copy must not be served once it is GM-only.
   deps.db.prepare("INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, 'party', 0, ?, ?)").run(S.W, pg.id, `The captains meet ${m}`, new Uint8Array(new Float32Array([0.5, 0.5, 0.5]).buffer));
-  assert.equal((await level(pg.id, 'dm')).status, 200);
+  assert.equal((await level(pg.id, 'gm')).status, 200);
   const sem = await asJess('/library/search?q=captains&semantic=1');
   assert.ok(!sem.text.includes(m), 'a stale player chunk is not served');
   assert.ok(!(await asJess('/search?q=captains+council&kinds=page&semantic=1')).text.includes(m));
@@ -140,31 +140,31 @@ test('TestSecurityState_UnsharingAPageTakesItBackEverywhere', async () => {
 
 test('TestSecurityState_AWithdrawnPageDisappearsFromCardsAndLinks', async () => {
   // A page is shared, used (on the stage, on an item card, in a person), then taken back: nothing keeps showing it.
-  const text = mark('lc_docks', ['dm', 'jess', 'tom'], 'a page that is shared and then withdrawn');
-  const pg = await call('PUT', `${W()}/library/pages`, S.T.dm, { path: 'lifecycle/Docks.md', visibility: 'party', body: `# Docks\nThe docks smell of tar. ${text}\n`, frontmatter: { title: 'Docks' } });
+  const text = mark('lc_docks', ['gm', 'jess', 'tom'], 'a page that is shared and then withdrawn');
+  const pg = await call('PUT', `${W()}/library/pages`, S.T.gm, { path: 'lifecycle/Docks.md', visibility: 'party', body: `# Docks\nThe docks smell of tar. ${text}\n`, frontmatter: { title: 'Docks' } });
   const id = pg.json.id;
-  const item = (await call('POST', `${W()}/inventory`, S.T.dm, { owner: S.ID.jess, name: 'Dock Pass', qty: 1, reason: 'given' })).json;
-  const link = await call('PUT', `${W()}/itemcards/${item.id}/page`, S.T.dm, { pageId: id });
+  const item = (await call('POST', `${W()}/inventory`, S.T.gm, { owner: S.ID.jess, name: 'Dock Pass', qty: 1, reason: 'given' })).json;
+  const link = await call('PUT', `${W()}/itemcards/${item.id}/page`, S.T.gm, { pageId: id });
   assert.ok(link.status < 300, link.text);
-  const card = await call('POST', `${W()}/stage/cards`, S.T.dm, { kind: 'place', ref: id, title: 'The docks', show: true });
+  const card = await call('POST', `${W()}/stage/cards`, S.T.gm, { kind: 'place', ref: id, title: 'The docks', show: true });
   assert.ok(card.status < 300, card.text);
-  const person = await call('POST', `${W()}/people`, S.T.dm, { name: 'Dockhand', visibility: 'party', pageId: id });
+  const person = await call('POST', `${W()}/people`, S.T.gm, { name: 'Dockhand', visibility: 'party', pageId: id });
   assert.ok(person.status < 300, person.text);
   const seen = async () => (await Promise.all([asJess(`/itemcards/${item.id}`), asJess('/stage'), asJess('/people'), asJess(`/library/pages/${id}`), asJess('/library/pages')])).map((r) => r.text).join('\n');
   assert.ok((await seen()).includes(text), 'while shared, players see it');
-  assert.equal((await level(id, 'dm')).status, 200);
+  assert.equal((await level(id, 'gm')).status, 200);
   const after = await seen();
   assert.deepEqual(leaksFor('jess', after).map((m) => m.id), [], 'the withdrawn page is gone from every card');
   assert.ok(!after.includes(text) && !after.includes('The docks smell of tar'));
   // A card made with a page players cannot open is refused outright.
-  const again = await call('POST', `${W()}/stage/cards`, S.T.dm, { kind: 'place', ref: id, title: 'The docks', show: true });
+  const again = await call('POST', `${W()}/stage/cards`, S.T.gm, { kind: 'place', ref: id, title: 'The docks', show: true });
   assert.equal(again.status, 409);
 });
 
-test('TestSecurityState_BrokerLevelAnswersWaitForTheDm', async () => {
+test('TestSecurityState_BrokerLevelAnswersWaitForTheGm', async () => {
   // A broker-level page can be sold, but not before the GM has read the answer.
   const q = 'Who sells fog charts to the harbour council?';
-  await call('PATCH', `${W()}/settings`, S.T.dm, { brokerEnabled: true });
+  await call('PATCH', `${W()}/settings`, S.T.gm, { brokerEnabled: true });
   const quote = await call('POST', `${W()}/broker/quote`, S.T.jess, { question: q, length: 'full' });
   assert.equal(quote.status, 200, quote.text);
   const ask = await call('POST', `${W()}/broker/ask`, S.T.jess, { quoteId: quote.json.quoteId });
@@ -175,24 +175,24 @@ test('TestSecurityState_BrokerLevelAnswersWaitForTheDm', async () => {
   const text = tok('broker_page');
   const mine = async () => (await call('GET', `${W()}/broker`, S.T.jess)).text;
   const gets = [ask.text, await mine(), (await call('GET', `${W()}/broker/${id}`, S.T.jess)).text];
-  const dmView = await call('GET', `${W()}/broker`, S.T.dm);
-  assert.ok(dmView.text.includes(id), 'the GM sees the request');
+  const gmView = await call('GET', `${W()}/broker`, S.T.gm);
+  assert.ok(gmView.text.includes(id), 'the GM sees the request');
   // While it waits, the answer is not in anything the player can read, however long it takes.
   for (const g of gets) assert.ok(!g.includes(text), 'a broker-level answer is held for the GM');
   for (const t of ['jess']) assert.deepEqual(leaksFor(t as any, gets.join('')).map((m) => m.id), []);
 });
 
-test('TestSecurityState_SculptingForPlayersNeverUsesDmPages', async () => {
-  const dm = (m: string, u: string, b?: unknown) => call(m, `${W()}${u}`, S.T.dm, b);
-  const templates = (await dm('GET', '/sculpt/templates')).json.templates;
+test('TestSecurityState_SculptingForPlayersNeverUsesGmPages', async () => {
+  const gm = (m: string, u: string, b?: unknown) => call(m, `${W()}${u}`, S.T.gm, b);
+  const templates = (await gm('GET', '/sculpt/templates')).json.templates;
   const scene = templates.find((t: any) => t.perspective === 'player');
   assert.ok(scene, 'a player-perspective template');
-  for (const location of [S.pages.dm.id, S.pages.shared.id, S.pages.classified.id, 'imp-dm']) {
+  for (const location of [S.pages.gm.id, S.pages.shared.id, S.pages.classified.id, 'imp-gm']) {
     const values: Record<string, string> = { location, description: 'The wind rises over the water.' };
-    const sent = await dm('POST', '/sculpt/send', { templateId: scene.id, values });
-    const ran = await dm('POST', '/sculpt/run', { templateId: scene.id, values });
-    const checked = await dm('POST', '/sculpt/check', { templateId: scene.id, values });
-    for (const r of [sent, ran, checked]) for (const m of leaksFor('jess', r.text)) if (!['dm_page', 'classified_page'].includes(m.id) || r === sent) assert.fail(`${r.status} ${r.text.slice(0, 200)} leaked ${m.id}`);
+    const sent = await gm('POST', '/sculpt/send', { templateId: scene.id, values });
+    const ran = await gm('POST', '/sculpt/run', { templateId: scene.id, values });
+    const checked = await gm('POST', '/sculpt/check', { templateId: scene.id, values });
+    for (const r of [sent, ran, checked]) for (const m of leaksFor('jess', r.text)) if (!['gm_page', 'classified_page'].includes(m.id) || r === sent) assert.fail(`${r.status} ${r.text.slice(0, 200)} leaked ${m.id}`);
     // What the players got in their chat.
     const threads = (await asJess('/messages')).json as any[];
     for (const t of threads) for (const m of leaksFor('jess', JSON.stringify((await asJess(`/messages/${t.id}`)).json))) assert.fail(`a sent scene leaked ${m.id}`);
@@ -200,18 +200,18 @@ test('TestSecurityState_SculptingForPlayersNeverUsesDmPages', async () => {
 });
 
 test('TestSecurityState_ClassifyingAPageRemovesItFromEveryCopyAndIndex', async () => {
-  const pg = S.pages.dm; // a GM page: models may read it
-  const m = tok('dm_page');
-  const asModel = (u: string) => call('GET', `${W()}${u}`, S.T.dm, undefined, { 'X-Alexandria-Caller': 'model' });
+  const pg = S.pages.gm; // a GM page: models may read it
+  const m = tok('gm_page');
+  const asModel = (u: string) => call('GET', `${W()}${u}`, S.T.gm, undefined, { 'X-Alexandria-Caller': 'model' });
   assert.ok((await asModel(`/library/pages/${pg.id}`)).text.includes(m));
   assert.ok((await asModel(`/library/search?q=smuggler`)).text.toLowerCase().includes('smuggler'));
   // Pretend it was embedded: a chunk of its text for the GM scope.
-  deps.db.prepare("INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, 'dm', 0, ?, ?)").run(S.W, pg.id, `chunk ${m}`, new Uint8Array(new Float32Array([0.5, 0.5, 0.5]).buffer));
+  deps.db.prepare("INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, 'gm', 0, ?, ?)").run(S.W, pg.id, `chunk ${m}`, new Uint8Array(new Float32Array([0.5, 0.5, 0.5]).buffer));
   assert.equal((await level(pg.id, 'classified')).status, 200);
   assert.equal((await asModel(`/library/pages/${pg.id}`)).status, 404, 'a model can no longer read it');
   assert.ok(!(await asModel('/library/pages')).text.includes(pg.id));
   assert.ok(!(await asModel(`/library/search?q=smuggler`)).text.includes(m));
-  assert.equal((await call('GET', `${W()}/library/pages/${pg.id}`, S.T.dm)).status, 200, 'the GM still reads it in the app');
+  assert.equal((await call('GET', `${W()}/library/pages/${pg.id}`, S.T.gm)).status, 200, 'the GM still reads it in the app');
   assert.equal(one<any>(deps.db, 'SELECT count(*) AS n FROM search_chunks WHERE page_id = ?', pg.id)!.n, 0, 'its embedded chunks are gone');
   const row = one<any>(deps.db, 'SELECT ai_body, ai_blocks, ai_properties, ai_frontmatter, player_body, broker_body FROM pages WHERE id = ?', pg.id)!;
   assert.deepEqual(Object.values(row), [null, null, null, null, null, null]);
@@ -219,7 +219,7 @@ test('TestSecurityState_ClassifyingAPageRemovesItFromEveryCopyAndIndex', async (
   assert.ok(deps.library.classifiedGrams().size > 0);
   // Back to GM-only: models read it again and the guard forgets it.
   const grams = deps.library.classifiedGrams().size;
-  assert.equal((await level(pg.id, 'dm')).status, 200);
+  assert.equal((await level(pg.id, 'gm')).status, 200);
   assert.ok((await asModel(`/library/pages/${pg.id}`)).text.includes(m));
   assert.ok(deps.library.classifiedGrams().size < grams || grams === 0);
 });
@@ -228,7 +228,7 @@ test('TestSecurityState_DeletingAPageLeavesNothingBehind', async () => {
   const pg = S.pages.classified;
   const slug = one<any>(deps.db, 'SELECT slug FROM worlds WHERE id = ?', S.W)!.slug;
   const before = deps.library.classifiedGrams().size;
-  assert.equal((await call('DELETE', `${W()}/library/pages/${pg.id}`, S.T.dm)).status, 200);
+  assert.equal((await call('DELETE', `${W()}/library/pages/${pg.id}`, S.T.gm)).status, 200);
   assert.equal(one<any>(deps.db, 'SELECT count(*) AS n FROM pages WHERE id = ?', pg.id)!.n, 0);
   for (const sub of ['vault', 'party']) assert.ok(!fs.existsSync(path.join(dataDir, 'worlds', slug, sub, pg.path)));
   assert.ok(!fs.existsSync(path.join(dataDir, 'worlds', slug, '_api', pg.path.replace(/\.md$/, '.json'))));
@@ -244,16 +244,16 @@ test('TestSecurityState_DeletingAPageLeavesNothingBehind', async () => {
   const shared = S.pages.shared;
   const apiFile = path.join(dataDir, 'worlds', slug, '_api', shared.path.replace(/\.md$/, '.json'));
   assert.ok(fs.existsSync(apiFile));
-  assert.equal((await call('DELETE', `${W()}/library/pages/${shared.id}`, S.T.dm)).status, 200);
+  assert.equal((await call('DELETE', `${W()}/library/pages/${shared.id}`, S.T.gm)).status, 200);
   assert.ok(!fs.existsSync(apiFile) && !fs.existsSync(path.join(dataDir, 'worlds', slug, 'party', shared.path)));
 });
 
 test('TestSecurityState_ASceneWithAGuessedOrNoTemplateUsesThePlayerSceneAndStillChecksLeaks', async () => {
-  const dm = (m: string, u: string, b?: unknown) => call(m, `${W()}${u}`, S.T.dm, b);
+  const gm = (m: string, u: string, b?: unknown) => call(m, `${W()}${u}`, S.T.gm, b);
   for (const templateId of ['generic', undefined]) {
-    const ok = await dm('POST', '/sculpt/send', { templateId, values: { location: 'the Lantern Hall', description: 'The doors stand open; the room is empty.' } });
+    const ok = await gm('POST', '/sculpt/send', { templateId, values: { location: 'the Lantern Hall', description: 'The doors stand open; the room is empty.' } });
     assert.ok(ok.status < 300, `${templateId}: ${ok.status} ${ok.text.slice(0, 200)}`);
-    const leak = await dm('POST', '/sculpt/send', { templateId, values: { location: S.pages.dm.id, description: 'The wind rises.' } });
+    const leak = await gm('POST', '/sculpt/send', { templateId, values: { location: S.pages.gm.id, description: 'The wind rises.' } });
     for (const m of leaksFor('jess', leak.text)) assert.fail(`${templateId}: the reply leaked ${m.id}`);
   }
   const threads = (await asJess('/messages')).json as any[];

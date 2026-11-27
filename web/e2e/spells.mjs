@@ -17,9 +17,9 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('spells'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'game master 123');
+const gmLogin = await login('gm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + gmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
   const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => null);
@@ -29,8 +29,8 @@ const api = async (token, method, p, body) => {
 const jessId = jessLogin.account.id;
 
 // Jess starts as a level 3 wizard with INT 12 who knows Fire Bolt and Burning Hands.
-await api(dmLogin.token, 'POST', `/spells/characters/${jessId}/known`, { spellId: 'srd:fire-bolt' });
-await api(dmLogin.token, 'POST', `/spells/characters/${jessId}/known`, { spellId: 'srd:burning-hands' });
+await api(gmLogin.token, 'POST', `/spells/characters/${jessId}/known`, { spellId: 'srd:fire-bolt' });
+await api(gmLogin.token, 'POST', `/spells/characters/${jessId}/known`, { spellId: 'srd:burning-hands' });
 await api(jessLogin.token, 'PUT', '/spells/characters/me', { class: 'Wizard', level: 3, abilities: { int: 12 }, castingAbility: 'int' });
 
 const browser = await chromium.launch();
@@ -53,21 +53,21 @@ const closeQuick = async (page) => { const c = page.locator('.modal[role=dialog]
 
 try {
   // 1. The GM turns on mana and spell crafting in World settings.
-  const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 } });
-  await dm.goto(`${W}/gm/settings`);
-  await dm.getByRole('tab', { name: 'Spells & mana' }).click();
-  await dm.getByRole('switch', { name: 'Use mana' }).click();
-  await dm.getByRole('switch', { name: 'Learn spells by combining known ones' }).click();
-  await dm.getByRole('switch', { name: 'Learn spells by combining known ones' }).and(dm.locator('[aria-checked=true]')).waitFor({ timeout: 5000 });
-  const s = await api(dmLogin.token, 'GET', '/settings');
+  const { page: gm } = await signIn('gm', 'game master 123', { viewport: { width: 1366, height: 900 } });
+  await gm.goto(`${W}/gm/settings`);
+  await gm.getByRole('tab', { name: 'Spells & mana' }).click();
+  await gm.getByRole('switch', { name: 'Use mana' }).click();
+  await gm.getByRole('switch', { name: 'Learn spells by combining known ones' }).click();
+  await gm.getByRole('switch', { name: 'Learn spells by combining known ones' }).and(gm.locator('[aria-checked=true]')).waitFor({ timeout: 5000 });
+  const s = await api(gmLogin.token, 'GET', '/settings');
   check(s.spellMana === true && s.spellCrafting === true, `mana and crafting are on (${s.spellMana}, ${s.spellCrafting})`);
   note('settings: mana and crafting on');
 
   // 2. The GM makes the recipe in the editor.
-  await dm.goto(`${W}/gm/codex`);
-  await dm.getByRole('tab', { name: 'Recipes' }).click();
-  await dm.getByRole('button', { name: 'New recipe' }).click();
-  const ed = dm.getByRole('dialog', { name: 'New recipe' });
+  await gm.goto(`${W}/gm/codex`);
+  await gm.getByRole('tab', { name: 'Recipes' }).click();
+  await gm.getByRole('button', { name: 'New recipe' }).click();
+  const ed = gm.getByRole('dialog', { name: 'New recipe' });
   await ed.getByLabel('Spell learned', { exact: true }).fill('Scorching Ray');
   await ed.getByLabel('Prerequisite 1', { exact: true }).fill('Fire Bolt');
   await ed.getByLabel('Prerequisite 2', { exact: true }).fill('Burning Hands');
@@ -75,10 +75,10 @@ try {
   await ed.getByLabel('GM notes (never shown to players)').fill('ZQX-E2E-RECIPENOTE the volcano teaches it');
   await ed.getByRole('button', { name: 'Save recipe' }).click();
   await ed.waitFor({ state: 'detached', timeout: 5000 });
-  const card = dm.getByTestId('recipe-Scorching Ray');
+  const card = gm.getByTestId('recipe-Scorching Ray');
   await card.waitFor({ timeout: 5000 });
   check(/Fire Bolt/.test(await card.innerText()) && /Burning Hands/.test(await card.innerText()) && /INT 13\+/.test(await card.innerText()), 'the recipe card shows its prerequisites and INT 13');
-  check(await dm.getByRole('heading', { name: 'Tier 1' }).isVisible(), 'the recipe sits in tier 1');
+  check(await gm.getByRole('heading', { name: 'Tier 1' }).isVisible(), 'the recipe sits in tier 1');
   note('recipe: Fire Bolt + Burning Hands -> Scorching Ray, INT 13');
 
   // 3. The player on a phone: locked, and why.
@@ -109,11 +109,11 @@ try {
   note('player: ready, asked to learn');
 
   // 5. The GM approves.
-  await dm.getByRole('tab', { name: /^Requests/ }).click();
-  const req = dm.getByRole('button', { name: 'Approve' }).first();
+  await gm.getByRole('tab', { name: /^Requests/ }).click();
+  const req = gm.getByRole('button', { name: 'Approve' }).first();
   await req.waitFor({ timeout: 8000 });
   await req.click();
-  await dm.getByText(/approved/).first().waitFor({ timeout: 8000 });
+  await gm.getByText(/approved/).first().waitFor({ timeout: 8000 });
   note('GM: approved');
 
   // 6. The player knows it (live), sees the mana pool and casts it.

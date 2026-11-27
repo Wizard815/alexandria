@@ -40,7 +40,7 @@
       "start": 0
     },
     {
-      "id": "dm",
+      "id": "gm",
       "label": "GM reroll",
       "icon": "fa-dragon",
       "max": "$cap",
@@ -51,7 +51,7 @@
     {
       "id": "grant",
       "label": "Grant",
-      "by": "dm",
+      "by": "gm",
       "resource": "*",
       "add": 1,
       "askReason": true
@@ -59,7 +59,7 @@
     {
       "id": "take",
       "label": "Take back",
-      "by": "dm",
+      "by": "gm",
       "resource": "*",
       "add": -1
     },
@@ -90,14 +90,14 @@
       }
     },
     {
-      "id": "use-dm",
+      "id": "use-gm",
       "label": "Make the GM reroll",
       "by": "owner",
-      "resource": "dm",
+      "resource": "gm",
       "add": -1,
       "effect": {
         "reroll": {
-          "whose": "dm",
+          "whose": "gm",
           "keepBetter": "$keepBetter"
         }
       }
@@ -106,7 +106,7 @@
   "commands": [
     {
       "word": "reroll",
-      "args": ["personal", "everyone", "dm"],
+      "args": ["personal", "everyone", "gm"],
       "action": "use-$1"
     }
   ],
@@ -116,10 +116,10 @@
   },
   "sheet": {
     "title": "Rerolls",
-    "resources": ["personal", "everyone", "dm"]
+    "resources": ["personal", "everyone", "gm"]
   },
-  "dmBand": {
-    "chips": ["personal", "everyone", "dm"],
+  "gmBand": {
+    "chips": ["personal", "everyone", "gm"],
     "actions": ["grant"]
   },
   "table": {
@@ -129,7 +129,7 @@
   "rules": [
     {
       "term": "Inspiration (house rule)",
-      "text": "Inspiration comes as rerolls, given by the GM to reward roleplay. **Personal reroll**: reroll one of your own rolls. **Everyone reroll**: reroll any player's roll, yours or an ally's. **GM reroll**: make the GM reroll one of their rolls. The new roll stands unless the GM turned on \"keep the better\". In session chat, press Reroll on a roll or type `/reroll personal`, `/reroll everyone` or `/reroll dm`."
+      "text": "Inspiration comes as rerolls, given by the GM to reward roleplay. **Personal reroll**: reroll one of your own rolls. **Everyone reroll**: reroll any player's roll, yours or an ally's. **GM reroll**: make the GM reroll one of their rolls. The new roll stands unless the GM turned on \"keep the better\". In session chat, press Reroll on a roll or type `/reroll personal`, `/reroll everyone` or `/reroll gm`."
     }
   ]
 }

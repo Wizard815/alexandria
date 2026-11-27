@@ -7,6 +7,7 @@
 // Pure: no database. See docs/MODS.md.
 
 import { parseRange, parseVer } from './semver.ts';
+import { gmJson } from '../../core/gmcompat.ts';
 import { checkSystem, emptySystem, type System } from './system.ts';
 export const KIT_VERSION = 2;
 /** The mod API version this Alexandria offers (code mods, see the Workshop design). */
@@ -18,7 +19,7 @@ export const PERMISSIONS = {
   'chat.buttons': 'Add buttons under chat messages',
   'sheet.card': 'Show a card on the player sheet',
   'sheet.write': 'Change the player sheet',
-  'dmband': 'Show chips on the GM status bar',
+  'gmband': 'Show chips on the GM status bar',
   'table': 'Add a block to the GM Table',
   'clock.read': 'Run on rests and sessions',
   'clock.write': 'Move the world clock',
@@ -44,9 +45,9 @@ export type Num = number | string;
 export type Flag = boolean | string;
 
 export interface Resource { id: string; label: string; icon: string; max: Num | null; start: Num; private: boolean }
-export type Who = 'dm' | 'owner' | 'player' | 'any';
-export type Whose = 'own' | 'anyPlayer' | 'dm';
-export interface Effect { reroll?: { whose: Whose; keepBetter: Flag }; chat?: string; dmnote?: string }
+export type Who = 'gm' | 'owner' | 'player' | 'any';
+export type Whose = 'own' | 'anyPlayer' | 'gm';
+export interface Effect { reroll?: { whose: Whose; keepBetter: Flag }; chat?: string; gmnote?: string }
 export interface Action {
   id: string; label: string; by: Who;
   /** A resource id, or '*' when the caller names one (a Grant that gives any type). */
@@ -77,7 +78,7 @@ export interface ModFile {
   triggers: Trigger[];
   commands: Command[];
   sheet: { title: string; resources: string[] } | null;
-  dmBand: { chips: string[]; actions: string[] } | null;
+  gmBand: { chips: string[]; actions: string[] } | null;
   table: { title: string; actions: string[] } | null;
   rules: Rule[];
   /** World settings to set while the mod is on (values may be "$option"); restored when it goes off. */
@@ -97,14 +98,14 @@ export interface ModFile {
    *  player helper (each sees only its own), and other tools to offer with it (a feature's, such as the Codex's). */
   assistant: Assistant | null;
 }
-export interface Assistant { words: string[]; dm: string; player: string; tools: string[] }
+export interface Assistant { words: string[]; gm: string; player: string; tools: string[] }
 
 export interface Checked { mod: ModFile | null; errors: string[] }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ICON = /^fa-[a-z0-9-]{1,40}$/;
-const WHO: readonly Who[] = ['dm', 'owner', 'player', 'any'];
-const WHOSE: readonly Whose[] = ['own', 'anyPlayer', 'dm'];
+const WHO: readonly Who[] = ['gm', 'owner', 'player', 'any'];
+const WHOSE: readonly Whose[] = ['own', 'anyPlayer', 'gm'];
 const WHEN: readonly When[] = ['longRest', 'shortRest', 'sessionStart', 'sessionEnd'];
 
 /**
@@ -118,7 +119,7 @@ export function checkMod(raw: unknown): Checked {
   let o: any = raw;
   if (typeof raw === 'string') {
     if (raw.length > MAX_JSON) return { mod: null, errors: [`The file is larger than ${MAX_JSON / 1000} KB`] };
-    try { o = JSON.parse(raw); } catch (e: any) { return { mod: null, errors: [`The file is not valid JSON: ${e.message}`] }; }
+    try { o = gmJson(JSON.parse(raw)); } catch (e: any) { return { mod: null, errors: [`The file is not valid JSON: ${e.message}`] }; }
   } else {
     try { if (JSON.stringify(raw ?? null).length > MAX_JSON) return { mod: null, errors: [`The file is larger than ${MAX_JSON / 1000} KB`] }; } catch { return { mod: null, errors: ['The file is not valid JSON'] }; }
   }
@@ -151,7 +152,7 @@ export function checkMod(raw: unknown): Checked {
     author: text(o.author, 'author', 60),
     summary: text(o.summary, 'summary', 300),
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
-    options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
+    options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, gmBand: null, table: null, rules: [], presets: {},
     requires: { settings: [], mods: {} },
     alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null,
   };
@@ -220,7 +221,7 @@ export function checkMod(raw: unknown): Checked {
     const aid = slug(a.id, `${at}.id`);
     if (aid && actIds.has(aid)) err(`${at}.id "${aid}" is used twice`);
     actIds.add(aid);
-    const by = WHO.includes(a.by) ? a.by as Who : (err(`${at}.by must be one of ${WHO.join(', ')}`), 'dm' as Who);
+    const by = WHO.includes(a.by) ? a.by as Who : (err(`${at}.by must be one of ${WHO.join(', ')}`), 'gm' as Who);
     const resource = typeof a.resource === 'string' ? a.resource : '';
     if (resource !== '*' && !hasRes(resource)) err(`${at} uses resource "${resource || '(none)'}", which this mod does not define`);
     const action: Action = { id: aid, label: text(a.label, `${at}.label`, 40, true), by, resource, add: num(a.add, `${at}.add`, -999, 999, 0), askReason: a.askReason === true };
@@ -234,8 +235,8 @@ export function checkMod(raw: unknown): Checked {
           eff.reroll = { whose, keepBetter: flag(e.reroll?.keepBetter, `${eat}.reroll.keepBetter`) };
         }
         if (e.chat !== undefined) eff.chat = text(e.chat, `${eat}.chat`, 300);
-        if (e.dmnote !== undefined) eff.dmnote = text(e.dmnote, `${eat}.dmnote`, 300);
-        for (const k of Object.keys(e)) if (!['reroll', 'chat', 'dmnote'].includes(k)) err(`${eat}.${k} is not an effect (use reroll, chat or dmnote)`);
+        if (e.gmnote !== undefined) eff.gmnote = text(e.gmnote, `${eat}.gmnote`, 300);
+        for (const k of Object.keys(e)) if (!['reroll', 'chat', 'gmnote'].includes(k)) err(`${eat}.${k} is not an effect (use reroll, chat or gmnote)`);
         action.effect = eff;
       }
     }
@@ -278,7 +279,7 @@ export function checkMod(raw: unknown): Checked {
   const resList = (v: unknown, at: string) => list(v, at, MAX.resources).filter((x: any) => { if (!hasRes(x)) { err(`${at}: "${x}" is not a resource of this mod`); return false; } return true; });
   const actList = (v: unknown, at: string) => list(v, at, MAX.actions).filter((x: any) => { if (!hasAct(x)) { err(`${at}: "${x}" is not an action of this mod`); return false; } return true; });
   if (o.sheet) mod.sheet = { title: text(o.sheet.title, 'sheet.title', 40) || mod.name, resources: resList(o.sheet.resources ?? [...resIds], 'sheet.resources') };
-  if (o.dmBand) mod.dmBand = { chips: resList(o.dmBand.chips ?? [], 'dmBand.chips'), actions: actList(o.dmBand.actions ?? [], 'dmBand.actions') };
+  if (o.gmBand) mod.gmBand = { chips: resList(o.gmBand.chips ?? [], 'gmBand.chips'), actions: actList(o.gmBand.actions ?? [], 'gmBand.actions') };
   if (o.table) mod.table = { title: text(o.table.title, 'table.title', 40) || mod.name, actions: actList(o.table.actions ?? [], 'table.actions') };
 
   // ---- rules text
@@ -349,12 +350,12 @@ export function checkMod(raw: unknown): Checked {
   // ---- kit 2 assistant: when the rule comes up in a message, and what the assistant should know
   if (o.assistant !== undefined && o.assistant !== null) {
     const a = o.assistant;
-    if (!a || typeof a !== 'object' || Array.isArray(a)) err('assistant must be { words, dm, player, tools }');
+    if (!a || typeof a !== 'object' || Array.isArray(a)) err('assistant must be { words, gm, player, tools }');
     else {
-      for (const k of Object.keys(a)) if (!['words', 'dm', 'player', 'tools'].includes(k)) err(`assistant.${k} is not part of assistant (words, dm, player, tools)`);
+      for (const k of Object.keys(a)) if (!['words', 'gm', 'player', 'tools'].includes(k)) err(`assistant.${k} is not part of assistant (words, gm, player, tools)`);
       const words = list(a.words, 'assistant.words', 24).filter((w: unknown, i: number) => typeof w === 'string' && w.trim().length >= 3 && w.length <= 40 ? true : (err(`assistant.words[${i}] must be a word or short phrase (3 to 40 letters)`), false)).map((w: string) => w.trim().toLowerCase());
       const tools = list(a.tools, 'assistant.tools', 12).filter((t: unknown, i: number) => typeof t === 'string' && /^[a-z][a-z0-9_]{1,60}$/.test(t) ? true : (err(`assistant.tools[${i}] must be a tool name like codex_search`), false));
-      mod.assistant = { words: [...new Set(words)] as string[], dm: text(a.dm, 'assistant.dm', 1200), player: text(a.player, 'assistant.player', 1200), tools: [...new Set(tools)] as string[] };
+      mod.assistant = { words: [...new Set(words)] as string[], gm: text(a.gm, 'assistant.gm', 1200), player: text(a.player, 'assistant.player', 1200), tools: [...new Set(tools)] as string[] };
     }
   }
 
@@ -366,7 +367,7 @@ export function checkMod(raw: unknown): Checked {
     for (const ra of mod.system.recordActions) if (taken.has(ra.id)) err(`recordActions: "${ra.id}" is also the id of an action; give it another`);
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
+  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'gmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
   if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
@@ -396,7 +397,7 @@ export function impliedPermissions(mod: ModFile): Permission[] {
   if (mod.actions.some((a) => a.effect?.chat || a.effect?.reroll)) p.add('chat.post');
   if (mod.actions.some((a) => a.effect?.reroll)) p.add('chat.buttons');
   if (mod.sheet) p.add('sheet.card');
-  if (mod.dmBand) p.add('dmband');
+  if (mod.gmBand) p.add('gmband');
   if (mod.table) p.add('table');
   if (mod.triggers.length) p.add('clock.read');
   if (Object.keys(mod.presets).length) p.add('settings.write');
@@ -482,7 +483,7 @@ export function unpack(raw: unknown): Unpacked {
   let o: any = raw;
   if (typeof raw === 'string') {
     if (raw.length > MAX_PACKAGE_JSON) return { mods: [], info: null, errors: [`The file is larger than ${MAX_PACKAGE_JSON / 1000} KB`] };
-    try { o = JSON.parse(raw); } catch (e: any) { return { mods: [], info: null, errors: [`The file is not valid JSON: ${e.message}`] }; }
+    try { o = gmJson(JSON.parse(raw)); } catch (e: any) { return { mods: [], info: null, errors: [`The file is not valid JSON: ${e.message}`] }; }
   }
   const isPackage = o && typeof o === 'object' && !Array.isArray(o) && (o.type === PACKAGE_TYPE || Array.isArray(o.mods));
   if (!isPackage) {

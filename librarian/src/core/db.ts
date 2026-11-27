@@ -1,6 +1,7 @@
 // SQLite storage for the librarian. Uses Node's built-in node:sqlite, so
 // there is no native module to build. One database holds every world.
 import { DatabaseSync } from 'node:sqlite';
+import { migrateDmToGm } from './gmcompat.ts';
 import { ensureSearchIndex } from './pagesearch.ts';
 
 export type DB = DatabaseSync;
@@ -58,7 +59,7 @@ CREATE TABLE IF NOT EXISTS worlds (
 CREATE TABLE IF NOT EXISTS members (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('dm', 'player', 'guest')),
+  role TEXT NOT NULL CHECK (role IN ('gm', 'player', 'guest')),
   character_name TEXT,
   PRIMARY KEY (world_id, account_id)
 );
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS sources (
   kind TEXT NOT NULL,
   name TEXT NOT NULL,
   config TEXT NOT NULL DEFAULT '{}',
-  default_visibility TEXT NOT NULL DEFAULT 'dm',
+  default_visibility TEXT NOT NULL DEFAULT 'gm',
   last_sync_at TEXT,
   last_status TEXT,
   schedule_minutes INTEGER,
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS pages (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   path TEXT NOT NULL,
   title TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'dm',
+  visibility TEXT NOT NULL DEFAULT 'gm',
   frontmatter TEXT NOT NULL DEFAULT '{}',
   player_frontmatter TEXT,
   body TEXT NOT NULL DEFAULT '',
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS pages (
   updated_by TEXT,
   UNIQUE (world_id, path)
 );
--- Search indexes (fts_dm, fts_party, page_names) are created, versioned and rebuilt by core/pagesearch.ts (ensureSearchIndex, called from migrate()).
+-- Search indexes (fts_gm, fts_party, page_names) are created, versioned and rebuilt by core/pagesearch.ts (ensureSearchIndex, called from migrate()).
 
 CREATE TABLE IF NOT EXISTS relations (
   id TEXT PRIMARY KEY,
@@ -123,7 +124,7 @@ CREATE TABLE IF NOT EXISTS relations (
   from_title TEXT NOT NULL,
   to_title TEXT NOT NULL,
   kind TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'dm',
+  visibility TEXT NOT NULL DEFAULT 'gm',
   page_id TEXT REFERENCES pages(id) ON DELETE CASCADE
 );
 
@@ -135,7 +136,7 @@ CREATE TABLE IF NOT EXISTS requests (
   page_id TEXT REFERENCES pages(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
-  visibility TEXT NOT NULL CHECK (visibility IN ('dm', 'party')),
+  visibility TEXT NOT NULL CHECK (visibility IN ('gm', 'party')),
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'accepted', 'rejected')),
   reply TEXT,
   created_at TEXT NOT NULL,
@@ -255,7 +256,7 @@ CREATE TABLE IF NOT EXISTS items (
   qty INTEGER NOT NULL DEFAULT 1,
   weight REAL,
   note TEXT NOT NULL DEFAULT '',
-  dm_note TEXT NOT NULL DEFAULT '',
+  gm_note TEXT NOT NULL DEFAULT '',
   link TEXT,
   updated_at TEXT NOT NULL,
   updated_by TEXT NOT NULL
@@ -287,8 +288,8 @@ CREATE TABLE IF NOT EXISTS map_marks (
   author_id TEXT NOT NULL REFERENCES accounts(id),
   kind TEXT NOT NULL CHECK (kind IN ('pin', 'note', 'route', 'stop', 'icon')),
   data TEXT NOT NULL,
-  visibility TEXT NOT NULL CHECK (visibility IN ('party', 'me', 'dm')),
-  hidden_by_dm INTEGER NOT NULL DEFAULT 0,
+  visibility TEXT NOT NULL CHECK (visibility IN ('party', 'me', 'gm')),
+  hidden_by_gm INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -299,7 +300,7 @@ CREATE TABLE IF NOT EXISTS profile_blocks (
   section TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
-  visibility TEXT NOT NULL CHECK (visibility IN ('me', 'dm', 'party')),
+  visibility TEXT NOT NULL CHECK (visibility IN ('me', 'gm', 'party')),
   sort INTEGER NOT NULL DEFAULT 0
 );
 
@@ -393,7 +394,7 @@ CREATE TABLE IF NOT EXISTS broker_requests (
   ready_at_game INTEGER,
   answer TEXT,
   sources TEXT NOT NULL DEFAULT '[]',
-  dm_note TEXT,
+  gm_note TEXT,
   created_at TEXT NOT NULL,
   delivered_at TEXT
 );
@@ -512,6 +513,7 @@ export function tuneDb(db: DB, memory = false) {
 export function openDb(file: string): DB {
   const db = new DatabaseSync(file);
   tuneDb(db, file === ':memory:');
+  migrateDmToGm(db);
   db.exec(SCHEMA);
   migrate(db);
   return db;
@@ -529,7 +531,7 @@ function migrate(db: DB) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec(`BEGIN;
       CREATE TABLE sources_new (id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, kind TEXT NOT NULL, name TEXT NOT NULL,
-        config TEXT NOT NULL DEFAULT '{}', default_visibility TEXT NOT NULL DEFAULT 'dm', last_sync_at TEXT, last_status TEXT, schedule_minutes INTEGER, enabled INTEGER NOT NULL DEFAULT 1);
+        config TEXT NOT NULL DEFAULT '{}', default_visibility TEXT NOT NULL DEFAULT 'gm', last_sync_at TEXT, last_status TEXT, schedule_minutes INTEGER, enabled INTEGER NOT NULL DEFAULT 1);
       INSERT INTO sources_new (id, world_id, kind, name, config, default_visibility, last_sync_at, last_status) SELECT id, world_id, kind, name, config, default_visibility, last_sync_at, last_status FROM sources;
       DROP TABLE sources;
       ALTER TABLE sources_new RENAME TO sources;
@@ -537,7 +539,7 @@ function migrate(db: DB) {
     db.exec('PRAGMA foreign_keys = ON');
   }
 
-  // Sources: the connection they use (features/connections) and who their pages are for (auto, dm or party).
+  // Sources: the connection they use (features/connections) and who their pages are for (auto, gm or party).
   const sc = cols('sources');
   if (!sc.includes('connection_id')) db.exec('ALTER TABLE sources ADD COLUMN connection_id TEXT');
   if (!sc.includes('audience')) db.exec("ALTER TABLE sources ADD COLUMN audience TEXT NOT NULL DEFAULT 'auto'");
@@ -599,8 +601,8 @@ function migrate(db: DB) {
       CREATE TABLE broker_requests (id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         question TEXT NOT NULL, length TEXT NOT NULL, tier TEXT NOT NULL, cost_cp INTEGER NOT NULL DEFAULT 0, payer TEXT, ledger_id TEXT,
         status TEXT NOT NULL CHECK (status IN ('pricing', 'offered', 'waiting', 'answered', 'refused', 'refunded', 'declined', 'noted')),
-        wait_clock TEXT, ready_at TEXT, ready_at_game INTEGER, answer TEXT, sources TEXT NOT NULL DEFAULT '[]', dm_note TEXT, created_at TEXT NOT NULL, delivered_at TEXT, classification TEXT);
-      INSERT INTO broker_requests SELECT id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, dm_note, created_at, delivered_at, classification FROM broker_requests_old;
+        wait_clock TEXT, ready_at TEXT, ready_at_game INTEGER, answer TEXT, sources TEXT NOT NULL DEFAULT '[]', gm_note TEXT, created_at TEXT NOT NULL, delivered_at TEXT, classification TEXT);
+      INSERT INTO broker_requests SELECT id, world_id, account_id, question, length, tier, cost_cp, payer, ledger_id, status, wait_clock, ready_at, ready_at_game, answer, sources, gm_note, created_at, delivered_at, classification FROM broker_requests_old;
       DROP TABLE broker_requests_old;
       COMMIT;`);
     db.exec('PRAGMA foreign_keys = ON');

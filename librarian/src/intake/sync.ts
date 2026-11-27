@@ -114,7 +114,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
   const runId = id('run_');
   const lines: string[] = [];
   const log = (m: string) => { lines.push(`${new Date().toISOString().slice(11, 19)} ${m}`); if (lines.length > 500) lines.splice(0, lines.length - 500); };
-  const stats = { pages: 0, shared: 0, dmOnly: 0, removed: 0, skipped: 0, records: 0, indexCalls: 0, detailCalls: 0, indexed: 0, kept: 0 };
+  const stats = { pages: 0, shared: 0, gmOnly: 0, removed: 0, skipped: 0, records: 0, indexCalls: 0, detailCalls: 0, indexed: 0, kept: 0 };
   const records: SyncRecord[] = [];
   const ctl = new AbortController();
   running.set(sourceId, ctl);
@@ -171,7 +171,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
         if (out.how === 'saved') {
           stats.pages++;
           if (e.depth === 'index') stats.indexed++;
-          if (e.visibility === 'party') stats.shared++; else stats.dmOnly++;
+          if (e.visibility === 'party') stats.shared++; else stats.gmOnly++;
         } else { stats.pages++; stats.kept++; }
       } catch (err: any) {
         stats.skipped++;
@@ -208,7 +208,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
     if (!ts || ts.complete) pruneOrphanImages(d.db, src.world_id, src.id);
     stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers + saved.images;
     if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers, ${saved.images} pictures`);
-    log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} GM-only), removed ${stats.removed}`);
+    log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.gmOnly} GM-only), removed ${stats.removed}`);
     if (tier) {
       const dc = depthCounts(d.db, sourceId);
       log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}${counter.detail ? ` · ${counter.detail} picture downloads` : ''}`);

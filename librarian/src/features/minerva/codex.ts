@@ -142,7 +142,7 @@ export function codexUpsert(d: Deps, worldId: string, a: UpsertArgs): UpsertResu
   }
   const head = lib ? `Library: [[${lib.title}]]\n\n` : '';
   const body = `# ${title}\n\n${head}${['Appearances', 'What changed', 'Ties to players', 'Secrets'].filter((s) => s !== section).map((s) => `## ${s}\n`).join('\n')}\n`;
-  const lvl = ['party', 'broker', 'dm', 'classified'].includes(String(a.level)) ? String(a.level) : kind === 'pc' ? 'party' : 'dm';
+  const lvl = ['party', 'broker', 'gm', 'classified'].includes(String(a.level)) ? String(a.level) : kind === 'pc' ? 'party' : 'gm';
   const line = lineFor(lvl);
   const withSection = appendToSection(body, section, line);
   writePage(d, worldId, rel, {
@@ -172,8 +172,8 @@ export function namesIn(text: string): string[] {
 export function promotionCandidates(d: Deps, worldId: string): Candidate[] {
   const sessions = listPages(d, worldId, 'chronicle/arcs/').filter((p) => p.fm.type === 'session');
   const status = readPage(d, worldId, STATUS_PATH);
-  const hooks = listPages(d, worldId, 'dm/hooks/').filter((p) => String(p.fm.heat ?? 'ongoing') !== 'sleeping');
-  const revs = listPages(d, worldId, 'dm/revelations/');
+  const hooks = listPages(d, worldId, 'gm/hooks/').filter((p) => String(p.fm.heat ?? 'ongoing') !== 'sleeping');
+  const revs = listPages(d, worldId, 'gm/revelations/');
   const bonds = listPages(d, worldId, 'players/').filter((p) => p.rel.endsWith('/bonds.md'));
   const names = new Map<string, string>();
   const add = (n: string) => { const k = norm(n); if (k.length >= 3 && !names.has(k)) names.set(k, n.trim()); };
@@ -227,22 +227,22 @@ export function promotionDraft(d: Deps, worldId: string, name: string, kind?: st
   const title = (lib?.title ?? name).slice(0, 120);
   const m = mentionsOf(d, worldId, name);
   const body = `# ${title}\n\n${lib ? `Library: [[${lib.title}]]\n\n` : ''}## Appearances\n${m.join('\n')}\n\n## What changed\n\n## Ties to players\n\n## Secrets\n`;
-  return { rel: `${CODEX_DIR[k]}/${fileName(title)}.md`, title, fm: { type: 'codex', kind: k, level: 'dm', ...(lib ? { entity: lib.id } : {}), aliases: lib && norm(lib.title) !== norm(name) ? [name] : [], tags: [], sources: [] }, body };
+  return { rel: `${CODEX_DIR[k]}/${fileName(title)}.md`, title, fm: { type: 'codex', kind: k, level: 'gm', ...(lib ? { entity: lib.id } : {}), aliases: lib && norm(lib.title) !== norm(name) ? [name] : [], tags: [], sources: [] }, body };
 }
 
 /** Where a codex_upsert would write and who could read it: the level of the page (or of the one it would make) and whether the text lands in the players' copy. */
 export function upsertTarget(d: Deps, worldId: string, a: { entity?: string; name?: string; kind?: string; section?: string; visible?: boolean; level?: string }): { level: string; visible: boolean; exists: boolean } {
   const name = String(a.name ?? '').trim();
   const entityArg = String(a.entity ?? '').trim();
-  let level = 'dm';
+  let level = 'gm';
   let exists = false;
   try {
     const page = name || entityArg ? findCodex(d, worldId, { entity: entityArg || undefined, name: name || entityArg }, codexPages(d, worldId)) : null;
     if (page) { level = vaultLevel(page.fm); exists = true; }
     else {
       const pcs = players(d, worldId).some((p) => norm(p.character) === norm(name));
-      level = ['party', 'broker', 'dm', 'classified'].includes(String(a.level)) ? String(a.level) : pcs || String(a.kind) === 'pc' ? 'party' : 'dm';
+      level = ['party', 'broker', 'gm', 'classified'].includes(String(a.level)) ? String(a.level) : pcs || String(a.kind) === 'pc' ? 'party' : 'gm';
     }
-  } catch { /* unknown: dm */ }
+  } catch { /* unknown: gm */ }
   return { level, exists, visible: level === 'party' && a.visible === true && sectionName(String(a.section ?? 'notes')) !== 'Secrets' };
 }

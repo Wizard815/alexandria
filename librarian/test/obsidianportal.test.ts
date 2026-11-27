@@ -8,7 +8,7 @@ import { runSync } from '../src/intake/sync.ts';
 import { oauthHeader, opShared } from '../src/intake/connectors/obsidianportal.ts';
 
 const player = { accountId: 'p', role: 'player' as const };
-const dm = { accountId: 'a', role: 'dm' as const };
+const gm = { accountId: 'a', role: 'gm' as const };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const KEYS = { consumerKey: 'ck_123', consumerSecret: 'cs_456', accessToken: 'at_789', accessSecret: 'as_000' };
 
@@ -78,12 +78,12 @@ test('TestObsidianPortal_SyncKeepsGmOnlyPagesAndGmInfoFromPlayers', async () => 
   assert.equal(out.status, 'ok', out.error);
   assert.equal(badSig, 0, 'every request is signed correctly');
   assert.ok(seen.every((u) => u.startsWith('https://api.obsidianportal.com/v1/') || u.endsWith('mira.png')), 'only the API host (and the portrait)');
-  assert.deepEqual(lib.list('w', dm).map((p: any) => p.title).sort(), ['Mira', 'Port Town', 'Session 1', 'The plot', 'Vorn']);
+  assert.deepEqual(lib.list('w', gm).map((p: any) => p.title).sort(), ['Mira', 'Port Town', 'Session 1', 'The plot', 'Vorn']);
   assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Mira', 'Port Town', 'Session 1'], 'GM-only pages and private characters stay GM-only');
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pl = JSON.stringify(lib.get('w', town.id, player));
   assert.ok(pl.includes('busy harbour') && !pl.includes('SMUGGLERS'), 'GM info is a secret');
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('SMUGGLERS'));
+  assert.ok(JSON.stringify(lib.get('w', town.id, gm)).includes('SMUGGLERS'));
   assert.ok(pl.includes('op:c1'), 'the link to Mira points at her page here');
   const mira = lib.list('w', player).find((p: any) => p.title === 'Mira') as any;
   const mj = JSON.stringify(lib.get('w', mira.id, player));

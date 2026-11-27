@@ -3,7 +3,7 @@
 //
 // Rows are cut from one copy of a page and carry that copy's scope:
 //
-//   dm       the AI copy (everything but classified): the GM and every model
+//   gm       the AI copy (everything but classified): the GM and every model
 //   broker   the broker copy (party + broker content): the information broker
 //   party    the player copy of a party-level page: every player and guest
 //   lifted   the player copy of a page that is NOT party-level but that some
@@ -20,19 +20,19 @@ import type { Library } from '../../core/library.ts';
 import { audienceOf, type Viewer } from '../../core/policy.ts';
 import type { Scope } from '../../core/pagesearch.ts';
 
-export type VecScope = 'dm' | 'broker' | 'party' | 'lifted';
-export const VEC_SCOPES: readonly VecScope[] = ['dm', 'broker', 'party', 'lifted'];
+export type VecScope = 'gm' | 'broker' | 'party' | 'lifted';
+export const VEC_SCOPES: readonly VecScope[] = ['gm', 'broker', 'party', 'lifted'];
 
 /** Pages-table condition (alias p) under which a page has this scope's copy. `lifted` also needs the live per-account check. */
 export const SCOPE_GUARD: Record<VecScope, string> = {
-  dm: `p.ai_body IS NOT NULL AND p.visibility <> 'classified'`,
+  gm: `p.ai_body IS NOT NULL AND p.visibility <> 'classified'`,
   broker: `p.broker_body IS NOT NULL AND p.visibility IN ('party', 'broker')`,
   party: `p.player_body IS NOT NULL AND p.visibility = 'party'`,
-  lifted: `p.visibility = 'dm'`,
+  lifted: `p.visibility = 'gm'`,
 };
 /** The pages columns the copy is cut from. */
 export const SCOPE_COLS: Record<Exclude<VecScope, 'lifted'>, { body: string; props: string }> = {
-  dm: { body: 'p.ai_body', props: 'p.ai_properties' },
+  gm: { body: 'p.ai_body', props: 'p.ai_properties' },
   broker: { body: 'p.broker_body', props: 'p.broker_properties' },
   party: { body: 'p.player_body', props: 'p.player_properties' },
 };
@@ -46,12 +46,12 @@ export interface Reach {
 }
 
 /** What a library search scope reads (callers that have no viewer, only a scope: they never get lifted pages). */
-export const reachOfScope = (scope: Scope): Reach => ({ base: scope === 'party' ? 'party' : scope === 'broker' ? 'broker' : 'dm', lifted: new Set(), accountId: '' });
+export const reachOfScope = (scope: Scope): Reach => ({ base: scope === 'party' ? 'party' : scope === 'broker' ? 'broker' : 'gm', lifted: new Set(), accountId: '' });
 
 /** The scopes a viewer reads, right now. Players add the pages their own key, a GM grant or a share lifts. */
 export function reachOf(d: { library: Library }, worldId: string, v: Viewer): Reach {
   const aud = audienceOf(v);
-  if (aud === 'dm' || aud === 'ai') return { base: 'dm', lifted: new Set(), accountId: v.accountId };
+  if (aud === 'gm' || aud === 'ai') return { base: 'gm', lifted: new Set(), accountId: v.accountId };
   if (aud === 'broker') return { base: 'broker', lifted: new Set(), accountId: v.accountId };
   // Guests and players read the party scope; only a player with an account may also read lifted pages.
   const lifted = v.role === 'player' && v.accountId ? d.library.liftedPages(worldId, v.accountId) : new Set<string>();
@@ -116,7 +116,7 @@ export function reconcile(lib: Library, worldId: string, ids?: string[]) {
       try {
         // Gone pages.
         run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? ${only} AND x.page_id NOT IN (SELECT p.id FROM pages p WHERE p.world_id = ?)`, worldId, ...args, worldId);
-        for (const scope of ['dm', 'broker', 'party'] as const) {
+        for (const scope of ['gm', 'broker', 'party'] as const) {
           // A page without this scope's copy.
           run(db, `DELETE FROM ${store} AS x WHERE x.world_id = ? AND x.scope = ? ${only} AND x.page_id NOT IN (SELECT p.id FROM pages p WHERE ${SCOPE_GUARD[scope]})`, worldId, scope, ...args);
           // Rows cut from an older copy: the state row says which text they were made from; the chunk and fact rows follow their page's state.

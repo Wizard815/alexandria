@@ -154,13 +154,13 @@ export default function adminRoutes(d: Deps) {
     const name = str(req.body?.name, 'name', { max: 80 });
     const slug = str(req.body?.slug, 'slug', { max: 40, optional: true }) || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) throw new HttpError(400, 'Slug must be lowercase letters, numbers and dashes');
-    const dm = str(req.body?.dmAccountId, 'dmAccountId', { max: 60 });
-    if (!one(db, 'SELECT 1 FROM accounts WHERE id = ?', dm)) throw new HttpError(400, 'GM account not found');
+    const gm = str(req.body?.gmAccountId, 'gmAccountId', { max: 60 });
+    if (!one(db, 'SELECT 1 FROM accounts WHERE id = ?', gm)) throw new HttpError(400, 'GM account not found');
     const wid = id('wld_');
     tx(db, () => {
       if (one(db, 'SELECT 1 FROM worlds WHERE slug = ?', slug)) throw new HttpError(409, 'That slug is taken');
       run(db, 'INSERT INTO worlds (id, slug, name, settings, created_at) VALUES (?, ?, ?, ?, ?)', wid, slug, name, JSON.stringify(DEFAULT_SETTINGS), now());
-      run(db, 'INSERT INTO members (world_id, account_id, role) VALUES (?, ?, ?)', wid, dm, 'dm');
+      run(db, 'INSERT INTO members (world_id, account_id, role) VALUES (?, ?, ?)', wid, gm, 'gm');
     });
     audit(db, wid, me(res), 'world.create', name);
     res.status(201).json({ id: wid, slug, name });
@@ -188,7 +188,7 @@ export default function adminRoutes(d: Deps) {
     res.json(all(db, 'SELECT a.id, a.username, a.display_name, m.role, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? ORDER BY m.role, a.username', String(req.params.id)));
   });
   r.put('/worlds/:id/members/:account', (req, res) => {
-    const role = oneOf(req.body?.role, 'role', ['dm', 'player', 'guest'] as const);
+    const role = oneOf(req.body?.role, 'role', ['gm', 'player', 'guest'] as const);
     if (!one(db, 'SELECT 1 FROM worlds WHERE id = ?', String(req.params.id)) || !one(db, 'SELECT 1 FROM accounts WHERE id = ?', String(req.params.account))) throw new HttpError(404, 'World or account not found');
     const character = str(req.body?.characterName, 'characterName', { max: 80, optional: true }) || null;
     run(db, `INSERT INTO members (world_id, account_id, role, character_name) VALUES (?, ?, ?, ?)

@@ -21,7 +21,7 @@ export default function SetupFlow() {
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
-  const [dm, setDm] = useState(me?.account.id ?? '');
+  const [gm, setGm] = useState(me?.account.id ?? '');
   const [d, setD] = useState<Draft | null>(null);
   // What is already saved, so a retry never makes a second world or source.
   const [worldId, setWorldId] = useState<string | null>(null);
@@ -35,11 +35,11 @@ export default function SetupFlow() {
 
   const next = () => setStep((s) => Math.min(STEPS.length - 1, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
-  const canNext = step === 0 ? !!name.trim() && !!dm : step === 1 ? !!c && (!c.hasConnection || !!draft.connectionId || !!draft.newName.trim()) : step === 2 ? !!draft.name.trim() : step === 3 ? draft.audience !== 'party' || draft.confirm : true;
+  const canNext = step === 0 ? !!name.trim() && !!gm : step === 1 ? !!c && (!c.hasConnection || !!draft.connectionId || !!draft.newName.trim()) : step === 2 ? !!draft.name.trim() : step === 3 ? draft.audience !== 'party' || draft.confirm : true;
 
   const go = () => a.run(async () => {
     let wid = worldId;
-    if (!wid) { wid = (await client.request<{ id: string }>('POST', '/api/admin/worlds', { name: name.trim(), slug: slug.trim() || undefined, dmAccountId: dm })).id; setWorldId(wid); }
+    if (!wid) { wid = (await client.request<{ id: string }>('POST', '/api/admin/worlds', { name: name.trim(), slug: slug.trim() || undefined, gmAccountId: gm })).id; setWorldId(wid); }
     if (!sourceDone) { await saveDraft(client, wid, draft, c!, (id) => setD({ ...draft, connectionId: id })); setSourceDone(true); }
     if (!c!.push) await client.request('POST', `/api/admin/worlds/${wid}/crawl`, {});
     nav(`/admin/worlds/${wid}`);
@@ -58,7 +58,7 @@ export default function SetupFlow() {
           <div className="stack">
             <Field label="World name"><input value={name} maxLength={80} placeholder="e.g. The Saltmarsh Chronicles" onChange={(e) => setName(e.target.value)} disabled={!!worldId} /></Field>
             <Field label="Short name for links (optional)" help="Lowercase letters, numbers and dashes. Left empty, it is made from the name."><input className="mono" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!!worldId} /></Field>
-            <Field label="Game Master"><select value={dm} onChange={(e) => setDm(e.target.value)} disabled={!!worldId}>{accounts.data.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select></Field>
+            <Field label="Game Master"><select value={gm} onChange={(e) => setGm(e.target.value)} disabled={!!worldId}>{accounts.data.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select></Field>
           </div>
         )}
         {step === 1 && <div className="stack"><SourceFields d={draft} set={setD} connectors={connectors.data} connections={connections.data} parts={['kind', 'connection']} /></div>}

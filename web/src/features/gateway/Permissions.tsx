@@ -8,13 +8,13 @@ import { ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
 import { Callout, Pill, Section, Tile, type Tone } from '../../pages/admin/kit.tsx';
 
-interface Guard { levels: Record<'party' | 'broker' | 'dm' | 'classified', number>; blanketKeys: number; perUserKeys: number; events: { id: number; at: string; world: string | null; kind: string; what: string }[] }
+interface Guard { levels: Record<'party' | 'broker' | 'gm' | 'classified', number>; blanketKeys: number; perUserKeys: number; events: { id: number; at: string; world: string | null; kind: string; what: string }[] }
 
-const LEVEL_ROWS: { id: keyof Guard['levels']; label: string; players: [string, Tone]; broker: [string, Tone]; dm: [string, Tone]; ai: [string, Tone] }[] = [
-  { id: 'party', label: 'Party', players: ['Yes', 'ok'], broker: ['Yes', 'ok'], dm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
-  { id: 'broker', label: 'Broker', players: ['Only once the GM approves a deal', 'warn'], broker: ['Yes', 'ok'], dm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
-  { id: 'dm', label: 'GM', players: ['Never', 'bad'], broker: ['Never', 'bad'], dm: ['Yes', 'ok'], ai: ['GM agent only', 'warn'] },
-  { id: 'classified', label: 'Classified', players: ['Never', 'bad'], broker: ['Never', 'bad'], dm: ['Yes', 'ok'], ai: ['Never: refused before sending', 'bad'] },
+const LEVEL_ROWS: { id: keyof Guard['levels']; label: string; players: [string, Tone]; broker: [string, Tone]; gm: [string, Tone]; ai: [string, Tone] }[] = [
+  { id: 'party', label: 'Party', players: ['Yes', 'ok'], broker: ['Yes', 'ok'], gm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
+  { id: 'broker', label: 'Broker', players: ['Only once the GM approves a deal', 'warn'], broker: ['Yes', 'ok'], gm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
+  { id: 'gm', label: 'GM', players: ['Never', 'bad'], broker: ['Never', 'bad'], gm: ['Yes', 'ok'], ai: ['GM agent only', 'warn'] },
+  { id: 'classified', label: 'Classified', players: ['Never', 'bad'], broker: ['Never', 'bad'], gm: ['Yes', 'ok'], ai: ['Never: refused before sending', 'bad'] },
 ];
 
 export default function Permissions() {
@@ -38,7 +38,7 @@ export default function Permissions() {
               <tbody>{LEVEL_ROWS.map((r) => (
                 <tr key={r.id}>
                   <td><strong>{r.label}</strong></td><td className="num">{d.levels[r.id].toLocaleString()}</td>
-                  {[r.players, r.broker, r.dm, r.ai].map(([t, tone], i) => <td key={i}><Pill tone={tone}>{t}</Pill></td>)}
+                  {[r.players, r.broker, r.gm, r.ai].map(([t, tone], i) => <td key={i}><Pill tone={tone}>{t}</Pill></td>)}
                 </tr>
               ))}</tbody>
             </table></div></div>

@@ -37,7 +37,7 @@
   "recordActions": [
     { "id": "start", "label": "Start", "by": "owner", "record": "task", "do": "create", "ask": ["activity"], "copy": { "via": "activity", "fields": { "goal": "days" } }, "effect": { "chat": "{name} starts {activity.name}." } },
     { "id": "work", "label": "Keep working", "by": "owner", "record": "task", "do": "set", "where": { "status": "open" } },
-    { "id": "adjust", "label": "Add or take days", "by": "dm", "record": "task", "do": "add", "field": "done", "amount": "ask" },
+    { "id": "adjust", "label": "Add or take days", "by": "gm", "record": "task", "do": "add", "field": "done", "amount": "ask" },
     { "id": "drop", "label": "Drop", "by": "any", "record": "task", "do": "remove", "where": { "status": "open" } },
     { "id": "new-activity", "label": "New activity", "by": "any", "record": "activity", "do": "create", "ask": ["name", "tier", "days", "reward"] }
   ],
@@ -50,8 +50,8 @@
       "choices": [{ "label": "Keep working", "action": "work" }, { "label": "Start something", "action": "start" }, { "label": "Skip the day", "skip": true }] }
   ],
   "views": [
-    { "id": "tasks", "title": "Downtime", "record": "task", "place": "dm", "columns": ["activity", "done", "goal", "status"], "actions": ["adjust", "drop"], "groupByPlayer": true },
-    { "id": "activities", "title": "Activities", "record": "activity", "place": "dm", "columns": ["name", "tier", "days", "reward"] },
+    { "id": "tasks", "title": "Downtime", "record": "task", "place": "gm", "columns": ["activity", "done", "goal", "status"], "actions": ["adjust", "drop"], "groupByPlayer": true },
+    { "id": "activities", "title": "Activities", "record": "activity", "place": "gm", "columns": ["name", "tier", "days", "reward"] },
     { "id": "mine", "title": "My downtime", "record": "task", "place": "sheet", "columns": ["activity", "done", "goal"], "where": { "status": "open" }, "actions": ["drop"] }
   ],
   "rules": [{ "term": "Downtime (house rule)", "text": "When a day passes between adventures the GM calls a downtime day. Keep working on a task, start a new activity, or skip. Each activity takes days by its tier; when the days are in, you get its reward." }],
@@ -63,6 +63,6 @@
       "free day"
     ],
     "player": "Help the player choose downtime: suggest two or three activities that fit what they want (gold, contacts, training) and the days they have, from shortest to longest, and say the reward. Start one with the start action when they pick. Keep working moves their open task one day.",
-    "dm": "When a day passes between adventures, open the Downtime day prompt; each player keeps working, starts an activity or skips. Use adjust to add or take days (a lost day is a negative amount) and say why in the note."
+    "gm": "When a day passes between adventures, open the Downtime day prompt; each player keeps working, starts an activity or skips. Use adjust to add or take days (a lost day is a negative amount) and say why in the note."
   }
 }

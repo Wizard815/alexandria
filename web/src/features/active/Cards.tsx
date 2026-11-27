@@ -63,7 +63,7 @@ export default function ActiveOverlay() {
   const { info } = useWorld();
   const loc = useLocation();
   const th = useThoughtPrefs();
-  if (info?.role !== 'dm' || /\/gm\/phone\/?$/.test(loc.pathname)) return null;
+  if (info?.role !== 'gm' || /\/gm\/phone\/?$/.test(loc.pathname)) return null;
   // With Minerva's thoughts open, the cards and what she did are in that window: not twice on screen.
   return <><ThoughtsIsland />{!th.open && <><ConfirmCards /><UndoToasts /></>}</>;
 }

@@ -21,7 +21,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('workspace'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const browser = await chromium.launch();
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1366, height: 768 });
+  const { ctx, page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1366, height: 768 });
   let eventStreams = 0;
   page.on('request', (r) => { if (/\/api\/worlds\/[^/]+\/events/.test(r.url())) eventStreams++; });
   page.on('pageerror', (e) => problems.push(`page error on ${page.url()}: ${e.message}`));
@@ -115,7 +115,7 @@ try {
   const nav = page.getByRole('navigation', { name: 'GM' });
   await pane(1).click({ position: { x: 20, y: 60 } });
   // The rail turns the strip of tabs to an area; the panes stay as they are.
-  const strip = page.getByTestId('dm-tabs');
+  const strip = page.getByTestId('gm-tabs');
   const area = async (g) => { await nav.locator(`a[data-group=${g}]`).click(); await sleep(200); };
   await area('run');
   await strip.getByRole('link', { name: /^Scenes/ }).click();
@@ -266,7 +266,7 @@ try {
   await ctx.close();
 
   // ---- a phone stays single-pane ----
-  const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
+  const ph = await signIn(browser, base, 'gm', 'game master 123', { width: 390, height: 844 }, true);
   ph.page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`phone console: ${m.text()}`); });
   await ph.page.goto(`${W}/ws?l=cols&p=combat,sound`);
   await ph.page.getByTestId('ws-pane-0').waitFor();

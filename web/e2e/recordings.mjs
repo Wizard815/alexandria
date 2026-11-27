@@ -44,11 +44,11 @@ const data = path.join(tmpDir('rec'), 'data');
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', data, '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tokDM = await login('dm', 'game master 123');
+const tokGM = await login('gm', 'game master 123');
 const tokTom = await login('tom', 'player pass 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0].id;
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokGM } })).json())[0].id;
 const api = async (tok, method, p, body) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
-const recs = async () => (await api(tokDM, 'GET', '/audio/recordings')).body.sessions;
+const recs = async () => (await api(tokGM, 'GET', '/audio/recordings')).body.sessions;
 const waitReady = async (name, ms = 60000) => {
   const end = Date.now() + ms;
   for (;;) {
@@ -78,7 +78,7 @@ async function signIn(user, pass, viewport = { width: 1280, height: 900 }) {
 
 try {
   // ---- 1. the GM records a short session with the fake microphone ----
-  const { ctx: dctx, page } = await signIn('dm', 'game master 123');
+  const { ctx: dctx, page } = await signIn('gm', 'game master 123');
   await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('button', { name: /allow the microphone|refresh the list/i }).click();
   const sw = page.getByRole('switch', { name: /^Use /i }).first();
@@ -97,17 +97,17 @@ try {
   check(live.rawChunks === 0, 'the raw chunks were removed after the build');
   const folder = path.join(data, live.folder);
   const files = fs.existsSync(folder) ? fs.readdirSync(folder) : [];
-  check(files.includes('Full session.mp3') && files.includes('Transcript.md') && files.includes('session.json') && files.some((f) => / - dm\.mp3$/.test(f) || /\.mp3$/.test(f) && f !== 'Full session.mp3'), `the folder on disk is readable (${files.join(', ')})`);
+  check(files.includes('Full session.mp3') && files.includes('Transcript.md') && files.includes('session.json') && files.some((f) => / - gm\.mp3$/.test(f) || /\.mp3$/.test(f) && f !== 'Full session.mp3'), `the folder on disk is readable (${files.join(', ')})`);
 
   // ---- 2. the GM's Recordings page ----
   await page.goto(`${base}/w/saltreach/gm/recordings`);
   await page.getByRole('heading', { name: 'Recordings', level: 1 }).waitFor({ timeout: 10000 }).catch(() => {});
   await page.getByText('E2E live session').first().waitFor({ timeout: 10000 });
-  await page.screenshot({ path: path.join(SHOTS, 'dm-list.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-list.png'), fullPage: true });
   // the demo's session, built from its tones
   const s21 = await waitReady('Session 21');
   check(s21.status === 'ready', `Session 21 (demo) was built (${s21.status}${s21.error ? ': ' + s21.error : ''})`);
-  const s21detail = (await api(tokDM, 'GET', `/audio/recordings/${s21.id}`)).body;
+  const s21detail = (await api(tokGM, 'GET', `/audio/recordings/${s21.id}`)).body;
   const detail0 = () => s21detail;
   await page.getByRole('button', { name: /Session 21/ }).click();
   await page.getByRole('heading', { name: /Session 21/ }).waitFor();
@@ -137,7 +137,7 @@ try {
   check((await main.evaluate((a) => a.currentTime)) >= 15, 'a later line seeks later');
   check(await page.getByText('GM only').first().isVisible(), 'GM-only lines are marked for the GM');
   await page.locator('.rec-track.main audio').evaluate((a) => a.pause());
-  await page.screenshot({ path: path.join(SHOTS, 'dm-session.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-session.png'), fullPage: true });
 
   // downloads
   const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 15000 }), page.getByRole('link', { name: 'Download Full session' }).click()]);
@@ -150,12 +150,12 @@ try {
   check(/Remember Velmira/.test(md) && /GM only/.test(md), 'the transcript downloads as Markdown, GM-only lines marked');
   // Download all: one zip with everything
   const [dz] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.getByTestId('rec-download-all').click()]);
-  const dmZip = unzip(fs.readFileSync(await dz.path()));
-  const dmNames = [...dmZip.keys()];
+  const gmZip = unzip(fs.readFileSync(await dz.path()));
+  const gmNames = [...gmZip.keys()];
   check(/Session 21\.zip$/.test(dz.suggestedFilename()), `Download all is one zip named for the session (${dz.suggestedFilename()})`);
-  check(dmNames.includes('Full session.mp3') && dmNames.filter((n) => n.endsWith('.mp3')).length === 4 && dmNames.includes('Transcript.md') && dmNames.includes('session.json'), `the GM's zip has the full session, every mic, Transcript.md and session.json (${dmNames.join(', ')})`);
-  check(/Remember Velmira/.test(dmZip.get('Transcript.md')?.toString() ?? ''), "the GM's zip transcript has the GM-only lines");
-  check(dmZip.get('Full session.mp3').length === detail0().tracks.find((x) => x.kind === 'full').bytes, 'the full session in the zip is the whole file');
+  check(gmNames.includes('Full session.mp3') && gmNames.filter((n) => n.endsWith('.mp3')).length === 4 && gmNames.includes('Transcript.md') && gmNames.includes('session.json'), `the GM's zip has the full session, every mic, Transcript.md and session.json (${gmNames.join(', ')})`);
+  check(/Remember Velmira/.test(gmZip.get('Transcript.md')?.toString() ?? ''), "the GM's zip transcript has the GM-only lines");
+  check(gmZip.get('Full session.mp3').length === detail0().tracks.find((x) => x.kind === 'full').bytes, 'the full session in the zip is the whole file');
   // where the session summary went
   const sumBox = page.getByTestId('rec-summary');
   await sumBox.waitFor({ timeout: 10000 });
@@ -173,7 +173,7 @@ try {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: /Session 21/ }).getByText('Kept forever').waitFor({ timeout: 8000 });
   check(true, 'keep forever shows on the list');
-  await page.screenshot({ path: path.join(SHOTS, 'dm-retention.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-retention.png'), fullPage: true });
 
   // delete now, with a confirm, on the live session
   await page.getByRole('button', { name: /E2E live session/ }).click();
@@ -186,7 +186,7 @@ try {
   await page.getByRole('button', { name: 'Delete audio now' }).click();
   await page.getByRole('button', { name: /E2E live session/ }).getByText('Audio deleted').first().waitFor({ timeout: 8000 });
   check(!fs.existsSync(path.join(folder, 'Full session.mp3')) && fs.existsSync(path.join(folder, 'Transcript.md')), 'the audio files are gone from disk; the transcript stays');
-  await page.screenshot({ path: path.join(SHOTS, 'dm-deleted.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-deleted.png'), fullPage: true });
   await dctx.close();
 
   // ---- 3. a player sees only their own track ----
@@ -215,7 +215,7 @@ try {
   const forged = pz2.zipUrl.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A'));
   check((await fetch(base + forged)).status === 404, 'a tampered zip ticket is refused');
   // the API agrees: the full mix and other mics are 403 for the player
-  const detail = (await api(tokDM, 'GET', `/audio/recordings/${s21.id}`)).body;
+  const detail = (await api(tokGM, 'GET', `/audio/recordings/${s21.id}`)).body;
   const full = detail.tracks.find((x) => x.kind === 'full');
   const head = detail.tracks.find((x) => x.label === 'GM headset');
   const mine = detail.tracks.find((x) => x.label === "Tomas's phone");

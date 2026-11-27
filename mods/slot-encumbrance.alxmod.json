@@ -27,7 +27,7 @@
       "inventory slots",
       "too heavy"
     ],
-    "dm": "Slot inventory is on: a character carries items equal to their Strength score, bulky items take 2 slots, tiny ones none; over the limit means speed -10 feet and disadvantage on Dexterity checks. Use it when the party picks up loot.",
+    "gm": "Slot inventory is on: a character carries items equal to their Strength score, bulky items take 2 slots, tiny ones none; over the limit means speed -10 feet and disadvantage on Dexterity checks. Use it when the party picks up loot.",
     "player": "At this table you carry items equal to your Strength score (bulky ones count as 2), so pick what to bring. Over that you are slowed."
   }
 }

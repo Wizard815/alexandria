@@ -10,7 +10,7 @@
 .enc-line.game, .enc-line.note { color: var(--muted); font-style: italic; }
 .enc-line.gain { color: var(--ok-text); font-weight: 600; }
 .enc-line.loss { color: var(--danger-text); font-weight: 600; }
-.enc-line.dm .enc-who { color: var(--teal); }
+.enc-line.gm .enc-who { color: var(--teal); }
 .enc-say { font-size: 18px; margin: 0; }
 .enc-game { background: var(--bg); }
 .enc-shells { gap: 10px; }

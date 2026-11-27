@@ -7,10 +7,10 @@ import './screens.css';
 
 export default function PanelRoute() {
   const { name = '' } = useParams();
-  const { isDM, info } = useWorld();
+  const { isGM, info } = useWorld();
   const def = panelById(name);
   useEffect(() => { document.title = `${def?.title ?? 'Panel'} · ${info?.name ?? 'Alexandria'}`; }, [def?.title, info?.name]);
-  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">Pop-out panels are for the GM.</p></div></div>;
+  if (!isGM) return <div className="t-fantasy"><div className="page"><p className="muted">Pop-out panels are for the GM.</p></div></div>;
   if (!def) return <div className="t-fantasy"><div className="page"><p className="muted">There is no panel called “{name}”.</p></div></div>;
   return (
     <div className="t-fantasy sc-window" data-testid={`panel-${def.id}`}>

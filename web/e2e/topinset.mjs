@@ -20,7 +20,7 @@ try {
   check(/viewport-fit=cover/.test(html), 'index.html: viewport-fit=cover is missing');
   check(/theme-color" content="#171C26"/.test(html), 'index.html: theme-color should be the top bar colour #171C26');
   for (const [w, h] of [[390, 844], [412, 915]]) {
-    for (const [user, pass, route, bar] of [['jess', 'player pass 123', '/w/saltreach', '.topbar'], ['dm', 'game master 123', '/w/saltreach/gm', '.dmx-top']]) {
+    for (const [user, pass, route, bar] of [['jess', 'player pass 123', '/w/saltreach', '.topbar'], ['gm', 'game master 123', '/w/saltreach/gm', '.dmx-top']]) {
       for (const inset of [0, 36]) {
         const { ctx, page } = await signIn(browser, base, user, pass, { width: w, height: h }, true, /\/w\/saltreach/);
         page.on('pageerror', (e) => problems.push(`${user} page error: ${e.message}`));

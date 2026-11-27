@@ -26,7 +26,7 @@ function saveFile(name: string, data: unknown) {
 
 /** Every rule this world has (systems by group, then table rules), each with its switch, options and export. */
 export function RulesList() {
-  const { isDM, w } = useWorld();
+  const { isGM, w } = useWorld();
   const { rules, list } = useHouseRules();
   const { toastNode, toast } = useToast();
   const act = useAction();
@@ -47,14 +47,14 @@ export function RulesList() {
         <section key={g} className="card stack">
           <h3>{GROUP_LABEL[g] ?? g}</h3>
           <p className="tiny muted">Only one of these is on at a time. With none on, spells use slots as written.</p>
-          {list.filter((r) => r.group === g).map((r) => <RuleCard key={r.id} r={r} all={list} dm={isDM} onDone={done} />)}
+          {list.filter((r) => r.group === g).map((r) => <RuleCard key={r.id} r={r} all={list} gm={isGM} onDone={done} />)}
         </section>
       ))}
       <section className="card stack">
         <h3>Table rules</h3>
-        {loose.map((r) => <RuleCard key={r.id} r={r} all={list} dm={isDM} onDone={done} />)}
+        {loose.map((r) => <RuleCard key={r.id} r={r} all={list} gm={isGM} onDone={done} />)}
       </section>
-      {isDM && on.length > 0 && (
+      {isGM && on.length > 0 && (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button type="button" className="btn small" disabled={act.busy} onClick={() => void exportOn()}>Export the {on.length} rule{on.length > 1 ? 's' : ''} that {on.length > 1 ? 'are' : 'is'} on</button>
           <span className="tiny muted">One package file (.alxmod.json) another GM can add under Make or add one.</span>
@@ -78,11 +78,11 @@ const IDEAS: [string, string][] = [
 
 /** Make a rule with the assistant, or add a file someone shared, plus where whole systems come from. */
 export function MakeHouseRule() {
-  const { isDM } = useWorld();
+  const { isGM } = useWorld();
   const { rules } = useHouseRules();
   const { toastNode, toast } = useToast();
   const [idea, setIdea] = useState('');
-  if (!isDM) return null;
+  if (!isGM) return null;
   const ask = () => askAssistant(`Make a house rule for my table: ${idea.trim()}\nRead house_rule_guide first and look at a close example with house_rule_file. Write it as a house rule file, check it with house_rule_check until it has no errors, tell me what it does from the check's preview, and save it with house_rule_save once I agree.`);
   return (
     <div className="stack">
@@ -114,7 +114,7 @@ export function MakeHouseRule() {
   );
 }
 
-function RuleCard({ r, all, dm, onDone }: { r: HouseRule; all: HouseRule[]; dm: boolean; onDone: (t: string) => void }) {
+function RuleCard({ r, all, gm, onDone }: { r: HouseRule; all: HouseRule[]; gm: boolean; onDone: (t: string) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [open, setOpen] = useState(false);
@@ -150,7 +150,7 @@ function RuleCard({ r, all, dm, onDone }: { r: HouseRule; all: HouseRule[]; dm: 
           <strong>{r.name}</strong>{' '}
           <span className="tiny muted">v{r.version}{r.author ? ` · ${r.author}` : ''}{r.source === 'imported' ? ' · this world’s own' : ''}</span>
         </span>
-        {dm && <Switch checked={r.enabled} label={`${r.name} on`} onChange={(v) => { if (!act.busy && !(v && blocked)) void toggle(v); }} />}
+        {gm && <Switch checked={r.enabled} label={`${r.name} on`} onChange={(v) => { if (!act.busy && !(v && blocked)) void toggle(v); }} />}
       </div>
       <div className="small">{r.summary}</div>
       {(r.targets?.builtFor.length || r.targets?.worksWith.length || Object.keys(r.requires ?? {}).length) ? (
@@ -163,14 +163,14 @@ function RuleCard({ r, all, dm, onDone }: { r: HouseRule; all: HouseRule[]; dm: 
       {blocked && <ul className="tiny muted" style={{ margin: 0, paddingLeft: 16 }} aria-label={`Why ${r.name} cannot be turned on`}>{needs.map((n) => <li key={n}>{n}</li>)}</ul>}
       {r.commands.length > 0 && <div className="tiny muted">Chat: {r.commands.map((c) => <code key={c} style={{ marginRight: 6 }}>{c}</code>)}</div>}
       <ErrorBox error={act.error} />
-      {dm && (
+      {gm && (
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {(Object.keys(r.optionSpecs).length > 0 || Object.keys(r.presets ?? {}).length > 0 || r.rules.length > 0) && <button type="button" className="btn small" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide details' : 'Options and details'}</button>}
           <button type="button" className="btn small" disabled={act.busy} onClick={() => void download()}>Export</button>
           {r.source === 'imported' && <button type="button" className="btn small" disabled={act.busy} onClick={() => void remove()}>Remove</button>}
         </div>
       )}
-      {open && dm && <Details r={r} onDone={onDone} />}
+      {open && gm && <Details r={r} onDone={onDone} />}
     </div>
   );
 }

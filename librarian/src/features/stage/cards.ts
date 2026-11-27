@@ -19,7 +19,7 @@ export type Kind = (typeof KINDS)[number];
 export interface CardRow {
   id: string; world_id: string; kind: Kind; ref: string | null; label: string; text: string; caption: string;
   x: number; y: number; w: number; h: number; z: number;
-  visibility: 'all' | 'players' | 'dm'; audience: string; options: string; shown_at: string | null; created_at: string; created_by: string;
+  visibility: 'all' | 'players' | 'gm'; audience: string; options: string; shown_at: string | null; created_at: string; created_by: string;
 }
 
 /** A player as the pages and people see them: no GM, no account of its own. */
@@ -32,7 +32,7 @@ export const worldSettings = (db: Deps['db'], worldId: string): WorldSettings =>
 function scrub(blocks: Block[]): Block[] {
   return blocks
     .filter((b) => b.kind !== 'secret' && !(b.kind === 'callout' && /secret|dm|gm/i.test(String((b as any).variant ?? ''))))
-    .map((b: any) => (b.children ? { ...b, children: scrub(b.children) } : b.groups ? { ...b, groups: b.groups.filter((g: PropertyGroup) => !g.dm) } : b));
+    .map((b: any) => (b.children ? { ...b, children: scrub(b.children) } : b.groups ? { ...b, groups: b.groups.filter((g: PropertyGroup) => !g.gm) } : b));
 }
 
 export interface PageCopy {
@@ -54,7 +54,7 @@ export function pageView(d: Deps, worldId: string, pageId: string | null, bigger
       : excerpt(body);
     return {
       id: pg.id, title: pg.title, kind: pg.kind, icon: pg.icon, excerpt: ex.blocks, truncated: ex.truncated, links: pg.links,
-      facts: (pg.properties as PropertyGroup[]).filter((g) => !g.dm), fm: pg.frontmatter ?? {}, blocks,
+      facts: (pg.properties as PropertyGroup[]).filter((g) => !g.gm), fm: pg.frontmatter ?? {}, blocks,
     };
   } catch { return null; }
 }
@@ -114,7 +114,7 @@ export const audienceOf = (c: CardRow) => parseJson<string[]>(c.audience, []);
 
 /** May this viewer have this card at all? (GM: always.) */
 export function canHave(c: CardRow, v: Viewer): boolean {
-  if (v.role === 'dm') return true;
+  if (v.role === 'gm') return true;
   if (c.visibility === 'all') return true;
   return c.visibility === 'players' && v.role === 'player' && audienceOf(c).includes(v.accountId);
 }
@@ -158,9 +158,9 @@ export function dataFor(d: Deps, c: CardRow, v: Viewer, s: WorldSettings): Recor
 export function project(d: Deps, c: CardRow, v: Viewer, s: WorldSettings) {
   if (!canHave(c, v)) return null;
   const data = dataFor(d, c, v, s);
-  const dm = v.role === 'dm';
-  if (!data && !dm) return null;
+  const gm = v.role === 'gm';
+  if (!data && !gm) return null;
   const out: any = { id: c.id, kind: c.kind, x: c.x, y: c.y, w: c.w, h: c.h, z: c.z, shownAt: c.shown_at, data: data ?? {}, unavailable: data === null ? true : undefined };
-  if (dm) Object.assign(out, { label: c.label, visibility: c.visibility, audience: audienceOf(c), ref: c.ref, text: c.text, caption: c.caption, options: opts(c) });
+  if (gm) Object.assign(out, { label: c.label, visibility: c.visibility, audience: audienceOf(c), ref: c.ref, text: c.text, caption: c.caption, options: opts(c) });
   return out;
 }

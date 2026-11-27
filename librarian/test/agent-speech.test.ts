@@ -35,15 +35,15 @@ async function boot(withVoice: boolean) {
   };
   const ok = async (method: string, url: string, token?: string, body?: unknown) => { const r = await call(method, url, token, body); assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${r.buf.toString().slice(0, 200)}`); return r.body; };
   const admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dmAcct = await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'dm password 123' });
-  const dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Speechland', dmAccountId: dmAcct.account.id })).id;
+  const gmAcct = await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'gm password 123' });
+  const gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Speechland', gmAccountId: gmAcct.account.id })).id;
   const players: Record<string, string> = {};
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, gm, { role: 'player' });
     players[name] = (await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name })).token;
   }
-  return { call, ok, W, dm, jess: players.jess, tom: players.tom, tts, deps: made.deps };
+  return { call, ok, W, gm, jess: players.jess, tom: players.tom, tts, deps: made.deps };
 }
 
 const voice = await boot(true);
@@ -57,8 +57,8 @@ test('TestAgentSpeech_StripsMarkdownAndCapsLength', () => {
   assert.ok(cut.length <= SPEAK_MAX && cut.endsWith('.'), `${cut.length}`);
 });
 
-test('TestAgentSpeech_DmGetsAudioFromTheVoiceJob', async () => {
-  const r = await voice.call('POST', `/api/worlds/${voice.W}/agent/speak`, voice.dm, { text: '**The vault** is under [[Saltmarsh]]. ' + 'x'.repeat(3000) });
+test('TestAgentSpeech_GmGetsAudioFromTheVoiceJob', async () => {
+  const r = await voice.call('POST', `/api/worlds/${voice.W}/agent/speak`, voice.gm, { text: '**The vault** is under [[Saltmarsh]]. ' + 'x'.repeat(3000) });
   assert.equal(r.status, 200);
   assert.match(r.type, /audio/);
   assert.ok(r.buf.length > 0);
@@ -78,31 +78,31 @@ test('TestAgentSpeech_PlayersAndAnonymousAreRefusedAndNothingIsSynthesised', asy
 });
 
 test('TestAgentSpeech_NoVoiceJobIs503AndEmptyTextIs400', async () => {
-  const r = await mute.call('POST', `/api/worlds/${mute.W}/agent/speak`, mute.dm, { text: 'Hello there' });
+  const r = await mute.call('POST', `/api/worlds/${mute.W}/agent/speak`, mute.gm, { text: 'Hello there' });
   assert.equal(r.status, 503);
   assert.match(r.body.error, /voice/i);
-  assert.equal((await voice.call('POST', `/api/worlds/${voice.W}/agent/speak`, voice.dm, { text: '```x```' })).status, 400);
-  assert.equal((await voice.call('POST', `/api/worlds/${voice.W}/agent/speak`, voice.dm, {})).status, 400);
+  assert.equal((await voice.call('POST', `/api/worlds/${voice.W}/agent/speak`, voice.gm, { text: '```x```' })).status, 400);
+  assert.equal((await voice.call('POST', `/api/worlds/${voice.W}/agent/speak`, voice.gm, {})).status, 400);
 });
 
 test('TestAgentChats_ListRenameDeleteAreOwnOnly', async () => {
   const e = voice;
   const A = `/api/worlds/${e.W}/agent/chats`;
-  const c1 = await e.ok('POST', A, e.dm, { title: 'First' });
-  const c2 = await e.ok('POST', A, e.dm, { title: 'Second' });
+  const c1 = await e.ok('POST', A, e.gm, { title: 'First' });
+  const c2 = await e.ok('POST', A, e.gm, { title: 'Second' });
   const p1 = await e.ok('POST', A, e.jess, { title: 'Jess private' });
-  assert.deepEqual((await e.ok('GET', A, e.dm)).chats.map((c: any) => c.title).sort(), ['First', 'Second']);
+  assert.deepEqual((await e.ok('GET', A, e.gm)).chats.map((c: any) => c.title).sort(), ['First', 'Second']);
   assert.deepEqual((await e.ok('GET', A, e.jess)).chats.map((c: any) => c.title), ['Jess private']);
   assert.deepEqual((await e.ok('GET', A, e.tom)).chats, []);
   // Rename: own chat only, a title is required.
-  assert.equal((await e.ok('PATCH', `${A}/${c1.id}`, e.dm, { title: 'Harbour plans' })).id, c1.id);
-  assert.ok((await e.ok('GET', A, e.dm)).chats.some((c: any) => c.id === c1.id && c.title === 'Harbour plans'));
-  assert.equal((await e.call('PATCH', `${A}/${c1.id}`, e.dm, { title: '  ' })).status, 400);
+  assert.equal((await e.ok('PATCH', `${A}/${c1.id}`, e.gm, { title: 'Harbour plans' })).id, c1.id);
+  assert.ok((await e.ok('GET', A, e.gm)).chats.some((c: any) => c.id === c1.id && c.title === 'Harbour plans'));
+  assert.equal((await e.call('PATCH', `${A}/${c1.id}`, e.gm, { title: '  ' })).status, 400);
   assert.equal((await e.call('PATCH', `${A}/${c1.id}`, e.jess, { title: 'mine now' })).status, 404);
-  assert.equal((await e.call('PATCH', `${A}/${p1.id}`, e.dm, { title: 'not yours' })).status, 404);
-  assert.equal((await e.call('DELETE', `${A}/${p1.id}`, e.dm)).status, 404);
-  assert.equal((await e.call('GET', `${A}/${p1.id}`, e.dm)).status, 404);
-  await e.ok('DELETE', `${A}/${c2.id}`, e.dm);
-  assert.deepEqual((await e.ok('GET', A, e.dm)).chats.map((c: any) => c.id), [c1.id]);
+  assert.equal((await e.call('PATCH', `${A}/${p1.id}`, e.gm, { title: 'not yours' })).status, 404);
+  assert.equal((await e.call('DELETE', `${A}/${p1.id}`, e.gm)).status, 404);
+  assert.equal((await e.call('GET', `${A}/${p1.id}`, e.gm)).status, 404);
+  await e.ok('DELETE', `${A}/${c2.id}`, e.gm);
+  assert.deepEqual((await e.ok('GET', A, e.gm)).chats.map((c: any) => c.id), [c1.id]);
   assert.equal((await e.ok('GET', A, e.jess)).chats.length, 1, 'the player chat is untouched');
 });

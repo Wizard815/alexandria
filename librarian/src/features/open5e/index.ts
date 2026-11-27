@@ -74,7 +74,7 @@ const feature: Feature = {
   adminRoutes,
   mcpTools: [
     {
-      name: 'list_content_books', dmOnly: true,
+      name: 'list_content_books', gmOnly: true,
       description: "GM: the free books Alexandria can pull spells, monsters, magic items, gear, conditions, feats, backgrounds and species from: Open5e's books (Tome of Beasts 1-3, Creature Codex, Deep Magic, Vault of Magic, Tome of Heroes, Level Up A5e, Black Flag, the SRDs ...) with their keys, publisher and licence, and the 5e SRD API editions. Use the keys with import_content.",
       props: {},
       call: () => ({ method: 'GET', path: '/modules/sources' }),

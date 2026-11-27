@@ -28,7 +28,7 @@ there when it starts. Whoever runs a server can drop more files in (or set
 `ALX_MODS_DIR` to a folder of their own) and restart, and the rules show up in
 every world.
 
-![House rules, the Rules tab](screenshots/house-rules/6-dm-house-rules-all-rules.png)
+![House rules, the Rules tab](screenshots/house-rules/6-gm-house-rules-all-rules.png)
 
 ![World settings, House rules](screenshots/house-rules/1-world-settings-house-rules.png)
 
@@ -88,7 +88,7 @@ simple mana pool or MANA off first. With no magic rule on, spells use slots.
   Every change is logged with who, when, the amount and the reason. The GM sees
   everyone's on the **House rules** page (Grant and Take back); a player sees
   their own on their home page and the House rules page.
-- **Actions** change a counter. Each one says who may run it: `dm`, `owner`
+- **Actions** change a counter. Each one says who may run it: `gm`, `owner`
   (only that character's player), `player` (any player, on anyone) or `any`
   (the GM or the owner). The server checks it.
 - **Rerolls** happen on the server, so nobody can fudge them. A player presses
@@ -105,7 +105,7 @@ simple mana pool or MANA off first. With no magic rule on, spells use slots.
 
 ![A personal reroll under a chat roll](screenshots/house-rules/3-player-reroll-button.png)
 
-![The GM's House rules page](screenshots/house-rules/5-dm-house-rules-page.png)
+![The GM's House rules page](screenshots/house-rules/5-gm-house-rules-page.png)
 
 ## The file
 
@@ -126,14 +126,14 @@ A file holds one rule, or a **package** of several (see Sharing).
     { "id": "hero", "label": "Hero point", "icon": "fa-star", "max": "$max", "start": 1 }
   ],
   "actions": [
-    { "id": "give", "label": "Give", "by": "dm", "resource": "hero", "add": 1, "askReason": true },
+    { "id": "give", "label": "Give", "by": "gm", "resource": "hero", "add": 1, "askReason": true },
     { "id": "spend", "label": "Spend", "by": "owner", "resource": "hero", "add": -1,
       "effect": { "chat": "{name} spends a hero point: +1d6 ({note})" } }
   ],
   "triggers": [{ "on": "sessionStart", "resource": "hero", "add": 1 }],
   "commands": [{ "word": "hero", "action": "spend" }],
   "sheet": { "title": "Hero points", "resources": ["hero"] },
-  "dmBand": { "chips": ["hero"], "actions": ["give"] },
+  "gmBand": { "chips": ["hero"], "actions": ["give"] },
   "rules": [{ "term": "Hero points", "text": "Spend one to add 1d6 to any roll." }]
 }
 ```
@@ -147,10 +147,10 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `options` | What the GM tunes: `{ type: boolean \| int \| enum \| string, default, label, help? }` (`min`/`max` for int, `values` for enum). Anywhere a number or yes/no goes, `"$name"` reads an option. |
 | `resources` | Counters: `{ id, label, icon? (Font Awesome, e.g. fa-star), max? (null = no cap), start?, private? }`. |
 | `actions` | `{ id, label, by, resource (an id, or "*" when the caller says which), add, askReason?, effect? }`. |
-| `effect` | `reroll: { whose: own \| anyPlayer \| dm, keepBetter }`, `chat: "text"` (posted to table chat; `{name}` and `{note}` are filled in), `dmnote: "text"` (a note only the GM sees). |
+| `effect` | `reroll: { whose: own \| anyPlayer \| gm, keepBetter }`, `chat: "text"` (posted to table chat; `{name}` and `{note}` are filled in), `gmnote: "text"` (a note only the GM sees). |
 | `triggers` | `{ on: longRest \| shortRest \| sessionStart \| sessionEnd, resource (or "*"), set (a number or "max") and/or add }`. |
 | `commands` | Chat words: `{ word, args?, action }`; `"use-$1"` with `args: ["a","b"]` makes `/word a` run `use-a`. `roll`, `me` and `help` are taken. |
-| `sheet`, `dmBand`, `table` | Where the counters show: the player's card and sheet, the GM's status bar chips and actions, a Table block. |
+| `sheet`, `gmBand`, `table` | Where the counters show: the player's card and sheet, the GM's status bar chips and actions, a Table block. |
 | `rules` | `{ term, text }`: the rule in plain words (Markdown). |
 | `presets` | World settings to set while on, e.g. `{ "spellMana": true }`. A setting this server does not have yet is skipped. |
 | `requires` | `{ settings: [...], mods: { "rule-id": "^1" } }`: settings the rule cannot work without, and other house rules it builds on with a version range. Turning it on turns those on first; turning one of them off asks to turn this one off too. |
@@ -174,10 +174,10 @@ is a whole downtime system in about 60 lines.
 | Part | Holds |
 | --- | --- |
 | `records` | Kinds of record: `{ "<kind>": { label, plural?, owned?, title?, fields, seed? } }`. `owned`: each record belongs to one player. Fields are `"text"`, `"int"`, `"bool"`, `"enum:a\|b"`, `"ref:<kind>"` (add `?` for optional), or `{ type, label, default, min, max, values, ref }`. `seed`: ready-made records made the first time the rule goes on (not for owned kinds). |
-| `recordActions` | `{ id, label, by, record, do: create \| set \| add \| remove }` with `ask` (fields the caller fills in), `set` (fixed values), `copy: { via, fields }` (copy from the record a ref points at), `field` + `amount` (a number or `"ask"`) for add, `where` (only records like this) and `effect` (`chat`, `dmnote`). |
+| `recordActions` | `{ id, label, by, record, do: create \| set \| add \| remove }` with `ask` (fields the caller fills in), `set` (fixed values), `copy: { via, fields }` (copy from the record a ref points at), `field` + `amount` (a number or `"ask"`) for add, `where` (only records like this) and `effect` (`chat`, `gmnote`). |
 | `timers` | `{ id, record, on, where, field, add, goal, done: { set, chat } }`. `on` is a rest, a session start or end, or `prompt:<id>`. `goal` is a number, an option or another field of the record. `done` runs once when the field reaches it. |
 | `prompts` | `{ id, button, title, text, choices: [{ label, action } \| { label, skip: true }] }`. The GM presses the button and every player gets a popup. A choice runs its record action for them, and `prompt:<id>` timers move only the records of players who did not skip. |
-| `views` | `{ id, title, record, place: dm \| sheet \| player, columns, where?, actions?, groupByPlayer? }`. `dm` is a tab on the GM's House rules page, `sheet` the player's sheet and home card, `player` the player's House rules page. |
+| `views` | `{ id, title, record, place: gm \| sheet \| player, columns, where?, actions?, groupByPlayer? }`. `gm` is a tab on the GM's House rules page, `sheet` the player's sheet and home card, `player` the player's House rules page. |
 
 Chat text in a data system may use `{name}` (the record's player; on a shared record, whoever ran the action), `{note}` (the reason given),
 `{field}`, `{title}`, `{kind.field}` for the record's own field (so a field
@@ -192,7 +192,7 @@ What goes wrong: a record action whose `by` is `owner` on a shared kind can
 only be run by the GM (nobody owns it). Use `any` or `player`. Removing a rule
 deletes its records and log.
 
-![The GM's downtime tab](screenshots/house-rules/8-dm-downtime-tab.png)
+![The GM's downtime tab](screenshots/house-rules/8-gm-downtime-tab.png)
 ![A player's downtime popup](screenshots/house-rules/9-player-downtime-popup.png)
 
 ## How the assistant and the player helper work with a rule
@@ -218,14 +218,14 @@ names. That is how a Codex rule hooks the assistant into the Codex:
   "words": ["craft a spell", "combine spells", "spell recipe", "codex"],
   "tools": ["my_spell_codex", "list_spell_recipes", "read_spell", "draft_spell_recipe"],
   "player": "To help a player craft: read their codex with my_spell_codex, then list_spell_recipes; say which recipes they can make now and what each still needs.",
-  "dm": "draft_spell_recipe proposes a new recipe for the GM to approve. When a player asks to craft, check they know every spell the recipe needs."
+  "gm": "draft_spell_recipe proposes a new recipe for the GM to approve. When a player asks to craft, check they know every spell the recipe needs."
 }
 ```
 
 | Field | Holds |
 | --- | --- |
 | `words` | Up to 24 extra words or phrases (3 to 40 letters) that bring the rule up. |
-| `dm` | Guidance only the GM's assistant sees (up to 1,200 letters). |
+| `gm` | Guidance only the GM's assistant sees (up to 1,200 letters). |
 | `player` | Guidance only the player helper sees. Write it as advice to the helper. |
 | `tools` | Tools from features to offer with the rule (Codex: `my_spell_codex`, `read_spell`, `list_spell_recipes`, `draft_spell_recipe`, `list_spells`). A tool the server does not have is left out. |
 
@@ -267,7 +267,7 @@ version. A rule that comes with Alexandria is copied under a new id instead.
 You can also paste a file under **Add a house rule** and press **Check**;
 **What it does** shows the same preview.
 
-![Make or add one](screenshots/house-rules/7-dm-make-or-add-a-rule.png)
+![Make or add one](screenshots/house-rules/7-gm-make-or-add-a-rule.png)
 
 Assistant tools: `house_rules` (what is on and how it works),
 `house_rule_counters`, `house_rule_grant` (GM: give a reroll for good

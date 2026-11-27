@@ -26,7 +26,7 @@ let deps: any;
 let fake: FakeModels;
 let keyed: FakeModels;
 let adminT = '';
-let dmT = '';
+let gmT = '';
 const A = '/api/admin/models';
 
 async function call(method: string, url: string, token?: string, body?: unknown) {
@@ -53,8 +53,8 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   adminT = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  await ok('POST', '/api/admin/accounts', adminT, { username: 'dungeon', password: 'dm password 123' });
-  dmT = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
+  await ok('POST', '/api/admin/accounts', adminT, { username: 'dungeon', password: 'gm password 123' });
+  gmT = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
 });
 
 after(async () => {
@@ -237,7 +237,7 @@ test('ModelsProviders_ValidationAndGuards', async () => {
   assert.equal((await call('DELETE', `${A}/providers/${argosId}`, adminT)).status, 409);
   // Admins only.
   for (const [m, u, b] of [['POST', `${A}/providers`, { kind: 'argos', baseUrl: 'http://x' }], ['PUT', `${A}/providers/${argosId}`, {}], ['DELETE', `${A}/providers/${argosId}`, undefined], ['POST', `${A}/discover`, {}], ['GET', `${A}/status`, undefined], ['POST', `${A}/chat/warm`, undefined], ['GET', `${A}/providers/${argosId}/voices`, undefined]] as const) {
-    assert.equal((await call(m, u, dmT, b)).status, 403, `${m} ${u}`);
+    assert.equal((await call(m, u, gmT, b)).status, 403, `${m} ${u}`);
     assert.equal((await call(m, u, undefined, b)).status, 401, `${m} ${u} signed out`);
   }
 });
@@ -495,10 +495,10 @@ test('ModelsRerank_ReordersLibrarySearchAndOnlyReadsThisViewersCopy', async () =
   try {
     run(d.db, "INSERT INTO worlds (id, slug, name, created_at) VALUES ('w_rr', 'rr', 'RR', '2025-01-01')");
     const L = d.library;
-    const DM_ONLY = 'zzsecretmarker the smuggler hides contraband';
+    const GM_ONLY = 'zzsecretmarker the smuggler hides contraband';
     L.save('w_rr', { path: 'a/one', title: 'Harbour captains', body: 'Long ago the old pier saw many ships and merchants and sailors and gulls and nets and barrels and ropes. The harbour captains rarely agree. Nobody writes these long dull stories down any more, because everybody already knows them all.', visibility: 'party' }, null);
     L.save('w_rr', { path: 'a/two', title: 'Rumour', body: 'harbour captains', visibility: 'party' }, null);
-    L.save('w_rr', { path: 'a/three', title: 'Harbour smugglers', body: `${DM_ONLY} harbour captains`, visibility: 'dm' }, null);
+    L.save('w_rr', { path: 'a/three', title: 'Harbour smugglers', body: `${GM_ONLY} harbour captains`, visibility: 'gm' }, null);
     const plain = (d.library.search('w_rr', 'harbour captains', { accountId: '', role: 'player' }, 20) as any[]);
     assert.equal(plain.length, 2, 'two shared pages match');
     const hits = await hybridPages(d, 'w_rr', 'harbour captains', 'party', 20);

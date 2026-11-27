@@ -28,7 +28,7 @@
         "choices": 3,
         "checks": true,
         "maxRewardCp": 100,
-        "consequences": "Every choice that matters gets a dmnote: who saw it and who might remember."
+        "consequences": "Every choice that matters gets a gmnote: who saw it and who might remember."
       }
     },
     {
@@ -48,12 +48,12 @@
           "mountains"
         ],
         "theme": "hazards, finds and signs of others on the road",
-        "instructions": "A hazard gets a skill check with a DC range and a small cost on a failure (a few coins lost, an hour lost, a minor wound in a dmnote). A find gets a simple item with a note on what it is worth.",
+        "instructions": "A hazard gets a skill check with a DC range and a small cost on a failure (a few coins lost, an hour lost, a minor wound in a gmnote). A find gets a simple item with a note on what it is worth.",
         "tone": "Vivid, one or two sentences a step.",
         "choices": 2,
         "checks": true,
         "maxRewardCp": 50,
-        "consequences": "Wounds, lost time and conditions go in a dmnote so the GM applies them."
+        "consequences": "Wounds, lost time and conditions go in a gmnote so the GM applies them."
       }
     },
     {
@@ -72,12 +72,12 @@
           "ruins"
         ],
         "theme": "traps, eerie signs and small treasures",
-        "instructions": "Keep it tense. A trap is a save or check with a timer; a strange sign is a clue the GM explains later (put the real meaning in a dmnote, never in what the player reads).",
+        "instructions": "Keep it tense. A trap is a save or check with a timer; a strange sign is a clue the GM explains later (put the real meaning in a gmnote, never in what the player reads).",
         "tone": "Tense and quiet.",
         "choices": 2,
         "checks": true,
         "maxRewardCp": 50,
-        "consequences": "Damage and clues go in a dmnote."
+        "consequences": "Damage and clues go in a gmnote."
       }
     },
     {
@@ -99,7 +99,7 @@
         "choices": 3,
         "checks": true,
         "maxRewardCp": 100,
-        "consequences": "Grudges, debts and rumours learned go in a dmnote."
+        "consequences": "Grudges, debts and rumours learned go in a gmnote."
       }
     },
     {
@@ -122,7 +122,7 @@
         "choices": 2,
         "checks": true,
         "maxRewardCp": 50,
-        "consequences": "Lost gear, wet supplies and smugglers seen go in a dmnote."
+        "consequences": "Lost gear, wet supplies and smugglers seen go in a gmnote."
       }
     },
     {
@@ -141,12 +141,12 @@
           "woods"
         ],
         "theme": "mud, insects, lights in the mist, sickness",
-        "instructions": "A misstep is a check with a small cost; a light in the mist is a choice to follow or not. Sickness or leeches go in a dmnote.",
+        "instructions": "A misstep is a check with a small cost; a light in the mist is a choice to follow or not. Sickness or leeches go in a gmnote.",
         "tone": "Humid and uneasy.",
         "choices": 2,
         "checks": true,
         "maxRewardCp": 30,
-        "consequences": "Sickness, lost boots and followed lights go in a dmnote."
+        "consequences": "Sickness, lost boots and followed lights go in a gmnote."
       }
     },
     {
@@ -170,7 +170,7 @@
         "choices": 3,
         "checks": true,
         "maxRewardCp": 100,
-        "consequences": "Who they helped, crossed or were seen by goes in a dmnote."
+        "consequences": "Who they helped, crossed or were seen by goes in a gmnote."
       }
     },
     {
@@ -197,7 +197,7 @@
         "choices": 2,
         "checks": false,
         "maxRewardCp": 30,
-        "consequences": "Blessings, curses and omens go in a dmnote for the GM to apply."
+        "consequences": "Blessings, curses and omens go in a gmnote for the GM to apply."
       }
     }
   ]

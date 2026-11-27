@@ -3,11 +3,11 @@
 // page goes through here.
 //
 // Levels. Every page has a vault level (front matter `level`): party, broker,
-// dm or classified. In the library the page is stored at `dm` (party and dm),
+// gm or classified. In the library the page is stored at `gm` (party and gm),
 // `broker` or `classified`, never `party`: a party-level vault page would show
 // in the players' library with its path. Players read the party-level parts
 // through the neutral routes in player.ts instead (secret blocks cut out by the
-// library's own copy builder). Fails closed: anything unknown is dm.
+// library's own copy builder). Fails closed: anything unknown is gm.
 import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';
 import { dumpYaml, joinFrontmatter, splitFrontmatter, type FM } from '../../core/frontmatter.ts';
@@ -15,7 +15,7 @@ import { pageLevel, type Level } from '../../core/levels.ts';
 import { HttpError, parseJson } from '../../core/util.ts';
 
 export const ROOT = 'Minerva';
-export const STATUS_PATH = 'dm/state/Campaign Status.md';
+export const STATUS_PATH = 'gm/state/Campaign Status.md';
 export const STATUS_SECTIONS = ['Now', 'Active threads', 'NPC agendas', 'What changed last session', 'Next session', 'Open questions'] as const;
 export const HEATS = ['on', 'ongoing', 'simmering', 'sleeping'] as const;
 export type Heat = (typeof HEATS)[number];
@@ -30,7 +30,7 @@ export const CODEX_DIR: Record<string, string> = {
 
 const TOP: RegExp[] = [
   /^HOME\.md$/,
-  /^dm\/state\/[^/]+\.md$/, /^dm\/(revelations|session-prep|hooks|hidden-lore|players)\/[^/]+\.md$/,
+  /^gm\/state\/[^/]+\.md$/, /^gm\/(revelations|session-prep|hooks|hidden-lore|players)\/[^/]+\.md$/,
   /^chronicle\/(timeline|calendar)\.md$/, /^chronicle\/arcs\/[^/]+\/summary\.md$/, /^chronicle\/arcs\/[^/]+\/sessions\/[^/]+\.md$/,
   /^codex\/characters\/(pc|npc)\/[^/]+\.md$/, /^codex\/(locations|organizations|families|creatures|races|items|quests|maps|lore)\/[^/]+\.md$/,
   /^players\/[^/]+\/(profile|shared|knowledge|bonds)\.md$/, /^players\/[^/]+\/(goals|journal|notes)\/[^/]+\.md$/,
@@ -57,14 +57,14 @@ export const relOf = (path: string): string => path.slice(ROOT.length + 1);
 
 export interface VaultPage { id: string; rel: string; title: string; fm: FM; body: string; level: Level; updatedAt: string }
 
-const asLevel = (v: unknown): Level => (v === 'party' || v === 'broker' || v === 'dm' || v === 'classified' ? v : 'dm');
+const asLevel = (v: unknown): Level => (v === 'party' || v === 'broker' || v === 'gm' || v === 'classified' ? v : 'gm');
 
 /** The vault level of a page: its front matter level, raised by tags. */
 export function vaultLevel(fm: FM): Level {
-  return pageLevel({ visibility: fm.level ?? 'dm', tags: fm.tags, frontmatter: { ...fm, tags: undefined } as any });
+  return pageLevel({ visibility: fm.level ?? 'gm', tags: fm.tags, frontmatter: { ...fm, tags: undefined } as any });
 }
 /** The level the library stores it at. */
-export const storedLevel = (l: Level): 'dm' | 'broker' | 'classified' => (l === 'broker' ? 'broker' : l === 'classified' ? 'classified' : 'dm');
+export const storedLevel = (l: Level): 'gm' | 'broker' | 'classified' => (l === 'broker' ? 'broker' : l === 'classified' ? 'classified' : 'gm');
 
 const rowOut = (r: any): VaultPage => {
   const fm = parseJson<FM>(r.frontmatter, {});
@@ -110,12 +110,12 @@ export function removePage(d: Deps, worldId: string, rel: string) {
 
 function defaultType(rel: string): string {
   if (rel === 'HOME.md') return 'home';
-  if (rel.startsWith('dm/state/')) return 'status';
-  if (rel.startsWith('dm/revelations/')) return 'revelation';
-  if (rel.startsWith('dm/session-prep/')) return 'prep';
-  if (rel.startsWith('dm/hooks/')) return 'hook';
-  if (rel.startsWith('dm/hidden-lore/')) return 'lore';
-  if (rel.startsWith('dm/players/')) return 'note';
+  if (rel.startsWith('gm/state/')) return 'status';
+  if (rel.startsWith('gm/revelations/')) return 'revelation';
+  if (rel.startsWith('gm/session-prep/')) return 'prep';
+  if (rel.startsWith('gm/hooks/')) return 'hook';
+  if (rel.startsWith('gm/hidden-lore/')) return 'lore';
+  if (rel.startsWith('gm/players/')) return 'note';
   if (/\/summary\.md$/.test(rel)) return 'arc';
   if (/\/sessions\//.test(rel)) return 'session';
   if (rel === 'chronicle/timeline.md' || rel === 'chronicle/calendar.md') return 'timeline';
@@ -128,12 +128,12 @@ function defaultType(rel: string): string {
   return 'note';
 }
 
-/** What a new page is at when nobody said: dm/ is dm; a player's own pages and their session records are party; the rest fail closed to dm until the GM opens them. */
+/** What a new page is at when nobody said: gm/ is gm; a player's own pages and their session records are party; the rest fail closed to gm until the GM opens them. */
 function defaultLevel(rel: string, type: string): Level {
   if (rel.startsWith('players/')) return 'party';
   if (rel.startsWith('chronicle/') && (type === 'session' || type === 'arc')) return 'party';
   if (rel.startsWith('codex/characters/pc/')) return 'party';
-  return 'dm';
+  return 'gm';
 }
 
 // ---- Markdown helpers ---------------------------------------------------------

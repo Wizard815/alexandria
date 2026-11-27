@@ -39,7 +39,7 @@
       "caster level"
     ],
     "player": "Help the player choose what to study and plan it. my_spell_tree status=learn lists spells they can start now; status=locked with a name says what is missing. my_study_plan gives days and gold. A downtime day earns 1 point alone, 2 with a text, 3 with a mentor (+1 in a lab). A 3rd-level spell takes about 13 days alone (250 gp), 7 with a text (250 gp), or 5 with a mentor (500 gp). A scroll adds a quarter of the points and is kept; casting it before learning loses that help. It never skips requirements. Use my_studies for progress, and my_study_days only for days they actually spent. Use my_study_check when the points are in; a failure keeps the points, so try again after a long rest. Start a study only when they ask, and ask for their Arcana total if the plan needs one. my_cast_quote gives the mana cost. Never promise a dark spell; only the GM can give it.",
-    "dm": "The GM sees any player's tree and studies in Codex > Spell tree, can give a spell, can set study points by hand, and approves logged days when approval is dm. Recipes decide which spells teach which; suggest one with draft_spell_recipe only when asked.",
+    "gm": "The GM sees any player's tree and studies in Codex > Spell tree, can give a spell, can set study points by hand, and approves logged days when approval is gm. Recipes decide which spells teach which; suggest one with draft_spell_recipe only when asked.",
     "tools": [
       "my_spell_tree",
       "my_study_plan",

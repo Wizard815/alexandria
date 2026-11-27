@@ -119,7 +119,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
   }
   if (readIds.length) {
     // A page whose level changed changes what other pages may say about it: rebuild the world. Otherwise only the pages that were read.
-    const rank: Record<string, number> = { party: 0, broker: 1, dm: 2, classified: 3 };
+    const rank: Record<string, number> = { party: 0, broker: 1, gm: 2, classified: 3 };
     const levels = readIds.map((id) => ({ id, was: levelBefore.get(id) ?? '', is: one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ?', id)?.visibility ?? '' }));
     const moved = levels.filter((l) => l.was !== l.is);
     // Only ever more shared (a listed page read for the first time): the pages that name it. Anything that became more secret: the whole world.

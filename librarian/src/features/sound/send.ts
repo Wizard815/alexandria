@@ -35,7 +35,7 @@ export function wants(d: Deps, worldId: string, accountId: string, channel: Soun
 export function sendSound(d: Deps, worldId: string, ev: Omit<SoundEvent, 'at'> & { at?: string }): SoundEvent {
   const full = { ...ev, at: ev.at ?? now() } as SoundEvent;
   d.hub.emitPer(worldId, 'sound', (v) => {
-    if (v.role === 'dm') return full;
+    if (v.role === 'gm') return full;
     if (!toPlayers(full.target)) return null;
     return wants(d, worldId, v.accountId, full.channel) ? full : null;
   });

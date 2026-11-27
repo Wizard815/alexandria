@@ -10,8 +10,8 @@
 import type { FM, FMValue } from './frontmatter.ts';
 import { type Audience, AUDIENCE_MAX, RANK, calloutVariantLevel, headingNamedLevel, keyLevel, levelOfWord, maxLevel } from './levels.ts';
 
-export type Role = 'dm' | 'player' | 'guest';
-export type Visibility = 'dm' | 'party' | 'me';
+export type Role = 'gm' | 'player' | 'guest';
+export type Visibility = 'gm' | 'party' | 'me';
 
 export interface Viewer {
   accountId: string;
@@ -27,18 +27,18 @@ export interface Viewer {
 
 /** Which copy of a page a viewer is served: players the player copy, a GM the full copy, unless a model (or the broker) is asking for them. */
 export function audienceOf(v: Viewer): Audience {
-  if (v.role !== 'dm') return 'player';
-  return v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'dm';
+  if (v.role !== 'gm') return 'player';
+  return v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'gm';
 }
 
 export function normVisibility(v: unknown): Visibility {
   if (v === 'party' || v === 'players' || v === 'public' || v === 'shared') return 'party';
   if (v === 'me' || v === 'private') return 'me';
-  return 'dm';
+  return 'gm';
 }
 
 /**
- * dm    - the GMs of the world, plus the record's owner
+ * gm    - the GMs of the world, plus the record's owner
  * party - every member of the world
  * me    - only the owner (a player's "only me" notes are hidden from the GM too)
  */
@@ -47,12 +47,12 @@ export function canSee(viewer: Viewer, visibility: string, ownerId?: string | nu
   const isOwner = !!ownerId && ownerId === viewer.accountId;
   if (v === 'me') return isOwner;
   if (v === 'party') return true;
-  return isOwner || viewer.role === 'dm';
+  return isOwner || viewer.role === 'gm';
 }
 
-/** Frontmatter an audience may read: keys above its level (secret:, dm_*, broker_*, classified_* ...) are removed, and `visibility` never goes out. */
+/** Frontmatter an audience may read: keys above its level (secret:, gm_*, broker_*, classified_* ...) are removed, and `visibility` never goes out. */
 export function frontmatterFor(fm: FM, audience: Audience): FM {
-  if (audience === 'dm') return fm;
+  if (audience === 'gm') return fm;
   const max = AUDIENCE_MAX[audience];
   const out: FM = {};
   for (const [k, v] of Object.entries(fm)) {
@@ -75,7 +75,7 @@ function stripNested(v: FMValue, max: number): FMValue {
   return v;
 }
 
-const DM_HEADING = /\((dm|gm)( only)?\)|\[(dm|gm)\]|\b(dm|gm) only\b|^(secrets?|dm notes?|gm notes?|dm|gm)$/i;
+const GM_HEADING = /\((dm|gm)( only)?\)|\[(dm|gm)\]|\b(dm|gm) only\b|^(secrets?|dm notes?|gm notes?|dm|gm)$/i;
 
 /**
  * Remove the parts of a Markdown body an audience may not read (the player
@@ -93,14 +93,14 @@ const DM_HEADING = /\((dm|gm)( only)?\)|\[(dm|gm)\]|\b(dm|gm) only\b|^(secrets?|
  * of a region are dropped). The GM audience gets the text unchanged.
  */
 export function redactMarkdown(body: string, audience: Audience = 'player'): string {
-  if (audience === 'dm') return body;
+  if (audience === 'gm') return body;
   const max = AUDIENCE_MAX[audience];
   // Classified regions go first, and only a matching close ends one: no model or other reader ever sees them.
   let s = body.replace(/<!--\s*classified\s*-->[\s\S]*?<!--\s*\/\s*classified\s*-->/gi, '');
   s = s.replace(/<!--\s*classified\s*-->[\s\S]*$/i, '');
   // Obsidian comments are GM level: kept (unwrapped) for an audience that may read the GM level.
-  s = max >= RANK.dm ? s.replace(/%%/g, '') : s.replace(/%%[\s\S]*?%%/g, '');
-  if (max >= RANK.dm) {
+  s = max >= RANK.gm ? s.replace(/%%/g, '') : s.replace(/%%[\s\S]*?%%/g, '');
+  if (max >= RANK.gm) {
     s = s.replace(/<!--\s*\/?\s*(dm|gm|secret)\s*-->/gi, '');
   } else {
     s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*?<!--\s*\/\s*(dm|gm|secret)\s*-->/gi, '');
@@ -128,7 +128,7 @@ export function redactMarkdown(body: string, audience: Audience = 'player'): str
     }
     if (h) {
       const t = h[2].trim();
-      const lvl = maxLevel(headingNamedLevel(t), DM_HEADING.test(t) ? 'dm' : null);
+      const lvl = maxLevel(headingNamedLevel(t), GM_HEADING.test(t) ? 'gm' : null);
       if (RANK[lvl] > max) {
         skipLevel = h[1].length;
         continue;
@@ -190,7 +190,7 @@ export function playerCopy(visibility: string, fm: FM, body: string): { fm: FM; 
 
 /**
  * The Markdown copy of a page for an audience, or null when the page's level
- * is above what the audience may read (a classified page has no AI copy, a dm
+ * is above what the audience may read (a classified page has no AI copy, a gm
  * page no broker or player copy). Only `party` pages are shared with players.
  */
 export function copyOfMarkdown(level: string, audience: Audience, fm: FM, body: string): { fm: FM; body: string } | null {
@@ -198,9 +198,9 @@ export function copyOfMarkdown(level: string, audience: Audience, fm: FM, body: 
   return { fm: frontmatterFor(fm, audience), body: redactMarkdown(body, audience) };
 }
 
-/** May this audience read a page of this level? Unknown levels count as dm. */
+/** May this audience read a page of this level? Unknown levels count as gm. */
 export function levelAllows(level: string, audience: Audience): boolean {
-  const l = level === 'party' || level === 'broker' || level === 'classified' ? level : 'dm';
+  const l = level === 'party' || level === 'broker' || level === 'classified' ? level : 'gm';
   return RANK[l] <= AUDIENCE_MAX[audience];
 }
 
@@ -208,24 +208,24 @@ export interface WorldSettings {
   trackWeight: boolean;
   coins: 'gsc' | 'all' | 'gold';
   partyPurse: boolean;
-  dmEditsInventory: boolean;
+  gmEditsInventory: boolean;
   monsterHealth: 'none' | 'words' | 'bar' | 'exact';
   initiativeVisible: boolean;
   mapPins: boolean;
   mapDraw: boolean;
   mapStops: boolean;
-  whiteboardWipe: 'dm' | 'all';
+  whiteboardWipe: 'gm' | 'all';
   messageDays: number | null;
   captions: boolean;
   rules: string;
-  requestDefault: 'dm' | 'party';
+  requestDefault: 'gm' | 'party';
   quickEventTimer: number | null;
   themeEffects: boolean;
   calendar: 'builtin' | 'off';
   /** Players' coin and item changes wait for the GM. */
   playerChangesNeedApproval: boolean;
   /** The GM must give a reason when changing someone else's items. */
-  dmChangeReason: boolean;
+  gmChangeReason: boolean;
   brokerEnabled: boolean;
   /** Who pays the information broker: the asker, or the party pouch. */
   brokerPayer: 'self' | 'party';
@@ -239,22 +239,22 @@ export const DEFAULT_SETTINGS: WorldSettings = {
   trackWeight: false,
   coins: 'gsc',
   partyPurse: true,
-  dmEditsInventory: true,
+  gmEditsInventory: true,
   monsterHealth: 'words',
   initiativeVisible: true,
   mapPins: true,
   mapDraw: true,
   mapStops: true,
-  whiteboardWipe: 'dm',
+  whiteboardWipe: 'gm',
   messageDays: 14,
   captions: true,
   rules: 'dnd55',
-  requestDefault: 'dm',
+  requestDefault: 'gm',
   quickEventTimer: 20,
   themeEffects: true,
   calendar: 'builtin',
   playerChangesNeedApproval: true,
-  dmChangeReason: true,
+  gmChangeReason: true,
   brokerEnabled: true,
   brokerPayer: 'self',
   brokerPartyPay: true,
@@ -296,12 +296,12 @@ function checkFeatureSetting(k: string, spec: SettingSpec, v: unknown) {
 }
 
 /** Settings only the GM reads: where the WorldLore folder lives and what the GM's agent may do without asking. */
-const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove', 'agentAuto', 'agentName'] as const;
+const GM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove', 'agentAuto', 'agentName'] as const;
 /** The settings as a viewer may read them (a player, a guest or a model asking as one gets no GM-only key). */
 export function settingsFor<T extends object>(s: T, role: string): Partial<T> {
-  if (role === 'dm') return s;
+  if (role === 'gm') return s;
   const out: Record<string, unknown> = { ...(s as Record<string, unknown>) };
-  for (const k of DM_ONLY_SETTINGS) delete out[k];
+  for (const k of GM_ONLY_SETTINGS) delete out[k];
   return out as Partial<T>;
 }
 
@@ -311,8 +311,8 @@ export function mergeSettings(cur: WorldSettings, patch: Record<string, unknown>
   const enums: Record<string, readonly string[]> = {
     coins: ['gsc', 'all', 'gold'],
     monsterHealth: ['none', 'words', 'bar', 'exact'],
-    whiteboardWipe: ['dm', 'all'],
-    requestDefault: ['dm', 'party'],
+    whiteboardWipe: ['gm', 'all'],
+    requestDefault: ['gm', 'party'],
     calendar: ['builtin', 'off'],
     brokerPayer: ['self', 'party'],
   };

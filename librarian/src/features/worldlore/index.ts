@@ -12,14 +12,14 @@ import type { Feature } from '../types.ts';
 import type { Auth } from '../../core/auth.ts';
 import { one } from '../../core/db.ts';
 import { HttpError } from '../../core/util.ts';
-import { ctx, isDM, me } from '../../routes/_shared.ts';
+import { ctx, isGM, me } from '../../routes/_shared.ts';
 import {
   SCHEMA, configOf, deletePage, links, listPages, movePage, options, readPage, searchOptions, setConfig, validateConfig, workspace, worldSettings, writePage, type LoreConfig,
 } from './service.ts';
 
 const enc = encodeURIComponent;
 const S = (description: string) => ({ type: 'string', description });
-const LEVEL = { type: 'string', enum: ['dm', 'broker', 'party', 'classified'], description: "Who may learn it. dm: only the GM (default is the workspace's). broker: GM-only, but the information broker may sell it to players. classified: never sent to any AI, not even you. party: players see it (only allowed when the GM set the workspace to party)." };
+const LEVEL = { type: 'string', enum: ['gm', 'broker', 'party', 'classified'], description: "Who may learn it. gm: only the GM (default is the workspace's). broker: GM-only, but the information broker may sell it to players. classified: never sent to any AI, not even you. party: players see it (only allowed when the GM set the workspace to party)." };
 
 const state = (d: any, worldId: string) => {
   const cfg = configOf(worldSettings(d, worldId));
@@ -39,7 +39,7 @@ const feature: Feature = {
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
     // Everything here is for the GM (and the GM's agent, which runs with the GM's own token).
-    r.use((_req, res, next) => { if (!isDM(res)) throw new HttpError(403, 'Only the GM can use WorldLore'); next(); });
+    r.use((_req, res, next) => { if (!isGM(res)) throw new HttpError(403, 'Only the GM can use WorldLore'); next(); });
 
     r.get('/', (_req, res) => res.json(state(d, ctx(res).world.id)));
     r.get('/options', async (_req, res) => res.json(await options(d, ctx(res).world.id)));
@@ -48,13 +48,13 @@ const feature: Feature = {
     // Body: { kind, sourceId?, root, defaultLevel, url? }, or null / { enabled: false } to turn it off.
     r.put('/config', (req, res) => {
       const b = req.body ?? {};
-      const next: LoreConfig | null = b.enabled === false || b.kind === undefined ? null : { kind: b.kind, sourceId: b.sourceId, root: String(b.root ?? ''), defaultLevel: b.defaultLevel ?? 'dm', ...(b.url ? { url: b.url } : {}) };
+      const next: LoreConfig | null = b.enabled === false || b.kind === undefined ? null : { kind: b.kind, sourceId: b.sourceId, root: String(b.root ?? ''), defaultLevel: b.defaultLevel ?? 'gm', ...(b.url ? { url: b.url } : {}) };
       setConfig(d, ctx(res).world.id, next, me(res));
       res.json(state(d, ctx(res).world.id));
     });
 
     r.get('/pages', (req, res) => res.json(listPages(d, ctx(res).world.id, { forAI: req.query.ai === '1' })));
-    r.get('/pages/:id', (req, res) => res.json(readPage(d, ctx(res).world.id, { accountId: me(res), role: 'dm' }, String(req.params.id))));
+    r.get('/pages/:id', (req, res) => res.json(readPage(d, ctx(res).world.id, { accountId: me(res), role: 'gm' }, String(req.params.id))));
     r.post('/pages', async (req, res) => {
       const b = req.body ?? {};
       res.status(200).json(await writePage(d, ctx(res).world.id, me(res), { id: b.id, path: b.path, title: b.title, markdown: b.markdown, level: b.level, parent: b.parent, by: b.by }));
@@ -73,7 +73,7 @@ const feature: Feature = {
     r.put('/:world/config', (req, res) => {
       const w = world(String(req.params.world));
       const b = req.body ?? {};
-      const next: LoreConfig | null = b.enabled === false || b.kind === undefined ? null : { kind: b.kind, sourceId: b.sourceId, root: String(b.root ?? ''), defaultLevel: b.defaultLevel ?? 'dm', ...(b.url ? { url: b.url } : {}) };
+      const next: LoreConfig | null = b.enabled === false || b.kind === undefined ? null : { kind: b.kind, sourceId: b.sourceId, root: String(b.root ?? ''), defaultLevel: b.defaultLevel ?? 'gm', ...(b.url ? { url: b.url } : {}) };
       setConfig(d, w, next, (res.locals.auth as Auth).account.id);
       res.json(state(d, w));
     });
@@ -81,13 +81,13 @@ const feature: Feature = {
   },
   mcpTools: [
     {
-      name: 'lore_list', dmOnly: true,
+      name: 'lore_list', gmOnly: true,
       description: "Pages in WorldLore, your own wiki for this world: title, level, who wrote it. Use it to see what you have already written before writing more. Classified pages are not listed.",
       props: {},
       call: () => ({ method: 'GET', path: '/worldlore/pages?ai=1' }),
     },
     {
-      name: 'lore_read', dmOnly: true,
+      name: 'lore_read', gmOnly: true,
       description: 'Read one WorldLore page by id (from lore_list).',
       props: { id: S('Page id') }, required: ['id'],
       call: (a) => ({ method: 'GET', path: `/worldlore/pages/${enc(a.id)}` }),

@@ -38,6 +38,6 @@
       "read_spell"
     ],
     "player": "This table casts from a mana pool instead of spell slots. To answer what they can still cast, read my_spell_codex for their mana and known spells; a long rest refills the pool.",
-    "dm": "This table casts from a mana pool instead of spell slots; a long rest refills it."
+    "gm": "This table casts from a mana pool instead of spell slots; a long rest refills it."
   }
 }

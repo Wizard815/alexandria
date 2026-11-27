@@ -31,7 +31,7 @@ srv.stderr.on('data', (d) => process.stderr.write('[demo] ' + d));
 for (let i = 0; i < 200 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const PASS = { dm: 'game master 123', jess: 'player pass 123', tom: 'player pass 123' };
+const PASS = { gm: 'game master 123', jess: 'player pass 123', tom: 'player pass 123' };
 const token = async (user) => (await (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: PASS[user] }) })).json()).token;
 const api = async (tok, method, p, body) => {
   const r = await fetch(`${API}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -52,34 +52,34 @@ async function signIn(user, viewport, mobile) {
   await page.getByLabel(/username/i).fill(user);
   await page.getByLabel(/password/i).fill(PASS[user]);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL(user === 'dm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
+  await page.waitForURL(user === 'gm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
   return { ctx, page };
 }
 const go = async (page, p) => { await page.goto(`${W}/${p}`); await page.locator('main, .page').first().waitFor(); await page.waitForTimeout(500); };
 
 try {
-  const dmTok = await token('dm');
+  const gmTok = await token('gm');
   const jessTok = await token('jess');
   const tomTok = await token('tom');
-  const members = (await api(dmTok, 'GET', '/members')).body;
+  const members = (await api(gmTok, 'GET', '/members')).body;
   const jessId = members.find((m) => m.display_name?.toLowerCase().includes('jess') || m.username === 'jess')?.id ?? members.find((m) => m.role === 'player').id;
 
   // Pages to share: two in a folder, one alone, a classified one in the folder, and a file.
-  const put = (p, visibility, body) => api(dmTok, 'PUT', '/library/pages', { path: p, visibility, body }).then((r) => r.body);
-  const letter = await put('Handouts/Letter from the Duke.md', 'dm', 'The Duke asks for your help. Public words.');
-  const notes = await put('Handouts/Map notes.md', 'dm', 'Notes on the map.');
+  const put = (p, visibility, body) => api(gmTok, 'PUT', '/library/pages', { path: p, visibility, body }).then((r) => r.body);
+  const letter = await put('Handouts/Letter from the Duke.md', 'gm', 'The Duke asks for your help. Public words.');
+  const notes = await put('Handouts/Map notes.md', 'gm', 'Notes on the map.');
   const sealed = await put('Handouts/Sealed orders.md', 'classified', 'SEALEDTEXTXYZ never to be shared.');
-  const solo = await put('Prep/Only for Jess.md', 'dm', 'A page for one player.');
+  const solo = await put('Prep/Only for Jess.md', 'gm', 'A page for one player.');
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5]);
-  const up = await fetch(`${API}/files?page=${solo.id}&name=${encodeURIComponent('Harbour sketch.png')}&level=dm&kind=handout`, { method: 'POST', headers: { Authorization: `Bearer ${dmTok}`, 'Content-Type': 'application/octet-stream' }, body: png });
+  const up = await fetch(`${API}/files?page=${solo.id}&name=${encodeURIComponent('Harbour sketch.png')}&level=gm&kind=handout`, { method: 'POST', headers: { Authorization: `Bearer ${gmTok}`, 'Content-Type': 'application/octet-stream' }, body: png });
   const file = await up.json();
   check(up.status === 201, `file upload failed: ${up.status}`);
 
   // ---- 1. The GM: Share dialog on a page ------------------------------------
-  const dm = await signIn('dm', { width: 1280, height: 860 }, false);
-  await go(dm.page, `gm/library?page=${encodeURIComponent(solo.id)}`);
-  await dm.page.getByRole('button', { name: 'Share…' }).first().click();
-  const dlg = dm.page.getByRole('dialog', { name: /Share “Only for Jess”/ });
+  const gm = await signIn('gm', { width: 1280, height: 860 }, false);
+  await go(gm.page, `gm/library?page=${encodeURIComponent(solo.id)}`);
+  await gm.page.getByRole('button', { name: 'Share…' }).first().click();
+  const dlg = gm.page.getByRole('dialog', { name: /Share “Only for Jess”/ });
   await dlg.getByText('Only these players').waitFor({ timeout: 8000 }).catch(() => {});
   check(await dlg.isVisible(), 'the Share dialog did not open for a page');
   check(await dlg.getByText('Everyone', { exact: true }).isVisible(), 'dialog has no Everyone choice');
@@ -87,76 +87,76 @@ try {
   check(await dlg.getByText('GM only', { exact: true }).isVisible(), 'dialog has no GM only choice');
   await dlg.getByText('Only these players').click();
   await dlg.getByLabel(/jess/i).first().check();
-  await shot(dm.page, '01-share-dialog-page');
+  await shot(gm.page, '01-share-dialog-page');
   await dlg.getByRole('button', { name: /Share and tell them/ }).click();
-  await dm.page.waitForTimeout(800);
-  check(await dm.page.getByRole('dialog').count() === 0, 'dialog stayed open after sharing');
-  const ov1 = (await api(dmTok, 'GET', '/libshare/overview')).body;
+  await gm.page.waitForTimeout(800);
+  check(await gm.page.getByRole('dialog').count() === 0, 'dialog stayed open after sharing');
+  const ov1 = (await api(gmTok, 'GET', '/libshare/overview')).body;
   check(ov1.pages[solo.id]?.mode === 'players', 'the page is not shared with players after the dialog');
-  await dm.page.waitForTimeout(500);
-  check(await dm.page.locator('.shr-some').first().isVisible().catch(() => false), 'no "1 player" badge on the page');
+  await gm.page.waitForTimeout(500);
+  check(await gm.page.locator('.shr-some').first().isVisible().catch(() => false), 'no "1 player" badge on the page');
 
   // ---- 2. A folder rule, confirmed first ------------------------------------
-  await go(dm.page, 'gm/library');
-  const handouts = dm.page.getByRole('treeitem', { name: /Handouts/ }).first();
+  await go(gm.page, 'gm/library');
+  const handouts = gm.page.getByRole('treeitem', { name: /Handouts/ }).first();
   await handouts.hover();
-  const folderShare = dm.page.getByRole('button', { name: 'Share Handouts' });
+  const folderShare = gm.page.getByRole('button', { name: 'Share Handouts' });
   check(await folderShare.count() > 0, 'no Share button on the folder');
   await folderShare.first().click();
-  const fd = dm.page.getByRole('dialog', { name: /Share “Handouts”/ });
+  const fd = gm.page.getByRole('dialog', { name: /Share “Handouts”/ });
   await fd.getByText('Everyone', { exact: true }).waitFor({ timeout: 8000 });
   await fd.getByText('Everyone', { exact: true }).click();
   check((await fd.innerText()).includes('added or moved in later') || (await fd.innerText()).includes('added to this folder later'), 'the folder dialog does not say it covers what is added later');
   check(/Skipped, never shared: 1 classified/.test(await fd.innerText()), 'the folder dialog does not say the classified page is skipped');
   await fd.locator('input[type=checkbox]').last().uncheck().catch(() => {});
-  await shot(dm.page, '02-share-dialog-folder');
+  await shot(gm.page, '02-share-dialog-folder');
   await fd.getByRole('button', { name: /Yes, share the folder/ }).click();
-  await dm.page.waitForTimeout(800);
-  const ov2 = (await api(dmTok, 'GET', '/libshare/overview')).body;
+  await gm.page.waitForTimeout(800);
+  const ov2 = (await api(gmTok, 'GET', '/libshare/overview')).body;
   check(ov2.folders.some((f) => f.path === 'Handouts' && f.mode === 'party'), 'the folder rule was not saved');
   check(ov2.pages[letter.id]?.mode === 'party', 'a page in the folder is not shared');
   check(!ov2.pages[sealed.id], 'a classified page in the folder was shared');
   // A page added later is covered.
-  const later = await put('Handouts/Added later.md', 'dm', 'Added after the rule.');
-  check((await api(dmTok, 'GET', '/libshare/overview')).body.pages[later.id]?.mode === 'party', 'a page added later is not covered by the folder rule');
-  await dm.page.reload();
-  await dm.page.waitForTimeout(800);
-  check(await dm.page.locator('.shr-party').count() > 0, 'no Party badge in the library tree');
-  await shot(dm.page, '03-library-badges');
+  const later = await put('Handouts/Added later.md', 'gm', 'Added after the rule.');
+  check((await api(gmTok, 'GET', '/libshare/overview')).body.pages[later.id]?.mode === 'party', 'a page added later is not covered by the folder rule');
+  await gm.page.reload();
+  await gm.page.waitForTimeout(800);
+  check(await gm.page.locator('.shr-party').count() > 0, 'no Party badge in the library tree');
+  await shot(gm.page, '03-library-badges');
   // A whole source has a Share button too (a rule with no path); opened and closed here, not saved.
-  const srcShare = dm.page.getByRole('button', { name: 'Share Written in Alexandria' });
+  const srcShare = gm.page.getByRole('button', { name: 'Share Written in Alexandria' });
   if (check(await srcShare.count() > 0, 'no Share button on the source at the top of the tree')) {
     await srcShare.first().click();
-    const sd = dm.page.getByRole('dialog', { name: /Share “Written in Alexandria”/ });
+    const sd = gm.page.getByRole('dialog', { name: /Share “Written in Alexandria”/ });
     await sd.getByText(/in this source/).waitFor({ timeout: 8000 }).catch(() => {});
     check(/in this source/.test(await sd.innerText()), 'the whole-source dialog does not count what is in the source');
-    await dm.page.keyboard.press('Escape');
+    await gm.page.keyboard.press('Escape');
     await sd.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
     if (await sd.isVisible()) await sd.getByRole('button', { name: /close|cancel/i }).first().click().catch(() => {});
   }
 
   // ---- 3. Shared with players view ------------------------------------------
-  await dm.page.getByRole('tab', { name: /^Shared/ }).click();
-  await dm.page.waitForTimeout(500);
-  const sharedText = await dm.page.locator('.lib-side').innerText();
+  await gm.page.getByRole('tab', { name: /^Shared/ }).click();
+  await gm.page.waitForTimeout(500);
+  const sharedText = await gm.page.locator('.lib-side').innerText();
   check(sharedText.includes('Letter from the Duke') && sharedText.includes('Only for Jess'), 'the Shared view is missing items');
   check(!sharedText.includes('Sealed orders'), 'the Shared view lists the classified page');
   check(sharedText.includes('Folder rules') && sharedText.includes('Handouts'), 'the Shared view does not list the folder rule');
-  await shot(dm.page, '04-shared-view');
+  await shot(gm.page, '04-shared-view');
 
   // ---- 4. A file: Share button in the files list ----------------------------
-  await dm.page.getByRole('tab', { name: 'Files' }).click();
-  await dm.page.waitForTimeout(500);
-  check(await dm.page.locator('.lf-listrow', { hasText: 'Harbour sketch' }).getByRole('button', { name: 'Share…' }).count() === 1, 'no Share button on a file row');
-  await dm.page.locator('.lf-listrow', { hasText: 'Harbour sketch' }).getByRole('button', { name: 'Share…' }).click();
-  const fdlg = dm.page.getByRole('dialog', { name: /Share “Harbour sketch.png”/ });
+  await gm.page.getByRole('tab', { name: 'Files' }).click();
+  await gm.page.waitForTimeout(500);
+  check(await gm.page.locator('.lf-listrow', { hasText: 'Harbour sketch' }).getByRole('button', { name: 'Share…' }).count() === 1, 'no Share button on a file row');
+  await gm.page.locator('.lf-listrow', { hasText: 'Harbour sketch' }).getByRole('button', { name: 'Share…' }).click();
+  const fdlg = gm.page.getByRole('dialog', { name: /Share “Harbour sketch.png”/ });
   await fdlg.getByText('Everyone', { exact: true }).waitFor({ timeout: 8000 });
   await fdlg.getByText('Everyone', { exact: true }).click();
   check(await fdlg.getByText(/Also let them open its page/).isVisible(), 'the file dialog does not offer its page');
-  await shot(dm.page, '05-share-dialog-file');
+  await shot(gm.page, '05-share-dialog-file');
   await fdlg.getByRole('button', { name: /Share and tell them/ }).click();
-  await dm.page.waitForTimeout(800);
-  check((await api(dmTok, 'GET', '/libshare/overview')).body.files[file.id]?.mode === 'party', 'the file is not shared with everyone');
+  await gm.page.waitForTimeout(800);
+  check((await api(gmTok, 'GET', '/libshare/overview')).body.files[file.id]?.mode === 'party', 'the file is not shared with everyone');
 
   // ---- 5. Players: From the GM ----------------------------------------------
   const jess = await signIn('jess', { width: 1280, height: 860 }, false);
@@ -165,7 +165,7 @@ try {
   check(/From the GM/.test(home), 'Jess has no From the GM card on Home');
   check(/Only for Jess|Harbour sketch/.test(home), 'Jess does not see what was sent to her');
   check(await jess.page.locator('.shr-new').first().isVisible().catch(() => false), 'no "New" badge for Jess');
-  await shot(jess.page, '06-player-home-from-dm');
+  await shot(jess.page, '06-player-home-from-gm');
   await go(jess.page, 'library');
   check(/From the GM/.test(await jess.page.locator('.lib-side').innerText()), 'Jess has no From the GM section in the Library');
   const tom = await signIn('tom', { width: 1280, height: 860 }, false);
@@ -180,27 +180,27 @@ try {
   check((await api(jessTok, 'GET', `/library/pages/${solo.id}`)).status === 200, 'Jess cannot open the page shared with her');
 
   // ---- 6. Players page (GM) --------------------------------------------------
-  await api(dmTok, 'POST', '/live/ledger', { owner: 'party', amountCp: 20000, note: 'E2E party loot' });
-  await go(dm.page, 'gm/party');
-  const cards = await dm.page.locator('.pl-card').count();
+  await api(gmTok, 'POST', '/live/ledger', { owner: 'party', amountCp: 20000, note: 'E2E party loot' });
+  await go(gm.page, 'gm/party');
+  const cards = await gm.page.locator('.pl-card').count();
   const nPlayers = members.filter((m) => m.role === 'player').length;
   check(cards === nPlayers + 1, `expected ${nPlayers + 1} cards (players and the party), found ${cards}`);
-  const names = await dm.page.locator('.pl-card .pl-name').allInnerTexts();
+  const names = await gm.page.locator('.pl-card .pl-name').allInnerTexts();
   check(names[names.length - 1] === 'Party', 'the party card is not last');
-  const firstGold = await dm.page.locator('.pl-card').first().locator('.pl-gold').innerText();
-  await dm.page.locator('.pl-card').first().getByRole('button', { name: /^Give 10 gp/ }).click();
-  await dm.page.waitForTimeout(800);
-  const nextGold = await dm.page.locator('.pl-card').first().locator('.pl-gold').innerText();
+  const firstGold = await gm.page.locator('.pl-card').first().locator('.pl-gold').innerText();
+  await gm.page.locator('.pl-card').first().getByRole('button', { name: /^Give 10 gp/ }).click();
+  await gm.page.waitForTimeout(800);
+  const nextGold = await gm.page.locator('.pl-card').first().locator('.pl-gold').innerText();
   check(firstGold !== nextGold, `quick +10 gp did not change the gold (${firstGold} -> ${nextGold})`);
-  check(await dm.page.getByRole('tab', { name: 'Details and approvals' }).isVisible(), 'the Details tab is gone');
-  await shot(dm.page, '07-players-page');
+  check(await gm.page.getByRole('tab', { name: 'Details and approvals' }).isVisible(), 'the Details tab is gone');
+  await shot(gm.page, '07-players-page');
   // Live: a coin change from outside shows without a reload.
-  await api(dmTok, 'POST', '/live/ledger', { owner: jessId, amountCp: 5000, note: 'Live check' });
-  await dm.page.waitForTimeout(1500);
-  const live = await dm.page.locator(`.pl-card[data-owner="${jessId}"] .pl-gold`).innerText();
+  await api(gmTok, 'POST', '/live/ledger', { owner: jessId, amountCp: 5000, note: 'Live check' });
+  await gm.page.waitForTimeout(1500);
+  const live = await gm.page.locator(`.pl-card[data-owner="${jessId}"] .pl-gold`).innerText();
   check(live !== '' && live !== nextGold || true, 'live update');
-  await dm.ctx.close();
-  const phone = await signIn('dm', { width: 390, height: 844 }, true);
+  await gm.ctx.close();
+  const phone = await signIn('gm', { width: 390, height: 844 }, true);
   await go(phone.page, 'gm/party');
   const over = await phone.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(over <= 2, `Players page scrolls sideways on a phone by ${over}px`);
@@ -217,9 +217,9 @@ try {
   await shot(jess.page, '09-player-inventory');
 
   // ---- 8. Broker: choose how to pay -------------------------------------------
-  await api(dmTok, 'POST', '/live/ledger', { owner: jessId, amountCp: 1000, note: 'For the broker' });
-  const offer = (await api(dmTok, 'POST', '/broker/offers', { title: 'The salt road toll', teaser: 'I know a cheaper way.', info: 'Take the ferry at dawn.', priceCp: 30000, targets: 'party' })).body;
-  const offer2 = (await api(dmTok, 'POST', '/broker/offers', { title: 'A small favour', teaser: 'Cheap.', info: 'Ask the cook.', priceCp: 2500, targets: 'party' })).body;
+  await api(gmTok, 'POST', '/live/ledger', { owner: jessId, amountCp: 1000, note: 'For the broker' });
+  const offer = (await api(gmTok, 'POST', '/broker/offers', { title: 'The salt road toll', teaser: 'I know a cheaper way.', info: 'Take the ferry at dawn.', priceCp: 30000, targets: 'party' })).body;
+  const offer2 = (await api(gmTok, 'POST', '/broker/offers', { title: 'A small favour', teaser: 'Cheap.', info: 'Ask the cook.', priceCp: 2500, targets: 'party' })).body;
   await go(jess.page, 'broker');
   const pay = jess.page.locator('fieldset.pay-choice').first();
   check(await pay.isVisible(), 'no Pay from choice on the offer');
@@ -232,26 +232,26 @@ try {
   // The small one: pay from the party pouch.
   const card2 = jess.page.locator('section', { hasText: 'A small favour' }).first();
   await card2.getByText('Party pouch').first().click();
-  const before = (await api(dmTok, 'GET', '/live/ledger?owner=party')).body;
+  const before = (await api(gmTok, 'GET', '/live/ledger?owner=party')).body;
   await card2.getByRole('button', { name: /^Pay / }).click();
   await jess.page.waitForTimeout(1000);
   const afterLog = (await api(tomTok, 'GET', '/live/ledger?owner=party')).body;
   check(afterLog.entries.some((e) => /^Broker purchase \(paid by .* from the party pouch\)$/.test(e.note)) && !afterLog.entries.some((e) => /small favour/.test(e.note)), 'the party log does not show the broker payment');
   check(afterLog.cp === before.cp - 2500, `the party pouch did not drop by the price (${before.cp} -> ${afterLog.cp})`);
-  const dmOffers = (await api(dmTok, 'GET', '/broker/offers')).body;
-  check(dmOffers.find((o) => o.id === offer2.id)?.paid_from === 'party', 'the GM does not see the offer was paid from the party pouch');
+  const gmOffers = (await api(gmTok, 'GET', '/broker/offers')).body;
+  check(gmOffers.find((o) => o.id === offer2.id)?.paid_from === 'party', 'the GM does not see the offer was paid from the party pouch');
   await jess.page.reload();
   await jess.page.waitForTimeout(700);
   void offer;
   await jess.ctx.close();
   await tom.ctx.close();
-  const dm2 = await signIn('dm', { width: 1280, height: 860 }, false);
-  await go(dm2.page, 'gm/broker');
-  await dm2.page.getByRole('tab', { name: /Special offers/ }).click().catch(() => {});
-  await dm2.page.waitForTimeout(500);
-  check(/from the party pouch/.test(await dm2.page.locator('main').innerText()), 'the GM broker page does not say who paid from where');
-  await shot(dm2.page, '11-dm-broker-paid');
-  await dm2.ctx.close();
+  const gm2 = await signIn('gm', { width: 1280, height: 860 }, false);
+  await go(gm2.page, 'gm/broker');
+  await gm2.page.getByRole('tab', { name: /Special offers/ }).click().catch(() => {});
+  await gm2.page.waitForTimeout(500);
+  check(/from the party pouch/.test(await gm2.page.locator('main').innerText()), 'the GM broker page does not say who paid from where');
+  await shot(gm2.page, '11-gm-broker-paid');
+  await gm2.ctx.close();
 } catch (e) {
   problems.push('flow failed: ' + (e.stack ?? e.message).split('\n').slice(0, 3).join(' | '));
 } finally {

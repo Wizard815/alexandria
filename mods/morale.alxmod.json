@@ -27,7 +27,7 @@
       "surrender",
       "rout"
     ],
-    "dm": "Morale is on: when an enemy is surprised, loses its leader, falls to half HP with no way to win, or most of its side is down, roll a DC 10 Wisdom save for it; on a failure it flees or surrenders. Skip mindless creatures and fanatics. Suggest this when a fight is clearly won.",
+    "gm": "Morale is on: when an enemy is surprised, loses its leader, falls to half HP with no way to win, or most of its side is down, roll a DC 10 Wisdom save for it; on a failure it flees or surrenders. Skip mindless creatures and fanatics. Suggest this when a fight is clearly won.",
     "player": "Enemies at this table may run or surrender when a fight goes badly for them, so taking prisoners and scaring foes off can work."
   }
 }

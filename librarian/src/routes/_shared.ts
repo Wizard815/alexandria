@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, type Viewer, type WorldSettings } from '../core/polic
 import { parseJson } from '../core/util.ts';
 
 export const ctx = (res: Response) => res.locals.w as WorldCtx;
-export const isDM = (res: Response) => ctx(res).viewer.role === 'dm';
+export const isGM = (res: Response) => ctx(res).viewer.role === 'gm';
 export const me = (res: Response) => ctx(res).viewer.accountId;
 
 /**
@@ -16,7 +16,7 @@ export const me = (res: Response) => ctx(res).viewer.accountId;
  */
 export function readerFor(req: Request, res: Response, keepAccount = false): Viewer {
   const v = ctx(res).viewer;
-  if (v.role !== 'dm' || req.query.view !== 'players') return v;
+  if (v.role !== 'gm' || req.query.view !== 'players') return v;
   return { accountId: keepAccount ? v.accountId : '', role: 'player' };
 }
 
@@ -24,7 +24,7 @@ export function settings(res: Response): WorldSettings {
   return { ...DEFAULT_SETTINGS, ...parseJson(ctx(res).world.settings, {}) };
 }
 
-export function memberIds(db: DB, worldId: string, roles: string[] = ['dm', 'player', 'guest']): string[] {
+export function memberIds(db: DB, worldId: string, roles: string[] = ['gm', 'player', 'guest']): string[] {
   return all<{ account_id: string; role: string }>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId)
     .filter((m) => roles.includes(m.role))
     .map((m) => m.account_id);

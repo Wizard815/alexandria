@@ -15,12 +15,12 @@ interface ConfigField {
   required?: boolean; help?: string; placeholder?: string; options?: [string, string][]; secret?: boolean; default?: unknown; showIf?: Record<string, unknown>;
 }
 interface Connector { id: string; label: string; description?: string; fields: ConfigField[]; capabilities?: string[]; push?: boolean }
-interface Stats { pages?: number; shared?: number; dmOnly?: number; removed?: number; skipped?: number; records?: number }
+interface Stats { pages?: number; shared?: number; gmOnly?: number; removed?: number; skipped?: number; records?: number }
 interface PushKey { id: string; label: string; prefix: string; created_at: string; last_used_at: string | null; revoked: boolean }
 interface Run { id: string; status: 'running' | 'ok' | 'error' | 'stopped'; started_at: string; finished_at: string | null; stats: Stats; error: string | null; log?: string }
 interface Source {
   id: string; world_id: string; kind: string; connector: { id: string; label: string } | null; name: string; config: Record<string, any>;
-  default_visibility: 'dm' | 'party'; audience?: 'auto' | 'dm' | 'party'; connection?: { id: string; name: string } | null; schedule_minutes: number | null; enabled: boolean; running: boolean;
+  default_visibility: 'gm' | 'party'; audience?: 'auto' | 'gm' | 'party'; connection?: { id: string; name: string } | null; schedule_minutes: number | null; enabled: boolean; running: boolean;
   last_sync_at: string | null; last_status: string | null; last_run: Run | null; pages: number;
 }
 
@@ -84,7 +84,7 @@ function StatLine({ st }: { st: Stats }) {
     <span className="row wrap small" style={{ gap: 10 }}>
       <span><strong>{st.pages ?? 0}</strong> pages</span>
       <span className="chip teal">{st.shared ?? 0} shared</span>
-      <span className="chip red">{st.dmOnly ?? 0} GM-only</span>
+      <span className="chip red">{st.gmOnly ?? 0} GM-only</span>
       {!!st.removed && <span className="muted">{st.removed} removed</span>}
       {!!st.skipped && <span className="muted">{st.skipped} skipped</span>}
       {!!st.records && <span className="muted">{st.records} relations, timelines, calendars and markers</span>}
@@ -134,7 +134,7 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
       ) : null}
       {!s.running && last?.status === 'error' && <ErrorBox error={last.error} />}
       <div className="row small muted wrap">
-        <span>Players see: {s.audience === 'dm' ? 'nothing (GM only)' : s.audience === 'party' ? 'everything from it (shared with players)' : s.default_visibility === 'party' ? 'what the source shows its players (follows the source)' : 'nothing until a page is marked shared (follows the source)'}</span>
+        <span>Players see: {s.audience === 'gm' ? 'nothing (GM only)' : s.audience === 'party' ? 'everything from it (shared with players)' : s.default_visibility === 'party' ? 'what the source shows its players (follows the source)' : 'nothing until a page is marked shared (follows the source)'}</span>
         {s.connection && <span>· Connection: {s.connection.name}</span>}
         {connector?.fields.some((f) => f.key === 'trustPostVisibility') && <span>· Posts: {s.config.trustPostVisibility ? 'Kanka visibility' : 'all GM-only'}</span>}
       </div>
@@ -159,7 +159,7 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
               <tbody>{runs.map((r) => (
                 <tr key={r.id}>
                   <td>{when(r.started_at)}</td><td><span className={`chip ${statusChip(r.status)}`}>{r.status}</span></td><td>{duration(r)}</td>
-                  <td>{r.stats.pages ?? 0}</td><td>{r.stats.shared ?? 0}</td><td>{r.stats.dmOnly ?? 0}</td><td>{r.stats.removed ?? 0}</td><td>{r.stats.skipped ?? 0}</td>
+                  <td>{r.stats.pages ?? 0}</td><td>{r.stats.shared ?? 0}</td><td>{r.stats.gmOnly ?? 0}</td><td>{r.stats.removed ?? 0}</td><td>{r.stats.skipped ?? 0}</td>
                   <td><button type="button" className="btn small" onClick={() => void api<Run>('GET', `/runs/${r.id}`).then(setLogRun)}>Log</button></td>
                 </tr>
               ))}</tbody>
@@ -299,7 +299,7 @@ function SourceForm({ worldId, connectors, source, onClose, onDone }: { worldId:
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void a.run(async () => {
-      const body = { name, config: config(), defaultVisibility: share ? 'party' : 'dm', scheduleMinutes: sched ? Number(sched) : null };
+      const body = { name, config: config(), defaultVisibility: share ? 'party' : 'gm', scheduleMinutes: sched ? Number(sched) : null };
       if (source) await client.request('PATCH', `/api/admin/sources/${source.id}`, body);
       else await client.request('POST', `/api/admin/worlds/${worldId}/sources`, { kind, ...body });
       onDone(source ? `Saved ${name}` : c?.push ? `Added ${name}. Make a key so your tool can push to it.` : `Added ${name}. Press Sync now to import it.`);

@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { hasJob, withPriority } from '../../core/ai.ts';
 import { all, run } from '../../core/db.ts';
 import { HttpError, int } from '../../core/util.ts';
@@ -47,17 +47,17 @@ const feature: Feature = {
       res.json(await assembleBible(d, c.world.id, c.viewer, { subject: str(req.query.subject), kind: str(req.query.kind, 20), q: str(req.query.q, 200), limit: int(req.query.limit, 'limit', { min: 1, max: 1000, optional: true }) ?? undefined }));
     });
 
-    r.get('/status', requireDM, (_req, res) => {
+    r.get('/status', requireGM, (_req, res) => {
       const w = ctx(res).world.id;
       res.json({ chat: hasJob(d, 'bible'), building: bulkRunning(d, w), runs: bibleRuns(d.db, w), reading: mayRead(d.db, w), now: bibleNow(w), log: bibleLog(w), failed: bibleFailed().length, embedded: embedded(w), ...bibleCoverage(d, w) });
     });
 
-    r.post('/refresh', requireDM, async (_req, res) => {
+    r.post('/refresh', requireGM, async (_req, res) => {
       res.json(await syncBible(d, { maxPages: 50, worldId: ctx(res).world.id }));
     });
 
     // "Read a few now": started, not waited for (a page can take half a minute). The status says how it goes.
-    r.post('/read-now', requireDM, (req, res) => {
+    r.post('/read-now', requireGM, (req, res) => {
       if (!hasJob(d, 'bible')) throw new HttpError(503, 'No model is set for the story bible or chat (Admin → Models)');
       const w = ctx(res).world.id;
       // Everything waiting, in one bulk pass (several pages at once), tracked as a job.
@@ -69,7 +69,7 @@ const feature: Feature = {
       void withPriority(0, () => syncBible(d, { maxPages: 25, worldId: w, signal: ctl.signal })).catch(() => {}).finally(() => { if (manual.get(w) === ctl) manual.delete(w); });
       res.status(202).json({ ok: true });
     });
-    r.post('/stop', requireDM, (_req, res) => {
+    r.post('/stop', requireGM, (_req, res) => {
       const w = ctx(res).world.id;
       manual.get(w)?.abort();
       stopRunning(w);
@@ -78,9 +78,9 @@ const feature: Feature = {
     });
 
     // Checks that need no model: waiting, failed and empty pages, facts whose subject the page never names, the same page read several times.
-    r.get('/audit', requireDM, (_req, res) => { res.json(auditBible(d, ctx(res).world.id)); });
+    r.get('/audit', requireGM, (_req, res) => { res.json(auditBible(d, ctx(res).world.id)); });
     // Forget what was written from these pages, so they are read again.
-    r.post('/reread', requireDM, (req, res) => {
+    r.post('/reread', requireGM, (req, res) => {
       const w = ctx(res).world.id;
       const ids: unknown = req.body?.pageIds;
       if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'pageIds must be a list of up to 500 page ids');
@@ -91,7 +91,7 @@ const feature: Feature = {
       res.json({ ok: true, pages: n });
     });
 
-    r.post('/rebuild', requireDM, (_req, res) => {
+    r.post('/rebuild', requireGM, (_req, res) => {
       const w = ctx(res).world.id;
       run(d.db, 'DELETE FROM bible_facts WHERE world_id = ?', w);
       run(d.db, 'DELETE FROM bible_state WHERE world_id = ?', w);

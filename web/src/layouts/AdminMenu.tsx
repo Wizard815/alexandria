@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
-import './dmmenu.css';
+import './gmmenu.css';
 import { ADMIN_GROUPS, ADMIN_NAMES, type AdminGroupId } from '../lib/adminnames.ts';
 
 export interface AdminEntry { to: string; label: string; icon: string; desc: string; group: AdminGroupId | 'top' }

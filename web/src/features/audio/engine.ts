@@ -46,7 +46,7 @@ const HOP_MS = 5000;
 const OVERLAP_MS = 3000;
 const safe = <T,>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
 
-interface Cfg { baseUrl: string; token: string; worldId: string; isDM: boolean }
+interface Cfg { baseUrl: string; token: string; worldId: string; isGM: boolean }
 
 /**
  * Open the saved microphone. Some browsers hand out new device ids from one start to the next (WebKit in the desktop
@@ -310,7 +310,7 @@ class Engine {
     this.startedAt = Date.parse(startedAt);
     this.lastSession = sessionId;
     this.set({ recording: true, sessionId, error: null });
-    if (!this.state.consent && !this.cfg?.isDM) return; // starts once they agree
+    if (!this.state.consent && !this.cfg?.isGM) return; // starts once they agree
     void this.startStt();
     for (const s of this.loadMics()) if (s.enabled && s.serverId && s.mode !== 'off' && !this.runners.has(s.serverId)) {
       const r = new Runner(this, s);

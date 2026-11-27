@@ -55,7 +55,7 @@ function WorldMirror({ w, onChanged, toast }: { w: MirrorWorld; onChanged: () =>
   return (
     <Section
       title={<span className="row wrap" style={{ gap: 10 }}>{w.name} <Pill tone={w.failures ? 'bad' : w.exists ? 'ok' : 'warn'}>{!w.exists ? 'No folder yet' : w.failures ? `${w.failures} failed cop${w.failures === 1 ? 'y' : 'ies'}` : 'Complete'}</Pill></span>}
-      lead={<><span className="mono">{w.folder ?? 'no data folder'}</span> · {w.exists ? `last written ${ago(w.lastWrittenAt)}` : 'nothing written'} · {w.view === 'dm' ? 'you are its GM' : 'counts only: you are not its GM'}</>}
+      lead={<><span className="mono">{w.folder ?? 'no data folder'}</span> · {w.exists ? `last written ${ago(w.lastWrittenAt)}` : 'nothing written'} · {w.view === 'gm' ? 'you are its GM' : 'counts only: you are not its GM'}</>}
       actions={<button type="button" className="btn small" disabled={a.busy} onClick={rewrite}>{a.busy && !a.offline ? 'Rewriting…' : 'Rewrite mirror'}</button>}
     >
       <ErrorBox error={a.error} />

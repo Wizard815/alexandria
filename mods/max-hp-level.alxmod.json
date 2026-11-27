@@ -28,6 +28,6 @@
       "hit dice"
     ],
     "player": "When they level up at this table: roll the Hit Die, and if the roll is under the average (d6 4, d8 5, d10 6, d12 7) take the average, then add the Constitution modifier.",
-    "dm": "Level-up HP here: roll the Hit Die and keep the higher of the roll and the average, plus Constitution."
+    "gm": "Level-up HP here: roll the Hit Die and keep the higher of the roll and the average, plus Constitution."
   }
 }

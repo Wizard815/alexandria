@@ -63,18 +63,18 @@ function drawFog() {
     const scene = canvas?.scene;
     const f = scene?.getFlag?.(ID, 'fog');
     if (!scene || !f?.enabled) return;
-    const dm = canvas.dimensions;
+    const gm = canvas.dimensions;
     const w = 256;
-    const h = Math.max(1, Math.round((w * dm.sceneHeight) / dm.sceneWidth));
+    const h = Math.max(1, Math.round((w * gm.sceneHeight) / gm.sceneWidth));
     const el = document.createElement('canvas');
     el.width = w; el.height = h;
     const g = el.getContext('2d');
     // The GM sees it as a tint, players as solid fog.
     g.putImageData(new ImageData(fogPixels(f, w, h, game.user.isGM ? 0.45 : 1), w, h), 0, 0);
     fogSprite = new PIXI.Sprite(PIXI.Texture.from(el));
-    fogSprite.position.set(dm.sceneX, dm.sceneY);
-    fogSprite.width = dm.sceneWidth;
-    fogSprite.height = dm.sceneHeight;
+    fogSprite.position.set(gm.sceneX, gm.sceneY);
+    fogSprite.width = gm.sceneWidth;
+    fogSprite.height = gm.sceneHeight;
     fogSprite.eventMode = 'none';
     fogSprite.name = 'alexandria-fog';
     canvas.stage.addChild(fogSprite);

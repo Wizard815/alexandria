@@ -6,7 +6,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Modal, Switch, useAction } from '../../ui/index.tsx';
 import { useNet } from '../../lib/net.ts';
 import { CopyButton } from '../../lib/copy.tsx';
-import { SHARE_CSS, ShareDialog as DMShareDialog } from '../libshare/Share.tsx';
+import { SHARE_CSS, ShareDialog as GMShareDialog } from '../libshare/Share.tsx';
 import { mergeCopies, type PageRow } from '../../pages/library/treeModel.ts';
 
 interface Share { from?: string; to: string; toName: string; fromName: string; kind: string; mine?: boolean }
@@ -43,12 +43,12 @@ export function ShareHost() {
     window.addEventListener(EVENT, f);
     return () => window.removeEventListener(EVENT, f);
   }, [loc.pathname, params]);
-  if (one) return <><style>{SHARE_CSS}</style><DMShareDialog key={one.id} target={{ kind: 'page', ...one }} onClose={() => setOne(null)} /></>;
+  if (one) return <><style>{SHARE_CSS}</style><GMShareDialog key={one.id} target={{ kind: 'page', ...one }} onClose={() => setOne(null)} /></>;
   return start ? <ShareDialog key={start.join()} start={start} pick onClose={() => setStart(null)} /> : null;
 }
 
 function ShareDialog({ start, pick = false, onClose }: { start: string[]; pick?: boolean; onClose: () => void }) {
-  const { w, members, me, isDM, info } = useWorld();
+  const { w, members, me, isGM, info } = useWorld();
   const [ids, setIds] = useState(start);
   const [q, setQ] = useState('');
   const [to, setTo] = useState<string[]>([]);
@@ -65,7 +65,7 @@ function ShareDialog({ start, pick = false, onClose }: { start: string[]; pick?:
   // An imported or second copy of this page that the party can read already.
   const otherCopy = single ? rows.find((r) => r.copies?.some((c) => c.id === single))?.copies?.some((c) => c.id !== single && c.visibility === 'party') : false;
   const s = single ? state.data : null;
-  const mineTo = (id: string) => s?.shares.find((x) => x.to === id && (isDM || x.mine));
+  const mineTo = (id: string) => s?.shares.find((x) => x.to === id && (isGM || x.mine));
   const set = (id: string, on: boolean) => act.run(async () => {
     if (on) await w.call('POST', path(single!), { to: id === 'party' ? 'party' : [id] });
     else await w.call('DELETE', `${path(single!)}?to=${encodeURIComponent(id)}`);
@@ -101,7 +101,7 @@ function ShareDialog({ start, pick = false, onClose }: { start: string[]; pick?:
             return <label key={p.id} className="row between"><span>{p.label}</span><Switch checked={on} onChange={(v) => void set(p.id, v)} label={`Share with ${p.label}`} /></label>;
           })}
           {!players.length && <span className="small muted">No players in this world yet.</span>}
-          {s.shares.filter((x) => !isDM && !x.mine).map((x) => <span key={`${x.from}-${x.to}`} className="tiny muted">{x.toName}: shared by {x.fromName}, who can stop it</span>)}
+          {s.shares.filter((x) => !isGM && !x.mine).map((x) => <span key={`${x.from}-${x.to}`} className="tiny muted">{x.toName}: shared by {x.fromName}, who can stop it</span>)}
         </div>)}
       {ids.length > 1 && (
         <div className="stack tight">

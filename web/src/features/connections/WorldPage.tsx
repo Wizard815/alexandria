@@ -17,12 +17,12 @@ import {
 
 interface Overview {
   world: { id: string; slug: string; name: string };
-  sources: Source[]; levels: { party: number; broker: number; dm: number; classified: number }; pages: number;
-  embeddings: { configured: boolean; model: string | null; location: string | null; dmChunks: number; partyChunks: number; chunks: number; pages: { eligible: number; indexed: number; pending: number }; scopes?: Record<string, { eligible: number; indexed: number; pending: number; chunks: number }> };
+  sources: Source[]; levels: { party: number; broker: number; gm: number; classified: number }; pages: number;
+  embeddings: { configured: boolean; model: string | null; location: string | null; gmChunks: number; partyChunks: number; chunks: number; pages: { eligible: number; indexed: number; pending: number }; scopes?: Record<string, { eligible: number; indexed: number; pending: number; chunks: number }> };
   crawl: Crawl | null; crawling: boolean; status?: WorldStatus;
 }
 
-const LEVELS: [keyof Overview['levels'], string, string][] = [['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'GM only', 'red'], ['classified', 'Classified', 'red']];
+const LEVELS: [keyof Overview['levels'], string, string][] = [['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['gm', 'GM only', 'red'], ['classified', 'Classified', 'red']];
 const statusChip = (s: string | null | undefined) => (s === 'ok' ? 'green' : s === 'error' ? 'red' : s === 'running' ? 'gold' : '');
 
 export default function WorldPage() {
@@ -129,7 +129,7 @@ function EmbeddingsBox({ e }: { e: Overview['embeddings'] }) {
   );
 }
 
-const SCOPE_LABEL: [string, string][] = [['dm', 'GM copy'], ['broker', 'Broker copy'], ['party', 'Player copy'], ['lifted', 'Shared with some']];
+const SCOPE_LABEL: [string, string][] = [['gm', 'GM copy'], ['broker', 'Broker copy'], ['party', 'Player copy'], ['lifted', 'Shared with some']];
 const EMBED_TEXT: Record<string, string> = { waiting: 'Waiting for the library', running: 'Embedding', done: 'Done', 'no-model': 'No embeddings model set: library only', error: 'Stopped on an error', cancelled: 'Cancelled' };
 
 function CrawlPanel({ crawl, live, onLog }: { crawl: Crawl; live: Progress['levels']; onLog: () => void }) {
@@ -249,7 +249,7 @@ function AudienceDialog({ s, onClose, onDone }: { s: Source; onClose: () => void
   const [aud, setAud] = useState<Audience>(s.audience);
   const [ok, setOk] = useState(false);
   const a = useAction();
-  const save = () => a.run(async () => { await client.request('PATCH', `/api/admin/sources/${s.id}`, { audience: aud, ...(aud === 'party' ? { confirmParty: true } : {}) }); onDone(`${s.name}: ${aud === 'dm' ? 'GM only' : aud === 'party' ? 'shared with players' : 'follows the source'}. The player copies were rebuilt.`); });
+  const save = () => a.run(async () => { await client.request('PATCH', `/api/admin/sources/${s.id}`, { audience: aud, ...(aud === 'party' ? { confirmParty: true } : {}) }); onDone(`${s.name}: ${aud === 'gm' ? 'GM only' : aud === 'party' ? 'shared with players' : 'follows the source'}. The player copies were rebuilt.`); });
   return (
     <Modal title={`Audience · ${s.name}`} onClose={onClose}>
       <div className="stack">

@@ -5,9 +5,9 @@ import './chat.css';
 
 const feature: WebFeature = {
   id: 'sessionchat',
-  dmRoutes: [{ path: 'chat', element: <ChatPage /> }],
+  gmRoutes: [{ path: 'chat', element: <ChatPage /> }],
   playerRoutes: [{ path: 'chat', element: <ChatPage /> }],
-  dmNav: [{ to: 'chat' }],
+  gmNav: [{ to: 'chat' }],
   playerNav: [{ to: 'chat', label: 'Session chat', icon: 'fa-comments' }],
   overlay: ChatOverlay,
 };

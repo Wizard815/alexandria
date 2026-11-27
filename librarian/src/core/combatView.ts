@@ -9,7 +9,7 @@ import { parseJson } from './util.ts';
 export function combatViewFor(db: DB, worldId: string, v: Viewer, s: WorldSettings) {
   const state = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', worldId) ?? { active: 0, round: 1, turn: 0 };
   const list = all<any>(db, 'SELECT * FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', worldId);
-  if (v.role === 'dm') return { active: !!state.active, round: state.round, turn: state.turn, combatants: list.map((x) => ({ ...x, effects: parseJson(x.effects, []), hidden: !!x.hidden, is_pc: !!x.is_pc, temp_hp: x.temp_hp ?? 0, concentration: parseJson(x.concentration, null), death_saves: parseJson(x.death_saves, null) })) };
+  if (v.role === 'gm') return { active: !!state.active, round: state.round, turn: state.turn, combatants: list.map((x) => ({ ...x, effects: parseJson(x.effects, []), hidden: !!x.hidden, is_pc: !!x.is_pc, temp_hp: x.temp_hp ?? 0, concentration: parseJson(x.concentration, null), death_saves: parseJson(x.death_saves, null) })) };
   const shown = list.filter((x) => !x.hidden);
   const current = list[state.turn % Math.max(list.length, 1)];
   const myTurn = !!state.active && current?.account_id === v.accountId;

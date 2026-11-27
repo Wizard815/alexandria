@@ -20,7 +20,7 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--models-port', String(MODELS_PORT), '--data', path.join(tmpDir('templates'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tok = await login('dm', 'game master 123');
+const tok = await login('gm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tok } })).json())[0].id;
 const api = async (m, p, b, t = tok) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t }, body: b ? JSON.stringify(b) : undefined }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 
@@ -32,7 +32,7 @@ const watch = (page, who) => {
 
 try {
   await api('PATCH', '/settings', { agentAuto: false });
-  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
+  const { page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1400, height: 900 });
   watch(page, 'desktop');
 
   // ---- the page is in the GM menu ----
@@ -147,7 +147,7 @@ try {
   check((await api('GET', '/templates', undefined, ptok)).status === 403, 'a player must not read templates');
 
   // ---- phone width ----
-  const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
+  const ph = await signIn(browser, base, 'gm', 'game master 123', { width: 390, height: 844 }, true);
   watch(ph.page, 'phone');
   await ph.page.goto(`${W}/gm/templates`);
   await ph.page.getByRole('heading', { name: 'Templates & guides' }).waitFor({ timeout: 10000 });

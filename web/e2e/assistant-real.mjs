@@ -21,7 +21,7 @@ try {
   const prov = (await j('POST', '/api/admin/models/providers', admin, { name: 'OpenRouter', kind: 'openai-compatible', baseUrl: OR, apiKey: KEY, location: 'cloud' })).x;
   const pid = prov.provider?.id ?? prov.id;
   await j('PUT', '/api/admin/models', admin, { jobs: { chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } } } });
-  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
+  const tok = (await j('POST', '/api/auth/login', null, { username: 'gm', password: 'game master 123' })).x.token;
   const WID = (await j('GET', '/api/worlds', tok)).x[0].id;
   const P = `/api/worlds/${WID}`;
   const chat = (await j('POST', `${P}/agent/chats`, tok, {})).x;

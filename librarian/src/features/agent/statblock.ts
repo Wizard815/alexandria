@@ -128,7 +128,7 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
   let source: { kind: string; ref: string; title: string };
   if ('pageId' in src) {
     // The page goes to a model: the AI copy, which never has classified content.
-    const pg: any = d.library.get(worldId, src.pageId, viewer.role === 'dm' ? { ...viewer, audience: 'ai' } : viewer);
+    const pg: any = d.library.get(worldId, src.pageId, viewer.role === 'gm' ? { ...viewer, audience: 'ai' } : viewer);
     user = `Library page "${pg.title}":\n\n${String(pg.body ?? '').slice(0, 8000)}\n\nBuild the creature's statblock from this page. Use any numbers the page gives; fill in what is missing to fit the creature.`;
     source = { kind: 'page', ref: pg.id, title: pg.title };
   } else {
@@ -149,7 +149,7 @@ export function saveStatblockPage(d: Deps, worldId: string, accountId: string, s
   const base = `Statblocks/${sb.name.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim() || 'Creature'}`;
   let path = `${base}.md`;
   for (let n = 2; one(d.db, 'SELECT 1 FROM pages WHERE world_id = ? AND path = ?', worldId, path); n++) path = `${base} ${n}.md`;
-  const frontmatter: Record<string, any> = { title: sb.name, kind: 'statblock', tags: ['statblock'], visibility: 'dm', source: source.kind === 'module' ? `module ${source.ref}` : source.kind };
+  const frontmatter: Record<string, any> = { title: sb.name, kind: 'statblock', tags: ['statblock'], visibility: 'gm', source: source.kind === 'module' ? `module ${source.ref}` : source.kind };
   if (source.attribution) frontmatter.attribution = source.attribution;
-  return d.library.save(worldId, { path, title: sb.name, body: statblockMarkdown(sb), frontmatter, visibility: 'dm' }, accountId);
+  return d.library.save(worldId, { path, title: sb.name, body: statblockMarkdown(sb), frontmatter, visibility: 'gm' }, accountId);
 }

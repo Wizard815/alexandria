@@ -108,10 +108,10 @@ function TierRow({ t, onChanged }: { t: TierInfo; onChanged: () => void }) {
 
 /** GM only: how much of a library page has been read from its source. Shows nothing for a page read in full. */
 export function DepthBadge({ pageId }: { pageId: string }) {
-  const { w, isDM } = useWorld();
-  const d = useLoad<{ depths: Record<string, string> }>(() => (isDM ? w.call('GET', '/world-sources/depths') : Promise.resolve({ depths: {} })), [w, isDM, pageId]);
+  const { w, isGM } = useWorld();
+  const d = useLoad<{ depths: Record<string, string> }>(() => (isGM ? w.call('GET', '/world-sources/depths') : Promise.resolve({ depths: {} })), [w, isGM, pageId]);
   const v = d.data?.depths?.[pageId];
-  if (!isDM || !v) return null;
+  if (!isGM || !v) return null;
   const text = v === 'index' ? 'Listed only' : v === 'summary' ? 'Excerpt only' : 'Changed at source';
   return <span className="chip" title="Pages are read from their source when opened; this view is from before that.">{text}</span>;
 }

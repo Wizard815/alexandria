@@ -19,19 +19,19 @@ export interface Saved {
 }
 
 /** Write bytes as a library file of a page, the way an upload does (GM level unless told otherwise). */
-function addFile(d: Deps, worldId: string, pageId: string, by: string, f: { name: string; kind: 'map' | 'other'; level: 'dm' | 'party'; mime: string; bytes: Uint8Array }) {
+function addFile(d: Deps, worldId: string, pageId: string, by: string, f: { name: string; kind: 'map' | 'other'; level: 'gm' | 'party'; mime: string; bytes: Uint8Array }) {
   if (!d.dataDir) throw new HttpError(503, 'This server has no data folder for files');
   const fid = newId('lf_');
   const dir = path.join(d.dataDir, 'libfiles', worldId);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, fid), f.bytes);
   run(d.db, 'INSERT INTO libfiles_files (id, world_id, page_id, name, kind, level, mime, family, size, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', fid, worldId, pageId, f.name, f.kind, f.level, f.mime, 'image', f.bytes.length, by, now());
-  d.hub.emit(worldId, 'libfile', { pageId }, (v: any) => v.role === 'dm' || f.level === 'party');
+  d.hub.emit(worldId, 'libfile', { pageId }, (v: any) => v.role === 'gm' || f.level === 'party');
   return { id: fid, name: f.name, kind: f.kind, level: f.level, mime: f.mime };
 }
 
 export function saveOut(d: Deps, worldId: string, accountId: string, out: Out, o: { level?: string; path?: string } = {}): Saved {
-  const level: 'dm' | 'party' = o.level === 'party' ? 'party' : 'dm';
+  const level: 'gm' | 'party' = o.level === 'party' ? 'party' : 'gm';
   if (level === 'party') {
     // Whatever players could read is checked against what only the GM may know.
     const hit = firstLeak(makeCtx(d, worldId, false, {}), publicText(out));
@@ -47,10 +47,10 @@ export function saveOut(d: Deps, worldId: string, accountId: string, out: Out, o
   const m = out.map_result;
   if (m) {
     // A party copy has none of the GM's marks (secret doors, traps, hazards).
-    const dmView = level === 'dm';
+    const gmView = level === 'gm';
     const base = cleanSeg(out.title);
-    files.push(addFile(d, worldId, page.id, accountId, { name: `${base}${dmView ? ' (GM)' : ''}.png`, kind: 'map', level, mime: 'image/png', bytes: toPng(m.canvas, { dm: dmView }) }));
-    files.push(addFile(d, worldId, page.id, accountId, { name: `${base}${dmView ? ' (GM)' : ''}.svg`, kind: 'other', level, mime: 'image/svg+xml', bytes: Buffer.from(toSvg(m.canvas, { dm: dmView, title: out.title })) }));
+    files.push(addFile(d, worldId, page.id, accountId, { name: `${base}${gmView ? ' (GM)' : ''}.png`, kind: 'map', level, mime: 'image/png', bytes: toPng(m.canvas, { gm: gmView }) }));
+    files.push(addFile(d, worldId, page.id, accountId, { name: `${base}${gmView ? ' (GM)' : ''}.svg`, kind: 'other', level, mime: 'image/svg+xml', bytes: Buffer.from(toSvg(m.canvas, { gm: gmView, title: out.title })) }));
   }
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, 'generators.save', `${out.kind} ${page.path} ${level}`.slice(0, 500), now());
   return { page: { id: page.id, path: page.path, title: page.title, level }, files };

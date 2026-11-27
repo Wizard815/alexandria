@@ -27,13 +27,13 @@ async function world(fetchImpl?: typeof fetch) {
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (m: string, p: string, t?: string, b?: unknown) => { const r = await fetch(base + p, { method: m, headers: { 'content-type': 'application/json', ...(t ? { authorization: `Bearer ${t}` } : {}) }, body: b === undefined ? undefined : JSON.stringify(b) }); return { status: r.status, json: await r.json().catch(() => null) as any }; };
   const admin = (await call('POST', '/api/setup', undefined, { username: 'admin', password: 'library admin 123' })).json.token;
-  const dmA = (await call('POST', '/api/admin/accounts', admin, { username: 'dm', password: 'dm password 123' })).json.account.id;
-  const dm = (await call('POST', '/api/auth/login', undefined, { username: 'dm', password: 'dm password 123' })).json.token;
-  const W = (await call('POST', '/api/admin/worlds', admin, { name: 'Pictureland', dmAccountId: dmA })).json.id;
-  const inv = (await call('POST', `/api/worlds/${W}/invites`, dm, { role: 'player' })).json;
+  const gmA = (await call('POST', '/api/admin/accounts', admin, { username: 'gm', password: 'gm password 123' })).json.account.id;
+  const gm = (await call('POST', '/api/auth/login', undefined, { username: 'gm', password: 'gm password 123' })).json.token;
+  const W = (await call('POST', '/api/admin/worlds', admin, { name: 'Pictureland', gmAccountId: gmA })).json.id;
+  const inv = (await call('POST', `/api/worlds/${W}/invites`, gm, { role: 'player' })).json;
   const jess = (await call('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).json.token;
   const close = () => { server.close(); server.closeAllConnections?.(); };
-  return { deps, base, call, dm, dmA, jess, W, close };
+  return { deps, base, call, gm, gmA, jess, W, close };
 }
 
 test('TestKnowledge_EntryPicturesFollowThePageAndSecrets', () => {
@@ -52,10 +52,10 @@ test('TestKnowledge_EntryPicturesFollowThePageAndSecrets', () => {
   assert.deepEqual(r.map((x) => [x.url, x.visibility, !!x.inline, x.later]), [
     ['https://img.example/mira.png', 'party', false, true],
     ['https://img.example/a.png', 'party', true, true],
-    ['https://img.example/s.png', 'dm', true, true],
+    ['https://img.example/s.png', 'gm', true, true],
   ], 'banner first, each address once, a secret picture is the GM\'s, no script address, maps left to the connector');
   assert.ok(r.every((x) => x.pageRef === 'kanka:7' && x.externalId.startsWith('kanka:7#pic:')));
-  assert.ok(entryPictures({ ...e, visibility: 'dm' }).every((x: any) => x.visibility === 'dm'), 'a GM-only page gives only GM pictures');
+  assert.ok(entryPictures({ ...e, visibility: 'gm' }).every((x: any) => x.visibility === 'gm'), 'a GM-only page gives only GM pictures');
 });
 
 test('TestKnowledge_PicturesAreStoredAndServedHere', async () => {
@@ -82,13 +82,13 @@ test('TestKnowledge_PicturesAreStoredAndServedHere', async () => {
     saveRecords(deps.db, W, 's1', entryPictures(e));
     assert.equal(waitingPictures(deps.db, { worldId: W }), 4);
     // Nothing is served before it is downloaded: the page still shows the source's addresses.
-    let pg = (await w.call('GET', `/api/worlds/${W}/library/pages/${one<any>(deps.db, "SELECT id FROM pages WHERE external_id = 'p1'").id}`, w.dm)).json;
+    let pg = (await w.call('GET', `/api/worlds/${W}/library/pages/${one<any>(deps.db, "SELECT id FROM pages WHERE external_id = 'p1'").id}`, w.gm)).json;
     assert.equal(pg.banner, 'https://img.example/mira.png');
     const q = await drainPictures({ db: deps.db, fetch: fake, env: {} }, 's1');
     assert.deepEqual([q.downloaded, q.failed], [3, 1]);
     assert.ok(asked.length === 4, 'one request a picture');
     const pid = one<any>(deps.db, "SELECT id FROM pages WHERE external_id = 'p1'").id;
-    pg = (await w.call('GET', `/api/worlds/${W}/library/pages/${pid}`, w.dm)).json;
+    pg = (await w.call('GET', `/api/worlds/${W}/library/pages/${pid}`, w.gm)).json;
     assert.match(pg.banner, /^\/api\/media\/intake\//, 'the banner is served from here');
     assert.ok(pg.pictures[0].primary && pg.pictures[0].url === pg.banner, 'the banner copy is the primary picture');
     assert.equal(pg.pictures.length, 1, 'pictures in the text are not listed in the gallery');
@@ -103,7 +103,7 @@ test('TestKnowledge_PicturesAreStoredAndServedHere', async () => {
     assert.match(pj.banner, /^\/api\/media\/intake\//);
     assert.ok(!JSON.stringify(pj.blocks).includes('secret.png'));
     const sec = one<any>(deps.db, "SELECT id, visibility FROM intake_images WHERE url LIKE '%secret.png'");
-    assert.equal(sec.visibility, 'dm');
+    assert.equal(sec.visibility, 'gm');
     // Failing pictures are given up after MAX_TRIES and not asked for again.
     for (let i = 0; i < MAX_TRIES + 2; i++) await drainPictures({ db: deps.db, fetch: fake, env: {} }, 's1');
     assert.equal(asked.filter((u) => u.endsWith('broken.png')).length, MAX_TRIES);
@@ -146,9 +146,9 @@ test('TestKnowledge_RelinkMendsCodexLinks', async () => {
   try {
     const { deps, W } = w;
     enable(deps, W, null);
-    run(deps.db, "INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'push', 'Kanka', '{}', 'dm')", W);
-    deps.library.saveEntry(W, 's1', null, { externalId: 'k1', title: 'Captain Vex', type: 'character', visibility: 'dm', blocks: [] }, null);
-    deps.library.saveEntry(W, 's1', null, { externalId: 'k2', title: 'Old Mill', type: 'location', visibility: 'dm', blocks: [] }, null);
+    run(deps.db, "INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'push', 'Kanka', '{}', 'gm')", W);
+    deps.library.saveEntry(W, 's1', null, { externalId: 'k1', title: 'Captain Vex', type: 'character', visibility: 'gm', blocks: [] }, null);
+    deps.library.saveEntry(W, 's1', null, { externalId: 'k2', title: 'Old Mill', type: 'location', visibility: 'gm', blocks: [] }, null);
     const vex = one<any>(deps.db, "SELECT id FROM pages WHERE external_id = 'k1'").id;
     const made = codexUpsert(deps, W, { entity: vex, section: 'notes', text: 'Owes the party a favour.' });
     assert.match(readPage(deps, W, made.rel)!.body, /Library: \[\[Captain Vex\]\]/);
@@ -161,7 +161,7 @@ test('TestKnowledge_RelinkMendsCodexLinks', async () => {
     assert.match(readPage(deps, W, made.rel)!.body, /Library: \[\[Admiral Vex\]\]/);
     // Removed and added again under a new id: found again by its codex title or alias.
     run(deps.db, 'DELETE FROM pages WHERE id = ?', vex);
-    deps.library.saveEntry(W, 's1', null, { externalId: 'k9', title: 'Captain Vex', type: 'character', visibility: 'dm', blocks: [] }, null);
+    deps.library.saveEntry(W, 's1', null, { externalId: 'k9', title: 'Captain Vex', type: 'character', visibility: 'gm', blocks: [] }, null);
     r = relinkCodex(deps, W);
     assert.equal(r.relinked, 1);
     assert.equal(readPage(deps, W, made.rel)!.fm.entity, one<any>(deps.db, "SELECT id FROM pages WHERE external_id = 'k9'").id);
@@ -180,10 +180,10 @@ test('TestKnowledge_RefreshWorldRunsEveryStep', async () => {
     enable(deps, W, null);
     assert.equal((await w.call('POST', `/api/worlds/${W}/knowledge/refresh`, w.jess, {})).status, 403, 'the GM refreshes');
     assert.equal((await w.call('GET', `/api/worlds/${W}/knowledge`, w.jess)).status, 403);
-    const s = await w.call('POST', `/api/worlds/${W}/knowledge/refresh`, w.dm, {});
+    const s = await w.call('POST', `/api/worlds/${W}/knowledge/refresh`, w.gm, {});
     assert.equal(s.status, 202);
     let st: any;
-    for (let i = 0; i < 100; i++) { st = (await w.call('GET', `/api/worlds/${W}/knowledge`, w.dm)).json; if (!st.running) break; await new Promise((r) => setTimeout(r, 50)); }
+    for (let i = 0; i < 100; i++) { st = (await w.call('GET', `/api/worlds/${W}/knowledge`, w.gm)).json; if (!st.running) break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(st.running, false);
     assert.equal(st.refresh.status, 'ok');
     assert.deepEqual(st.refresh.steps.map((x: any) => [x.id, x.state]), [['sources', 'skipped'], ['pictures', 'done'], ['index', 'skipped'], ['minerva', 'done']]);

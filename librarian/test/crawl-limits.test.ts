@@ -261,7 +261,7 @@ async function boot(env: Record<string, string> = {}) {
     return conn;
   };
   const world = async (name: string, conn: any) => {
-    const wid = (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
+    const wid = (await ok('POST', '/api/admin/worlds', { name, gmAccountId: a.account.id })).id as string;
     const src = await ok('POST', `/api/admin/worlds/${wid}/sources`, { connectionId: conn.id, kind: 'api', name, config: {}, defaultVisibility: 'party' });
     const sync = () => ok('POST', `/api/admin/sources/${src.id}/sync?wait=1`, {});
     return { wid, sid: src.id as string, sync };
@@ -363,13 +363,13 @@ test('RateLimit_TheFirstScanIsSpreadOverTheWindowAndNeverAboveTheLimit', async (
 
 // ---- opening a page you may not see costs nothing -----------------------------------------------------------------------------------
 
-test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', async () => {
+test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheGmSpendsOne', async () => {
   const t = await boot({ ALX_CRAWL_RATE: '0' });
   const conn = await t.connection({});
   const w = await t.world('On-demand world', conn);
   await w.sync();
-  const dmView = { accountId: t.accountId, role: 'dm' as const };
-  const idOf = (title: string) => (t.deps.library.list(w.wid, dmView) as any[]).find((p) => p.title === title).id as string;
+  const gmView = { accountId: t.accountId, role: 'gm' as const };
+  const idOf = (title: string) => (t.deps.library.list(w.wid, gmView) as any[]).find((p) => p.title === title).id as string;
   const depth = (id: string) => one<any>(t.deps.db, 'SELECT depth FROM pages WHERE id = ?', id).depth;
   const hidden = idOf('No visibility known');
   const priv = idOf('Private index');
@@ -404,7 +404,7 @@ test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', 
 
 // ---- the GM is told when a page they opened is waiting for the site ----------------------------------------------------------------
 
-test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheDm_AndABackgroundOnlyWaitDoesNot', async () => {
+test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheGm_AndABackgroundOnlyWaitDoesNot', async () => {
   const clock = fakeClock();
   const t = await boot();
   site.now = () => clock.t;

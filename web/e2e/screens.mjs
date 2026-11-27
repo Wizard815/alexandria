@@ -27,8 +27,8 @@ const SECRET_FOE = 'ZZ-HIDDEN-AMBUSHER';
 const HIDDEN_MARK = 'ZZ-HIDDEN-PARTY-PIN';
 
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { ctx, page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -37,7 +37,7 @@ try {
 
   // What the table must never show: a GM-only pin, a party pin the GM hid, a hidden foe, and a monster's AC and temp HP.
   const info = (await api('GET', '')).json;
-  await api('POST', '/map/world/marks', { kind: 'pin', x: 40, y: 40, label: SECRET_PIN, visibility: 'dm' });
+  await api('POST', '/map/world/marks', { kind: 'pin', x: 40, y: 40, label: SECRET_PIN, visibility: 'gm' });
   await api('POST', '/map/world/marks', { kind: 'pin', x: 55, y: 55, label: 'Open Gate', visibility: 'party' });
   const hid = (await api('POST', '/map/world/marks', { kind: 'pin', x: 60, y: 30, label: HIDDEN_MARK, visibility: 'party' })).json;
   await api('PATCH', `/map/world/marks/${hid.id}`, { hidden: true });
@@ -152,7 +152,7 @@ try {
   check(requests.some((u) => /\/marks\?view=players/.test(u)), 'table: never asked for the players\' marks');
   note(`table: ${reads.filter((u) => u.includes('view=players')).length} player-view reads, GM-only text absent`);
   // Even after the GM changes things live, nothing new leaks in.
-  await api('POST', '/map/world/marks', { kind: 'note', x: 20, y: 70, text: `${SECRET_PIN} note`, visibility: 'dm' });
+  await api('POST', '/map/world/marks', { kind: 'note', x: 20, y: 70, text: `${SECRET_PIN} note`, visibility: 'gm' });
   await api('POST', '/live/combatants', { name: `${SECRET_FOE} 2`, initiative: 3, hp: 9, maxHp: 9, hidden: true });
   await settle(table, 1200);
   await looksSafe('after live changes');

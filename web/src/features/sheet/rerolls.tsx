@@ -6,17 +6,17 @@ import { useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import { ErrorBox, Field, Switch, useAction, useToast } from '../../ui/index.tsx';
 
-export type RerollKind = 'personal' | 'party' | 'dm';
-export type Rerolls = { on: false } | { on: true; cap: number; personal: number; party: number; dm: number };
+export type RerollKind = 'personal' | 'party' | 'gm';
+export type Rerolls = { on: false } | { on: true; cap: number; personal: number; party: number; gm: number };
 export const REROLL: Record<RerollKind, { label: string; short: string; icon: string; help: string }> = {
   personal: { label: 'Personal re-roll', short: 'Me', icon: 'fa-dice-d20', help: 'Re-roll one of your own rolls.' },
   party: { label: 'Everyone re-roll', short: 'All', icon: 'fa-people-group', help: 'Re-roll anyone’s roll at the table, yours or a friend’s.' },
-  dm: { label: 'GM re-roll', short: 'GM', icon: 'fa-hat-wizard', help: 'Make the GM re-roll one of their rolls.' },
+  gm: { label: 'GM re-roll', short: 'GM', icon: 'fa-hat-wizard', help: 'Make the GM re-roll one of their rolls.' },
 };
-const KINDS: RerollKind[] = ['personal', 'party', 'dm'];
+const KINDS: RerollKind[] = ['personal', 'party', 'gm'];
 
 /** The re-roll module: tokens per kind, Use for the player, give and take back for the GM. */
-export function RerollMod({ account, r, dm, onChanged }: { account: string; r: Rerolls; dm: boolean; onChanged: () => void }) {
+export function RerollMod({ account, r, gm, onChanged }: { account: string; r: Rerolls; gm: boolean; onChanged: () => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [why, setWhy] = useState('');
@@ -30,13 +30,13 @@ export function RerollMod({ account, r, dm, onChanged }: { account: string; r: R
           <i className={`fa-solid ${REROLL[k].icon} faint`} aria-hidden="true" />
           <span className="grow stack" style={{ gap: 0 }}><span className="small">{REROLL[k].label}</span><span className="tiny faint">{REROLL[k].help}</span></span>
           <span className="sht-tokens" aria-label={`${r[k]} of ${r.cap}`}>{Array.from({ length: r.cap }, (_, i) => <span key={i} className={i < r[k] ? 'on' : ''} />)}</span>
-          {dm ? <>
+          {gm ? <>
             <button type="button" className="btn small ghost" disabled={act.busy || r[k] === 0} aria-label={`Take back a ${REROLL[k].label}`} onClick={() => void go(k, -1)}>−</button>
             <button type="button" className="btn small" disabled={act.busy || r[k] >= r.cap} aria-label={`Give a ${REROLL[k].label}`} onClick={() => void go(k, 1)}>＋</button>
           </> : <button type="button" className="btn small" disabled={act.busy || r[k] === 0} aria-label={`Use a ${REROLL[k].label}`} onClick={() => void go(k, -1)}>Use</button>}
         </li>
       ))}</ul>
-      {dm && <input className="sht-in" placeholder="For what? (logged, e.g. a great speech)" aria-label="Reason" value={why} maxLength={200} onChange={(e) => setWhy(e.target.value)} />}
+      {gm && <input className="sht-in" placeholder="For what? (logged, e.g. a great speech)" aria-label="Reason" value={why} maxLength={200} onChange={(e) => setWhy(e.target.value)} />}
     </div>
   );
 }
@@ -45,7 +45,7 @@ export function RerollMod({ account, r, dm, onChanged }: { account: string; r: R
 export function RerollChips({ r }: { r: Rerolls }) {
   if (!r.on) return null;
   return (
-    <span className="tiny faint row" style={{ gap: 6 }} aria-label={`Re-rolls: personal ${r.personal}, everyone ${r.party}, GM ${r.dm}`}>
+    <span className="tiny faint row" style={{ gap: 6 }} aria-label={`Re-rolls: personal ${r.personal}, everyone ${r.party}, GM ${r.gm}`}>
       {KINDS.map((k) => <span key={k} title={REROLL[k].label}><i className={`fa-solid ${REROLL[k].icon}`} aria-hidden="true" /> {r[k]}</span>)}
     </span>
   );
@@ -53,12 +53,12 @@ export function RerollChips({ r }: { r: Rerolls }) {
 
 /** World settings → Player sheets. */
 export function SheetSettings() {
-  const { w, info, isDM, reloadInfo } = useWorld();
+  const { w, info, isGM, reloadInfo } = useWorld();
   const s: any = info.settings;
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [cap, setCap] = useState(String(s.sheetRerollCap ?? 3));
-  if (!isDM) return null;
+  if (!isGM) return null;
   const save = (patch: Record<string, unknown>) => act.run(async () => { await w.updateSettings(patch); await reloadInfo(); toast('Saved'); });
   return (
     <div className="stack">

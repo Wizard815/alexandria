@@ -20,7 +20,7 @@ const WORLD = '11111111-1111-4111-8111-111111111111';
 const PLAYERS = 'aaaaaaaa-0000-4000-8000-000000000001';
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const date = (d: string) => ({ date: `${d} 10:00:00.000000`, timezone: 'UTC', timezone_type: 3 });
-const dmViewer = { accountId: 'a', role: 'dm' as const };
+const gmViewer = { accountId: 'a', role: 'gm' as const };
 
 // ---- unit: BBCode and visibility -----------------------------------------------------------------------------------------
 
@@ -43,8 +43,8 @@ test('TestWorldAnvil_BBCodeKeepsTextAndHidesSecretsSubcontainersAndComments', ()
 --Population::300--
 [url:https://example.com]a site[/url] [img:42] [noparse][b]raw[/b][/noparse]`;
   const blocks = waBlocks(bb, { groups, secret: (id) => secrets[id], image: (id) => (id === '42' ? 'https://www.worldanvil.com/uploads/images/gate.png' : undefined) });
-  const dm = blocksToMarkdown(blocks);
-  for (const w of ['History', '**old**', 'HIDDENHEIR', 'REVEALED', 'SUBDM', 'SUBPARTY', 'FOLLOWERS', 'AUTHORNOTE', 'Orc', 'Fear the dark', 'Population:', '[a site](https://example.com)', 'gate.png', '\\[b\\]raw']) assert.ok(dm.includes(w), `the GM sees ${w}:\n${dm}`);
+  const gm = blocksToMarkdown(blocks);
+  for (const w of ['History', '**old**', 'HIDDENHEIR', 'REVEALED', 'SUBDM', 'SUBPARTY', 'FOLLOWERS', 'AUTHORNOTE', 'Orc', 'Fear the dark', 'Population:', '[a site](https://example.com)', 'gate.png', '\\[b\\]raw']) assert.ok(gm.includes(w), `the GM sees ${w}:\n${gm}`);
   const mention = JSON.stringify(blocks).includes(`"ref":"wa:${uid(5)}"`);
   assert.ok(mention, 'the mention points at the article');
   const pl = blocksToMarkdown(playerBlocks(blocks, () => false));
@@ -162,7 +162,7 @@ async function boot() {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r.body;
   };
-  const wid = (await ok('POST', '/api/admin/worlds', { name: 'Realm', dmAccountId: a.account.id })).id as string;
+  const wid = (await ok('POST', '/api/admin/worlds', { name: 'Realm', gmAccountId: a.account.id })).id as string;
   const addPlayer = async () => {
     const inv = await ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
     return (await call('POST', '/api/join', null, { code: inv.code, username: 'jess' + Math.random().toString(36).slice(2, 6), password: 'player pass 123', characterName: 'Jess' })).body.token as string;
@@ -183,7 +183,7 @@ const readAll = async (t: Awaited<ReturnType<typeof boot>>, sid: string) => {
 };
 const row = (t: Awaited<ReturnType<typeof boot>>, title: string) => one<any>(t.deps.db, 'SELECT * FROM pages WHERE world_id = ? AND title = ?', t.wid, title);
 
-test('TestWorldAnvil_ImportsAWorldInTiersAndKeepsDmContentFromPlayers', async () => {
+test('TestWorldAnvil_ImportsAWorldInTiersAndKeepsGmContentFromPlayers', async () => {
   reset();
   imgCalls.length = 0;
   const t = await boot();
@@ -201,7 +201,7 @@ test('TestWorldAnvil_ImportsAWorldInTiersAndKeepsDmContentFromPlayers', async ()
 
   // Markers and timelines came with the listing.
   const markers = all<any>(t.deps.db, 'SELECT * FROM intake_markers WHERE source_id = ? ORDER BY external_id', sid);
-  assert.deepEqual(markers.map((m) => [m.name, m.latitude, m.longitude, m.visibility]), [['Keep', 200, 100, 'party'], ['Lair', 6, 5, 'dm']]);
+  assert.deepEqual(markers.map((m) => [m.name, m.latitude, m.longitude, m.visibility]), [['Keep', 200, 100, 'party'], ['Lair', 6, 5, 'gm']]);
   assert.equal(markers[0].ref, `wa:${uid(1)}`);
   const tl = all<any>(t.deps.db, 'SELECT * FROM intake_timelines WHERE source_id = ?', sid);
   assert.equal(tl.length, 1);
@@ -215,7 +215,7 @@ test('TestWorldAnvil_ImportsAWorldInTiersAndKeepsDmContentFromPlayers', async ()
   assert.ok(mira.body.includes('SECRETDM') && mira.body.includes('SECRETPARTY') && mira.body.includes('SEEDDM'), 'the GM has every secret');
   assert.equal(mira.kind, 'location');
   assert.ok(JSON.stringify(mira).includes('The Grey'), 'template fields are facts');
-  for (const [title, vis] of [['Article 1', 'party'], ['Secret Lord', 'dm'], ['Party Notes', 'party'], ['Draft Idea', 'dm'], ['Villains', 'dm'], ['People', 'party'], ['Realm Map', 'party']] as const) assert.equal(row(t, title).visibility, vis, title);
+  for (const [title, vis] of [['Article 1', 'party'], ['Secret Lord', 'gm'], ['Party Notes', 'party'], ['Draft Idea', 'gm'], ['Villains', 'gm'], ['People', 'party'], ['Realm Map', 'party']] as const) assert.equal(row(t, title).visibility, vis, title);
 
   // A player: no private, draft or secret words anywhere.
   const tok = await t.addPlayer();

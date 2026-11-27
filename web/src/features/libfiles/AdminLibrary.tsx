@@ -17,7 +17,7 @@ class AdminWorldClient extends WorldClient {
   subscribe(_on: (e: LiveEvent) => void) { return () => {}; }
 }
 
-interface AdminWorld { id: string; name: string; slug: string; pages: number; role: string | null; view: 'dm' | 'party' }
+interface AdminWorld { id: string; name: string; slug: string; pages: number; role: string | null; view: 'gm' | 'party' }
 
 export default function AdminLibrary() {
   const { client, me } = useAuth();
@@ -28,7 +28,7 @@ export default function AdminLibrary() {
   const cur = list.find((w) => w.id === world || w.slug === world) ?? null;
 
   // With no world in the address, open the first one this admin is the GM of, else the first.
-  if (!world && list.length) return <Navigate to={`/admin/library/${(list.find((w) => w.view === 'dm') ?? list[0]).id}`} replace />;
+  if (!world && list.length) return <Navigate to={`/admin/library/${(list.find((w) => w.view === 'gm') ?? list[0]).id}`} replace />;
 
   return (
     <div className="page wide adm-lib">
@@ -37,7 +37,7 @@ export default function AdminLibrary() {
           <label className="adm-lib-pick"><span className="sr-only">World</span>
             <select value={cur?.id ?? ''} onChange={(e) => nav(`/admin/library/${e.target.value}`)} aria-label="World">
               {!cur && <option value="">Pick a world…</option>}
-              {list.map((w) => <option key={w.id} value={w.id}>{w.name}{w.view === 'dm' ? ' (you are the GM)' : ''}</option>)}
+              {list.map((w) => <option key={w.id} value={w.id}>{w.name}{w.view === 'gm' ? ' (you are the GM)' : ''}</option>)}
             </select>
           </label>
         )}
@@ -47,7 +47,7 @@ export default function AdminLibrary() {
       {worlds.data && !list.length && <div className="empty">There are no worlds yet. Make one under Worlds.</div>}
       {cur && (
         <>
-          {cur.view === 'dm'
+          {cur.view === 'gm'
             ? <div className="adm-lib-who"><Pill tone="teal">GM view</Pill> <span className="small muted">You are the GM of {cur.name}, so you see every level and can upload files.</span></div>
             : <Callout tone="warn">You are not the GM of {cur.name}. Being an admin does not open a world's secrets, so this shows only the party copy: pages and files shared with the players. Uploads are off.</Callout>}
           <AdminWorldView key={cur.id} w={cur} client={client} accountId={me?.account.id ?? ''} />
@@ -60,8 +60,8 @@ export default function AdminLibrary() {
 function AdminWorldView({ w, client, accountId }: { w: AdminWorld; client: AlexandriaClient; accountId: string }) {
   const wc = useMemo(() => new AdminWorldClient(client, w.id), [client, w.id]);
   const value = useMemo<WorldState>(() => {
-    const info: WorldInfo = { id: w.id, slug: w.slug, name: w.name, role: w.view === 'dm' ? 'dm' : 'player', settings: {} as any };
-    return { w: wc, info, members: [], me: accountId, isDM: w.view === 'dm', readOnly: true, nameOf: () => '', on: () => () => {}, reloadInfo: async () => {}, connected: false };
+    const info: WorldInfo = { id: w.id, slug: w.slug, name: w.name, role: w.view === 'gm' ? 'gm' : 'player', settings: {} as any };
+    return { w: wc, info, members: [], me: accountId, isGM: w.view === 'gm', readOnly: true, nameOf: () => '', on: () => () => {}, reloadInfo: async () => {}, connected: false };
   }, [wc, w, accountId]);
   useEffect(() => { document.title = `Library · ${w.name}`; }, [w.name]);
   return <StaticWorldProvider value={value}><LibraryPage embedded /></StaticWorldProvider>;

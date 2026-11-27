@@ -172,7 +172,7 @@ Settings:
   `["Feudal Japan: history, folklore, customs"]`.
 - `brokerSiteUrl`, `brokerSiteLabel`: an optional link to the world's site,
   shown on the player broker page only when the URL is http(s).
-- In the config, `unknown`: `dm` (the GM prices it) or `refuse` (turned
+- In the config, `unknown`: `gm` (the GM prices it) or `refuse` (turned
   away; the GM still sees the question, with status `noted`).
 
 ### Approvals (`/api/worlds/:world/approvals`)
@@ -189,7 +189,7 @@ alert the player, who can mark them right or dispute them.
 | POST | `/:id/ack` | player | "Looks right" |
 | POST | `/:id/dispute` | player | `{reason}` |
 
-Settings: `playerChangesNeedApproval` and `dmChangeReason` (the GM must
+Settings: `playerChangesNeedApproval` and `gmChangeReason` (the GM must
 give a reason when changing a player's things). `GET /` also lists recent
 `transfers` (free gives; nothing to approve) and `counts.transfers` unseen.
 
@@ -219,7 +219,7 @@ Items take `image`: an upload id or an `https://` link.
 ### Library sharing (`/api/worlds/:world/libshare`)
 
 One answer for every page, file and folder: who can see it. `party` (everyone),
-`players` (chosen players only) or `dm`. Per-player page shares use the page
+`players` (chosen players only) or `gm`. Per-player page shares use the page
 shares of `features/sourcekeys`; a file share is its own row; a folder rule
 covers the pages and files in a folder, including ones added or moved in later
 (read live, so nothing goes stale). A rule with an empty path covers a whole
@@ -230,7 +230,7 @@ items are refused until their level is changed, and a folder rule skips both.
 |---|---|---|---|
 | GET | `/overview` | GM | `players[]`, `pages{id: {mode, to, via}}` (pages shared by a share or rule), `files{id: {mode, to, via}}` (every file), `folders[]` (the rules) and `shared[]` (everything players can open now) |
 | GET | `/preview` | GM | `?kind=page\|file\|folder&id=` (folder: `&sourceId=&path=`, or `&whole=1` for a whole source): counts, what is skipped, whether the page has classified text or parts players will not see |
-| PUT | `/share` | GM | `{kind: page\|file\|folder, id \| sourceId+path (or sourceId+whole: true), mode: party\|players\|dm (folder: also off), players?, notify?, confirm?, withPage?, withFiles?}`. A folder, or an item with classified text, answers 409 `needsConfirm` until `confirm: true`. `notify` records it as new from the GM and sends a `libshare-new` event to the people it is for. |
+| PUT | `/share` | GM | `{kind: page\|file\|folder, id \| sourceId+path (or sourceId+whole: true), mode: party\|players\|gm (folder: also off), players?, notify?, confirm?, withPage?, withFiles?}`. A folder, or an item with classified text, answers 409 `needsConfirm` until `confirm: true`. `notify` records it as new from the GM and sends a `libshare-new` event to the people it is for. |
 | GET | `/new` | player, GM | What was sent or shared with this player (checked again on every read), newest first, with `isNew`; the GM gets the send log |
 | POST | `/seen` | player | Marks everything seen |
 
@@ -246,7 +246,7 @@ shop's visible lines, the keeper's public card; a hidden shop is a 404.
 | GET | `/config` | player, GM | `{approval, sellBack, sellPct, partyPay, coins, kinds, sizes}` (GM also `model, types, rarities`) |
 | GET | `/items` | GM | `?q=&type=&rarity=&source=&tag=&limit=&offset=` → `{total, all, items[], sources[], tags[]}`. The first call seeds the SRD items. |
 | GET | `/items/:iid` | GM | One item |
-| POST | `/items` | GM | `{name, type?, category?, rarity?, cost? ("15 gp") or costCp?, weight?, description?, properties?, attunement?, tags?, dmNotes?}`; 409 on a name already there |
+| POST | `/items` | GM | `{name, type?, category?, rarity?, cost? ("15 gp") or costCp?, weight?, description?, properties?, attunement?, tags?, gmNotes?}`; 409 on a name already there |
 | PATCH | `/items/:iid` | GM | The fields to change |
 | POST | `/items/:iid/duplicate` | GM | `{name?}` → a custom copy |
 | DELETE | `/items/:iid` | GM | Also removes its stock lines |
@@ -254,13 +254,13 @@ shop's visible lines, the keeper's public card; a hidden shop is a 404.
 | POST | `/items/import` | GM | `{type: module, module}` \| `{type: json, json}` \| `{type: csv, csv}`, plus `onDuplicate: skip\|update`, `preview`, and for files `source`, `sourceLabel`, `attribution` → `{added, updated, skipped, errors[], sample[], duplicates[]}` |
 | GET | `/items/export` | GM | `?format=json\|csv` |
 | GET | `/shops` | player, GM | The list (players: open and closed shops only) |
-| GET | `/shops/:sid` | player, GM | One shop; the GM's has `keeper.secret`, `haggle`, `dmNotes`, hidden lines and line `dmNote`s |
-| POST | `/shops` | GM | `{name, kind, description?, keeper?, locationPageId?, markupPct?, haggle?, dmNotes?, status?, restock?: {rule: manual\|days, days}, sellPct?, townId?, goldCp? (null: never runs out), barterPct? (0-90), stock?: [{itemId, qty? (null: unlimited), priceCp?, hidden?, dmNote?}]}` |
+| GET | `/shops/:sid` | player, GM | One shop; the GM's has `keeper.secret`, `haggle`, `gmNotes`, hidden lines and line `gmNote`s |
+| POST | `/shops` | GM | `{name, kind, description?, keeper?, locationPageId?, markupPct?, haggle?, gmNotes?, status?, restock?: {rule: manual\|days, days}, sellPct?, townId?, goldCp? (null: never runs out), barterPct? (0-90), stock?: [{itemId, qty? (null: unlimited), priceCp?, hidden?, gmNote?}]}` |
 | PATCH | `/shops/:sid` | GM | The fields to change |
 | POST | `/shops/:sid/status` | GM | `{status: hidden\|closed\|open}` |
 | DELETE | `/shops/:sid` | GM | 409 while purchases wait |
 | POST | `/shops/:sid/stock` | GM | One line or `{items: [...]}`; an item already stocked adds to its line |
-| PATCH/DELETE | `/shops/:sid/stock/:stid` | GM | `{qty?, baseQty?, priceCp?, hidden?, dmNote?}` |
+| PATCH/DELETE | `/shops/:sid/stock/:stid` | GM | `{qty?, baseQty?, priceCp?, hidden?, gmNote?}` |
 | POST | `/shops/:sid/restock` | GM | Every line back to its usual quantity |
 | POST | `/shops/:sid/stage` | GM | `{show}`: the stock as a stage card (shown on the players' TV with `show: true`) |
 | POST | `/shops/:sid/keeper-page` | GM | Save the keeper as a GM-only NPC page and link it |
@@ -275,8 +275,8 @@ shop's visible lines, the keeper's public card; a hidden shop is a 404.
 | POST | `/shops/:sid/deals` | GM | `{accountId, stockId? (blank: the whole shop), pct (1-90), days? (blank: until used), note?}` |
 | DELETE | `/shops/:sid/deals/:did` | GM | Cancel a deal |
 | POST | `/shops/:sid/present` | GM | `{to: [accountId] \| 'all', message?, open?}`: the shop pops up on those players' screens (live event `shop-present`). 409 for a hidden or closed shop unless `open: true`, which opens it |
-| GET | `/towns` | GM | Towns with `pricePct`, `prices` (in words), `size`, `description`, `dmNotes`, `shops` |
-| POST | `/towns` | GM | `{name, size?, pricePct? (-90..500), description?, dmNotes?, locationPageId?, shopIds?}` |
+| GET | `/towns` | GM | Towns with `pricePct`, `prices` (in words), `size`, `description`, `gmNotes`, `shops` |
+| POST | `/towns` | GM | `{name, size?, pricePct? (-90..500), description?, gmNotes?, locationPageId?, shopIds?}` |
 | PATCH/DELETE | `/towns/:tid` | GM | Change a town (its shops' prices follow live); deleting leaves its shops at their own prices |
 | GET | `/orders` | player, GM | Players: their own; GM: all (`?status=pending`) |
 | POST | `/orders/:oid` | GM | `{action: approve\|reject, priceCp?}` (`priceCp`: a sale's total) |

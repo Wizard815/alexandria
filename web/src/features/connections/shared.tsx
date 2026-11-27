@@ -21,7 +21,7 @@ export interface Connection {
   id: string; name: string; kind: string; connector: { id: string; label: string } | null; config: Record<string, any>; notes: string;
   sources: number; worlds: number; usage?: { source_id: string; source_name: string; world_id: string; world_name: string }[];
 }
-export type Audience = 'auto' | 'dm' | 'party';
+export type Audience = 'auto' | 'gm' | 'party';
 export interface Run { id: string; status: 'running' | 'ok' | 'error' | 'stopped'; started_at: string; finished_at: string | null; stats: Record<string, number>; error: string | null }
 export interface Source {
   id: string; world_id: string; kind: string; connector: { id: string; label: string } | null; name: string; config: Record<string, any>;
@@ -32,7 +32,7 @@ export interface Progress {
   phase: 'sync' | 'embed' | 'done'; sources: { total: number; done: number; current: string | null }; fetched: number; saved: number; skipped: number; removed: number;
   calls?: { index: number; detail: number }; depth?: { index: number; summary: number; full: number };
   tiers?: { sourceId: string; name: string; pages: number; read: number; indexCalls: number; budget: number; paused: boolean; fetchAll: boolean }[];
-  errors: number; errorSamples: string[]; levels: { party: number; broker: number; dm: number; classified: number };
+  errors: number; errorSamples: string[]; levels: { party: number; broker: number; gm: number; classified: number };
   embedding: { state: 'waiting' | 'running' | 'done' | 'no-model' | 'error' | 'cancelled'; model: string | null; pagesTotal: number; pagesDone: number; chunks: number };
 }
 export interface Crawl { id: string; world_id: string; mode: 'crawl' | 'reindex'; status: 'running' | 'ok' | 'error' | 'stopped'; progress: Progress; error: string | null; started_at: string; finished_at: string | null; running: boolean }
@@ -42,7 +42,7 @@ export const scheduleLabel = (m: number | null) => SCHEDULES.find(([k]) => k ===
 
 export const AUDIENCES: { id: Audience; label: string; chip: string; text: string }[] = [
   { id: 'auto', label: 'Follows the source', chip: '', text: 'Use the source’s own visibility flags and levels. Anything it does not clearly share stays GM-only. This is the safe default.' },
-  { id: 'dm', label: 'GM only', chip: 'red', text: 'Everything from this source is GM-only, whatever the source says.' },
+  { id: 'gm', label: 'GM only', chip: 'red', text: 'Everything from this source is GM-only, whatever the source says.' },
   { id: 'party', label: 'Shared with players', chip: 'teal', text: 'Everything from this source may be shown to players. Use it when the connection already uses a player-level key (for example a Kanka member token that only sees public entries). Secret blocks, broker and classified parts of a page are still hidden.' },
 ];
 export function AudienceChip({ a }: { a: Audience }) {

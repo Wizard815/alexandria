@@ -94,8 +94,8 @@ async function prepareOldDatabase(file: string, dataDir: string) {
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const post = async (p: string, token: string | null, body: unknown) => (await (await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })).json()) as any;
   const setup = await post('/api/setup', null, { username: 'wizard', password: 'correct horse battery' });
-  const world = await post('/api/admin/worlds', setup.token, { name: 'Old World', dmAccountId: setup.account.id });
-  for (let i = 0; i < 30; i++) made.deps.library.save(world.id, { path: `Page ${i}.md`, title: `Page ${i}`, body: `# Page ${i}\n\nText of page ${i}. [[Page ${(i + 1) % 30}]]`, visibility: i % 2 ? 'party' : 'dm' }, null, { batch: true });
+  const world = await post('/api/admin/worlds', setup.token, { name: 'Old World', gmAccountId: setup.account.id });
+  for (let i = 0; i < 30; i++) made.deps.library.save(world.id, { path: `Page ${i}.md`, title: `Page ${i}`, body: `# Page ${i}\n\nText of page ${i}. [[Page ${(i + 1) % 30}]]`, visibility: i % 2 ? 'party' : 'gm' }, null, { batch: true });
   made.deps.library.rebuildPlayerCopies(world.id);
   // An old database: no version marker for the copies.
   run(made.deps.db, `DELETE FROM search_meta WHERE key = 'levels_version'`);

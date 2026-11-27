@@ -9,10 +9,10 @@ import { hasJob, transcribe, speak, ModelUnavailable, withPriority } from '../..
 import { buildHint } from '../audio/hint.ts';
 import { all, one, run } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { HttpError, int, now, oneOf, str } from '../../core/util.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
 import { budgetFor, describeCall, emitAction, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
 import { ALWAYS_ASK } from './auto.ts';
@@ -42,15 +42,15 @@ function routes(d: import('../../app.ts').Deps) {
 
   /** Who is asking, and with which token the tools will run. */
   const caller = (req: any, res: any): Caller => {
-    const dm = isDM(res);
-    if (!dm && (ctx(res).viewer.role !== 'player' || featureSetting<boolean>(settings(res), 'agentPlayerChat') === false)) throw new HttpError(403, 'The player assistant is not available to you in this world');
-    return { worldId: W(res), worldName: ctx(res).world.name, accountId: me(res), viewer: ctx(res).viewer, harness: dm ? 'dm' : 'player', token: bearer(req), port: req.socket.localPort, settings: settings(res) };
+    const gm = isGM(res);
+    if (!gm && (ctx(res).viewer.role !== 'player' || featureSetting<boolean>(settings(res), 'agentPlayerChat') === false)) throw new HttpError(403, 'The player assistant is not available to you in this world');
+    return { worldId: W(res), worldName: ctx(res).world.name, accountId: me(res), viewer: ctx(res).viewer, harness: gm ? 'gm' : 'player', token: bearer(req), port: req.socket.localPort, settings: settings(res) };
   };
   const needModel = () => { if (!hasJob(d, 'chat')) throw new HttpError(503, 'No chat model is set (Admin → Models), so the assistant cannot answer.'); };
 
   r.get('/status', (_req, res) => {
     const s = settings(res);
-    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isDM(res) ? 'dm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isDM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [], auto: isDM(res) && featureSetting<boolean>(s, 'agentAuto') === true, alwaysAsk: isDM(res) ? ALWAYS_ASK : [] });
+    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isGM(res) ? 'gm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isGM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [], auto: isGM(res) && featureSetting<boolean>(s, 'agentAuto') === true, alwaysAsk: isGM(res) ? ALWAYS_ASK : [] });
   });
 
   // ---- chats ----
@@ -128,7 +128,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   // Talk to the assistant: a short recording from the chat's mic button, turned into text by the world's own speech
   // model (the audio job), never a browser or cloud dictation service. The text goes back to the box to send.
-  r.post('/dictate', requireDM, express.raw({ type: ['audio/*', 'video/webm', 'application/octet-stream'], limit: 8 * 1024 * 1024 }), async (req, res) => {
+  r.post('/dictate', requireGM, express.raw({ type: ['audio/*', 'video/webm', 'application/octet-stream'], limit: 8 * 1024 * 1024 }), async (req, res) => {
     const c = ctx(res);
     if (!Buffer.isBuffer(req.body) || req.body.length < 100) throw new HttpError(400, 'Send the recording as the request body');
     if (!hasJob(d, 'audio')) throw new HttpError(503, 'No speech model is set (Admin, Models: the audio job)');
@@ -143,7 +143,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   // Read a reply aloud on the GM's own device: the text goes to the world's own text-to-speech model (the voice job) and the
   // audio comes back to the caller only. It is never played to the table; the GM-only text of a reply stays on the GM's device.
-  r.post('/speak', requireDM, async (req, res) => {
+  r.post('/speak', requireGM, async (req, res) => {
     const text = speakable(str(req.body?.text, 'text', { max: 20000 }));
     if (!text) throw new HttpError(400, 'There is nothing to read aloud');
     if (!hasJob(d, 'voice')) throw new HttpError(503, 'No voice model is set (Admin, Models: the voice job)');
@@ -170,7 +170,7 @@ function routes(d: import('../../app.ts').Deps) {
     const page = str(req.body?.page, 'page', { max: 300, optional: true });
     const selection = str(req.body?.selection, 'selection', { max: 3000, optional: true });
     // /takeover, /auto music on and the like: Active mode's own commands, no model needed.
-    const cmdReply = who.harness === 'dm' ? tryChatCommand(d, W(res), text) : null;
+    const cmdReply = who.harness === 'gm' ? tryChatCommand(d, W(res), text) : null;
     if (cmdReply !== null) {
       addMessage(d.db, chat.id, 'user', text, {});
       if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
@@ -179,7 +179,7 @@ function routes(d: import('../../app.ts').Deps) {
       return res.status(202).json(chatView(d.db, chat.id));
     }
     // Dice, the date, "next turn" and the like are answered by a rule, so they work with no model at all.
-    const fast = fastPlan(text, who.harness === 'dm');
+    const fast = fastPlan(text, who.harness === 'gm');
     if (!fast) needModel();
     if (one(d.db, `SELECT 1 FROM agent_messages WHERE chat_id = ? AND status = 'working' AND created_at > ?`, chat.id, new Date(Date.now() - 10 * 60_000).toISOString())) throw new HttpError(409, 'The assistant is still answering the last message');
     const { messages: history, summary } = historyFor(d, chat.id, budgetFor(d).history);
@@ -188,7 +188,7 @@ function routes(d: import('../../app.ts').Deps) {
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
     // The GM's questions go before players' when the model server is busy (core/ai.ts, the queue).
     void withPriority(
-      who.harness === 'dm' ? 2 : 1,
+      who.harness === 'gm' ? 2 : 1,
       () => runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast }),
       // Queued behind other requests to the same model: the asker sees "Waiting for the model (N ahead)".
       (ahead) => d.hub.emit(who.worldId, 'agent', { chatId: chat.id, messageId: reply.id, kind: 'queue', ahead, text: `Waiting for the model (${ahead} ahead)` }, only(who.accountId)),
@@ -208,7 +208,7 @@ function routes(d: import('../../app.ts').Deps) {
   });
 
   // ---- pending actions (GM) ----
-  r.get('/actions', requireDM, (req, res) => {
+  r.get('/actions', requireGM, (req, res) => {
     const st = typeof req.query.status === 'string' ? req.query.status : 'pending';
     const rows = all<any>(d.db, 'SELECT * FROM agent_actions WHERE world_id = ? AND status = ? ORDER BY created_at DESC LIMIT 100', W(res), st);
     res.json({ actions: rows.map(actionView) });
@@ -216,7 +216,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   // Change a card before approving it: the GM fixes an amount, a name or a target instead of rejecting and asking again.
   // The new arguments are checked against the tool's schema like the model's are; the card's words follow the change.
-  r.patch('/actions/:id', requireDM, async (req, res) => {
+  r.patch('/actions/:id', requireGM, async (req, res) => {
     const worldId = W(res);
     const a = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ? AND world_id = ?', String(req.params.id), worldId);
     if (!a) throw new HttpError(404, 'Action not found');
@@ -224,7 +224,7 @@ function routes(d: import('../../app.ts').Deps) {
     const raw = req.body?.args;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'args must be an object');
     if (JSON.stringify(raw).length > 20_000) throw new HttpError(400, 'args is too large');
-    const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
+    const tool = (await harnessTools('gm')).find((t) => t.name === a.tool && t.write);
     if (!tool) throw new HttpError(409, 'That tool is no longer available');
     const chk = checkArgs(tool, raw);
     if (chk.problems.length) throw new HttpError(400, chk.problems.join('; '));
@@ -238,7 +238,7 @@ function routes(d: import('../../app.ts').Deps) {
     res.json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
   });
 
-  r.post('/actions/:id', requireDM, async (req, res) => {
+  r.post('/actions/:id', requireGM, async (req, res) => {
     const decision = oneOf(req.body?.decision, 'decision', ['approve', 'reject'] as const);
     const worldId = W(res);
     const accountId = me(res);
@@ -282,7 +282,7 @@ function routes(d: import('../../app.ts').Deps) {
     // work, so after a moment the GM gets "running" and the card finishes by itself when the event arrives. The GM's approval jumps
     // the model queue (priority 3) so it is not held behind chat turns.
     const work = withPriority(3, async () => {
-      const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
+      const tool = (await harnessTools('gm')).find((t) => t.name === a.tool && t.write);
       let ok = false;
       let out = '';
       if (!tool) out = 'That tool is no longer available.';
@@ -309,7 +309,7 @@ function routes(d: import('../../app.ts').Deps) {
     res.status(first ? 200 : 502).json(view());
   });
 
-  r.get('/leaks', requireDM, (_req, res) => {
+  r.get('/leaks', requireGM, (_req, res) => {
     res.json({ leaks: all<any>(d.db, 'SELECT id, account_id, chat_id, matched, at FROM agent_leaks WHERE world_id = ? ORDER BY at DESC LIMIT 50', W(res)).map((l) => ({ id: l.id, accountId: l.account_id, chatId: l.chat_id, matched: l.matched, at: l.at })) });
   });
 
@@ -322,13 +322,13 @@ function routes(d: import('../../app.ts').Deps) {
     const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [] : [];
     const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 200);
     // GMs also get the GM-only lines; a player only ever gets the players' transcript.
-    let lines = sessionLines(d.db, W(res), s.id, { includeDm: isDM(res) });
+    let lines = sessionLines(d.db, W(res), s.id, { includeGm: isGM(res) });
     if (q.length) lines = lines.filter((l) => q.every((w) => `${l.speaker} ${l.text}`.toLowerCase().includes(w)));
     res.json({ session: { id: s.id, name: s.name }, lines: lines.slice(-limit) });
   });
 
   // ---- statblocks (GM) ----
-  r.post('/statblock', requireDM, async (req, res) => {
+  r.post('/statblock', requireGM, async (req, res) => {
     const b = req.body ?? {};
     const given = ['prompt', 'pageId', 'moduleTermId'].filter((k) => typeof b[k] === 'string' && b[k].trim());
     if (given.length !== 1) throw new HttpError(400, 'Send exactly one of prompt, pageId or moduleTermId');
@@ -342,7 +342,7 @@ function routes(d: import('../../app.ts').Deps) {
   });
 
   /** "Add to combat" for a saved statblock page. */
-  r.post('/statblock/:pageId/combat', requireDM, async (req, res) => {
+  r.post('/statblock/:pageId/combat', requireGM, async (req, res) => {
     const pg: any = d.library.get(W(res), String(req.params.pageId), ctx(res).viewer);
     const sb = statblockFromBody(String(pg.body ?? ''));
     if (!sb) throw new HttpError(422, 'That page has no statblock data from the agent');
@@ -351,7 +351,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   async function addToCombat(req: any, res: any, sb: Statblock, pageId: string, b: any) {
     const initiative = b.initiative !== undefined && b.initiative !== null ? int(b.initiative, 'initiative', { min: -20, max: 60 })! : Math.max(-20, Math.min(60, rollInitiative(sb)));
-    const tool = (await harnessTools('dm')).find((t) => t.name === 'add_combatant')!;
+    const tool = (await harnessTools('gm')).find((t) => t.name === 'add_combatant')!;
     const t = await runTool(d, { worldId: W(res), token: bearer(req), port: req.socket.localPort }, tool, { name: typeof b.name === 'string' && b.name ? b.name : sb.name, initiative, hp: sb.hp, maxHp: sb.hp, ac: sb.ac, hidden: !!b.hidden, statblockPage: pageId });
     if (!t.ok) throw new HttpError(t.status >= 400 && t.status < 600 ? t.status : 502, `Could not add to combat: ${t.text.slice(0, 200)}`);
     return { ...JSON.parse(t.text), initiative, hp: sb.hp, ac: sb.ac };

@@ -30,9 +30,9 @@ const until = async (fn, what, ms = 15000) => {
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('roll20'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'game master 123');
+const gmLogin = await login('gm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + gmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
   const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => null);
@@ -51,25 +51,25 @@ function watch(page, who) {
 
 try {
   // ---- the GM sets up ----
-  const dmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true, deviceScaleFactor: SHOTS ? 2 : 1 });
-  const dm = await dmCtx.newPage();
-  watch(dm, 'dm');
-  await dm.goto(base + '/login');
-  await dm.getByLabel(/username/i).fill('dm');
-  await dm.getByLabel(/password/i).fill('game master 123');
-  await dm.getByRole('button', { name: /sign in|log in/i }).click();
-  await dm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
-  await dm.goto(`${base}/w/saltreach/gm/roll20`);
-  await dm.getByText('Not set up').waitFor();
-  await shot(dm, '1-dm-roll20-before');
-  await dm.getByRole('button', { name: 'Make a bridge key' }).click();
-  const key = (await dm.getByTestId('roll20-key').textContent()).trim();
+  const gmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true, deviceScaleFactor: SHOTS ? 2 : 1 });
+  const gm = await gmCtx.newPage();
+  watch(gm, 'gm');
+  await gm.goto(base + '/login');
+  await gm.getByLabel(/username/i).fill('gm');
+  await gm.getByLabel(/password/i).fill('game master 123');
+  await gm.getByRole('button', { name: /sign in|log in/i }).click();
+  await gm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
+  await gm.goto(`${base}/w/saltreach/gm/roll20`);
+  await gm.getByText('Not set up').waitFor();
+  await shot(gm, '1-gm-roll20-before');
+  await gm.getByRole('button', { name: 'Make a bridge key' }).click();
+  const key = (await gm.getByTestId('roll20-key').textContent()).trim();
   check(/^alx_r20_/.test(key), `key shown once: ${key}`);
-  const [dl] = await Promise.all([dm.waitForEvent('download'), dm.getByRole('button', { name: 'Download the bridge' }).click()]);
+  const [dl] = await Promise.all([gm.waitForEvent('download'), gm.getByRole('button', { name: 'Download the bridge' }).click()]);
   const bridgeJs = fs.readFileSync(await dl.path(), 'utf8');
   check(dl.suggestedFilename() === 'alexandria-bridge.user.js', 'bridge file name');
   check(bridgeJs.includes(JSON.stringify(key)) && bridgeJs.includes(JSON.stringify(base)), 'the bridge has the address and key in it');
-  const modJs = (await api(dmLogin.token, 'GET', '/roll20/files/alexandria.mod.js')).text;
+  const modJs = (await api(gmLogin.token, 'GET', '/roll20/files/alexandria.mod.js')).text;
   note('key made, bridge downloaded');
 
   // ---- a stand-in Roll20 game with the Mod and the bridge ----
@@ -150,63 +150,63 @@ try {
 
   // ---- connected: the characters are linked by name ----
   await until(async () => (await game.locator('#alx-bridge').textContent()) === 'Alexandria: Connected', 'bridge says Connected');
-  const st = await until(async () => { const s = await api(dmLogin.token, 'GET', '/roll20'); return s.links.length === 2 ? s : null; }, 'two characters linked');
+  const st = await until(async () => { const s = await api(gmLogin.token, 'GET', '/roll20'); return s.links.length === 2 ? s : null; }, 'two characters linked');
   check(st?.online === true, 'the GM sees the bridge online');
   check(st?.links.find((l) => l.name === 'Jessamine')?.accountId === jessId, 'Jessamine linked to jess');
   check(await game.locator('.message:has-text("ALX::")').evaluateAll((els) => els.every((e) => getComputedStyle(e).display === 'none')), 'bridge lines are hidden in the chat');
   // The demo already has HP for Jessamine? Whatever it had, Roll20 filled only what was missing.
-  const jessHpStart = (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp;
+  const jessHpStart = (await api(gmLogin.token, 'GET', `/sheet/${jessId}`)).hp;
   note(`linked; Jessamine's HP in Alexandria: ${jessHpStart}`);
 
   // Right after linking, Alexandria sends its numbers once; wait for that before playing.
-  await until(async () => (await api(dmLogin.token, 'GET', '/roll20')).activity.some((a) => a.dir === 'out' && a.text.startsWith('Jessamine')), 'first push to Roll20');
+  await until(async () => (await api(gmLogin.token, 'GET', '/roll20')).activity.some((a) => a.dir === 'out' && a.text.startsWith('Jessamine')), 'first push to Roll20');
   await game.waitForTimeout(1500);
   // ---- Roll20 → Alexandria: damage on the token ----
   await game.evaluate(() => { const t = window.__toks[0]; window.__sb.userSet(window.__sb.attr(t.ch.id, 'hp'), 'current', '15'); });
-  await until(async () => (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 15, 'Roll20 damage reaches the sheet');
+  await until(async () => (await api(gmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 15, 'Roll20 damage reaches the sheet');
   // ---- Alexandria → Roll20: the GM poisons and hurts her ----
-  await api(dmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { damage: 4, conditions: ['Poisoned'] });
+  await api(gmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { damage: 4, conditions: ['Poisoned'] });
   await until(() => game.evaluate(() => { const t = window.__toks[0]; return window.__sb.attr(t.ch.id, 'hp').get('current') === 11 && t.tok.get('statusmarkers') === 'chemical-bolt'; }), 'Alexandria damage and condition reach Roll20');
   // ---- a marker added in Roll20 ----
   await game.evaluate(() => { const t = window.__toks[0]; window.__sb.userSet(t.tok, 'statusmarkers', 'chemical-bolt,grab'); });
-  await until(async () => (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).conditions.includes('Grappled'), 'a marker becomes a condition');
+  await until(async () => (await api(gmLogin.token, 'GET', `/sheet/${jessId}`)).conditions.includes('Grappled'), 'a marker becomes a condition');
   note('HP and conditions moved both ways');
 
   // ---- a roll in Roll20 lands in the table chat ----
-  await api(dmLogin.token, 'POST', '/sessionchat/sessions/start', { title: 'Roll20 night' }).catch(() => null);
+  await api(gmLogin.token, 'POST', '/sessionchat/sessions/start', { title: 'Roll20 night' }).catch(() => null);
   await game.evaluate(() => window.__sb.say(window.__pj.id, '&{template:default} {{name=Rapier}} {{attack=$[[0]]}}', { who: 'Jessamine', inlinerolls: [{ expression: '1d20+6', results: { total: 19, rolls: [{ type: 'R', results: [{ v: 13 }] }] } }] }));
   const roll = await until(async () => (await api(jessLogin.token, 'GET', '/sessionchat/chat/table')).messages.find((m) => m.kind === 'roll' && m.roll.total === 19), 'the Roll20 roll in the table chat');
   check(roll?.authorId === jessId && /Rapier/.test(roll?.roll.note ?? ''), 'rolled by Jessamine, labelled Rapier');
 
   // ---- the GM sends a handout and a line from the Roll20 page ----
-  await dm.reload();
-  const shared = (await api(dmLogin.token, 'GET', '/library/pages')).find((p) => p.visibility === 'party');
-  await dm.getByLabel('Library page').fill(shared.title);
-  await dm.getByRole('button', { name: 'Send as a handout' }).click();
-  await dm.getByLabel('Say in the Roll20 chat').fill('The tide turns. Roll initiative!');
-  await dm.getByRole('button', { name: 'Say it' }).click();
+  await gm.reload();
+  const shared = (await api(gmLogin.token, 'GET', '/library/pages')).find((p) => p.visibility === 'party');
+  await gm.getByLabel('Library page').fill(shared.title);
+  await gm.getByRole('button', { name: 'Send as a handout' }).click();
+  await gm.getByLabel('Say in the Roll20 chat').fill('The tide turns. Roll initiative!');
+  await gm.getByRole('button', { name: 'Say it' }).click();
   await until(() => game.evaluate((t) => window.__sb.api.findObjs({ _type: 'handout', name: t }).length === 1, shared.title), 'the handout is in the game');
   await until(() => game.locator('.message:has-text("Roll initiative")').count(), 'the line is in the Roll20 chat');
   // The GM was typing when all this arrived: their text is still there.
   await game.locator('#textchat-input textarea').fill('half-typed note');
-  await api(dmLogin.token, 'POST', '/roll20/say', { text: 'One more line' });
+  await api(gmLogin.token, 'POST', '/roll20/say', { text: 'One more line' });
   await until(() => game.locator('.message:has-text("One more line")').count(), 'second line');
   await until(async () => (await game.locator('#textchat-input textarea').inputValue()) === 'half-typed note', 'what the GM was typing is kept');
   await game.locator('#textchat-input textarea').fill('');
   note('handout and chat lines sent');
 
   // ---- what the GM sees ----
-  await dm.reload();
-  await dm.getByText(/Connected/).first().waitFor();
-  await dm.getByText(/Jessamine: HP/).first().waitFor();
-  await shot(dm, '2-dm-roll20-connected');
-  await dm.getByText('Condition → status marker').click();
-  await dm.locator('section[aria-label="What moves"]').scrollIntoViewIfNeeded();
-  await shot(dm, '3-dm-roll20-options');
+  await gm.reload();
+  await gm.getByText(/Connected/).first().waitFor();
+  await gm.getByText(/Jessamine: HP/).first().waitFor();
+  await shot(gm, '2-gm-roll20-connected');
+  await gm.getByText('Condition → status marker').click();
+  await gm.locator('section[aria-label="What moves"]').scrollIntoViewIfNeeded();
+  await shot(gm, '3-gm-roll20-options');
   await shot(game, '4-test-game-with-bridge');
-  await dm.goto(`${base}/w/saltreach/gm/sheets`);
-  await dm.waitForTimeout(800);
-  await shot(dm, '5-sheet-log-from-roll20');
+  await gm.goto(`${base}/w/saltreach/gm/sheets`);
+  await gm.waitForTimeout(800);
+  await shot(gm, '5-sheet-log-from-roll20');
 
   // ======== a game without the Mod script (no Roll20 Pro): the bridge works alone ========
   await game.context().close();
@@ -286,18 +286,18 @@ try {
   await free.addScriptTag({ content: bridgeJs });
   await until(async () => (await free.locator('#alx-bridge').textContent()) === 'Alexandria: Connected (no Mod script)', 'bridge works alone without the Mod', 20000);
   check(await free.locator('.message:has-text("!alx-in")').evaluateAll((els) => els.length > 0 && els.every((e) => getComputedStyle(e).display === 'none')), 'the one hidden command a game without the Mod shows is hidden');
-  const fst = await until(async () => { const s = await api(dmLogin.token, 'GET', '/roll20'); return s.mode === 'free' && s.links.some((l) => l.id === 'c-jess' && l.accountId === jessId) ? s : null; }, 'free mode linked Jessamine');
+  const fst = await until(async () => { const s = await api(gmLogin.token, 'GET', '/roll20'); return s.mode === 'free' && s.links.some((l) => l.id === 'c-jess' && l.accountId === jessId) ? s : null; }, 'free mode linked Jessamine');
   check(fst?.modVersion === null, 'no Mod version in free mode');
   // Alexandria sends its numbers once to the newly linked characters; let that land first.
   await free.waitForTimeout(5000);
   // A player changes HP on their Roll20 sheet: the bridge sees it in the page data.
   await free.evaluate(() => window.__toks[0].ch.attribs.models[0].set({ current: '9' }));
-  await until(async () => (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 9, 'free mode: Roll20 HP reaches the sheet');
+  await until(async () => (await api(gmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 9, 'free mode: Roll20 HP reaches the sheet');
   // The GM heals her and makes her prone in Alexandria.
-  await api(dmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { heal: 6, conditions: ['Prone'] });
+  await api(gmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { heal: 6, conditions: ['Prone'] });
   await until(() => free.evaluate(() => window.__toks[0].ch.attribs.models[0].get('current') === 15 && window.__toks[0].tok.get('statusmarkers') === 'back-pain'), 'free mode: Alexandria HP and condition reach Roll20');
   await free.waitForTimeout(2500);
-  check((await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 15, 'free mode: what Alexandria set is not sent back as a change');
+  check((await api(gmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 15, 'free mode: what Alexandria set is not sent back as a change');
   // Rolls drawn in the chat: a /roll, a template with inline rolls; a whisper stays private.
   const before20 = (await api(jessLogin.token, 'GET', '/sessionchat/chat/table')).messages.length;
   await free.evaluate(() => {
@@ -312,18 +312,18 @@ try {
   check(r2 && r2.authorId === jessId && /Shortbow/.test(r2.roll.note) && r2.roll.terms[0].dice[0] === 9, `free mode template roll: ${JSON.stringify(r2?.roll)}`);
   check(!msgs?.some((m) => m.kind === 'roll' && (m.roll.total === 2 || m.roll.total === 20)), 'whispers and old chat history are not sent');
   // A line, a handout and a table roll from Alexandria.
-  await api(dmLogin.token, 'PATCH', '/settings', { roll20RollsOut: true });
-  await api(dmLogin.token, 'POST', '/roll20/say', { text: 'The {{bell}} tolls [[1d6]].' });
-  await api(dmLogin.token, 'POST', '/roll20/handout', { page: shared.title, players: true });
+  await api(gmLogin.token, 'PATCH', '/settings', { roll20RollsOut: true });
+  await api(gmLogin.token, 'POST', '/roll20/say', { text: 'The {{bell}} tolls [[1d6]].' });
+  await api(gmLogin.token, 'POST', '/roll20/handout', { page: shared.title, players: true });
   await api(tomLoginToken(), 'POST', '/sessionchat/chat/table', { body: '/roll 2d6 courage' });
   await until(() => free.locator('.message:has-text("((bell)) tolls 1d6.")').count(), 'free mode: chat line typed as Alexandria (no templates or rolls)');
   const ho = await until(() => free.evaluate((t) => { const h = window.Campaign.handouts.models.find((m) => m.get('name') === t); return h ? { j: h.get('inplayerjournals'), notes: h.blobs?.notes ?? '' } : null; }, shared.title), 'free mode: handout made');
   check(ho?.j === 'all' && ho?.notes.length > 0, 'free mode handout in players journals with notes');
   await until(() => free.locator('.message:has-text("rolls 2d6")').count(), 'free mode: table roll shown in Roll20');
   await shot(free, '6-test-game-no-mod');
-  await dm.goto(`${base}/w/saltreach/gm/roll20`);
-  await dm.getByText(/Without the Mod script/).first().waitFor();
-  await shot(dm, '7-dm-roll20-no-mod');
+  await gm.goto(`${base}/w/saltreach/gm/roll20`);
+  await gm.getByText(/Without the Mod script/).first().waitFor();
+  await shot(gm, '7-gm-roll20-no-mod');
   note('without the Mod: HP, conditions, rolls, lines and handouts moved');
 } catch (e) {
   problems.push(`crashed: ${e.stack ?? e}`);

@@ -73,7 +73,7 @@ async function waitFor<T>(fn: () => Promise<T | null | false>, what: string, ms 
     await new Promise((r) => setTimeout(r, 150));
   }
 }
-const listed = async (sid: string) => ((await ok('GET', `${A()}/recordings`, T.dm)).sessions as any[]).find((s) => s.id === sid);
+const listed = async (sid: string) => ((await ok('GET', `${A()}/recordings`, T.gm)).sessions as any[]).find((s) => s.id === sid);
 const built = (sid: string) => waitFor(async () => { const s = await listed(sid); return s && (s.status === 'ready' || s.status === 'failed') ? s : null; }, 'the recording build');
 
 const fakeFetch: typeof fetch = async () => Response.json({ text: '', segments: [] });
@@ -89,12 +89,12 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Salt/Reach: "the" world?', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Salt/Reach: "the" world?', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom', 'zed']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token;
     ID[name] = j.account.id;
@@ -102,20 +102,20 @@ before(async () => {
   await ok('POST', `${A()}/consent`, T.jess, { agree: true });
   await ok('POST', `${A()}/consent`, T.tom, { agree: true });
   const mic = async (who: string, key: string, body: any) => { MIC[key] = (await ok('POST', `${A()}/mics`, T[who], { deviceId: 'dev-' + key, ...body })).id; };
-  await mic('dm', 'table', { label: 'Table: main/room', mode: 'always' });
+  await mic('gm', 'table', { label: 'Table: main/room', mode: 'always' });
   await mic('jess', 'jess', { label: 'Jess phone', mode: 'always' });
   await mic('tom', 'tom', { label: 'Tom phone', mode: 'always' });
   await mic('zed', 'zed', { label: 'Zed phone', mode: 'always' });
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-const stopAll = async () => { const s = await ok('GET', `${A()}/status`, T.dm); if (s.session) await ok('POST', `${A()}/sessions/${s.session.id}/stop`, T.dm); };
-const newSession = async (name = 'Night one') => { await stopAll(); return (await ok('POST', `${A()}/sessions`, T.dm, { name })).id as string; };
+const stopAll = async () => { const s = await ok('GET', `${A()}/status`, T.gm); if (s.session) await ok('POST', `${A()}/sessions/${s.session.id}/stop`, T.gm); };
+const newSession = async (name = 'Night one') => { await stopAll(); return (await ok('POST', `${A()}/sessions`, T.gm, { name })).id as string; };
 
 /** A session with tones: the table 0-3 s, Jess 0-5 s and 8-11 s (overlapping chunks), Tom 1-4 s. */
 async function recorded(name = 'Night one') {
   const sid = await newSession(name);
-  assert.equal((await upload('dm', sid, 'table', 0, 0, 3000, 300)).status, 201);
+  assert.equal((await upload('gm', sid, 'table', 0, 0, 3000, 300)).status, 201);
   assert.equal((await upload('jess', sid, 'jess', 0, 0, 3000, 440)).status, 201);
   assert.equal((await upload('jess', sid, 'jess', 200, 2000, 5000, 440)).status, 201);
   assert.equal((await upload('jess', sid, 'jess', 800, 8000, 11000, 440)).status, 201);
@@ -124,9 +124,9 @@ async function recorded(name = 'Night one') {
   const insert = (text: string, audience: string, start: number, who: string | null) => run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     'lin_' + Math.random().toString(36).slice(2), sid, W, start, start + 1500, who, who ? '' : 'Table', text, audience, new Date().toISOString());
   insert('I open the door', 'players', 500, ID.jess);
-  insert('Secret: the duke is the lich', 'dm', 4000, null);
+  insert('Secret: the duke is the lich', 'gm', 4000, null);
   insert('We follow Tom', 'players', 8500, ID.tom);
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   return sid;
 }
 
@@ -213,7 +213,7 @@ test('Recordings_build: a failed build keeps the chunks, says so, and Rebuild wo
   const bad = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from('not really audio at all')]);
   const up = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${MIC.jess}&seq=0&start=0&end=3000&level=0.5`, T.jess, undefined, bad);
   assert.equal(up.status, 201);
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   const s = await built(sid);
   assert.equal(s.status, 'failed');
   assert.match(s.error, /could not be read/);
@@ -223,17 +223,17 @@ test('Recordings_build: a failed build keeps the chunks, says so, and Rebuild wo
   // swap in real audio and press Rebuild
   const row = one<any>(deps.db, 'SELECT file FROM audio_chunks WHERE session_id = ?', sid);
   fs.writeFileSync(path.join(tmp, 'data', row.file), tone(3000));
-  assert.equal((await call('POST', `${A()}/recordings/${sid}/build`, T.dm)).status, 202);
+  assert.equal((await call('POST', `${A()}/recordings/${sid}/build`, T.gm)).status, 202);
   const again = await waitFor(async () => { const x = await listed(sid); return x.status === 'ready' ? x : null; }, 'the rebuild');
   assert.equal(again.rawChunks, 0);
   assert.equal(again.error, null);
-  assert.equal((await call('POST', `${A()}/recordings/${sid}/build`, T.dm)).status, 409, 'nothing left to build from');
+  assert.equal((await call('POST', `${A()}/recordings/${sid}/build`, T.gm)).status, 409, 'nothing left to build from');
 });
 
 test('Recordings_build: a chunk still waiting for the speech model is kept after the build', needFfmpeg, async () => {
   const sid = await newSession('Pending');
   assert.equal((await upload('jess', sid, 'jess', 0, 0, 3000)).status, 201);
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   run(deps.db, "UPDATE audio_chunks SET status = 'pending' WHERE session_id = ?", sid);
   const s = await built(sid);
   assert.equal(s.status, 'ready');
@@ -268,16 +268,16 @@ test('Recordings_retention: per session: default from the world, keep forever, N
   const gone = eng.runRetention(Date.now() + 5 * 864e5);
   assert.equal(gone, 0, JSON.stringify(deps.db.prepare('SELECT id, name, retention_mode, retention_days, rec_status, audio_deleted_at FROM audio_sessions').all()));
   // keep forever outlasts everything
-  s = await ok('POST', `${A()}/recordings/${sid}/retention`, T.dm, { mode: 'forever' });
+  s = await ok('POST', `${A()}/recordings/${sid}/retention`, T.gm, { mode: 'forever' });
   assert.equal(s.retention.deletesAt, null);
   eng.runRetention(Date.now() + 4000 * 864e5); // other sessions of the world go; this one is kept
   assert.ok(files().includes('Full session.mp3'));
   assert.equal((await listed(sid)).audioDeleted, false);
   // N days
-  assert.equal((await call('POST', `${A()}/recordings/${sid}/retention`, T.dm, { mode: 'days', days: 0 })).status, 400);
-  assert.equal((await call('POST', `${A()}/recordings/${sid}/retention`, T.dm, { mode: 'sometimes' })).status, 400);
+  assert.equal((await call('POST', `${A()}/recordings/${sid}/retention`, T.gm, { mode: 'days', days: 0 })).status, 400);
+  assert.equal((await call('POST', `${A()}/recordings/${sid}/retention`, T.gm, { mode: 'sometimes' })).status, 400);
   assert.equal((await call('POST', `${A()}/recordings/${sid}/retention`, T.jess, { mode: 'forever' })).status, 403);
-  s = await ok('POST', `${A()}/recordings/${sid}/retention`, T.dm, { mode: 'days', days: 3 });
+  s = await ok('POST', `${A()}/recordings/${sid}/retention`, T.gm, { mode: 'days', days: 3 });
   assert.equal(s.retention.effectiveDays, 3);
   assert.equal(eng.runRetention(Date.now() + 2 * 864e5), 0);
   assert.ok(eng.runRetention(Date.now() + 4 * 864e5) >= 4, 'the full mix and three mic tracks go');
@@ -289,31 +289,31 @@ test('Recordings_retention: per session: default from the world, keep forever, N
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM audio_tracks WHERE session_id = ?', sid).n, 0);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'session.json'), 'utf8')).files.filter((f: any) => f.kind === 'full-mix').length, 0);
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM audio_lines WHERE session_id = ?', sid).n, 3, 'the transcript stays');
-  assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.dm)).lines.length, 3);
+  assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.gm)).lines.length, 3);
 });
 
 test('Recordings_retention: a world with no retention days keeps audio forever; the manual delete needs a confirm', needFfmpeg, async () => {
   const sid = await recorded('Forever');
   await built(sid);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: null });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { audioRetentionDays: null });
   try {
     let s = await listed(sid);
     assert.equal(s.retention.effectiveDays, null);
     assert.equal(s.retention.deletesAt, null);
     assert.equal(engine(deps).runRetention(Date.now() + 5000 * 864e5), 0);
     // the session's own setting beats the world's
-    await ok('POST', `${A()}/recordings/${sid}/retention`, T.dm, { mode: 'days', days: 1 });
+    await ok('POST', `${A()}/recordings/${sid}/retention`, T.gm, { mode: 'days', days: 1 });
     assert.equal((await listed(sid)).retention.effectiveDays, 1);
-    await ok('POST', `${A()}/recordings/${sid}/retention`, T.dm, { mode: 'default' });
+    await ok('POST', `${A()}/recordings/${sid}/retention`, T.gm, { mode: 'default' });
     assert.equal((await call('POST', `${A()}/recordings/${sid}/delete-audio`, T.jess, { confirm: true })).status, 403);
-    assert.equal((await call('POST', `${A()}/recordings/${sid}/delete-audio`, T.dm, {})).status, 400, 'no confirm, no delete');
+    assert.equal((await call('POST', `${A()}/recordings/${sid}/delete-audio`, T.gm, {})).status, 400, 'no confirm, no delete');
     assert.equal((await listed(sid)).status, 'ready');
-    const r = await ok('POST', `${A()}/recordings/${sid}/delete-audio`, T.dm, { confirm: true });
+    const r = await ok('POST', `${A()}/recordings/${sid}/delete-audio`, T.gm, { confirm: true });
     assert.ok(r.removed >= 4);
     s = await listed(sid);
     assert.equal(s.audioDeleted, true);
-    assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.dm)).lines.length, 3);
-  } finally { await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: 30 }); }
+    assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.gm)).lines.length, 3);
+  } finally { await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { audioRetentionDays: 30 }); }
 });
 
 test('Recordings_retention: raw chunks of a never-built session still go when its days are up', needFfmpeg, async () => {
@@ -334,14 +334,14 @@ test('Recordings_access: GM-only list; a player gets only their own track; the f
   for (const who of ['jess', 'tom', 'zed']) assert.equal((await call('GET', `${A()}/recordings`, T[who])).status, 403, `${who} cannot list every recording`);
   assert.equal((await call('GET', `${A()}/recordings`)).status, 401);
   assert.equal((await call('GET', `${A()}/recordings/${sid}`, T.jess)).status, 403);
-  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.dm);
+  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.gm);
   const full = detail.tracks.find((t: any) => t.kind === 'full');
   const jessT = detail.tracks.find((t: any) => t.label === 'Jess phone');
   const tomT = detail.tracks.find((t: any) => t.label === 'Tom phone');
   assert.equal(detail.tracks.length, 4);
   const file = (t: any) => `${A()}/recordings/tracks/${t.id}/file`;
   // the GM hears everything
-  for (const t of detail.tracks) { const r = await call('GET', file(t), T.dm); assert.equal(r.status, 200); assert.equal(r.headers.get('content-type'), 'audio/mpeg'); assert.ok(r.buf.length > 1000); }
+  for (const t of detail.tracks) { const r = await call('GET', file(t), T.gm); assert.equal(r.status, 200); assert.equal(r.headers.get('content-type'), 'audio/mpeg'); assert.ok(r.buf.length > 1000); }
   // Jess: her own, nothing else
   const mine = await call('GET', file(jessT), T.jess);
   assert.equal(mine.status, 200);
@@ -366,13 +366,13 @@ test('Recordings_access: GM-only list; a player gets only their own track; the f
   assert.equal((await call('GET', forged(full, 'jess'))).status, 404, 'a ticket for the full mix does not work for a player');
   assert.equal((await call('GET', forged(tomT, 'jess'))).status, 404);
   assert.equal((await call('GET', forged(tomT, 'tom'))).status, 200);
-  assert.equal((await call('GET', forged(full, 'dm'))).status, 200);
+  assert.equal((await call('GET', forged(full, 'gm'))).status, 200);
   assert.equal((await call('GET', `/api/media/recording/${jUrl.split('/').pop()}x`)).status, 404, 'a bad signature');
-  assert.equal((await call('GET', `/api/media/recording/${mintTicket({ w: W, k: 'sound', f: full.id, a: ID.dm })}`)).status, 404, 'a ticket for something else');
+  assert.equal((await call('GET', `/api/media/recording/${mintTicket({ w: W, k: 'sound', f: full.id, a: ID.gm })}`)).status, 404, 'a ticket for something else');
   // players' transcript: no GM-only lines (the existing filter); the GM sees them
   const pl = (await ok('GET', `${A()}/sessions/${sid}/lines`, T.jess)).lines.map((l: any) => l.text);
   assert.deepEqual(pl, ['I open the door', 'We follow Tom']);
-  assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.dm)).lines.length, 3);
+  assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.gm)).lines.length, 3);
 });
 
 /** The files in a zip, read from its central directory, each checked against its CRC. */
@@ -402,10 +402,10 @@ test('Recordings_zip: Download all streams one zip: the GM gets everything, a pl
   const sid = await recorded('Zipped');
   await built(sid);
   run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'party', ?, 'PARTY-SUMMARY the door opens', '', 1, ?)", sid, W, new Date().toISOString());
-  run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'dm', ?, 'GM-SUMMARY the duke is the lich', '', 1, ?)", sid, W, new Date().toISOString());
+  run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'gm', ?, 'GM-SUMMARY the duke is the lich', '', 1, ?)", sid, W, new Date().toISOString());
   run(deps.db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at, decided_at) VALUES ('ah_a', ?, ?, 'approved', 'APPROVED-SUMMARY of the night', 'live', ?, ?, ?)", sid, W, new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
   run(deps.db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at) VALUES ('ah_p', ?, ?, 'pending', 'PENDING-SUMMARY not yet approved', 'final', ?, ?)", sid, W, new Date(Date.now() + 1000).toISOString(), new Date().toISOString());
-  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.dm);
+  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.gm);
   assert.match(detail.zipUrl, /^\/api\/media\/recording-zip\//);
   const r = await call('GET', detail.zipUrl);
   assert.equal(r.status, 200, 'a ticket needs no header');
@@ -440,7 +440,7 @@ test('Recordings_zip: Download all streams one zip: the GM gets everything, a pl
   assert.equal((await call('GET', forged('zed'))).status, 404, 'Zed was never recorded');
   assert.equal((await call('GET', forged('jess', 'recording'))).status, 404, 'a track ticket is not a zip ticket');
   assert.equal((await call('GET', `${detail.zipUrl}x`)).status, 404);
-  assert.equal((await call('GET', `/api/media/recording-zip/${mintTicket({ w: 'other', k: 'recording-zip', f: sid, a: ID.dm })}`)).status, 404, 'another world');
+  assert.equal((await call('GET', `/api/media/recording-zip/${mintTicket({ w: 'other', k: 'recording-zip', f: sid, a: ID.gm })}`)).status, 404, 'another world');
   // Someone who left the world loses it.
   run(deps.db, "UPDATE members SET role = 'guest' WHERE world_id = ? AND account_id = ?", W, ID.tom);
   try { assert.equal((await call('GET', forged('tom'))).status, 404, 'a guest gets nothing'); } finally { run(deps.db, "UPDATE members SET role = 'player' WHERE world_id = ? AND account_id = ?", W, ID.tom); }
@@ -449,24 +449,24 @@ test('Recordings_zip: Download all streams one zip: the GM gets everything, a pl
 test('Recordings_range: seeking works (206, Content-Range, 416) and the file is not changed by it', needFfmpeg, async () => {
   const sid = await recorded('Ranges');
   await built(sid);
-  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.dm);
+  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.gm);
   const full = detail.tracks.find((t: any) => t.kind === 'full');
   const url = `${A()}/recordings/tracks/${full.id}/file`;
-  const whole = await call('GET', url, T.dm);
+  const whole = await call('GET', url, T.gm);
   assert.equal(whole.status, 200);
   assert.equal(whole.headers.get('accept-ranges'), 'bytes');
   assert.equal(Number(whole.headers.get('content-length')), full.bytes);
-  const r1 = await call('GET', url, T.dm, undefined, undefined, { Range: 'bytes=100-199' });
+  const r1 = await call('GET', url, T.gm, undefined, undefined, { Range: 'bytes=100-199' });
   assert.equal(r1.status, 206);
   assert.equal(r1.headers.get('content-range'), `bytes 100-199/${full.bytes}`);
   assert.deepEqual(r1.buf, whole.buf.subarray(100, 200));
-  const r2 = await call('GET', url, T.dm, undefined, undefined, { Range: 'bytes=1000-' });
+  const r2 = await call('GET', url, T.gm, undefined, undefined, { Range: 'bytes=1000-' });
   assert.equal(r2.status, 206);
   assert.deepEqual(r2.buf, whole.buf.subarray(1000));
-  const r3 = await call('GET', url, T.dm, undefined, undefined, { Range: 'bytes=-50' });
+  const r3 = await call('GET', url, T.gm, undefined, undefined, { Range: 'bytes=-50' });
   assert.equal(r3.status, 206);
   assert.deepEqual(r3.buf, whole.buf.subarray(whole.buf.length - 50));
-  assert.equal((await call('GET', url, T.dm, undefined, undefined, { Range: `bytes=${full.bytes + 10}-` })).status, 416);
+  assert.equal((await call('GET', url, T.gm, undefined, undefined, { Range: `bytes=${full.bytes + 10}-` })).status, 416);
   // a ticket URL honours Range too, and a player's range on someone else's track is refused first
   const t = await call('GET', full.url, undefined, undefined, undefined, { Range: 'bytes=0-9' });
   assert.equal(t.status, 206);
@@ -478,9 +478,9 @@ test('Recordings_range: seeking works (206, Content-Range, 416) and the file is 
 test('Recordings_paths: nothing the client sends picks a file; a bad stored path is refused; no listings', needFfmpeg, async () => {
   const sid = await recorded('Traversal');
   await built(sid);
-  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.dm);
+  const detail = await ok('GET', `${A()}/recordings/${sid}`, T.gm);
   const jessT = detail.tracks.find((t: any) => t.label === 'Jess phone');
-  const get = (u: string, tok = T.dm) => call('GET', u, tok);
+  const get = (u: string, tok = T.gm) => call('GET', u, tok);
   // ids only: a path in place of an id finds nothing
   for (const bad of ['..%2F..%2F..%2Fsession.json', '../../x', '%2e%2e%2f', 'trk_nope', encodeURIComponent('/etc/passwd')]) {
     const r = await get(`${A()}/recordings/tracks/${bad}/file`);
@@ -518,11 +518,11 @@ test('Recordings_paths: nothing the client sends picks a file; a bad stored path
 test('Recordings_world: another world cannot reach this world\'s tracks', needFfmpeg, async () => {
   const sid = await recorded('Isolated');
   await built(sid);
-  const full = (await ok('GET', `${A()}/recordings/${sid}`, T.dm)).tracks.find((t: any) => t.kind === 'full');
-  const w2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Elsewhere', dmAccountId: ID.dm })).id;
-  const r = await call('GET', `/api/worlds/${w2}/audio/recordings/tracks/${full.id}/file`, T.dm);
+  const full = (await ok('GET', `${A()}/recordings/${sid}`, T.gm)).tracks.find((t: any) => t.kind === 'full');
+  const w2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Elsewhere', gmAccountId: ID.gm })).id;
+  const r = await call('GET', `/api/worlds/${w2}/audio/recordings/tracks/${full.id}/file`, T.gm);
   assert.equal(r.status, 404);
-  assert.equal((await call('GET', `/api/media/recording/${mintTicket({ w: w2, k: 'recording', f: full.id, a: ID.dm })}`)).status, 404);
+  assert.equal((await call('GET', `/api/media/recording/${mintTicket({ w: w2, k: 'recording', f: full.id, a: ID.gm })}`)).status, 404);
 });
 
 test('Recordings_ffmpeg: with no ffmpeg the build says so plainly and keeps the chunks', async () => {

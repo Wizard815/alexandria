@@ -129,7 +129,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
               )
               : <input {...common} type={f.type === 'number' ? 'number' : 'text'} placeholder={f.type === 'dice' ? '2d6+3' : undefined} onChange={(e) => set(f.key, e.target.value)} />;
             return (
-              <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}${f.dmOnly ? ' (GM only)' : ''}`} help={f.hint}>
+              <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}${f.gmOnly ? ' (GM only)' : ''}`} help={f.hint}>
                 <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', gap: 6 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>{input}</div>
                   <button type="button" className="btn small ghost" aria-pressed={locked.has(f.key)} title={locked.has(f.key) ? 'Locked: Sculpt keeps this' : 'Unlocked: Sculpt may change this'} aria-label={`${locked.has(f.key) ? 'Unlock' : 'Lock'} ${f.label}`} onClick={(e) => { e.preventDefault(); toggle(f.key); }}>{locked.has(f.key) ? '🔒' : '🔓'}</button>
@@ -160,8 +160,8 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
           )}
           {!batch && check && !check.ok && <div className="error-box" role="alert">Blocked by the leak check: {check.leaks.map((l) => l.key).join(', ')} repeats GM-only notes and was left out.</div>}
           {!shown ? <Loading /> : shown.parts.length === 0 ? <Empty>Nothing yet. Fill a field or press Sculpt.</Empty> : shown.parts.map((p, i) => (
-            <div key={i} className={p.dm ? 'sculpt-dm' : undefined}>
-              {p.dm && <div className="tiny faint">GM only</div>}
+            <div key={i} className={p.gm ? 'sculpt-gm' : undefined}>
+              {p.gm && <div className="tiny faint">GM only</div>}
               <Markdown text={p.md} />
             </div>
           ))}

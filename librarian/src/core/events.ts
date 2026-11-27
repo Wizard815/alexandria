@@ -15,8 +15,8 @@ interface Sub {
 }
 
 export const everyone: Audience = () => true;
-export const dmOnly: Audience = (v) => v.role === 'dm';
-export const dmAnd = (...ids: string[]): Audience => (v) => v.role === 'dm' || ids.includes(v.accountId);
+export const gmOnly: Audience = (v) => v.role === 'gm';
+export const gmAnd = (...ids: string[]): Audience => (v) => v.role === 'gm' || ids.includes(v.accountId);
 export const only = (...ids: string[]): Audience => (v) => ids.includes(v.accountId);
 
 export class EventHub {
@@ -74,10 +74,10 @@ export class EventHub {
     // Server-side listeners (taps) see the GM's view: they run inside the
     // librarian and never forward data to a viewer (see tap()).
     if (this.taps.size) {
-      let dmView: unknown;
-      try { dmView = view({ accountId: '', role: 'dm' } as Viewer); } catch { return; }
-      if (dmView === null || dmView === undefined) return;
-      for (const t of this.taps) { try { t(worldId, type, dmView); } catch { /* a listener never breaks an emit */ } }
+      let gmView: unknown;
+      try { gmView = view({ accountId: '', role: 'gm' } as Viewer); } catch { return; }
+      if (gmView === null || gmView === undefined) return;
+      for (const t of this.taps) { try { t(worldId, type, gmView); } catch { /* a listener never breaks an emit */ } }
     }
   }
 

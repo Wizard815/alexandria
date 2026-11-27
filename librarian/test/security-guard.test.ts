@@ -16,7 +16,7 @@ recordMounts();
 
 const SECRET = 'The sealed vault beneath the old lighthouse opens only for the bearer of the moonlit brass key';
 const OTHER = 'Queen Aldreda secretly poisoned her own brother at the midwinter feast of the drowned saints';
-const DM_ONLY = 'The smuggler captain Velmira hides her ledger under the third floorboard of the tavern';
+const GM_ONLY = 'The smuggler captain Velmira hides her ledger under the third floorboard of the tavern';
 
 let server: any;
 let tmp = '';
@@ -34,7 +34,7 @@ before(async () => {
   S = await makeAccounts({ ...http, deps });
   const L = deps.library;
   L.save(S.W, { path: 'secret/vault.md', title: 'Vault', body: `# Vault\n${SECRET}.\n`, visibility: 'classified' }, null);
-  L.save(S.W, { path: 'dm/ledger.md', title: 'Ledger', body: `# Ledger\n${DM_ONLY}.\n`, visibility: 'dm' }, null);
+  L.save(S.W, { path: 'gm/ledger.md', title: 'Ledger', body: `# Ledger\n${GM_ONLY}.\n`, visibility: 'gm' }, null);
   L.save(S.W, { path: 'lore/public.md', title: 'Public', body: '# Public\nThe harbour is run by a council of seven captains who meet at dusk.\n', visibility: 'party' }, null);
   // Another world: its classified text is refused in this one too.
   L.save(S.W2, { path: 'secret/queen.md', title: 'Queen', body: `# Queen\n${OTHER}.\n`, visibility: 'classified' }, null);
@@ -101,9 +101,9 @@ test('TestSecurityGuard_FindsTheTextHoweverItIsWritten', async () => {
 
 test('TestSecurityGuard_AllowsEverythingThatIsNotClassified', async () => {
   // GM-only text is for the GM's own agent: only classified text is blocked.
-  const r = await chat(deps, 'chat', { messages: [{ role: 'user', content: `Context: ${DM_ONLY}. A long ordinary question about the harbour and its council of seven captains.` }] });
+  const r = await chat(deps, 'chat', { messages: [{ role: 'user', content: `Context: ${GM_ONLY}. A long ordinary question about the harbour and its council of seven captains.` }] });
   assert.ok(r.content);
-  assert.ok(await embed(deps, [DM_ONLY, 'The harbour is run by a council of seven captains who meet at dusk.']));
+  assert.ok(await embed(deps, [GM_ONLY, 'The harbour is run by a council of seven captains who meet at dusk.']));
   assert.equal((await speak(deps, 'Welcome to the harbour, traveller. The council is waiting for you.')).audio.length > 0, true);
 });
 
@@ -121,7 +121,7 @@ test('TestSecurityGuard_FollowsEveryChangeToAPage', async () => {
   await refused('classified block', () => say(b));
   assert.ok(await say('The chapel is open to all pilgrims and the door is never locked at night.'));
   // The GM lowers the level: the text may be sent.
-  L.setLevel(S.W, 'secret/bell.md', 'dm', null);
+  L.setLevel(S.W, 'secret/bell.md', 'gm', null);
   assert.ok(await say(secret2), 'a GM-level page may be sent');
   // And raises it again.
   L.setLevel(S.W, 'secret/bell.md', 'classified', null);
@@ -143,7 +143,7 @@ test('TestSecurityGuard_IsFast', async () => {
   // 400 pages, 40 of them classified: build the index once, then time prompts of typical and large size.
   const L = deps.library;
   const para = (i: number, k: number) => Array.from({ length: 60 }, (_x, j) => `w${i}x${j}y${k}`).join(' ');
-  for (let i = 0; i < 400; i++) L.save(S.W, { path: `bulk/p${i}.md`, title: `P${i}`, body: `# P${i}\n${para(i, 0)}\n\n${i % 10 === 0 ? `> [!classified]\n> ${para(i, 99)}\n` : ''}`, visibility: i % 3 === 0 ? 'dm' : 'party' }, null, { batch: true });
+  for (let i = 0; i < 400; i++) L.save(S.W, { path: `bulk/p${i}.md`, title: `P${i}`, body: `# P${i}\n${para(i, 0)}\n\n${i % 10 === 0 ? `> [!classified]\n> ${para(i, 99)}\n` : ''}`, visibility: i % 3 === 0 ? 'gm' : 'party' }, null, { batch: true });
   L.rebuildPlayerCopies(S.W);
   let t0 = performance.now();
   const size = L.classifiedGrams().size;
@@ -173,20 +173,20 @@ test('TestSecurityGuard_AnswersToModelsAreCheckedToo', async () => {
   const W = `/api/worlds/${S.W}`;
   const asModel = { 'X-Alexandria-Caller': 'model' };
   // The GM typed classified words into a sculpt value; the model call was refused but the history keeps what the GM wrote.
-  await http.call('POST', `${W}/sculpt/run`, S.T.dm, { template: 'npc', values: { name: SECRET } });
-  const app = await http.call('GET', `${W}/sculpt/history`, S.T.dm);
+  await http.call('POST', `${W}/sculpt/run`, S.T.gm, { template: 'npc', values: { name: SECRET } });
+  const app = await http.call('GET', `${W}/sculpt/history`, S.T.gm);
   assert.equal(app.status, 200);
   assert.ok(app.text.includes('moonlit'), 'the GM sees their own history in the app');
-  const model = await http.call('GET', `${W}/sculpt/history`, S.T.dm, undefined, asModel);
+  const model = await http.call('GET', `${W}/sculpt/history`, S.T.gm, undefined, asModel);
   assert.equal(model.status, 409);
   assert.ok(!model.text.includes('moonlit'), 'a model gets a refusal, not the text');
   assert.ok(all<any>(deps.db, "SELECT detail FROM audit WHERE action = 'ai.classified_withheld'").length >= 1);
   // Through MCP the same.
-  const rpc = await http.call('POST', '/mcp', S.K.dmWrite, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'sculpt_templates', arguments: {} } });
+  const rpc = await http.call('POST', '/mcp', S.K.gmWrite, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'sculpt_templates', arguments: {} } });
   assert.ok(!rpc.text.includes('moonlit'));
   // And the model gateway refuses to carry it out.
-  const gw = await http.call('POST', '/v1/chat/completions', S.T.dm, { messages: [{ role: 'user', content: SECRET }] });
+  const gw = await http.call('POST', '/v1/chat/completions', S.T.gm, { messages: [{ role: 'user', content: SECRET }] });
   assert.equal(gw.status, 422);
-  const fine = await http.call('POST', '/v1/chat/completions', S.T.dm, { messages: [{ role: 'user', content: 'hello there' }] });
+  const fine = await http.call('POST', '/v1/chat/completions', S.T.gm, { messages: [{ role: 'user', content: 'hello there' }] });
   assert.equal(fine.status, 200);
 });

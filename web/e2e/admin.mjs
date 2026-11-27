@@ -84,13 +84,13 @@ try {
   }
 
   const j = async (method, p, tok, body) => (await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })).json();
-  const dmTok = (await j('POST', '/api/auth/login', undefined, { username: 'dm', password: 'game master 123' })).token;
+  const gmTok = (await j('POST', '/api/auth/login', undefined, { username: 'gm', password: 'game master 123' })).token;
 
   // ---- Models → Gateway calls ----
   // The GM calls /v1 (the prompt must never show), a player is refused; the admin sees both, and today's totals vs caps, at phone width.
   {
     const jessTok = (await j('POST', '/api/auth/login', undefined, { username: 'jess', password: 'player pass 123' })).token;
-    await j('POST', '/v1/chat/completions', dmTok, { model: 'x', messages: [{ role: 'user', content: 'E2E-PROMPT-NEVER-SHOWN' }] });
+    await j('POST', '/v1/chat/completions', gmTok, { model: 'x', messages: [{ role: 'user', content: 'E2E-PROMPT-NEVER-SHOWN' }] });
     await j('POST', '/v1/chat/completions', jessTok, { model: 'x', messages: [{ role: 'user', content: 'hi' }] });
     const { ctx, page } = await signIn({ width: 390, height: 844 }, true, 'admin (gateway calls)');
     await page.goto(`${base}/admin/models?tab=calls`);
@@ -99,10 +99,10 @@ try {
     check(await calls.locator('[data-call="refused"]').count() >= 1, 'gateway calls: the refused player call is listed');
     check(await calls.locator('[data-call="passed"]').count() >= 1, 'gateway calls: the GM call is listed');
     const who = await calls.locator('[data-call] strong').allTextContents();
-    check(who.includes('jess') && who.includes('dm'), `gateway calls: who called is shown (${who.join(', ')})`);
+    check(who.includes('jess') && who.includes('gm'), `gateway calls: who called is shown (${who.join(', ')})`);
     check(!(await page.content()).includes('E2E-PROMPT-NEVER-SHOWN'), 'gateway calls: the prompt is never shown');
     const today = page.getByTestId('gateway-today');
-    check(await today.locator('[data-user="dm"]').count() === 1 && /Requests: 1 \//.test(await today.locator('[data-user="dm"]').textContent()), 'gateway calls: the GM\'s requests today against the cap');
+    check(await today.locator('[data-user="gm"]').count() === 1 && /Requests: 1 \//.test(await today.locator('[data-user="gm"]').textContent()), 'gateway calls: the GM\'s requests today against the cap');
     const wide = await page.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
     check(wide <= 1, `gateway calls: no sideways scroll at phone width (${wide}px)`);
     await ctx.close();
@@ -110,8 +110,8 @@ try {
 
   // ---- Models → Game night ----
   // The seeded demo leaves last night's session chat open: the GM ends it, so no session is live.
-  if ((await j('GET', '/api/worlds/saltreach/sessionchat/current', dmTok)).session) await j('POST', '/api/worlds/saltreach/sessionchat/sessions/end', dmTok, {});
-  const rec = await j('GET', '/api/worlds/saltreach/audio/status', dmTok);
+  if ((await j('GET', '/api/worlds/saltreach/sessionchat/current', gmTok)).session) await j('POST', '/api/worlds/saltreach/sessionchat/sessions/end', gmTok, {});
+  const rec = await j('GET', '/api/worlds/saltreach/audio/status', gmTok);
   check(!rec.recording, 'no recording is running');
   const { ctx, page } = await signIn({ width: 390, height: 844 }, true, 'admin (game night)');
   await page.goto(`${base}/admin/models?tab=session`);

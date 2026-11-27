@@ -13,27 +13,27 @@ const EVENTS = () => k.w('/events');
 test('Audit_Events: a player removed from the world stops receiving its live events', async () => {
   const tap = new EventTap(k.base + EVENTS(), k.T.tom);
   await settle();
-  await k.ok('PUT', k.w('/live/presence'), k.T.dm, { location: 'before removal' });
+  await k.ok('PUT', k.w('/live/presence'), k.T.gm, { location: 'before removal' });
   await settle();
   assert.ok(tap.text.includes('before removal'), 'the stream works while tom is a member');
   await k.ok('DELETE', `/api/admin/worlds/${k.W}/members/${k.ID.tom}`, k.T.admin);
-  await k.ok('PUT', k.w('/live/presence'), k.T.dm, { location: 'after removal ZQXAFTER' });
-  await k.ok('POST', k.w('/stage/cards'), k.T.dm, { kind: 'text', text: 'ZQXAFTERCARD' });
+  await k.ok('PUT', k.w('/live/presence'), k.T.gm, { location: 'after removal ZQXAFTER' });
+  await k.ok('POST', k.w('/stage/cards'), k.T.gm, { kind: 'text', text: 'ZQXAFTERCARD' });
   await settle();
   await tap.close();
   assert.ok(!tap.text.includes('ZQXAFTER'), `a removed player still got events: ${tap.text.slice(-300)}`);
 });
 
 test('Audit_Events: a GM who is demoted stops receiving GM-only events', async () => {
-  const dm2 = k.T.dm2;
-  const tap = new EventTap(k.base + k.w2('/events'), dm2);
+  const gm2 = k.T.gm2;
+  const tap = new EventTap(k.base + k.w2('/events'), gm2);
   await settle();
-  await k.ok('PUT', `/api/admin/worlds/${k.W2}/members/${k.ID.dm2}`, k.T.admin, { role: 'player' });
-  const dmId = k.ID.dm2;
-  void dmId;
+  await k.ok('PUT', `/api/admin/worlds/${k.W2}/members/${k.ID.gm2}`, k.T.admin, { role: 'player' });
+  const gmId = k.ID.gm2;
+  void gmId;
   // wendy is a player of world 2; make the world's GM someone else so GM-only events exist.
-  await k.ok('PUT', `/api/admin/worlds/${k.W2}/members/${k.ID.dm}`, k.T.admin, { role: 'dm' });
-  await k.ok('POST', k.w2('/clock/events'), k.T.dm, { title: 'ZQXDMONLYEVENT', start: 10, visibility: 'dm' });
+  await k.ok('PUT', `/api/admin/worlds/${k.W2}/members/${k.ID.gm}`, k.T.admin, { role: 'gm' });
+  await k.ok('POST', k.w2('/clock/events'), k.T.gm, { title: 'ZQXDMONLYEVENT', start: 10, visibility: 'gm' });
   await settle();
   await tap.close();
   assert.ok(!tap.text.includes('ZQXDMONLYEVENT'), `a demoted GM still got a GM-only event: ${tap.text.slice(-300)}`);
@@ -47,7 +47,7 @@ test('Audit_Events: a signed-out session and a revoked key stop receiving events
   await settle();
   await k.ok('POST', '/api/auth/logout', login.token);
   await k.ok('DELETE', `/api/keys/${key.id}`, k.T.jess);
-  await k.ok('PUT', k.w('/live/presence'), k.T.dm, { location: 'ZQXAFTERLOGOUT' });
+  await k.ok('PUT', k.w('/live/presence'), k.T.gm, { location: 'ZQXAFTERLOGOUT' });
   await settle();
   await tap.close();
   await tap2.close();

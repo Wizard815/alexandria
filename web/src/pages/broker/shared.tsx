@@ -6,10 +6,10 @@ import { coins, when } from '../../lib/format.ts';
 import { useAction, ErrorBox, Field } from '../../ui/index.tsx';
 
 /** Settings this work adds. lib/world.tsx does not list them yet. */
-export interface ApprovalSettings { playerChangesNeedApproval: boolean; dmChangeReason: boolean; brokerEnabled: boolean; brokerPayer: 'self' | 'party'; brokerPartyPay: boolean; playerTransfers: boolean }
+export interface ApprovalSettings { playerChangesNeedApproval: boolean; gmChangeReason: boolean; brokerEnabled: boolean; brokerPayer: 'self' | 'party'; brokerPartyPay: boolean; playerTransfers: boolean }
 export const extra = (s: WorldSettings): ApprovalSettings => {
   const x = s as unknown as Partial<ApprovalSettings>;
-  return { playerChangesNeedApproval: x.playerChangesNeedApproval ?? true, dmChangeReason: x.dmChangeReason ?? true, brokerEnabled: x.brokerEnabled ?? true, brokerPayer: x.brokerPayer ?? 'self', brokerPartyPay: x.brokerPartyPay ?? true, playerTransfers: x.playerTransfers ?? true };
+  return { playerChangesNeedApproval: x.playerChangesNeedApproval ?? true, gmChangeReason: x.gmChangeReason ?? true, brokerEnabled: x.brokerEnabled ?? true, brokerPayer: x.brokerPayer ?? 'self', brokerPartyPay: x.brokerPartyPay ?? true, playerTransfers: x.playerTransfers ?? true };
 };
 
 export type Unit = 'minutes' | 'hours' | 'days';
@@ -19,7 +19,7 @@ export interface BrokerConfig {
   tiers: Tier[];
   lengths: { id: string; name: string; multiplier: number }[];
   /** Questions it can't answer: the GM prices them, or the broker turns them away. */
-  unknown?: 'dm' | 'refuse';
+  unknown?: 'gm' | 'refuse';
   payer: 'self' | 'party';
   /** The party pouch is on and the GM lets players pay the broker from it. */
   partyPay?: boolean;
@@ -46,7 +46,7 @@ export type Verdict = 'shared' | 'secret' | 'unknown';
 export interface Classification {
   type: string; verdict: Verdict | null; reason: string; knowledge: string | null; multiplier: number;
   entities: { id: string; title: string; shared: boolean }[];
-  dmEvidence: { page: string; title: string; text: string }[];
+  gmEvidence: { page: string; title: string; text: string }[];
   /** How the audit model (or the keyword rules) labelled it. */
   routing?: { scope: string; intent: string; type: string; confidence: number; source: string; why: string } | null;
 }

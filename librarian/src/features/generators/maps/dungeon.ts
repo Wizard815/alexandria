@@ -116,8 +116,8 @@ export function genDungeon(o: MapOpts = {}): MapResult {
     const rect = { x: horiz ? mx - CELL * 0.36 : mx - 3, y: horiz ? my - 3 : my - CELL * 0.36, w: horiz ? CELL * 0.72 : 6, h: horiz ? 6 : CELL * 0.72 };
     if (kind === 'door') c.ops.push({ t: 'rect', ...rect, fill: '#9b6a35', stroke: fl.palette.wall, sw: 1.2 });
     else {
-      c.ops.push({ t: 'rect', ...rect, fill: '#c9a0e8', stroke: '#4b2a66', sw: 1.2, dm: true });
-      c.ops.push({ t: 'text', x: mx, y: my - 5, s: 'S', size: 10, fill: '#4b2a66', anchor: 'middle', bold: true, dm: true });
+      c.ops.push({ t: 'rect', ...rect, fill: '#c9a0e8', stroke: '#4b2a66', sw: 1.2, gm: true });
+      c.ops.push({ t: 'text', x: mx, y: my - 5, s: 'S', size: 10, fill: '#4b2a66', anchor: 'middle', bold: true, gm: true });
     }
   }
   // stairs in the entrance room
@@ -158,17 +158,17 @@ export function genDungeon(o: MapOpts = {}): MapResult {
     for (let i = 0; i < 6 && used.has(purpose); i++) purpose = pick(r, fl.rooms);
     used.add(purpose);
     const light = pick(r, DUNGEON_LIGHT), sense = pick(r, DUNGEON_SENSE);
-    const dm: string[] = [`Occupants: ${pick(r, fl.occupants)}.`];
-    if (chance(r, 0.45)) dm.push(`Hazard: ${pick(r, DUNGEON_HAZARD)}.`);
-    if (chance(r, 0.4)) dm.push(`Secret: ${pick(r, DUNGEON_SECRET)}.`);
-    if (chance(r, 0.4)) dm.push(`Treasure: ${pick(r, DUNGEON_LOOT)}.`);
-    dm.push(...secretIn(q).map((s) => `Hidden: ${s}.`));
+    const gm: string[] = [`Occupants: ${pick(r, fl.occupants)}.`];
+    if (chance(r, 0.45)) gm.push(`Hazard: ${pick(r, DUNGEON_HAZARD)}.`);
+    if (chance(r, 0.4)) gm.push(`Secret: ${pick(r, DUNGEON_SECRET)}.`);
+    if (chance(r, 0.4)) gm.push(`Treasure: ${pick(r, DUNGEON_LOOT)}.`);
+    gm.push(...secretIn(q).map((s) => `Hidden: ${s}.`));
     const entrance = q.id === 1;
     key.push({
       n: String(q.id),
       name: entrance ? 'Entrance' : noArticle(purpose),
       text: `${entrance ? 'A stair climbs out of the dark here. ' : ''}${cap(purpose)}, ${q.w * 5} by ${q.h * 5} ft, ${light}; ${sense}. ${cap(pick(r, fl.features))}. Exits: ${exitsOf(q)}.`,
-      dm: [...new Set(dm)].join(' '),
+      gm: [...new Set(gm)].join(' '),
     });
   }
   // traps in the corridors (GM view only)
@@ -177,9 +177,9 @@ export function genDungeon(o: MapOpts = {}): MapResult {
   for (let i = 0; i < trapN && corr.length; i++) {
     const [x, y] = corr.splice(int(r, 0, corr.length - 1), 1)[0];
     const n = `T${i + 1}`;
-    c.ops.push({ t: 'circle', x: X(x) + CELL / 2, y: Y(y) + CELL / 2, r: 7, fill: '#f2b8b0', stroke: '#8a2a20', sw: 1.2, dm: true });
-    c.ops.push({ t: 'text', x: X(x) + CELL / 2, y: Y(y) + CELL / 2 + 3.5, s: n, size: 8, fill: '#6b1a12', anchor: 'middle', bold: true, dm: true });
-    key.push({ n, name: 'Trap', text: 'A stretch of corridor that looks like any other.', dm: `${cap(pick(r, DUNGEON_HAZARD))}. Spot DC 13, disarm DC 13.` });
+    c.ops.push({ t: 'circle', x: X(x) + CELL / 2, y: Y(y) + CELL / 2, r: 7, fill: '#f2b8b0', stroke: '#8a2a20', sw: 1.2, gm: true });
+    c.ops.push({ t: 'text', x: X(x) + CELL / 2, y: Y(y) + CELL / 2 + 3.5, s: n, size: 8, fill: '#6b1a12', anchor: 'middle', bold: true, gm: true });
+    key.push({ n, name: 'Trap', text: 'A stretch of corridor that looks like any other.', gm: `${cap(pick(r, DUNGEON_HAZARD))}. Spot DC 13, disarm DC 13.` });
   }
   // room numbers on top of everything
   for (const q of rooms) {

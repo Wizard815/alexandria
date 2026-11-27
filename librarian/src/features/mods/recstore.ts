@@ -54,7 +54,7 @@ export const SCHEMA = `
 export interface Rec { id: string; kind: string; player: string | null; createdAt: string; updatedAt: string; removed: boolean; [field: string]: unknown }
 export interface Actor { accountId: string; role: Role }
 /** What a change says in chat or to the GM, for index.ts to post. */
-export interface Said { chat: string[]; dmnote: string[] }
+export interface Said { chat: string[]; gmnote: string[] }
 
 const toRec = (r: any): Rec => ({ ...parseJson(r.data, {}), id: r.id, kind: r.kind, player: r.account_id ?? null, createdAt: r.created_at, updatedAt: r.updated_at, removed: !!r.removed });
 const kindOf = (m: Installed, kind: string): RecordKind => {
@@ -112,10 +112,10 @@ function withDefaults(k: RecordKind, data: Record<string, unknown>, opts: Record
 /** May `actor` run `a` (on `rec`, or creating one for `target`)? */
 function may(a: RecordAction, actor: Actor, ownerOf: string | null): boolean {
   switch (a.by) {
-    case 'dm': return actor.role === 'dm';
+    case 'gm': return actor.role === 'gm';
     case 'player': return actor.role === 'player';
     case 'owner': return actor.role === 'player' && (ownerOf === null || ownerOf === actor.accountId);
-    case 'any': return actor.role === 'dm' || (actor.role === 'player' && (ownerOf === null || ownerOf === actor.accountId));
+    case 'any': return actor.role === 'gm' || (actor.role === 'player' && (ownerOf === null || ownerOf === actor.accountId));
   }
 }
 
@@ -143,16 +143,16 @@ export function recordAct(db: DB, worldId: string, m: Installed, actionId: strin
     }
   }
   const fixed = Object.fromEntries(Object.entries(a.set).map(([f, v]) => [f, val(v as any, opts)]));
-  const said: Said = { chat: [], dmnote: [] };
+  const said: Said = { chat: [], gmnote: [] };
 
   if (a.do === 'create') {
     // Whose: an owned kind belongs to the player who runs it, or the player the GM names.
     let owner: string | null = null;
     if (k.owned) {
-      owner = actor.role === 'dm' ? String(input.player ?? '') : actor.accountId;
+      owner = actor.role === 'gm' ? String(input.player ?? '') : actor.accountId;
       if (!owner || one<any>(db, "SELECT role FROM members WHERE world_id = ? AND account_id = ?", worldId, owner)?.role !== 'player') throw new HttpError(400, 'Say which player this is for');
     }
-    if (!may(a, actor, owner)) throw new HttpError(403, a.by === 'dm' ? 'Only the GM can do that' : 'You cannot do that');
+    if (!may(a, actor, owner)) throw new HttpError(403, a.by === 'gm' ? 'Only the GM can do that' : 'You cannot do that');
     const data: Record<string, unknown> = { ...asked, ...fixed };
     if (a.copy) {
       const refId = data[a.copy.via];
@@ -177,7 +177,7 @@ export function recordAct(db: DB, worldId: string, m: Installed, actionId: strin
   if (!input.recordId) throw new HttpError(400, `Say which ${k.label.toLowerCase()}`);
   const rec = getRecord(db, worldId, m, input.recordId);
   if (rec.kind !== k.id || rec.removed) throw new HttpError(404, `That is not a ${k.label.toLowerCase()} of ${m.mod.name}`);
-  if (!may(a, actor, rec.player)) throw new HttpError(403, a.by === 'dm' ? 'Only the GM can do that' : 'Only its player can do that');
+  if (!may(a, actor, rec.player)) throw new HttpError(403, a.by === 'gm' ? 'Only the GM can do that' : 'Only its player can do that');
   if (!matches(rec, a.where, opts)) throw new HttpError(409, `${a.label} does not fit this ${k.label.toLowerCase()} now`);
   const before = dataOf(rec);
   if (a.do === 'remove') {
@@ -241,7 +241,7 @@ export function fill(db: DB, worldId: string, m: Installed, template: string, re
 function speak(db: DB, worldId: string, m: Installed, effect: RecordAction['effect'], rec: Rec, names: (a: string | null) => string, said: Said, ctx: { actor?: string | null; note?: string } = {}) {
   const tidy = (t: string) => t.replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim();
   if (effect?.chat) said.chat.push(tidy(fill(db, worldId, m, effect.chat, rec, names, ctx)));
-  if (effect?.dmnote) said.dmnote.push(tidy(fill(db, worldId, m, effect.dmnote, rec, names, ctx)));
+  if (effect?.gmnote) said.gmnote.push(tidy(fill(db, worldId, m, effect.gmnote, rec, names, ctx)));
 }
 
 const goalOf = (t: Timer, rec: Rec, opts: Record<string, unknown>): number | null => {
@@ -271,7 +271,7 @@ function finishIfDone(db: DB, worldId: string, m: Installed, rec: Rec, timers: T
  * picked in a prompt (`only`). Returns what to post and the players whose records changed.
  */
 export function runTimers(db: DB, worldId: string, m: Installed, on: string, names: (a: string | null) => string, only?: string[]): { said: Said; players: string[] } {
-  const said: Said = { chat: [], dmnote: [] };
+  const said: Said = { chat: [], gmnote: [] };
   const players = new Set<string>();
   for (const t of m.mod.system.timers.filter((x) => x.on === on)) {
     const recs = only ? only.map((rid) => { try { return getRecord(db, worldId, m, rid); } catch { return null; } }).filter((r): r is Rec => !!r && r.kind === t.record && !r.removed) : listRecords(db, worldId, m, t.record);
@@ -325,12 +325,12 @@ export function answerPrompt(db: DB, worldId: string, m: Installed, roundId: str
   const c = p.choices[choice];
   if (!c) throw new HttpError(400, 'Pick one of the choices');
   let result: RecordActResult | null = null;
-  const said: Said = { chat: [], dmnote: [] };
+  const said: Said = { chat: [], gmnote: [] };
   if (!c.skip && c.action) {
     result = recordAct(db, worldId, m, c.action, actor, input, names);
-    said.chat.push(...result.said.chat); said.dmnote.push(...result.said.dmnote);
+    said.chat.push(...result.said.chat); said.gmnote.push(...result.said.gmnote);
     const moved = runTimers(db, worldId, m, `prompt:${p.id}`, names, [result.record.id]);
-    said.chat.push(...moved.said.chat); said.dmnote.push(...moved.said.dmnote);
+    said.chat.push(...moved.said.chat); said.gmnote.push(...moved.said.gmnote);
     result = { ...result, record: getRecord(db, worldId, m, result.record.id) };
   }
   const answers = { ...round.answers, [actor.accountId]: { choice, ...(result ? { recordId: result.record.id } : {}), at: now() } };

@@ -9,7 +9,7 @@ import { useWorld } from '../../lib/world.tsx';
 import { useNet } from '../../lib/net.ts';
 import { useLoad } from '../../lib/world.tsx';
 import { mergeCopies, type PageRow } from '../../pages/library/treeModel.ts';
-import { matches, menuEntries } from '../../layouts/DMMenu.tsx';
+import { matches, menuEntries } from '../../layouts/GMMenu.tsx';
 import { availableLinks, groupOf } from '../../lib/playerNav.ts';
 import { escapeHtml, snippetOf, safeMarks } from './marks.ts';
 import './search.css';
@@ -53,7 +53,7 @@ export default function SearchOverlay() {
 }
 
 function Box({ onClose }: { onClose: () => void }) {
-  const { w, isDM, info } = useWorld();
+  const { w, isGM, info } = useWorld();
   const { world = '' } = useParams();
   const nav = useNavigate();
   const online = useNet().online;
@@ -82,11 +82,11 @@ function Box({ onClose }: { onClose: () => void }) {
   // The app's own pages: all of them before you type, then the ones that match.
   const navHits: Hit[] = useMemo(() => {
     const needle = q.trim();
-    const list = isDM
+    const list = isGM
       ? menuEntries().filter((e) => !needle || matches(e, needle)).map((e) => ({ to: `gm/${e.to}`, label: e.label, desc: e.desc }))
       : availableLinks(info.settings).filter((l) => !needle || l.label.toLowerCase().includes(needle.toLowerCase())).map((l) => ({ to: l.to, label: l.label, desc: groupOf(l.to) }));
     return list.slice(0, needle ? 6 : 99).map((e) => ({ kind: 'nav', id: e.to, title: e.label, snippet: e.desc, link: e.to, score: 0 }));
-  }, [q, isDM, info.settings]);
+  }, [q, isGM, info.settings]);
   // One result per library page, however many copies of it there are.
   const pages = useLoad<PageRow[]>(() => w.pages(), [w]);
   const repOf = useMemo(() => mergeCopies(pages.data ?? []).repOf, [pages.data]);

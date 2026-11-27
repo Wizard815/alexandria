@@ -32,7 +32,7 @@ export interface RecordAction {
   copy?: { via: string; fields: Record<string, string> };
   /** Only on records like this, e.g. { status: 'open' }. */
   where: Record<string, unknown>;
-  effect?: { chat?: string; dmnote?: string };
+  effect?: { chat?: string; gmnote?: string };
 }
 export type TimerOn = 'longRest' | 'shortRest' | 'sessionStart' | 'sessionEnd' | `prompt:${string}`;
 export interface Timer {
@@ -44,7 +44,7 @@ export interface Timer {
 }
 export interface PromptChoice { label: string; action?: string; skip?: boolean }
 export interface Prompt { id: string; button: string; title: string; text: string; choices: PromptChoice[] }
-export type ViewPlace = 'dm' | 'sheet' | 'player';
+export type ViewPlace = 'gm' | 'sheet' | 'player';
 export interface View { id: string; title: string; record: string; place: ViewPlace; columns: string[]; where: Record<string, unknown>; actions: string[]; groupByPlayer: boolean }
 
 export interface System { records: RecordKind[]; recordActions: RecordAction[]; timers: Timer[]; prompts: Prompt[]; views: View[] }
@@ -52,10 +52,10 @@ export const emptySystem = (): System => ({ records: [], recordActions: [], time
 
 const MAX = { kinds: 8, fields: 16, seed: 300, actions: 24, timers: 8, prompts: 4, choices: 6, views: 8 };
 const SLUG = /^[a-z][a-zA-Z0-9-]{0,39}$/;
-const WHO: readonly Who[] = ['dm', 'owner', 'player', 'any'];
+const WHO: readonly Who[] = ['gm', 'owner', 'player', 'any'];
 const OPS: readonly RecordOp[] = ['create', 'set', 'add', 'remove'];
 const WHEN = ['longRest', 'shortRest', 'sessionStart', 'sessionEnd'];
-const PLACES: readonly ViewPlace[] = ['dm', 'sheet', 'player'];
+const PLACES: readonly ViewPlace[] = ['gm', 'sheet', 'player'];
 /** Fields every record has. */
 export const BUILTIN_FIELDS = ['id', 'player', 'createdAt', 'updatedAt'];
 
@@ -151,7 +151,7 @@ export function checkSystem(o: any, ctx: Ctx): System {
     if (!k) err(`${at}.record "${kid}" is not a record kind of this rule`);
     const op = OPS.includes(a.do) ? a.do as RecordOp : (err(`${at}.do must be one of ${OPS.join(', ')}`), 'set' as RecordOp);
     const ra: RecordAction = {
-      id: aid, label: text(a.label, `${at}.label`, 40, true), by: WHO.includes(a.by) ? a.by : (err(`${at}.by must be one of ${WHO.join(', ')}`), 'dm'),
+      id: aid, label: text(a.label, `${at}.label`, 40, true), by: WHO.includes(a.by) ? a.by : (err(`${at}.by must be one of ${WHO.join(', ')}`), 'gm'),
       record: kid, do: op, ask: [], set: k ? values(kid, a.set, `${at}.set`) : {}, where: k ? values(kid, a.where, `${at}.where`) : {},
     };
     ra.ask = list(a.ask, `${at}.ask`, MAX.fields).filter((f: unknown) => (typeof f === 'string' && k?.fields[f] ? true : (err(`${at}.ask: "${String(f)}" is not a field of ${kid}`), false)));
@@ -175,8 +175,8 @@ export function checkSystem(o: any, ctx: Ctx): System {
     }
     if (a.effect !== undefined) {
       const e = a.effect ?? {};
-      for (const key of Object.keys(e)) if (key !== 'chat' && key !== 'dmnote') err(`${at}.effect.${key} is not an effect here (chat, dmnote)`);
-      ra.effect = { ...(e.chat !== undefined ? { chat: text(e.chat, `${at}.effect.chat`, 300) } : {}), ...(e.dmnote !== undefined ? { dmnote: text(e.dmnote, `${at}.effect.dmnote`, 300) } : {}) };
+      for (const key of Object.keys(e)) if (key !== 'chat' && key !== 'gmnote') err(`${at}.effect.${key} is not an effect here (chat, gmnote)`);
+      ra.effect = { ...(e.chat !== undefined ? { chat: text(e.chat, `${at}.effect.chat`, 300) } : {}), ...(e.gmnote !== undefined ? { gmnote: text(e.gmnote, `${at}.effect.gmnote`, 300) } : {}) };
     }
     for (const key of Object.keys(a)) if (!['id', 'label', 'by', 'record', 'do', 'ask', 'set', 'field', 'amount', 'copy', 'where', 'effect'].includes(key)) err(`${at}.${key} is not part of a record action`);
     sys.recordActions.push(ra);
@@ -199,7 +199,7 @@ export function checkSystem(o: any, ctx: Ctx): System {
       else {
         const ra = recAct(String(c.action ?? ''));
         if (!ra) err(`${cat}.action "${c.action}" is not a record action of this rule`);
-        else if (ra.by === 'dm') err(`${cat}.action "${ra.id}" is the GM's; a player answers a prompt`);
+        else if (ra.by === 'gm') err(`${cat}.action "${ra.id}" is the GM's; a player answers a prompt`);
         ch.action = String(c.action ?? '');
       }
       return ch;
@@ -234,7 +234,7 @@ export function checkSystem(o: any, ctx: Ctx): System {
     const kid = typeof v.record === 'string' ? v.record : '';
     const k = kindOf(kid);
     if (!k) err(`${at}.record "${kid}" is not a record kind of this rule`);
-    const place = PLACES.includes(v.place) ? v.place as ViewPlace : (err(`${at}.place must be one of ${PLACES.join(', ')} (dm: a tab on the GM's House rules page, sheet: a card on the player's home, player: the player's House rules page)`), 'dm' as ViewPlace);
+    const place = PLACES.includes(v.place) ? v.place as ViewPlace : (err(`${at}.place must be one of ${PLACES.join(', ')} (gm: a tab on the GM's House rules page, sheet: a card on the player's home, player: the player's House rules page)`), 'gm' as ViewPlace);
     const columns = list(v.columns, `${at}.columns`, 8).filter((c: unknown) => (typeof c === 'string' && (k?.fields[c] || ['player', 'createdAt', 'updatedAt'].includes(c)) ? true : (err(`${at}.columns: "${String(c)}" is not a field of ${kid}`), false)));
     const actions = list(v.actions, `${at}.actions`, 8).filter((a: unknown) => { const ra = recAct(String(a)); if (!ra) { err(`${at}.actions: "${String(a)}" is not a record action of this rule`); return false; } if (ra.record !== kid) { err(`${at}.actions: "${ra.id}" works on ${ra.record}, not ${kid}`); return false; } return true; });
     sys.views.push({ id: typeof v.id === 'string' && SLUG.test(v.id) ? v.id : `view-${i + 1}`, title: text(v.title, `${at}.title`, 40, true), record: kid, place, columns: columns.length ? columns : k ? [k.title] : [], where: k ? values(kid, v.where, `${at}.where`) : {}, actions, groupByPlayer: v.groupByPlayer === true });
@@ -251,7 +251,7 @@ export function checkSystem(o: any, ctx: Ctx): System {
       else if (!target.fields[b] && !BUILTIN_FIELDS.includes(b)) err(`${at}: {${a}.${b}}: ${b} is not a field of ${target.id}`);
     }
   };
-  sys.recordActions.forEach((ra, i) => { placeholders(ra.effect?.chat, ra.record, `recordActions[${i}].effect.chat`); placeholders(ra.effect?.dmnote, ra.record, `recordActions[${i}].effect.dmnote`); });
+  sys.recordActions.forEach((ra, i) => { placeholders(ra.effect?.chat, ra.record, `recordActions[${i}].effect.chat`); placeholders(ra.effect?.gmnote, ra.record, `recordActions[${i}].effect.gmnote`); });
   sys.timers.forEach((t, i) => placeholders(t.done.chat, t.record, `timers[${i}].done.chat`));
 
   return sys;

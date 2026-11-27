@@ -38,7 +38,7 @@ function store<T>(key: string, fallback: T): [T, (v: T) => void] {
 }
 
 export default function MapBoard() {
-  const { w, info, isDM, me, nameOf } = useWorld();
+  const { w, info, isGM, me, nameOf } = useWorld();
   const s = info.settings;
   const [maps, setMaps] = store<string[]>(`alx.maps.${info.id}`, ['world']);
   const [mapId, setMapId] = store<string>(`alx.map.${info.id}`, maps[0] ?? 'world');
@@ -102,9 +102,9 @@ export default function MapBoard() {
   };
   const shownRef = useRef<Mark[]>([]);
   const [icon, setIcon] = useState(ICONS[0][0]);
-  const [vis, setVis] = useState<'party' | 'me' | 'dm'>('party');
+  const [vis, setVis] = useState<'party' | 'me' | 'gm'>('party');
   const [plan, setPlan] = useState('route');
-  const [layers, setLayers] = useState({ party: true, mine: true, dm: true, hidden: true });
+  const [layers, setLayers] = useState({ party: true, mine: true, gm: true, hidden: true });
   const [sel, setSel] = useState<string | null>(null);
   const [draft, setDraft] = useState<Pt[]>([]);
   const [pending, setPending] = useState<{ kind: 'pin' | 'note' | 'icon'; x: number; y: number } | null>(null);
@@ -116,17 +116,17 @@ export default function MapBoard() {
 
   const allowed: Record<Tool, boolean> = {
     select: true, erase: true, ruler: true,
-    fog: isDM,
-    pin: isDM || s.mapPins, note: isDM || s.mapPins, icon: isDM || s.mapPins,
-    route: isDM || s.mapDraw, stop: isDM || s.mapStops,
+    fog: isGM,
+    pin: isGM || s.mapPins, note: isGM || s.mapPins, icon: isGM || s.mapPins,
+    route: isGM || s.mapDraw, stop: isGM || s.mapStops,
   };
   useEffect(() => { if (!allowed[tool]) setTool('select'); }, [allowed, tool]);
   useEffect(() => { setDraft([]); setPending(null); if (tool !== 'ruler') { setRuler([]); setHover(null); } }, [tool, mapId]);
 
   const shown = useMemo(() => (marks.data ?? []).filter((m) => {
-    if (m.hidden_by_dm && !layers.hidden) return false;
+    if (m.hidden_by_gm && !layers.hidden) return false;
     if (m.visibility === 'me') return layers.mine;
-    if (m.visibility === 'dm') return layers.dm;
+    if (m.visibility === 'gm') return layers.gm;
     return layers.party;
   }), [marks.data, layers]);
   shownRef.current = shown;
@@ -174,7 +174,7 @@ export default function MapBoard() {
     } else if (e.key === 'Escape') { setDraft([]); setPending(null); setRuler([]); }
   };
 
-  const canErase = (m: Mark) => isDM || m.author_id === me;
+  const canErase = (m: Mark) => isGM || m.author_id === me;
   const onMark = (m: Mark) => {
     if (tool === 'erase') {
       if (!canErase(m)) { toast('You can only erase your own marks'); return; }
@@ -193,11 +193,11 @@ export default function MapBoard() {
   return (
     <div className="page wide">
       <style>{MAP_CSS}</style>
-      <PageHead title="Map" lead={isDM ? 'Everyone\'s marks. Hide any mark from players, or erase it.' : 'Leave pins, notes and routes for the party, or private marks just for you.'} />
+      <PageHead title="Map" lead={isGM ? 'Everyone\'s marks. Hide any mark from players, or erase it.' : 'Leave pins, notes and routes for the party, or private marks just for you.'} />
       <ErrorBox error={marks.error ?? act.error} />
 
       <div className="row" role="toolbar" aria-label="Map tools" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--side)', border: '1px solid var(--line)' }}>
-        {TOOLS.filter(([k]) => k !== 'fog' || isDM).map(([k, glyph, label]) => (
+        {TOOLS.filter(([k]) => k !== 'fog' || isGM).map(([k, glyph, label]) => (
           <button key={k} type="button" className={`btn small${tool === k ? ' on' : ''}`} aria-pressed={tool === k} disabled={!allowed[k]}
             title={allowed[k] ? HINT[k] : 'Turned off by the GM in World settings'} onClick={() => setTool(k)}>
             <span aria-hidden="true">{glyph}</span> {label}
@@ -214,7 +214,7 @@ export default function MapBoard() {
         <span className="row" style={{ marginLeft: 'auto', gap: 6 }}>
           <span className="small muted">New marks:</span>
           <select className="input" style={{ width: 'auto', minHeight: 30 }} value={vis} onChange={(e) => setVis(e.target.value as any)} aria-label="Who sees new marks">
-            <option value="party">Party</option><option value="me">Only me</option>{isDM && <option value="dm">GM only</option>}
+            <option value="party">Party</option><option value="me">Only me</option>{isGM && <option value="gm">GM only</option>}
           </select>
         </span>
       </div>
@@ -230,14 +230,14 @@ export default function MapBoard() {
               // The picture waits for its fog state, so a fogged map is never seen uncovered first.
               background: bg ? (fog.ready ? `center / 100% 100% no-repeat url("${bg.replace(/"/g, '%22')}"), #15212D` : '#15212D') : 'radial-gradient(ellipse 40% 32% at 30% 42%, #4B4632 0 60%, transparent 61%), radial-gradient(ellipse 30% 40% at 64% 56%, #47432F 0 62%, transparent 63%), linear-gradient(160deg, #1A2A38, #15212D)',
             }}>
-            {fog.ready && fog.state && <FogCanvas state={fog.state} extra={fogEd.pending} tint={isDM} />}
+            {fog.ready && fog.state && <FogCanvas state={fog.state} extra={fogEd.pending} tint={isGM} />}
             <RouteLayer marks={shown} draft={draft} selected={sel} onPick={onMark} />
             <SourcePins pins={pins} selected={spin?.id ?? null} labels={labels} active={tool === 'select'} onPick={(p) => { setSel(null); setSpin(p); }} />
             <MarkLayer marks={shown} selected={sel} onPick={onMark} me={me}
-              canMove={(m) => tool === 'select' && !!m.data.token && (isDM || ((s as unknown as Record<string, unknown>).foundryPlayersMove !== false && m.data.token.account === me))}
+              canMove={(m) => tool === 'select' && !!m.data.token && (isGM || ((s as unknown as Record<string, unknown>).foundryPlayersMove !== false && m.data.token.account === me))}
               onMove={(m, p) => void act.run(async () => { await w.call('PUT', `/foundry/tokens/${encodeURIComponent(m.id)}`, p); await marks.reload(); })} />
             <Ruler points={ruler} cursor={hover} aspect={aspect} scale={scale.data} />
-            <FogDraw ed={fogEd} active={isDM && tool === 'fog' && fogEd.enabled} />
+            <FogDraw ed={fogEd} active={isGM && tool === 'fog' && fogEd.enabled} />
             {pending && <span aria-hidden="true" style={{ position: 'absolute', left: `${pending.x}%`, top: `${pending.y}%`, transform: 'translate(-50%,-50%)', width: 16, height: 16, borderRadius: '50%', border: '2px dashed var(--accent)' }} />}
             {focused && tool !== 'select' && <span aria-hidden="true" style={{ position: 'absolute', left: `${cursor.x}%`, top: `${cursor.y}%`, transform: 'translate(-50%,-50%)', width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--teal)', boxShadow: '0 0 0 3px rgba(0,0,0,0.4)' }} />}
             <span style={{ position: 'absolute', left: 10, bottom: 8, padding: '3px 9px', borderRadius: 6, background: 'rgba(18,22,31,0.85)', fontSize: 13, color: '#D8CFB9', pointerEvents: 'none' }}>{HINT[tool]}</span>
@@ -245,7 +245,7 @@ export default function MapBoard() {
           <div className="row small map-tools-row">
             <label className="row" style={{ gap: 6 }}>Zoom <input type="range" min={1} max={5} step={0.25} value={zoom} aria-label="Zoom" onChange={(e) => setZoom(Number(e.target.value))} /></label>
             {(srcPins.data?.pins.length ?? 0) > 0 && <><label className="row" style={{ gap: 6 }}><input type="checkbox" checked={showSource} onChange={(e) => setShowSource(e.target.checked)} /> Places ({srcPins.data!.pins.length})</label><label className="row" style={{ gap: 6 }}><input type="checkbox" checked={labels} onChange={(e) => setLabels(e.target.checked)} /> Names</label></>}
-            {srcPins.data?.page && <Link to={`/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(srcPins.data.page.id)}`}>Open the map’s page →</Link>}
+            {srcPins.data?.page && <Link to={`/w/${info.slug}/${isGM ? 'gm/' : ''}library?page=${encodeURIComponent(srcPins.data.page.id)}`}>Open the map’s page →</Link>}
           </div>
           {!marks.loading && !(marks.data ?? []).length && <p className="muted small">No marks on this map yet.</p>}
         </div>
@@ -256,23 +256,23 @@ export default function MapBoard() {
 
           {spin && (
             <section className="card gold" aria-label="Place">
-              <div className="card-head"><h3>{spin.name}</h3>{spin.dm && <span className="chip red">GM only</span>}</div>
+              <div className="card-head"><h3>{spin.name}</h3>{spin.gm && <span className="chip red">GM only</span>}</div>
               <div className="row">
-                {spin.pageId && <Link className="btn small primary" to={`/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(spin.pageId)}`}>Open its page</Link>}
+                {spin.pageId && <Link className="btn small primary" to={`/w/${info.slug}/${isGM ? 'gm/' : ''}library?page=${encodeURIComponent(spin.pageId)}`}>Open its page</Link>}
                 <button type="button" className="btn small" onClick={() => { setTool('ruler'); setTimeout(() => setRuler([{ x: spin.x, y: spin.y }]), 0); }}>Measure from here</button>
                 <button type="button" className="btn small ghost" onClick={() => setSpin(null)}>Close</button>
               </div>
             </section>
           )}
-          {tool === 'ruler' && <RulerPanel key={picKey} points={ruler} aspect={aspect} scale={scale.data} canSet={isDM} onClear={() => setRuler([])}
+          {tool === 'ruler' && <RulerPanel key={picKey} points={ruler} aspect={aspect} scale={scale.data} canSet={isGM} onClear={() => setRuler([])}
             onSet={(width, unit) => act.run(async () => { await w.call('PUT', '/map/scale', { pic: picKey, width, unit }); await scale.reload(); toast('Scale saved'); })} />}
           {selected ? (
-            <MarkPanel m={selected} author={selected.author_id === me ? 'You' : nameOf(selected.author_id)} canEdit={selected.author_id === me} canErase={canErase(selected)} isDM={isDM}
+            <MarkPanel m={selected} author={selected.author_id === me ? 'You' : nameOf(selected.author_id)} canEdit={selected.author_id === me} canErase={canErase(selected)} isGM={isGM}
               onSave={(patch) => act.run(async () => { await w.call('PATCH', `/map/${encodeURIComponent(mapId)}/marks/${selected.id}`, patch); await marks.reload(); toast('Saved'); })}
               onErase={() => act.run(async () => { await w.removeMark(mapId, selected.id); setSel(null); await marks.reload(); })} />
           ) : null}
 
-          {isDM && (
+          {isGM && (
             <section className="card" aria-labelledby="fog-h" data-testid="map-fog">
               <h3 id="fog-h">Fog of war</h3>
               <p className="small muted">Per map picture. Off until you turn it on, then the whole map starts fogged. Pins and routes under fog are not sent to players.</p>
@@ -288,7 +288,7 @@ export default function MapBoard() {
 
           <section className="card" aria-labelledby="layers-h">
             <h3 id="layers-h">Layers</h3>
-            {([['party', 'Party marks'], ['mine', 'Only-me marks'], ...(isDM ? [['dm', 'GM marks'], ['hidden', 'Marks hidden from players']] : [])] as [keyof typeof layers, string][]).map(([k, l]) => (
+            {([['party', 'Party marks'], ['mine', 'Only-me marks'], ...(isGM ? [['gm', 'GM marks'], ['hidden', 'Marks hidden from players']] : [])] as [keyof typeof layers, string][]).map(([k, l]) => (
               <label key={k} className="row small" style={{ gap: 8 }}><input type="checkbox" checked={layers[k]} onChange={(e) => setLayers({ ...layers, [k]: e.target.checked })} /> {l}</label>
             ))}
           </section>
@@ -303,7 +303,7 @@ export default function MapBoard() {
               <input id="map-new" name="map" className="input grow" placeholder="Another map, e.g. old-kesh" style={{ minHeight: 32 }} />
               <button type="submit" className="btn small">Open</button>
             </form>
-            {isDM && <MapsFromSource onDone={() => void imported.reload()} />}
+            {isGM && <MapsFromSource onDone={() => void imported.reload()} />}
             <Field label="Map picture" help={options.length ? 'Maps from this world\'s sources and library, as far as your level allows. The marks are shared; which picture you look at is only your choice.' : undefined}>
               {options.length ? (
                 <select value={options.some((o) => o.value === choice) ? choice : choice === 'none' ? 'none' : ''} onChange={(e) => setChoice(e.target.value)} aria-label="Map picture">
@@ -386,14 +386,14 @@ function PendingForm({ p, icon, busy, onPlace, onCancel }: { p: { kind: 'pin' | 
   );
 }
 
-function MarkPanel({ m, author, canEdit, canErase, isDM, onSave, onErase }: { m: Mark; author: string; canEdit: boolean; canErase: boolean; isDM: boolean; onSave: (p: Record<string, unknown>) => void; onErase: () => void }) {
+function MarkPanel({ m, author, canEdit, canErase, isGM, onSave, onErase }: { m: Mark; author: string; canEdit: boolean; canErase: boolean; isGM: boolean; onSave: (p: Record<string, unknown>) => void; onErase: () => void }) {
   const [label, setLabel] = useState(m.data.label ?? '');
   const [text, setText] = useState(m.data.text ?? '');
   useEffect(() => { setLabel(m.data.label ?? ''); setText(m.data.text ?? ''); }, [m.id, m.data.label, m.data.text]);
   const kind = m.kind === 'stop' ? `Stop ${m.data.n ?? ''}` : m.kind === 'icon' ? (ICONS.find((i) => i[0] === m.data.icon)?.[2] ?? 'Icon') : m.kind[0].toUpperCase() + m.kind.slice(1);
   return (
     <section className="card" aria-label="Selected mark">
-      <div className="card-head"><h3>{kind}</h3><span className="row" style={{ gap: 4 }}><VisChip v={m.visibility} />{m.hidden_by_dm && <span className="chip red">Hidden</span>}</span></div>
+      <div className="card-head"><h3>{kind}</h3><span className="row" style={{ gap: 4 }}><VisChip v={m.visibility} />{m.hidden_by_gm && <span className="chip red">Hidden</span>}</span></div>
       <span className="tiny faint">{author} · {when(m.created_at)}{m.kind === 'stop' && m.data.plan ? ` · plan “${m.data.plan}”` : ''}</span>
       {canEdit && m.kind !== 'route' ? (
         <>
@@ -409,7 +409,7 @@ function MarkPanel({ m, author, canEdit, canErase, isDM, onSave, onErase }: { m:
         </>
       )}
       <div className="row">
-        {isDM && m.visibility !== 'me' && <button type="button" className="btn small" onClick={() => onSave({ hidden: !m.hidden_by_dm })}>{m.hidden_by_dm ? 'Show to players' : 'Hide from players'}</button>}
+        {isGM && m.visibility !== 'me' && <button type="button" className="btn small" onClick={() => onSave({ hidden: !m.hidden_by_gm })}>{m.hidden_by_gm ? 'Show to players' : 'Hide from players'}</button>}
         {canErase && <button type="button" className="btn small danger" onClick={onErase}>Erase</button>}
       </div>
     </section>

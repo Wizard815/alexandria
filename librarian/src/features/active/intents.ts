@@ -45,7 +45,7 @@ export function spanText(minutes: number): string {
 export interface Call { tool: string; args: Record<string, any> }
 export interface Candidate {
   category: Category; calls: Call[]; summary: string; confidence: number; cue: string; ruleKey: string;
-  visible: 'dm' | 'table' | 'players'; dedupeKey: string; dedupeMs: number;
+  visible: 'gm' | 'table' | 'players'; dedupeKey: string; dedupeMs: number;
   /** A player's own words: never run without the GM's tap. */
   playerSource?: boolean;
   /** Always a confirm card, whatever the setting. */

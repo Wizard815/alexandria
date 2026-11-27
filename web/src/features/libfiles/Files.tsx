@@ -31,7 +31,7 @@ export function UploadForm({ pageId, max, videoMax, onDone, onCancel }: { pageId
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [kind, setKind] = useState<string>('other');
-  const [level, setLevel] = useState<Level>('dm');
+  const [level, setLevel] = useState<Level>('gm');
   const [folder, setFolder] = useState('Files');
   const [title, setTitle] = useState('');
   const [send, setSend] = useState(false);

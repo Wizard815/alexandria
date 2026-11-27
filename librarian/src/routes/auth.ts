@@ -182,7 +182,7 @@ export default function authRoutes(d: Deps) {
       worldId = str(req.body?.worldId, 'worldId', { max: 60 });
       const m = one<{ role: string }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, auth.account.id);
       if (!m) throw new HttpError(404, 'World not found');
-      if (access === 'write' && m.role !== 'dm') throw new HttpError(403, 'Only the GM can make a write key. Players get read-only keys.');
+      if (access === 'write' && m.role !== 'gm') throw new HttpError(403, 'Only the GM can make a write key. Players get read-only keys.');
     }
     const k = createKey(db, auth.account.id, scope, label, worldId, access);
     audit(db, worldId, auth.account.id, 'key.create', `${scope} ${access} ${label}`);

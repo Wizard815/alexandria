@@ -26,7 +26,7 @@
       "death saving",
       "dying"
     ],
-    "dm": "Death saves are rolled by the GM in secret here. Record them with death_save, but do not reveal successes or failures to players; tell them only stable, awake or dead. A DC 10 Medicine check reveals stable or not.",
+    "gm": "Death saves are rolled by the GM in secret here. Record them with death_save, but do not reveal successes or failures to players; tell them only stable, awake or dead. A DC 10 Medicine check reveals stable or not.",
     "player": "At this table the GM rolls death saves in secret, so do not guess how close a dying character is. A DC 10 Medicine check tells whether they are stable."
   }
 }

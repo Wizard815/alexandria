@@ -6,11 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { all, one, run } from '../../core/db.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { HttpError, id, int, now, oneOf, str } from '../../core/util.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { DEFAULT_CONSENT_TEXT, HOLD_KINDS, MODES, SCHEMA, engine, lineView, migrateStt, type LineRow, type MicRow } from './engine.ts';
 import { SUMMARY_SCHEMA, getSummary, recordingSessions, updateBoth } from './summary.ts';
@@ -94,7 +94,7 @@ const feature: Feature = {
     const r = Router({ mergeParams: true });
     const { db } = d;
     const eng = engine(d);
-    r.use(requirePlayerOrDM);
+    r.use(requirePlayerOrGM);
 
     const consentOf = (worldId: string, accountId: string) => !!one<any>(db, 'SELECT agreed FROM audio_consent WHERE world_id = ? AND account_id = ?', worldId, accountId)?.agreed;
     const activeSession = (worldId: string) => one<any>(db, 'SELECT * FROM audio_sessions WHERE world_id = ? AND stopped_at IS NULL ORDER BY started_at DESC', worldId);
@@ -110,22 +110,22 @@ const feature: Feature = {
       const c = ctx(res);
       const s = activeSession(c.world.id);
       const last = one<any>(db, 'SELECT * FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC', c.world.id);
-      const dm = isDM(res);
+      const gm = isGM(res);
       res.json({
         recording: !!s,
         session: s ? sessionOut(s) : null,
         lastSession: last ? sessionOut(last) : null,
         serverNow: now(),
-        consent: { text: String(featureSetting(settings(res), 'recordingConsentText') ?? ''), agreed: dm || consentOf(c.world.id, me(res)), required: !dm },
+        consent: { text: String(featureSetting(settings(res), 'recordingConsentText') ?? ''), agreed: gm || consentOf(c.world.id, me(res)), required: !gm },
         retentionDays: featureSetting(settings(res), 'audioRetentionDays'),
         transcription: { stt: eng.sttMode(c.world.id), hint: featureSetting(settings(res), 'transcriptHint'), context: featureSetting(settings(res), 'transcriptContext'), refine: featureSetting(settings(res), 'transcriptRefine') },
-        ...(dm ? { dropped: eng.dropped } : {}),
+        ...(gm ? { dropped: eng.dropped } : {}),
       });
     });
 
     // ---- consent --------------------------------------------------------------
     r.get('/consent', (_req, res) => {
-      res.json({ text: String(featureSetting(settings(res), 'recordingConsentText') ?? ''), agreed: isDM(res) || consentOf(ctx(res).world.id, me(res)), required: !isDM(res) });
+      res.json({ text: String(featureSetting(settings(res), 'recordingConsentText') ?? ''), agreed: isGM(res) || consentOf(ctx(res).world.id, me(res)), required: !isGM(res) });
     });
     r.post('/consent', (req, res) => {
       if (typeof req.body?.agree !== 'boolean') throw new HttpError(400, 'agree must be true or false');
@@ -134,7 +134,7 @@ const feature: Feature = {
       audit(db, w, me(res), req.body.agree ? 'audio.consent' : 'audio.consent_withdrawn');
       res.json({ agreed: req.body.agree });
     });
-    r.get('/consents', requireDM, (_req, res) => {
+    r.get('/consents', requireGM, (_req, res) => {
       const w = ctx(res).world.id;
       res.json(all<any>(db, `SELECT a.id AS accountId, a.display_name AS name, m.character_name AS character, m.role, c.agreed, c.at FROM members m JOIN accounts a ON a.id = m.account_id
         LEFT JOIN audio_consent c ON c.world_id = m.world_id AND c.account_id = m.account_id WHERE m.world_id = ? AND m.role = 'player' ORDER BY a.display_name`, w)
@@ -158,7 +158,7 @@ const feature: Feature = {
     r.get('/mics', (_req, res) => {
       const w = ctx(res).world.id;
       const eng2 = eng.nameOf(w);
-      const rows = isDM(res) ? all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? ORDER BY created_at', w) : all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? AND account_id = ? ORDER BY created_at', w, me(res));
+      const rows = isGM(res) ? all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? ORDER BY created_at', w) : all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? AND account_id = ? ORDER BY created_at', w, me(res));
       res.json(rows.map((m) => ({ ...micOut(m, eng2), stt: sttOf(w, m) })));
     });
 
@@ -194,18 +194,18 @@ const feature: Feature = {
 
     r.post('/mics', (req, res) => {
       const w = ctx(res).world.id;
-      const dm = isDM(res);
+      const gm = isGM(res);
       const b = req.body ?? {};
       const deviceId = str(b.deviceId, 'deviceId', { max: 200 });
       const label = str(b.label, 'label', { max: 60 });
       const mode = oneOf(b.mode, 'mode', MODES, 'always');
       for (const k of ['playersTranscript', 'aside'] as const) if (b[k] !== undefined && typeof b[k] !== 'boolean') throw new HttpError(400, `${k} must be true or false`);
       // A player's mic is that player, always in the players' transcript and never an aside.
-      const playersTranscript = dm ? b.playersTranscript !== false : true;
-      const aside = dm ? b.aside === true : false;
-      const room = dm ? (b.room === undefined ? (mode === 'always' && !aside ? 1 : 0) : b.room ? 1 : 0) : 0;
+      const playersTranscript = gm ? b.playersTranscript !== false : true;
+      const aside = gm ? b.aside === true : false;
+      const room = gm ? (b.room === undefined ? (mode === 'always' && !aside ? 1 : 0) : b.room ? 1 : 0) : 0;
       let row = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? AND account_id = ? AND device_id = ?', w, me(res), deviceId);
-      if (!dm) {
+      if (!gm) {
         // One mic per player: a different device replaces the old one.
         const mine = all<MicRow>(db, 'SELECT * FROM audio_mics WHERE world_id = ? AND account_id = ?', w, me(res));
         if (!row && mine.length) {
@@ -225,7 +225,7 @@ const feature: Feature = {
 
     r.delete('/mics/:id', (req, res) => {
       const m = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(req.params.id), ctx(res).world.id);
-      if (!m || (m.account_id !== me(res) && !isDM(res))) throw new HttpError(404, 'Mic not found');
+      if (!m || (m.account_id !== me(res) && !isGM(res))) throw new HttpError(404, 'Mic not found');
       // Its transcript lines stay; only the registration goes (chunks reference it, so keep the row if any exist).
       if (one(db, 'SELECT 1 FROM audio_chunks WHERE mic_id = ?', m.id)) run(db, "UPDATE audio_mics SET mode = 'off' WHERE id = ?", m.id);
       else run(db, 'DELETE FROM audio_mics WHERE id = ?', m.id);
@@ -237,7 +237,7 @@ const feature: Feature = {
       res.json(all<any>(db, 'SELECT * FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC LIMIT 200', ctx(res).world.id).map(sessionOut));
     });
 
-    r.post('/sessions', requireDM, (req, res) => {
+    r.post('/sessions', requireGM, (req, res) => {
       const c = ctx(res);
       if (activeSession(c.world.id)) throw new HttpError(409, 'A recording session is already running');
       const name = str(req.body?.name, 'name', { max: 80, optional: true }) || `Session ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
@@ -251,7 +251,7 @@ const feature: Feature = {
 
     r.get('/sessions/:sid', (req, res) => res.json({ ...sessionOut(sessionOf(res, String(req.params.sid))), serverNow: now() }));
 
-    r.post('/sessions/:sid/stop', requireDM, (req, res) => {
+    r.post('/sessions/:sid/stop', requireGM, (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
       if (s.stopped_at) return res.json(sessionOut(s));
@@ -278,7 +278,7 @@ const feature: Feature = {
       const mic = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(req.query.mic ?? ''), c.world.id);
       if (!mic || mic.account_id !== me(res)) throw new HttpError(403, 'That mic is not yours');
       // Consent comes first: nothing is stored for a player who has not agreed.
-      if (!isDM(res) && !consentOf(c.world.id, me(res))) throw new HttpError(403, 'Agree to recording first');
+      if (!isGM(res) && !consentOf(c.world.id, me(res))) throw new HttpError(403, 'Agree to recording first');
       const owner = one<any>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', c.world.id, mic.account_id);
       if (owner?.role === 'player' && !consentOf(c.world.id, mic.account_id)) throw new HttpError(403, 'Agree to recording first');
       if (mic.mode === 'off') throw new HttpError(409, 'This mic is turned off');
@@ -319,7 +319,7 @@ const feature: Feature = {
       if (s.stopped_at && Date.now() - Date.parse(s.stopped_at) > 5 * 60_000) throw new HttpError(409, 'This recording session has ended');
       const mic = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(req.query.mic ?? ''), c.world.id);
       if (!mic || mic.account_id !== me(res)) throw new HttpError(403, 'That mic is not yours');
-      if (!isDM(res) && !consentOf(c.world.id, me(res))) throw new HttpError(403, 'Agree to recording first');
+      if (!isGM(res) && !consentOf(c.world.id, me(res))) throw new HttpError(403, 'Agree to recording first');
       const owner = one<any>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', c.world.id, mic.account_id);
       if (owner?.role === 'player' && !consentOf(c.world.id, mic.account_id)) throw new HttpError(403, 'Agree to recording first');
       if (mic.mode === 'off') throw new HttpError(409, 'This mic is turned off');
@@ -346,10 +346,10 @@ const feature: Feature = {
         let micId: string | null = null;
         if (h.micId !== undefined && h.micId !== null && h.micId !== '') {
           const m = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(h.micId), c.world.id);
-          if (!m || (m.account_id !== me(res) && !isDM(res))) throw new HttpError(403, 'That mic is not yours');
+          if (!m || (m.account_id !== me(res) && !isGM(res))) throw new HttpError(403, 'That mic is not yours');
           micId = m.id;
         } else if (kind !== 'aside') throw new HttpError(400, 'micId is required');
-        if (kind === 'aside' && !isDM(res)) throw new HttpError(403, 'Only the GM can mark an aside');
+        if (kind === 'aside' && !isGM(res)) throw new HttpError(403, 'Only the GM can mark an aside');
         rows.push([id('hld_'), s.id, micId, kind, start, end]);
         from = Math.min(from, start);
         to = Math.max(to, end);
@@ -364,64 +364,64 @@ const feature: Feature = {
     // The running summary of a session: the GM's (every line they can read) or, for anyone else, the players' one.
     r.get('/sessions/:sid/summary', (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
-      res.json(getSummary(d, s.id, isDM(res) ? 'dm' : 'party'));
+      res.json(getSummary(d, s.id, isGM(res) ? 'gm' : 'party'));
     });
     // Where the session's summary went (Minerva's review queue, or a card here), for the GM. Never for a player: it is the
     // GM's summary, asides included.
-    r.get('/sessions/:sid/handoff', requireDM, (req, res) => {
+    r.get('/sessions/:sid/handoff', requireGM, (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json(handoffView(d, ctx(res).world.id, s.id));
     });
-    r.post('/sessions/:sid/handoff/:id', requireDM, (req, res) => {
+    r.post('/sessions/:sid/handoff/:id', requireGM, (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       const action = oneOf(req.body?.action, 'action', ['approve', 'discard'] as const);
       const text = typeof req.body?.text === 'string' ? req.body.text : undefined;
       res.json(decideHandoff(d, ctx(res).world.id, s.id, String(req.params.id), action, me(res), text));
     });
     // Minerva's quiet rules checks for the GM: the calls that looked off (all=1 for every check made).
-    r.get('/sessions/:sid/rule-notes', requireDM, (req, res) => {
+    r.get('/sessions/:sid/rule-notes', requireGM, (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json({ notes: ruleNotes(d, s.id, { onlyFlags: req.query.all !== '1' }) });
     });
-    r.post('/sessions/:sid/summary/refresh', requireDM, async (req, res) => {
+    r.post('/sessions/:sid/summary/refresh', requireGM, async (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
       const r2 = await updateBoth(d, c.world.id, s.id, { force: true });
-      res.json({ ...r2, summary: getSummary(d, s.id, 'dm') });
+      res.json({ ...r2, summary: getSummary(d, s.id, 'gm') });
     });
 
     r.get('/sessions/:sid/lines', (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
       const since = req.query.since === undefined ? '' : String(req.query.since);
-      const dm = isDM(res);
+      const gm = isGM(res);
       // The GM can read the live version the final transcript replaced.
       if (req.query.version === 'live') {
-        if (!dm) throw new HttpError(403, 'Only the GM can read the live version');
+        if (!gm) throw new HttpError(403, 'Only the GM can read the live version');
         const nm0 = eng.nameOf(c.world.id);
         return res.json({ session: sessionOut(s), version: 'live', lines: eng.liveLines(s.id).sort((a, b) => a.start_ms - b.start_ms).map((l) => lineView(l, true, nm0)) });
       }
-      const rows = all<LineRow>(db, `SELECT * FROM audio_lines WHERE session_id = ? ${dm ? '' : "AND audience = 'players'"} ${since ? 'AND updated_at > ?' : ''} ORDER BY start_ms, id`, s.id, ...(since ? [since] : []));
+      const rows = all<LineRow>(db, `SELECT * FROM audio_lines WHERE session_id = ? ${gm ? '' : "AND audience = 'players'"} ${since ? 'AND updated_at > ?' : ''} ORDER BY start_ms, id`, s.id, ...(since ? [since] : []));
       const nm = eng.nameOf(c.world.id);
-      res.json({ session: sessionOut(s), lines: rows.map((l) => lineView(l, dm, nm)) });
+      res.json({ session: sessionOut(s), lines: rows.map((l) => lineView(l, gm, nm)) });
     });
 
-    r.patch('/lines/:id', requireDM, (req, res) => {
+    r.patch('/lines/:id', requireGM, (req, res) => {
       const c = ctx(res);
       const l = one<LineRow>(db, 'SELECT * FROM audio_lines WHERE id = ? AND world_id = ?', String(req.params.id), c.world.id);
       if (!l) throw new HttpError(404, 'Line not found');
-      const to = oneOf(req.body?.audience, 'audience', ['players', 'dm', 'auto'] as const);
+      const to = oneOf(req.body?.audience, 'audience', ['players', 'gm', 'auto'] as const);
       const next = eng.setAudience(l, to, c.world.id);
       audit(db, c.world.id, me(res), 'audio.line_audience', `${l.id} ${next.audience}`);
       res.json(lineView(next, true, eng.nameOf(c.world.id)));
     });
 
     // ---- the final transcript ----------------------------------------------------------------------
-    r.get('/sessions/:sid/final', requireDM, (req, res) => {
+    r.get('/sessions/:sid/final', requireGM, (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json({ final: eng.finalView(s.id), serverNow: now() });
     });
-    r.post('/sessions/:sid/final', requireDM, (req, res) => {
+    r.post('/sessions/:sid/final', requireGM, (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
       if (!s.stopped_at) throw new HttpError(409, 'Stop the recording first');
@@ -431,7 +431,7 @@ const feature: Feature = {
       void eng.finalize(s.id, { retranscribe: req.body?.retranscribe === true }).catch((e) => console.error('audio: final transcript failed', e));
       res.status(202).json({ final: eng.finalView(s.id) ?? { status: 'running', step: 'Starting', pct: 0 } });
     });
-    r.post('/sessions/:sid/final/undo', requireDM, (req, res) => {
+    r.post('/sessions/:sid/final/undo', requireGM, (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
       const n = eng.undoFinal(s.id);
@@ -440,7 +440,7 @@ const feature: Feature = {
     });
 
     // Re-send chunks that were waiting for a model.
-    r.post('/retry', requireDM, async (_req, res) => {
+    r.post('/retry', requireGM, async (_req, res) => {
       const n = await eng.retryPending();
       res.json({ transcribed: n, pending: one<any>(db, "SELECT COUNT(*) AS n FROM audio_chunks WHERE status = 'pending'")!.n });
     });

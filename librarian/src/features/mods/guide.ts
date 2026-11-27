@@ -15,7 +15,7 @@ const START = `# Making a house rule
 A house rule is one JSON file (kit 2). Pick the smallest kind that does the job:
 
 1. Counters: points or tokens a player holds and spends (hero points, luck, inspiration rerolls, fate dice).
-   Parts: options, resources, actions, triggers, commands, sheet, dmBand, table, rules. Read part "counters".
+   Parts: options, resources, actions, triggers, commands, sheet, gmBand, table, rules. Read part "counters".
 2. A data system: lists the rule keeps (activities, tasks, projects, reputation, a crafting queue), progress
    that moves on rests, sessions or a GM button, and a popup that asks each player to choose (a downtime day).
    Parts: records, recordActions, timers, prompts, views. Read part "data". A rule may use counters and data together.
@@ -49,20 +49,20 @@ const COUNTERS = `# Counters
   "help" adds a line under the option. The GM changes options; "$max" anywhere reads it.
 "resources": [{ "id": "hero", "label": "Hero point", "icon": "fa-star", "max": "$max", "start": 1, "private": false }]
   One counter per player. max null = no cap. icon is a Font Awesome name. private: only its owner and the GM see it.
-"actions": [{ "id": "give", "label": "Give", "by": "dm", "resource": "hero", "add": 1, "askReason": true },
+"actions": [{ "id": "give", "label": "Give", "by": "gm", "resource": "hero", "add": 1, "askReason": true },
             { "id": "spend", "label": "Spend", "by": "owner", "resource": "hero", "add": -1,
               "effect": { "chat": "{name} spends a hero point: +1d6 ({note})" } }]
-  by: dm, owner (the player whose counter it is), player (any player, on anyone) or any.
+  by: gm, owner (the player whose counter it is), player (any player, on anyone) or any.
   resource "*" lets the caller pick which counter (one Grant for several types).
-  effect: "chat" posts to table chat, "dmnote" a note only the GM sees,
-  "reroll": { "whose": "own" | "anyPlayer" | "dm", "keepBetter": false } rerolls the latest chat roll.
+  effect: "chat" posts to table chat, "gmnote" a note only the GM sees,
+  "reroll": { "whose": "own" | "anyPlayer" | "gm", "keepBetter": false } rerolls the latest chat roll.
   A spend with nothing left and a give past max are refused for you; you never check that yourself.
 "triggers": [{ "on": "sessionStart", "resource": "hero", "add": 1 }]
   on: longRest, shortRest, sessionStart, sessionEnd. "set": a number or "max", and/or "add".
 "commands": [{ "word": "hero", "action": "spend" }]  makes /hero in chat run Spend.
   With "args": ["a", "b"] and "action": "use-$1", /hero a runs use-a. roll, me and help are taken.
 "sheet": { "title": "Hero points", "resources": ["hero"] }  the player's card and sheet show these counters.
-"dmBand": { "chips": ["hero"], "actions": ["give"] }  chips on the GM's party bar, with these actions.
+"gmBand": { "chips": ["hero"], "actions": ["give"] }  chips on the GM's party bar, with these actions.
 "table": { "title": "Hero points", "actions": ["give"] }  a block on the GM Table.
 Limits: 16 options, 12 resources, 24 actions, 12 triggers, 8 commands, 12 rules.
 Example ids: hero-points (small), inspiration-rerolls (three kinds of reroll tokens, chat words, reroll effect).`;
@@ -76,14 +76,14 @@ const DATA = `# Data systems: records, recordActions, timers, prompts, views
   { "type": "int" | "text" | "bool" | "enum" | "ref", "label", "default"?, "min"?, "max"?, "values"? (enum),
     "ref"? (kind), "optional"? }. Every record also has id, player, createdAt, updatedAt.
   seed: ready-made records made when the rule is first turned on (not for owned kinds; up to 300).
-"recordActions": [{ "id", "label", "by": "dm" | "owner" | "player" | "any", "record": "<kind>",
+"recordActions": [{ "id", "label", "by": "gm" | "owner" | "player" | "any", "record": "<kind>",
                     "do": "create" | "set" | "add" | "remove", ... }]
   create: "ask": [fields the caller fills in], "set": { fixed values }, "copy": { "via": "<ref field>",
     "fields": { "myField": "theirField" } } copies from the record the ref points at (a task's goal from its
     activity's days).
   set: changes a record: "ask" and/or "set". add: "field": "<int field>", "amount": a number or "ask"
     (the caller says how much; negative takes away). remove: deletes it.
-  "where": { "status": "open" } only on records like this. "effect": { "chat": "...", "dmnote": "..." }.
+  "where": { "status": "open" } only on records like this. "effect": { "chat": "...", "gmnote": "..." }.
   owner means the player who owns the record; on a create by owner the record becomes theirs.
 "timers": [{ "id", "record": "<kind>", "on": "longRest" | "shortRest" | "sessionStart" | "sessionEnd" |
              "prompt:<prompt id>", "where"?, "field": "<int field>", "add": 1, "goal": "<field>" | number | "$opt",
@@ -94,22 +94,22 @@ const DATA = `# Data systems: records, recordActions, timers, prompts, views
 "prompts": [{ "id", "button": "Downtime", "title", "text", "choices": [{ "label", "action": "<record action>" }
               | { "label": "Skip", "skip": true }] }]
   The GM presses the button: every player gets a popup with the choices; a choice runs its record action for them.
-"views": [{ "id", "title", "record": "<kind>", "place": "dm" | "sheet" | "player", "columns": [fields],
+"views": [{ "id", "title", "record": "<kind>", "place": "gm" | "sheet" | "player", "columns": [fields],
             "where"?, "actions"?: [record action ids], "groupByPlayer"?: true }]
-  dm: a tab on the GM's House rules page. sheet: the player's sheet and home card. player: the player's House rules page.
+  gm: a tab on the GM's House rules page. sheet: the player's sheet and home card. player: the player's House rules page.
 Limits: 8 kinds, 16 fields each, 24 record actions, 8 timers, 4 prompts (6 choices), 8 views.
 Example id: downtime-lite (activities by tier, tasks with days, a Downtime day popup, GM add/take days).
 Tiers of time (common 1 day ... legendary 3 months) are just an enum field plus a days field on the activity.`;
 
 const ASSISTANT = `# Assistant: how the GM's assistant and the player helper work with the rule
 
-"assistant": { "words": ["downtime", "a day passes"], "dm": "...", "player": "...", "tools": ["my_spell_codex"] }
+"assistant": { "words": ["downtime", "a day passes"], "gm": "...", "player": "...", "tools": ["my_spell_codex"] }
 When a message to the GM's assistant or a player's helper mentions the rule (its name, counters, record kinds,
 prompt button, chat words, or any of "words"), they get a note: the rule's summary, its guidance text for them,
 the exact calls they can make with it, and what they may see now (a player: shared lists and their own records
 and counters). The house rule tools are offered with it.
 - words: up to 24 extra words or phrases (3 to 40 letters) that bring the rule up.
-- dm: guidance only the GM's assistant sees (up to 1200 letters): when to open a prompt, how to reward, what to
+- gm: guidance only the GM's assistant sees (up to 1200 letters): when to open a prompt, how to reward, what to
   watch for.
 - player: guidance only the player helper sees: how to help a player choose, plan or spend. Write it as advice
   to the helper ("suggest two activities that fit ...").
@@ -176,7 +176,7 @@ export function exampleFiles(dir = EXAMPLES_DIR): Map<string, unknown> {
 
 // ---- preview: what a checked rule does, in plain words ----
 
-const WHO_SAYS: Record<string, string> = { dm: 'The GM', owner: 'A player (their own)', player: 'Any player', any: 'Anyone' };
+const WHO_SAYS: Record<string, string> = { gm: 'The GM', owner: 'A player (their own)', player: 'Any player', any: 'Anyone' };
 const WHEN_SAYS: Record<string, string> = { longRest: 'a long rest', shortRest: 'a short rest', sessionStart: 'the start of a session', sessionEnd: 'the end of a session' };
 const num = (v: unknown, opts: ModFile['options']) => typeof v === 'string' && v.startsWith('$') ? `${(opts[v.slice(1)] as any)?.default ?? v} (option ${v.slice(1)})` : String(v);
 const signed = (v: unknown, opts: ModFile['options']) => typeof v === 'number' ? (v >= 0 ? `+${v}` : String(v)) : num(v, opts);
@@ -189,13 +189,13 @@ export function previewMod(mod: ModFile): string[] {
   for (const [k, s] of Object.entries(o)) L.push(`Option the GM can change: ${s.label} (${k}, default ${JSON.stringify(s.default)})`);
   for (const r of mod.resources) L.push(`Each player has ${r.label} (starts at ${num(r.start, o)}, ${r.max === null ? 'no cap' : `at most ${num(r.max, o)}`}${r.private ? ', only they and the GM see it' : ''})`);
   for (const a of mod.actions) {
-    const fx = [a.effect?.reroll ? `rerolls ${a.effect.reroll.whose === 'own' ? 'their own' : a.effect.reroll.whose === 'dm' ? "the GM's" : "any player's"} latest roll` : '', a.effect?.chat ? `posts "${a.effect.chat}"` : '', a.effect?.dmnote ? 'notes it for the GM' : ''].filter(Boolean);
+    const fx = [a.effect?.reroll ? `rerolls ${a.effect.reroll.whose === 'own' ? 'their own' : a.effect.reroll.whose === 'gm' ? "the GM's" : "any player's"} latest roll` : '', a.effect?.chat ? `posts "${a.effect.chat}"` : '', a.effect?.gmnote ? 'notes it for the GM' : ''].filter(Boolean);
     L.push(`${WHO_SAYS[a.by]} can ${a.label}: ${signed(a.add, o)} ${rname(a.resource)}${a.askReason ? ', with a reason' : ''}${fx.length ? `, ${fx.join(', ')}` : ''}`);
   }
   for (const t of mod.triggers) L.push(`At ${WHEN_SAYS[t.on]}: ${rname(t.resource)} ${t.set !== undefined ? `set to ${t.set === 'max' ? 'its max' : num(t.set, o)}` : ''}${t.add !== undefined ? `${t.set !== undefined ? ', then ' : ''}${signed(t.add, o)}` : ''}`);
   for (const c of mod.commands) L.push(`Chat word /${c.word}${c.args.length ? ` ${c.args.join('|')}` : ''} runs ${c.action}`);
   if (mod.sheet) L.push(`Shows on the player's sheet: ${mod.sheet.resources.map(rname).join(', ')}`);
-  if (mod.dmBand) L.push(`Shows on the GM's party bar: ${mod.dmBand.chips.map(rname).join(', ') || 'no chips'}${mod.dmBand.actions.length ? ` with ${mod.dmBand.actions.join(', ')}` : ''}`);
+  if (mod.gmBand) L.push(`Shows on the GM's party bar: ${mod.gmBand.chips.map(rname).join(', ') || 'no chips'}${mod.gmBand.actions.length ? ` with ${mod.gmBand.actions.join(', ')}` : ''}`);
   if (mod.table) L.push(`A block on the GM Table: ${mod.table.title}`);
   const s = mod.system;
   for (const k of s.records) L.push(`Keeps a list of ${k.plural}${k.owned ? ' (each player has their own)' : ''}: ${Object.keys(k.fields).join(', ')}${k.seed.length ? `; starts with ${k.seed.length} ready-made` : ''}`);
@@ -209,13 +209,13 @@ export function previewMod(mod: ModFile): string[] {
     L.push(`${when[0].toUpperCase()}${when.slice(1)}: ${signed(t.add, o)} ${t.field} on each ${kindLabel(t.record)}; done when it reaches ${typeof t.goal === 'string' && !t.goal.startsWith('$') ? `its ${t.goal}` : num(t.goal, o)}${t.done.chat ? `, then posts "${t.done.chat}"` : ''}`);
   }
   for (const p of s.prompts) L.push(`The GM gets a ${p.button} button: every player is asked "${p.text || p.title}" with ${p.choices.map((c) => c.label).join(' / ')}`);
-  for (const v of s.views) L.push(`${v.place === 'dm' ? "A tab on the GM's House rules page" : v.place === 'sheet' ? "On the player's sheet" : "On the player's House rules page"}: ${v.title} (${v.columns.join(', ')})`);
+  for (const v of s.views) L.push(`${v.place === 'gm' ? "A tab on the GM's House rules page" : v.place === 'sheet' ? "On the player's sheet" : "On the player's House rules page"}: ${v.title} (${v.columns.join(', ')})`);
   const pre = Object.entries(mod.presets);
   if (pre.length) L.push(`While on, sets: ${pre.map(([k, v]) => `${k} = ${typeof v === 'string' && v.startsWith('$') ? num(v, o) : JSON.stringify(v).slice(0, 40)}`).join('; ')}`);
   if (mod.group) L.push(`Only one rule of the ${mod.group} group is on at a time`);
   for (const [id, r] of Object.entries(mod.requires.mods)) L.push(`Needs the house rule ${id} ${r}`);
   if (mod.conflicts.length) L.push(`Turns off: ${mod.conflicts.join(', ')}`);
-  if (mod.assistant) L.push(`The assistant knows it${mod.assistant.words.length ? ` when someone says ${mod.assistant.words.slice(0, 4).join(', ')}` : ''}${mod.assistant.dm ? '; guidance for the GM' : ''}${mod.assistant.player ? '; guidance for the player helper' : ''}${mod.assistant.tools.length ? `; offers ${mod.assistant.tools.join(', ')}` : ''}`);
+  if (mod.assistant) L.push(`The assistant knows it${mod.assistant.words.length ? ` when someone says ${mod.assistant.words.slice(0, 4).join(', ')}` : ''}${mod.assistant.gm ? '; guidance for the GM' : ''}${mod.assistant.player ? '; guidance for the player helper' : ''}${mod.assistant.tools.length ? `; offers ${mod.assistant.tools.join(', ')}` : ''}`);
   if (!L.length) L.push('Does nothing in play yet: add counters (resources and actions), records or presets');
   for (const r of mod.rules) L.push(`Adds to the glossary: ${r.term}`);
   return L;

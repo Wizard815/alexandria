@@ -47,7 +47,7 @@ export function mdRich(text: string): Rich[] {
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/;
 const para = (t: string) => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: mdRich(t) } });
 
-/** Markdown to Notion blocks. A > [!secret] (or [!dm], [!broker]...) callout becomes a toggle titled "Secret", which Alexandria reads back as a secret. */
+/** Markdown to Notion blocks. A > [!secret] (or [!gm], [!broker]...) callout becomes a toggle titled "Secret", which Alexandria reads back as a secret. */
 export function mdToNotion(md: string): any[] {
   const lines = md.replace(/\r\n?/g, '\n').split('\n');
   const out: any[] = [];
@@ -170,7 +170,7 @@ const visKey = (db: any) => Object.entries<any>(db?.properties ?? {}).find(([k, 
 /** The level a write gives the page: what the agent asked, raised by any secret text in the Markdown. */
 function levelOf(level: any, markdown: string | undefined): string | undefined {
   const plan = levelPlan(level, markdown);
-  return plan.level ?? (plan.isPrivate ? 'dm' : undefined);
+  return plan.level ?? (plan.isPrivate ? 'gm' : undefined);
 }
 
 async function appendBlocks(be: Be, id: string, blocks: any[]) {

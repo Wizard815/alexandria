@@ -17,7 +17,7 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--models-port', String(MODELS_PORT), '--data', path.join(tmpDir('story'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tok = await login('dm', 'game master 123');
+const tok = await login('gm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tok } })).json())[0].id;
 const api = async (m, p, b, t = tok) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t }, body: b ? JSON.stringify(b) : undefined }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 
@@ -29,8 +29,8 @@ const watch = (page, who) => {
 const noSideways = async (page, what) => check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${what} scrolls sideways at phone width`);
 
 try {
-  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
-  watch(page, 'dm');
+  const { page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1400, height: 900 });
+  watch(page, 'gm');
   const player = await signIn(browser, base, 'jess', 'player pass 123', { width: 420, height: 860 }, true);
   watch(player.page, 'player');
 

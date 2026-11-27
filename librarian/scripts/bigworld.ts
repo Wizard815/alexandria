@@ -72,7 +72,7 @@ async function build() {
   console.log(`building a world in ${dataDir}`, N);
   const setup = await call('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' });
   const admin = setup.token as string;
-  const wid = (await call('POST', '/api/admin/worlds', admin, { name: 'Big World', dmAccountId: setup.account.id })).id as string;
+  const wid = (await call('POST', '/api/admin/worlds', admin, { name: 'Big World', gmAccountId: setup.account.id })).id as string;
   const inv = await call('POST', `/api/worlds/${wid}/invites`, admin, { role: 'player' });
   const joined = await call('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' });
 
@@ -85,7 +85,7 @@ async function build() {
     const links = Array.from({ length: 4 + Math.floor(r() * 6) }, () => `[[${titles[Math.floor(r() * N.pages)]}]]`);
     const body = [`# ${titles[i]}`, paragraph(r, 6), `![map](https://img.example/maps/${i}.png)`, paragraph(r, 5), `See also ${links.join(', ')}.`, paragraph(r, 7), `![portrait](https://img.example/people/${i}.jpg)`, paragraph(r, 6), paragraph(r, 5)].join('\n\n');
     const roll = r();
-    const visibility = roll < 0.3 ? 'party' : roll < 0.9 ? 'dm' : roll < 0.95 ? 'broker' : 'classified';
+    const visibility = roll < 0.3 ? 'party' : roll < 0.9 ? 'gm' : roll < 0.95 ? 'broker' : 'classified';
     deps.library.save(wid, { path: `Atlas/Region ${i % 40}/Area ${i % 7}/${titles[i]}.md`, title: titles[i], body, frontmatter: { tags: [i % 2 ? 'place' : 'person'], aliases: [`Alias ${i}`], ...(i % 5 === 0 ? { related: [`[[${titles[(i + 1) % N.pages]}]]`] } : {}) }, visibility }, null, { batch: true });
   }
   t(`${N.pages} pages saved`, t0);
@@ -112,16 +112,16 @@ async function build() {
   const per = Math.ceil(N.lines / sessions);
   const speakers = ['Game Master', 'Jess', 'Ari', 'Bo', 'Cass'];
   const words = ['Fireball', 'grappled', 'the warden', 'opportunity attack', 'roll initiative', 'the gate', 'a shield', 'counterspell', 'the oath', 'prone'];
-  const dmAcct = setup.account.id as string;
+  const gmAcct = setup.account.id as string;
   deps.db.exec('BEGIN');
   for (let s = 0; s < sessions; s++) {
     const sid = `bws_${s}`;
     const started = new Date(Date.now() - (sessions - s) * 86400_000).toISOString();
-    run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by, stopped_at) VALUES (?, ?, ?, ?, ?, ?)', sid, wid, `Session ${s + 1}`, started, dmAcct, s === sessions - 1 ? null : new Date(Date.parse(started) + 3 * 3600_000).toISOString());
+    run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by, stopped_at) VALUES (?, ?, ?, ?, ?, ?)', sid, wid, `Session ${s + 1}`, started, gmAcct, s === sessions - 1 ? null : new Date(Date.parse(started) + 3 * 3600_000).toISOString());
     for (let i = 0; i < per; i++) {
       const text = `${sentence(r, 6 + Math.floor(r() * 10)).replace('.', '')} ${words[Math.floor(r() * words.length)]} ${sentence(r, 4)}`;
       run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, words, sources, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        `bwl_${s}_${i}`, sid, wid, i * 4000, i * 4000 + 3000, i % 5 === 0 ? dmAcct : null, speakers[i % 5], text, '[]', '[]', i % 4 === 0 ? 'dm' : 'party', new Date(Date.parse(started) + i * 4000).toISOString());
+        `bwl_${s}_${i}`, sid, wid, i * 4000, i * 4000 + 3000, i % 5 === 0 ? gmAcct : null, speakers[i % 5], text, '[]', '[]', i % 4 === 0 ? 'gm' : 'party', new Date(Date.parse(started) + i * 4000).toISOString());
     }
   }
   deps.db.exec('COMMIT');
@@ -131,7 +131,7 @@ async function build() {
   t0 = performance.now();
   const chunk = 2 * 1024 * 1024;
   for (let i = 0; i < Math.ceil((N.uploadMb * 1024 * 1024) / chunk); i++) {
-    run(deps.db, 'INSERT INTO uploads (id, world_id, mime, size, data, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', `bwu_${i}`, wid, 'image/png', chunk, Buffer.alloc(chunk, i % 251), dmAcct, new Date().toISOString());
+    run(deps.db, 'INSERT INTO uploads (id, world_id, mime, size, data, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', `bwu_${i}`, wid, 'image/png', chunk, Buffer.alloc(chunk, i % 251), gmAcct, new Date().toISOString());
   }
   t(`${N.uploadMb} MB of uploads`, t0);
 
@@ -203,7 +203,7 @@ async function bench() {
     const ids = pages.filter((_, i) => i % Math.max(1, Math.floor(pages.length / 60)) === 0).map((p) => p.id);
     const playerPages: any[] = await (await fetch(`${base}${w}/library/pages`, { headers: A(player) })).json();
     const pids = playerPages.slice(0, 40).map((p) => p.id);
-    results.pageCounts = { dm: pages.length, player: playerPages.length };
+    results.pageCounts = { gm: pages.length, player: playerPages.length };
 
     // The calls a table makes all the time.
     const probes: { name: string; run: () => Promise<number> }[] = [
@@ -316,7 +316,7 @@ async function bench() {
     await scenario(`big upload (${Math.min(45, meta.N.uploadMb)} MB document)`, async () => {
       const bytes = Buffer.alloc(Math.min(45, meta.N.uploadMb) * 1024 * 1024, 'x');
       let finished = false;
-      void fetch(`${base}${w}/files?name=bigscan.pdf&kind=other&level=dm&title=Big+Scan`, { method: 'POST', headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/pdf' }, body: Buffer.concat([Buffer.from('%PDF-1.4\n'), bytes]) }).then(async (r) => { const t = await r.text(); if (r.status >= 300) console.log('  upload answered', r.status, t.slice(0, 200)); finished = true; });
+      void fetch(`${base}${w}/files?name=bigscan.pdf&kind=other&level=gm&title=Big+Scan`, { method: 'POST', headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/pdf' }, body: Buffer.concat([Buffer.from('%PDF-1.4\n'), bytes]) }).then(async (r) => { const t = await r.text(); if (r.status >= 300) console.log('  upload answered', r.status, t.slice(0, 200)); finished = true; });
       return () => finished;
     });
 

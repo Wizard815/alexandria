@@ -5,8 +5,8 @@ import SoundCard from './PlayerCard.tsx';
 
 const feature: WebFeature = {
   id: 'sound',
-  dmRoutes: [{ path: 'sound', element: <SoundBoard /> }],
-  dmNav: [{ to: 'sound' }],
+  gmRoutes: [{ path: 'sound', element: <SoundBoard /> }],
+  gmNav: [{ to: 'sound' }],
   playerHome: [SoundCard],
   overlay: SoundOverlay,
 };

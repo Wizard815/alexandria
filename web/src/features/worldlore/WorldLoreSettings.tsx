@@ -11,7 +11,7 @@ export default function WorldLoreSettings() {
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [pick, setPick] = useState('');
-  const [level, setLevel] = useState<'dm' | 'broker' | 'party'>('dm');
+  const [level, setLevel] = useState<'gm' | 'broker' | 'party'>('gm');
   const [url, setUrl] = useState('');
   const [q, setQ] = useState('');
   const [found, setFound] = useState<{ source: string; roots: LoreRoot[] } | null>(null);
@@ -74,8 +74,8 @@ export default function WorldLoreSettings() {
             </Field>
           )}
           <Field label="New pages are">
-            <select value={level} onChange={(e) => setLevel(e.target.value as 'dm' | 'broker' | 'party')} aria-label="Default level">
-              {(['dm', 'broker', 'party'] as const).map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
+            <select value={level} onChange={(e) => setLevel(e.target.value as 'gm' | 'broker' | 'party')} aria-label="Default level">
+              {(['gm', 'broker', 'party'] as const).map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
             </select>
           </Field>
           {kind === 'source' && <Field label="Link to open it (optional)" help="Paste the address of the folder in the source if you want a link here."><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" inputMode="url" /></Field>}

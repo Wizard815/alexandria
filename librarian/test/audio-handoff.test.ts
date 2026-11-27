@@ -18,7 +18,7 @@ let tmp = '';
 let deps: any;
 let W = '';
 const T: Record<string, string> = {};
-const DM_ASIDE = 'the innkeeper is the cult leader';
+const GM_ASIDE = 'the innkeeper is the cult leader';
 
 async function call(method: string, url: string, token?: string, body?: unknown) {
   const r = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -45,7 +45,7 @@ const fakeFetch: typeof fetch = async (input: any, init?: any) => {
 };
 
 let n = 0;
-const line = (sid: string, text: string, audience: 'players' | 'dm' = 'players') => {
+const line = (sid: string, text: string, audience: 'players' | 'gm' = 'players') => {
   n++;
   run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', `l${n}`, sid, W, n * 5000, n * 5000 + 4000, 'Table', text, audience, new Date(Date.now() + n).toISOString());
 };
@@ -53,7 +53,7 @@ const session = (sid: string, name: string) => run(deps.db, 'INSERT INTO audio_s
 /** What the final pass leaves behind: new lines in place of the live ones, and audio_final done. */
 const finalTranscript = (sid: string, texts: string[], status: 'done' | 'undone' = 'done') => {
   run(deps.db, 'DELETE FROM audio_lines WHERE session_id = ?', sid);
-  for (const t of texts) line(sid, t, t.startsWith('GM aside') ? 'dm' : 'players');
+  for (const t of texts) line(sid, t, t.startsWith('GM aside') ? 'gm' : 'players');
   run(deps.db, `INSERT INTO audio_final (session_id, status, step, pct, started_at, finished_at) VALUES (?, ?, 'Done', 100, ?, ?)
     ON CONFLICT (session_id) DO UPDATE SET status = excluded.status, finished_at = excluded.finished_at`, sid, status, new Date().toISOString(), new Date().toISOString());
 };
@@ -67,10 +67,10 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Handland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Handland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).token;
 });
 after(async () => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -78,9 +78,9 @@ after(async () => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(
 test('Handoff_minervaOff: the GM still gets the summary, as a card on Recordings to approve, edit or discard', async () => {
   session('h1', 'Session 1');
   line('h1', 'We meet the ferryman at the docks');
-  line('h1', `GM aside: ${DM_ASIDE}`, 'dm');
+  line('h1', `GM aside: ${GM_ASIDE}`, 'gm');
   await afterRecording(deps, W, 'h1');
-  const v = await ok('GET', `${A('h1')}/handoff`, T.dm);
+  const v = await ok('GET', `${A('h1')}/handoff`, T.gm);
   assert.equal(v.minervaOn, false);
   assert.equal(v.where, 'recordings', 'the page says where the summary went');
   assert.equal(v.cards.length, 1);
@@ -95,47 +95,47 @@ test('Handoff_minervaOff: the GM still gets the summary, as a card on Recordings
   assert.equal(one<any>(deps.db, 'SELECT count(*) AS n FROM sessionlog_drafts WHERE world_id = ?', W).n, 0);
   // Again after the recording (no new lines): still one card.
   await afterRecording(deps, W, 'h1');
-  assert.equal((await ok('GET', `${A('h1')}/handoff`, T.dm)).cards.length, 1);
+  assert.equal((await ok('GET', `${A('h1')}/handoff`, T.gm)).cards.length, 1);
 
   // The final transcript replaces the live lines: the pending card is brought up to date, from the final lines only.
-  finalTranscript('h1', ['We meet the ferryman Oskar at the north docks', `GM aside: ${DM_ASIDE}`]);
+  finalTranscript('h1', ['We meet the ferryman Oskar at the north docks', `GM aside: ${GM_ASIDE}`]);
   await afterFinal(deps, W, 'h1');
-  const v2 = await ok('GET', `${A('h1')}/handoff`, T.dm);
+  const v2 = await ok('GET', `${A('h1')}/handoff`, T.gm);
   assert.equal(v2.cards.length, 1, 'the pending card is updated, not doubled');
   assert.equal(v2.cards[0].source, 'final');
   assert.ok(v2.cards[0].text.includes('Oskar') && !v2.cards[0].text.includes('ferryman at the docks'), 'made again from the final lines, not folded on top');
-  assert.ok(!getSummary(deps, 'h1', 'party').text.includes(DM_ASIDE), 'the players\' summary is made again without GM lines');
+  assert.ok(!getSummary(deps, 'h1', 'party').text.includes(GM_ASIDE), 'the players\' summary is made again without GM lines');
   assert.ok(getSummary(deps, 'h1', 'party').text.includes('Oskar'));
 
   // Approve with the GM's edit: saved as a session log draft (GM only), not published.
   const edited = `${v2.cards[0].text}\n- The GM added this`;
-  const r = await ok('POST', `${A('h1')}/handoff/${v2.cards[0].id}`, T.dm, { action: 'approve', text: edited });
+  const r = await ok('POST', `${A('h1')}/handoff/${v2.cards[0].id}`, T.gm, { action: 'approve', text: edited });
   assert.ok(r.logDraftId);
   const ver = one<any>(deps.db, 'SELECT v.markdown FROM sessionlog_versions v JOIN sessionlog_drafts d ON d.id = v.draft_id WHERE d.id = ?', r.logDraftId);
   assert.ok(ver.markdown.includes('The GM added this') && ver.markdown.includes('# Session 1'));
   assert.equal(one<any>(deps.db, 'SELECT audio_session_id FROM sessionlog_drafts WHERE id = ?', r.logDraftId).audio_session_id, 'h1');
   assert.equal((await ok('GET', `/api/worlds/${W}/sessionlog`, T.jess)).length, 0, 'players see no session log entry: nothing was published');
-  assert.equal((await call('POST', `${A('h1')}/handoff/${v2.cards[0].id}`, T.dm, { action: 'approve' })).status, 409, 'once');
+  assert.equal((await call('POST', `${A('h1')}/handoff/${v2.cards[0].id}`, T.gm, { action: 'approve' })).status, 409, 'once');
 
   // Undo: the summary is made again from the live lines; the approved card is not touched, a second one is added.
   finalTranscript('h1', ['We meet the ferryman at the docks', 'A storm rolls in'], 'undone');
   await afterFinal(deps, W, 'h1');
-  const v3 = await ok('GET', `${A('h1')}/handoff`, T.dm);
+  const v3 = await ok('GET', `${A('h1')}/handoff`, T.gm);
   assert.equal(v3.cards.length, 2);
   assert.equal(v3.cards[0].status, 'approved');
   assert.ok(v3.cards[0].text.includes('The GM added this'), 'the approved one is left as the GM approved it');
   assert.equal(v3.cards[1].status, 'pending');
   assert.ok(v3.cards[1].text.includes('storm'));
   // Discarded: a later change does not bring it back.
-  await ok('POST', `${A('h1')}/handoff/${v3.cards[1].id}`, T.dm, { action: 'discard' });
+  await ok('POST', `${A('h1')}/handoff/${v3.cards[1].id}`, T.gm, { action: 'discard' });
   finalTranscript('h1', ['Something else entirely happens'], 'done');
   await afterFinal(deps, W, 'h1');
-  const v4 = await ok('GET', `${A('h1')}/handoff`, T.dm);
+  const v4 = await ok('GET', `${A('h1')}/handoff`, T.gm);
   assert.deepEqual(v4.cards.map((c: any) => c.status), ['approved', 'discarded']);
 });
 
 test('Handoff_minervaOn: the final transcript updates a pending hand-off; an approved one gets a second draft; nothing reaches the status doc unapproved', async () => {
-  await ok('POST', `/api/worlds/${W}/minerva/enable`, T.dm, {});
+  await ok('POST', `/api/worlds/${W}/minerva/enable`, T.gm, {});
   const { minervaBrief } = await import('../src/features/minerva/context.ts');
   session('h2', 'Session 2');
   line('h2', 'The party sails for the Ember Isles');
@@ -143,7 +143,7 @@ test('Handoff_minervaOn: the final transcript updates a pending hand-off; an app
   const drafts = () => all<any>(deps.db, "SELECT id, status, title, op FROM minerva_drafts WHERE world_id = ? AND review = 'handoff-h2' ORDER BY created_at, rowid", W);
   assert.equal(drafts().length, 1);
   assert.match(drafts()[0].title, /running notes/);
-  const v = await ok('GET', `${A('h2')}/handoff`, T.dm);
+  const v = await ok('GET', `${A('h2')}/handoff`, T.gm);
   assert.equal(v.where, 'minerva', 'the page says it went to Minerva');
   assert.equal(v.cards.length, 0, 'no second copy on Recordings');
 
@@ -155,7 +155,7 @@ test('Handoff_minervaOn: the final transcript updates a pending hand-off; an app
   assert.ok(JSON.parse(drafts()[0].op).text.includes('aboard the Gull'));
   assert.ok(!minervaBrief(deps, W).includes('aboard the Gull'), 'not in the status doc before the GM approves');
 
-  await ok('POST', `/api/worlds/${W}/minerva/review/${drafts()[0].id}`, T.dm, { decision: 'approve' });
+  await ok('POST', `/api/worlds/${W}/minerva/review/${drafts()[0].id}`, T.gm, { decision: 'approve' });
   assert.ok(minervaBrief(deps, W).includes('aboard the Gull'));
   finalTranscript('h2', ['The party sails for the Ember Isles aboard the Gull', 'Kraken sighted off the bow'], 'done');
   await afterFinal(deps, W, 'h2');
@@ -167,7 +167,7 @@ test('Handoff_minervaOn: the final transcript updates a pending hand-off; an app
   assert.match(ds[1].title, /updated from the final transcript/);
   assert.ok(!minervaBrief(deps, W).includes('Kraken'), 'the second one waits for the GM too');
   // Rejected: left alone.
-  await ok('POST', `/api/worlds/${W}/minerva/review/${ds[1].id}`, T.dm, { decision: 'reject' });
+  await ok('POST', `/api/worlds/${W}/minerva/review/${ds[1].id}`, T.gm, { decision: 'reject' });
   finalTranscript('h2', ['Something new'], 'done');
   await afterFinal(deps, W, 'h2');
   assert.deepEqual(drafts().map((x) => x.status), ['approved', 'rejected']);
@@ -178,8 +178,8 @@ test('Handoff_watch: a final pass that says done remakes the summary by itself',
   line('h3', 'Live words about a lighthouse');
   await afterRecording(deps, W, 'h3');
   finalTranscript('h3', ['Final words about a lighthouse keeper']);
-  deps.hub.emit(W, 'transcript-final', { sessionId: 'h3', status: 'done', step: 'Done', pct: 100 }, (v: any) => v.role === 'dm');
-  for (let i = 0; i < 50 && !getSummary(deps, 'h3', 'dm').text.includes('keeper'); i++) await new Promise((r) => setTimeout(r, 50));
-  assert.ok(getSummary(deps, 'h3', 'dm').text.includes('keeper'));
-  assert.ok(!getSummary(deps, 'h3', 'dm').text.includes('Live words'));
+  deps.hub.emit(W, 'transcript-final', { sessionId: 'h3', status: 'done', step: 'Done', pct: 100 }, (v: any) => v.role === 'gm');
+  for (let i = 0; i < 50 && !getSummary(deps, 'h3', 'gm').text.includes('keeper'); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(getSummary(deps, 'h3', 'gm').text.includes('keeper'));
+  assert.ok(!getSummary(deps, 'h3', 'gm').text.includes('Live words'));
 });

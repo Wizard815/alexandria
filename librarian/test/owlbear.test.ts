@@ -43,16 +43,16 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dmId = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Owlhold', dmAccountId: dmId })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gmId = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Owlhold', gmAccountId: gmId })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).token;
   // Two imported maps: the town (its page shared with the players) and the lair (GM only).
   run(deps.db, "INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'push', 'LK', '{}', 'party')", W);
   const at = new Date().toISOString();
   deps.library.saveEntry(W, 's1', null, { externalId: 'town', title: 'Town', type: 'map', blocks: [], visibility: 'party', updatedAt: at }, null);
-  deps.library.saveEntry(W, 's1', null, { externalId: 'lair', title: 'Lair', type: 'map', blocks: [], visibility: 'dm', updatedAt: at }, null);
+  deps.library.saveEntry(W, 's1', null, { externalId: 'lair', title: 'Lair', type: 'map', blocks: [], visibility: 'gm', updatedAt: at }, null);
   deps.library.rebuildPlayerCopies(W);
   initRecords(deps.db);
   const img = "INSERT INTO intake_images (id, world_id, source_id, external_id, name, mime, size, data, visibility, page_ref, page_external, at, kind) VALUES (?, ?, 's1', ?, ?, 'image/png', ?, ?, ?, ?, ?, ?, 'map')";
@@ -88,15 +88,15 @@ test('TestOwlbear_MaskToStrokes: a bitmask becomes one undoable stroke that read
 test('TestOwlbear_Keys: only the GM makes a key; other keys and sessions are refused', async () => {
   assert.equal((await call('POST', `/api/worlds/${W}/owlbear/key`, T.jess)).status, 403);
   assert.equal((await call('GET', `/api/worlds/${W}/owlbear`, T.jess)).status, 403);
-  const st0 = await ok('GET', `/api/worlds/${W}/owlbear`, T.dm);
+  const st0 = await ok('GET', `/api/worlds/${W}/owlbear`, T.gm);
   assert.equal(st0.key, null);
   assert.match(st0.manifestUrl, /\/owlbear\/manifest\.json$/);
-  const first = (await ok('POST', `/api/worlds/${W}/owlbear/key`, T.dm)).key;
+  const first = (await ok('POST', `/api/worlds/${W}/owlbear/key`, T.gm)).key;
   assert.match(first, /^alx_obr_/);
-  KEY = (await ok('POST', `/api/worlds/${W}/owlbear/key`, T.dm)).key;
+  KEY = (await ok('POST', `/api/worlds/${W}/owlbear/key`, T.gm)).key;
   assert.equal((await call('GET', '/api/owlbear/state', first)).status, 401, 'a replaced key stops working');
   assert.equal((await call('GET', '/api/owlbear/state', 'alx_obr_nope')).status, 401);
-  assert.equal((await call('GET', '/api/owlbear/state', T.dm)).status, 401, 'a GM session is not a link key');
+  assert.equal((await call('GET', '/api/owlbear/state', T.gm)).status, 401, 'a GM session is not a link key');
   assert.equal((await call('GET', '/api/owlbear/state')).status, 401);
 });
 
@@ -107,13 +107,13 @@ test('TestOwlbear_Pictures: only what players may see goes to Owlbear; the table
   assert.equal(h.link.follow, true);
   assert.equal(h.target.pic, null);
   // The GM puts the lair on the table screen: Owlbear shows nothing and says why.
-  await ok('PUT', `/api/worlds/${W}/fog/table`, T.dm, { mapId: 'world', pic: 'imp:lair1' });
+  await ok('PUT', `/api/worlds/${W}/fog/table`, T.gm, { mapId: 'world', pic: 'imp:lair1' });
   let st = await ok('GET', '/api/owlbear/state', KEY);
   assert.equal(st.target.pic, null);
   assert.equal(st.target.hidden, true);
   assert.equal((await call('PUT', '/api/owlbear/link', KEY, { follow: false, pic: 'imp:lair1' })).status, 400);
   // The town on the table screen: Owlbear follows.
-  await ok('PUT', `/api/worlds/${W}/fog/table`, T.dm, { mapId: 'world', pic: 'imp:town1' });
+  await ok('PUT', `/api/worlds/${W}/fog/table`, T.gm, { mapId: 'world', pic: 'imp:town1' });
   st = await ok('GET', '/api/owlbear/state', KEY);
   assert.equal(st.target.pic, 'imp:town1');
   assert.match(st.target.url, /^\/api\/owlbear\/pic\/[^/]+\/imp%3Atown1$/);
@@ -125,12 +125,12 @@ test('TestOwlbear_Pictures: only what players may see goes to Owlbear; the table
   assert.equal((await fetch(base + st.target.url.replace('imp%3Atown1', 'imp%3Alair1'))).status, 404);
   assert.equal((await fetch(base + st.target.url.replace(/pic\/[^/]+/, 'pic/wrong'))).status, 404);
   // The GM page sees the extension as connected, with the room's GM.
-  const dmSt = await ok('GET', `/api/worlds/${W}/owlbear`, T.dm);
-  assert.equal(dmSt.online, true);
-  assert.equal(dmSt.player, 'Wiz');
-  assert.equal(dmSt.target.pic, 'imp:town1');
+  const gmSt = await ok('GET', `/api/worlds/${W}/owlbear`, T.gm);
+  assert.equal(gmSt.online, true);
+  assert.equal(gmSt.player, 'Wiz');
+  assert.equal(gmSt.target.pic, 'imp:town1');
   // Unsharing the town's page takes it off Owlbear at once.
-  run(deps.db, "UPDATE pages SET visibility = 'dm' WHERE external_id = 'town'"); deps.library.rebuildPlayerCopies(W);
+  run(deps.db, "UPDATE pages SET visibility = 'gm' WHERE external_id = 'town'"); deps.library.rebuildPlayerCopies(W);
   assert.equal((await fetch(base + st.target.url)).status, 404);
   assert.equal((await ok('GET', '/api/owlbear/state', KEY)).target.pic, null);
   run(deps.db, "UPDATE pages SET visibility = 'party' WHERE external_id = 'town'"); deps.library.rebuildPlayerCopies(W);
@@ -138,8 +138,8 @@ test('TestOwlbear_Pictures: only what players may see goes to Owlbear; the table
 
 test('TestOwlbear_FogRoundTrip: Alexandria fog out as a path, Owlbear fog back as strokes', async () => {
   // Alexandria leads: fog on, a circle revealed in the middle.
-  await ok('PUT', `/api/worlds/${W}/fog/map/world/enabled`, T.dm, { pic: 'imp:town1', enabled: true });
-  await ok('POST', `/api/worlds/${W}/fog/map/world/ops`, T.dm, { pic: 'imp:town1', op: { k: 'c', x: 0.5, y: 0.5, r: 0.2, v: 1 } });
+  await ok('PUT', `/api/worlds/${W}/fog/map/world/enabled`, T.gm, { pic: 'imp:town1', enabled: true });
+  await ok('POST', `/api/worlds/${W}/fog/map/world/ops`, T.gm, { pic: 'imp:town1', op: { k: 'c', x: 0.5, y: 0.5, r: 0.2, v: 1 } });
   const st = await ok('GET', '/api/owlbear/state', KEY);
   assert.equal(st.fog.enabled, true);
   const cells = await ok('GET', '/api/owlbear/fog?cols=120&rows=60', KEY);
@@ -174,11 +174,11 @@ test('TestOwlbear_FogRoundTrip: Alexandria fog out as a path, Owlbear fog back a
   assert.equal(now.version, v);
   assert.ok(!isFogged(now, 0.2, 0.5) && isFogged(now, 0.8, 0.5) && isFogged(now, 0.6, 0.1));
   // A player's map marks follow: under Owlbear's fog, a party pin is not sent.
-  await ok('POST', `/api/worlds/${W}/map/world/marks`, T.dm, { kind: 'pin', x: 80, y: 50, label: 'Hidden inn', visibility: 'party' });
-  await ok('POST', `/api/worlds/${W}/map/world/marks`, T.dm, { kind: 'pin', x: 20, y: 50, label: 'Open gate', visibility: 'party' });
+  await ok('POST', `/api/worlds/${W}/map/world/marks`, T.gm, { kind: 'pin', x: 80, y: 50, label: 'Hidden inn', visibility: 'party' });
+  await ok('POST', `/api/worlds/${W}/map/world/marks`, T.gm, { kind: 'pin', x: 20, y: 50, label: 'Open gate', visibility: 'party' });
   assert.deepEqual((await ok('GET', `/api/worlds/${W}/map/world/marks`, T.jess)).map((m: any) => m.data.label), ['Open gate']);
   // The whole push is one stroke: one undo on Alexandria's side takes it back.
-  await ok('POST', `/api/worlds/${W}/fog/map/world/undo`, T.dm, { pic: 'imp:town1' });
+  await ok('POST', `/api/worlds/${W}/fog/map/world/undo`, T.gm, { pic: 'imp:town1' });
   const undone = fogOf(deps, W, 'world', 'imp:town1');
   assert.ok(isFogged(undone, 0.05, 0.05) && !isFogged(undone, 0.5, 0.5), 'back to the circle');
   await ok('PUT', '/api/owlbear/link', KEY, { lead: 'alexandria' });

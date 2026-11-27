@@ -5,7 +5,7 @@ import { Router, type Request, type Response } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../core/auth.ts';
 import { HttpError, id, isoDate, now, oneOf, str } from '../core/util.ts';
 import { ctx, me, settings } from './_shared.ts';
 
@@ -35,7 +35,7 @@ export default function calendarRoutes(d: Deps) {
     })));
   });
 
-  r.post('/', requireDM, (req, res) => {
+  r.post('/', requireGM, (req, res) => {
     on(res);
     const c = ctx(res);
     const starts = isoDate(req.body?.startsAt, 'startsAt');
@@ -48,7 +48,7 @@ export default function calendarRoutes(d: Deps) {
     res.status(201).json(s);
   });
 
-  r.patch('/:sid', requireDM, (req, res) => {
+  r.patch('/:sid', requireGM, (req, res) => {
     on(res);
     const s = session(res, String(req.params.sid));
     const b = req.body ?? {};
@@ -69,7 +69,7 @@ export default function calendarRoutes(d: Deps) {
     res.json(next);
   });
 
-  r.put('/:sid/rsvp', requirePlayerOrDM, (req, res) => {
+  r.put('/:sid/rsvp', requirePlayerOrGM, (req, res) => {
     on(res);
     const s = session(res, String(req.params.sid));
     const answer = oneOf(req.body?.answer, 'answer', ['yes', 'maybe', 'no'] as const);
@@ -84,7 +84,7 @@ export default function calendarRoutes(d: Deps) {
     const s = session(res, String(req.params.sid));
     res.json(all(db, 'SELECT id, author_id, body, at FROM cal_chat WHERE session_id = ? ORDER BY at', s.id));
   });
-  r.post('/:sid/chat', requirePlayerOrDM, (req, res) => {
+  r.post('/:sid/chat', requirePlayerOrGM, (req, res) => {
     on(res);
     const s = session(res, String(req.params.sid));
     const m = { id: id('cc_'), session_id: s.id, author_id: me(res), body: str(req.body?.body, 'body', { max: 2000 }), at: now() };
@@ -93,7 +93,7 @@ export default function calendarRoutes(d: Deps) {
     res.status(201).json(m);
   });
 
-  r.post('/:sid/reschedule', requirePlayerOrDM, (req, res) => {
+  r.post('/:sid/reschedule', requirePlayerOrGM, (req, res) => {
     on(res);
     const s = session(res, String(req.params.sid));
     const proposed = Array.isArray(req.body?.proposed) ? req.body.proposed.slice(0, 5).map((x: unknown, i: number) => isoDate(x, `proposed[${i}]`)) : [];
@@ -104,7 +104,7 @@ export default function calendarRoutes(d: Deps) {
   });
 
   // GM answers a reschedule ask. accept + moveTo moves the session.
-  r.post('/:sid/reschedule/:rid', requireDM, (req, res) => {
+  r.post('/:sid/reschedule/:rid', requireGM, (req, res) => {
     on(res);
     const s = session(res, String(req.params.sid));
     const x = one<any>(db, 'SELECT * FROM cal_reschedules WHERE id = ? AND session_id = ?', String(req.params.rid), s.id);

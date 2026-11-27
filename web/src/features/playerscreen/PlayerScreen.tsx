@@ -16,7 +16,7 @@ interface Current { id: string; kind: 'youtube' | 'image' | 'video'; embed: stri
 interface Media { mode: string; playing: boolean; version: number; advancedAt: number; current: Current | null }
 interface ScreenData { world: { name: string }; stage: { layout: string; spotlightId: string | null; cards: Card[]; combat: Combat | null }; media: Media }
 
-const NOOP_CTX: RenderCtx = { links: {}, isDM: false, children: [], open: () => {} };
+const NOOP_CTX: RenderCtx = { links: {}, isGM: false, children: [], open: () => {} };
 
 export const CSS = `
 .ps { position: fixed; inset: 0; overflow: hidden; background: var(--bg); color: var(--text); font-size: clamp(20px, 2.1vw, 40px); line-height: 1.35; display: flex; gap: 2vw; padding: 2vw; box-sizing: border-box; }

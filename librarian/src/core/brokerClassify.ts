@@ -9,10 +9,10 @@
 //   lines players can't read but the broker may sell. An answer that uses
 //   one is flagged `brokerLevel`; the route holds it for GM review by default
 // - the GM side: full pages, but only the lines neither of the above has
-//   (dm and classified text: secret blocks, GM headings, GM fact groups)
+//   (gm and classified text: secret blocks, GM headings, GM fact groups)
 // If the question is really about GM-side material, or names a GM-only page,
 // it is "secret": nothing is sold automatically and the GM decides. The GM
-// side never leaves this module except in `dmEvidence`, which only the GM is
+// side never leaves this module except in `gmEvidence`, which only the GM is
 // shown.
 import type { DB } from './db.ts';
 import { all, one } from './db.ts';
@@ -24,7 +24,7 @@ export type QuestionType = 'who' | 'where' | 'when' | 'why' | 'how' | 'price' | 
 export type Verdict = 'shared' | 'secret' | 'unknown';
 export type Knowledge = 'common' | 'local' | 'deep';
 
-export interface Evidence { page: string | null; title: string; text: string; score: number; knowledge: string | null; note?: string; level?: 'broker' | 'dm' | 'classified' }
+export interface Evidence { page: string | null; title: string; text: string; score: number; knowledge: string | null; note?: string; level?: 'broker' | 'gm' | 'classified' }
 export interface Classification {
   type: QuestionType;
   verdict: Verdict;
@@ -36,8 +36,8 @@ export interface Classification {
   multiplier: number;
   /** Player-safe answer: only player-copy lines and GM notes. Null unless verdict is 'shared'. */
   player: { answer: string; sources: { id: string | null; title: string }[]; brokerLevel?: boolean } | null;
-  /** GM-side lines that matched. Never sent to players. `level` says whether a model may see it (dm) or never (classified). */
-  dmEvidence: { page: string; title: string; text: string; level?: 'dm' | 'classified' }[];
+  /** GM-side lines that matched. Never sent to players. `level` says whether a model may see it (gm) or never (classified). */
+  gmEvidence: { page: string; title: string; text: string; level?: 'gm' | 'classified' }[];
 }
 
 const STOP = new Set('the a an and or of to in on at is are was were what who whom whose where when why how does do did about tell me with from for that this there their they his her its it be been can could would should into than then any some much many more most have has had our your you we i know want need find out anything everything thing things happened happen going around really truly actually'.split(' '));
@@ -131,7 +131,7 @@ export function classify(db: DB, library: Library, worldId: string, question: st
   const entities = namedEntities(db, worldId, question);
   const rules = pageRules(db, worldId);
   const cue = SECRET_CUE.test(question);
-  const base = { type, entities, dmEvidence: [] as Classification['dmEvidence'] };
+  const base = { type, entities, gmEvidence: [] as Classification['gmEvidence'] };
   if (!q.length) return { ...base, verdict: 'unknown', reason: 'No words to look up.', knowledge: 'local', multiplier: 1, player: null };
   const tagged = spoilerTagHit(db, worldId, question, entities);
   if (tagged) return { ...base, verdict: 'secret', reason: `Always goes to you: ${tagged}.`, knowledge: 'deep', multiplier: 1, player: null };
@@ -141,7 +141,7 @@ export function classify(db: DB, library: Library, worldId: string, question: st
   const threshold = Math.max(1, Math.ceil(q.length * 0.6));
 
   // Candidate pages: full-text search on each side, plus the pages the question names.
-  const dmViewer: Viewer = { accountId: asPlayer.accountId, role: 'dm' };
+  const gmViewer: Viewer = { accountId: asPlayer.accountId, role: 'gm' };
   const collect = (v: Viewer) => {
     const ids = new Set<string>((library.search(worldId, q.join(' '), v, 8) as any[]).map((h) => h.id));
     if (ids.size < 4) for (const t of q) for (const h of library.search(worldId, t, v, 4) as any[]) ids.add(h.id);
@@ -174,8 +174,8 @@ export function classify(db: DB, library: Library, worldId: string, question: st
   }
 
   // Broker side: lines of the broker copy that players can't read. The broker may sell these (after GM review by default).
-  const brokerViewer: Viewer = { accountId: asPlayer.accountId, role: 'dm', audience: 'broker' };
-  const aiViewer: Viewer = { accountId: asPlayer.accountId, role: 'dm', audience: 'ai' };
+  const brokerViewer: Viewer = { accountId: asPlayer.accountId, role: 'gm', audience: 'broker' };
+  const aiViewer: Viewer = { accountId: asPlayer.accountId, role: 'gm', audience: 'ai' };
   const brokerUnits: Evidence[] = [];
   const brokerLineKeys = new Map<string, Set<string>>();
   for (const pid of collect(brokerViewer)) {
@@ -199,17 +199,17 @@ export function classify(db: DB, library: Library, worldId: string, question: st
     brokerLineKeys.set(pg.id, keys);
   }
 
-  // GM side: lines neither players nor the broker can read (dm and classified text).
-  const dmUnits: Evidence[] = [];
+  // GM side: lines neither players nor the broker can read (gm and classified text).
+  const gmUnits: Evidence[] = [];
   const readKeys = (viewer: Viewer, pid: string): Set<string> => {
     try {
       const pp: any = library.get(worldId, pid, viewer);
       return new Set([...lines(pp.body), ...propLines(pp.properties ?? [])].map(key));
     } catch { return new Set(); }
   };
-  for (const pid of collect(dmViewer)) {
+  for (const pid of collect(gmViewer)) {
     let pg: any;
-    try { pg = library.get(worldId, pid, dmViewer); } catch { continue; }
+    try { pg = library.get(worldId, pid, gmViewer); } catch { continue; }
     if (!playerLineKeys.has(pg.id)) playerLineKeys.set(pg.id, readKeys(asPlayer, pid));
     const seen = playerLineKeys.get(pg.id)!;
     const brokerSeen = brokerLineKeys.get(pg.id) ?? readKeys(brokerViewer, pid);
@@ -218,12 +218,12 @@ export function classify(db: DB, library: Library, worldId: string, question: st
     for (const text of [...lines(pg.body), ...propLines(pg.properties ?? [])]) {
       if (seen.has(key(text)) || brokerSeen.has(key(text))) continue;
       const sc = score(q, text, tw, bonus(pg.id));
-      if (sc) dmUnits.push({ page: pg.id, title: pg.title, text, score: sc, knowledge: null, level: aiSeen.has(key(text)) ? 'dm' : 'classified' });
+      if (sc) gmUnits.push({ page: pg.id, title: pg.title, text, score: sc, knowledge: null, level: aiSeen.has(key(text)) ? 'gm' : 'classified' });
     }
   }
   playerUnits.sort((a, b) => b.score - a.score);
-  dmUnits.sort((a, b) => b.score - a.score);
-  const dmEvidence = dmUnits.slice(0, 4).map((u) => ({ page: u.page!, title: u.title, text: u.text, level: u.level as 'dm' | 'classified' }));
+  gmUnits.sort((a, b) => b.score - a.score);
+  const gmEvidence = gmUnits.slice(0, 4).map((u) => ({ page: u.page!, title: u.title, text: u.text, level: u.level as 'gm' | 'classified' }));
 
   // Never-sell pages can't be sold, but still count as "the broker knows of it".
   // Broker-level lines are sold like player lines (and flagged: the route holds those for review).
@@ -231,7 +231,7 @@ export function classify(db: DB, library: Library, worldId: string, question: st
   const allUnits = [...playerUnits, ...brokerUnits].sort((a, b) => b.score - a.score);
   const sellable = allUnits.filter((u) => !(u.page && rules.get(u.page)?.never_sell));
   const pBest = sellable[0]?.score ?? 0;
-  const dBest = dmUnits[0]?.score ?? 0;
+  const dBest = gmUnits[0]?.score ?? 0;
   const blockedBest = allUnits[0] && allUnits[0] !== sellable[0] ? allUnits[0].score : 0;
 
   const hiddenEntity = entities.find((e) => !e.shared && !e.brokerOk);
@@ -241,11 +241,11 @@ export function classify(db: DB, library: Library, worldId: string, question: st
   else if (blockedBest >= threshold && blockedBest >= pBest) { verdict = 'secret'; reason = `The best match is on “${allUnits[0].title}”, which is set to never sell.`; }
   else if (dBest >= threshold && (pBest < threshold || dBest > pBest + 0.5 || (cue && dBest >= pBest - 0.5))) {
     verdict = 'secret';
-    reason = pBest >= threshold ? `GM-only text on “${dmUnits[0].title}” fits the question better than what players can read${cue ? ' (and it asks for the truth behind something)' : ''}.` : `Only GM-only text on “${dmUnits[0].title}” answers it.`;
+    reason = pBest >= threshold ? `GM-only text on “${gmUnits[0].title}” fits the question better than what players can read${cue ? ' (and it asks for the truth behind something)' : ''}.` : `Only GM-only text on “${gmUnits[0].title}” answers it.`;
   } else if (pBest >= threshold) { verdict = 'shared'; reason = `Answered from what players can read (“${sellable[0].title}”).`; }
   else { verdict = 'unknown'; reason = 'Nothing in the library or the broker’s notes matches.'; }
 
-  if (verdict !== 'shared') return { ...base, verdict, reason, knowledge: 'deep', multiplier: 1, player: null, dmEvidence };
+  if (verdict !== 'shared') return { ...base, verdict, reason, knowledge: 'deep', multiplier: 1, player: null, gmEvidence };
 
   const take = sellable.slice(0, length === 'full' ? 5 : 2);
   const sources = [...new Map(take.map((u) => [u.page ?? `note:${u.title}`, { id: u.page, title: u.title }])).values()];
@@ -257,5 +257,5 @@ export function classify(db: DB, library: Library, worldId: string, question: st
     if ((RANK[k] ?? 1) > (RANK[level] ?? 0)) level = k;
     if (rule) multiplier = Math.max(multiplier, rule.multiplier);
   }
-  return { ...base, verdict, reason, knowledge: (RANK[level] !== undefined ? level : 'local') as Knowledge, multiplier, player: { answer: take.map((u) => u.text).join('\n\n'), sources, brokerLevel: take.some((u) => u.level === 'broker') }, dmEvidence };
+  return { ...base, verdict, reason, knowledge: (RANK[level] !== undefined ? level : 'local') as Knowledge, multiplier, player: { answer: take.map((u) => u.text).join('\n\n'), sources, brokerLevel: take.some((u) => u.level === 'broker') }, gmEvidence };
 }

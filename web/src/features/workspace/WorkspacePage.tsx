@@ -5,7 +5,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
-import { DM_GROUPS } from '../../lib/dmnames.ts';
+import { GM_GROUPS } from '../../lib/gmnames.ts';
 import {
   LAYOUTS, MAX_PANES, PAGE_MIME, PANE_MIME, PRESETS, closePane, deleteLayout, layoutDef, loadSaved, LAYOUTS_EVENT, openIn, parse, recWorkspace, recallLast, rememberLast, clearWorkspace, setWorkspaceHidden, resizeSizes,
   routeOfPage, saveLayout, serialize, setLayout, swapPanes, toggleMax, withFocus, withSizes, type LayoutRec, type Workspace,
@@ -68,7 +68,7 @@ function geometry(ws: Workspace, s: number[]): Geo {
 }
 
 export default function WorkspacePage() {
-  const { info, isDM } = useWorld();
+  const { info, isGM } = useWorld();
   const slug = info.slug;
   const base = `/w/${slug}/gm`;
   const loc = useLocation();
@@ -106,7 +106,7 @@ export default function WorkspacePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [ws, commit]);
 
-  if (!isDM) return <div className="page"><p className="muted">The workspace is for the GM.</p></div>;
+  if (!isGM) return <div className="page"><p className="muted">The workspace is for the GM.</p></div>;
 
   const sizes = live ?? ws.s;
   const z = phone ? ws.f : ws.z;
@@ -290,7 +290,7 @@ function Pane({ i, id, count, slug, routes, choices, focused, maximised, hidden,
         <i className={`fa-solid ${meta?.icon ?? 'fa-circle-question'} fa-fw ws-grab`} aria-hidden="true" title="Drag onto another pane to swap" />
         <select className="ws-pick" value={id} aria-label={`Page in pane ${i + 1}`} data-testid={`ws-pick-${i}`} title={meta?.desc} onChange={(e) => onPick(e.target.value)}>
           {noRoute && <option value={id}>{id} (not available)</option>}
-          {[...DM_GROUPS.map((g) => ({ id: g.id as string, label: g.label })), { id: 'panels', label: 'Panels' }].map((g) => {
+          {[...GM_GROUPS.map((g) => ({ id: g.id as string, label: g.label })), { id: 'panels', label: 'Panels' }].map((g) => {
             const list = choices.filter((c) => c.group === g.id);
             return list.length ? <optgroup key={g.id} label={g.label}>{list.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}</optgroup> : null;
           })}

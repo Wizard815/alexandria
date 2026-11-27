@@ -7,14 +7,14 @@ import type { Feature, McpTool } from '../types.ts';
 
 const enc = (v: unknown) => encodeURIComponent(String(v));
 const S = (description: string) => ({ type: 'string', description });
-const VIS = { type: 'string', enum: ['dm', 'party'] };
+const VIS = { type: 'string', enum: ['gm', 'party'] };
 
 const tools: McpTool[] = [
   // ---- approvals ----
-  { name: 'list_approvals', dmOnly: true, description: 'GM: everything waiting on you: coin requests, item changes, disputes and alerts, each with its id, plus recent decisions and gives between players.', props: {}, call: () => ({ method: 'GET', path: '/approvals' }) },
+  { name: 'list_approvals', gmOnly: true, description: 'GM: everything waiting on you: coin requests, item changes, disputes and alerts, each with its id, plus recent decisions and gives between players.', props: {}, call: () => ({ method: 'GET', path: '/approvals' }) },
   {
     name: 'decide_approval', write: true,
-    description: 'GM: decide a waiting coin request or item change from list_approvals. action: approve, edit (approve with changes: amountCp for coin, item {name, qty, note, dmNote, owner} for items), reject, or revert (undo a player\'s own change you were alerted to).',
+    description: 'GM: decide a waiting coin request or item change from list_approvals. action: approve, edit (approve with changes: amountCp for coin, item {name, qty, note, gmNote, owner} for items), reject, or revert (undo a player\'s own change you were alerted to).',
     props: { id: S('Approval id (led_… for coin, otherwise an item change id)'), action: { type: 'string', enum: ['approve', 'edit', 'reject', 'revert'] }, amountCp: { type: 'integer' }, note: S('Coin note'), item: { type: 'object' } },
     required: ['id', 'action'],
     call: (a) => ({ method: 'POST', path: `/approvals/${enc(a.id)}`, body: { action: a.action, amountCp: a.amountCp, note: a.note, item: a.item } }),
@@ -33,10 +33,10 @@ const tools: McpTool[] = [
   { name: 'list_map_marks', description: 'Pins, notes, routes and stops on a map as you may see them (the whole world map is "world").', props: { mapId: S('Map id (default world)') }, call: (a) => ({ method: 'GET', path: `/map/${enc(a.mapId ?? 'world')}/marks` }) },
   {
     name: 'add_map_mark', write: true,
-    description: 'GM: put a mark on a map: a pin, note, icon or numbered stop at x,y (0 to 100), or a route of points. visibility: party (default), dm (only you) or me.',
+    description: 'GM: put a mark on a map: a pin, note, icon or numbered stop at x,y (0 to 100), or a route of points. visibility: party (default), gm (only you) or me.',
     props: {
       mapId: S('Map id (default world)'), kind: { type: 'string', enum: ['pin', 'note', 'route', 'stop', 'icon'] }, x: { type: 'number', description: '0 to 100' }, y: { type: 'number', description: '0 to 100' },
-      label: S('Label'), text: S('Note text (kind note)'), icon: S('Icon name (kind icon)'), points: { type: 'array', items: { type: 'object' }, description: 'Route points [{x, y}], 2 or more' }, visibility: { type: 'string', enum: ['party', 'me', 'dm'] },
+      label: S('Label'), text: S('Note text (kind note)'), icon: S('Icon name (kind icon)'), points: { type: 'array', items: { type: 'object' }, description: 'Route points [{x, y}], 2 or more' }, visibility: { type: 'string', enum: ['party', 'me', 'gm'] },
     },
     required: ['kind'],
     call: (a) => ({ method: 'POST', path: `/map/${enc(a.mapId ?? 'world')}/marks`, body: { kind: a.kind, x: a.x, y: a.y, label: a.label, text: a.text, icon: a.icon, points: a.points, visibility: a.visibility } }),

@@ -1,6 +1,6 @@
 // The broker's hook: a question the broker could not answer from the asker's own
 // view (it goes to the GM to price) is also an escalation, so it shows in the
-// GM queue with the hidden context, and in dm-question mode the GM can simply
+// GM queue with the hidden context, and in gm-question mode the GM can simply
 // answer it. The broker request already exists; this links to it.
 import type { Deps } from '../../app.ts';
 import { addHidden, escalate, gatherContext, type HiddenItem } from './escalation.ts';
