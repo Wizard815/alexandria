@@ -1,0 +1,31 @@
+{
+  "kit": 2,
+  "id": "cleave",
+  "name": "Cleaving through creatures",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "When a melee attack drops a creature, the leftover damage can carry on to another one in reach.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "combat",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Cleave (house rule)",
+      "text": "When a **melee attack** reduces an undamaged creature to 0 hit points, any **leftover damage** carries over to another creature within reach, if the same attack roll would hit it."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "cleave",
+      "leftover damage",
+      "overkill"
+    ],
+    "dm": "Cleave is on: when a melee attack drops an undamaged creature to 0 HP, leftover damage carries to another creature in reach if the same attack roll would hit it. Great with minions.",
+    "player": "At this table extra damage from a melee hit that drops a fresh enemy carries over to another enemy in reach, if your attack roll would hit it too."
+  }
+}

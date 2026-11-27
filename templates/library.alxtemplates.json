@@ -1,0 +1,196 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter library page templates",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "library",
+      "name": "NPC page",
+      "description": "A page for a person.",
+      "triggers": [
+        "npc page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "People",
+        "titlePattern": "{name}",
+        "sections": [
+          "Look",
+          "Voice",
+          "Wants",
+          "Ties",
+          "Secret"
+        ],
+        "tags": [
+          "npc"
+        ],
+        "body": "## Look\n\n\n## Voice\n\n\n## Wants\n\n\n## Ties\n\n\n> [!secret] DM\n> "
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Location page",
+      "description": "A page for a place.",
+      "triggers": [
+        "location page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Places",
+        "titlePattern": "{name}",
+        "sections": [
+          "Overview",
+          "Notable places",
+          "People",
+          "Rumours"
+        ],
+        "tags": [
+          "place"
+        ],
+        "body": "## Overview\n\n\n## Notable places\n\n\n## People\n\n\n## Rumours\n"
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Faction page",
+      "description": "A page for a faction.",
+      "triggers": [
+        "faction page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Factions",
+        "titlePattern": "{name}",
+        "sections": [
+          "Goal",
+          "Leaders",
+          "Ranks",
+          "Allies and enemies"
+        ],
+        "tags": [
+          "faction"
+        ],
+        "body": "## Goal\n\n\n## Leaders\n\n\n## Ranks\n\n\n## Allies and enemies\n"
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Session notes",
+      "description": "Notes for one session.",
+      "triggers": [
+        "session notes"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Sessions",
+        "titlePattern": "Session {name}",
+        "sections": [
+          "Plan",
+          "What happened",
+          "Loot",
+          "Open threads"
+        ],
+        "tags": [
+          "session"
+        ],
+        "body": "## Plan\n\n\n## What happened\n\n\n## Loot\n\n\n## Open threads\n"
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Quest page",
+      "description": "A page for a quest.",
+      "triggers": [
+        "quest page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Quests",
+        "titlePattern": "{name}",
+        "sections": [
+          "Hook",
+          "Steps",
+          "Rewards",
+          "Status"
+        ],
+        "tags": [
+          "quest"
+        ],
+        "body": "## Hook\n\n\n## Steps\n\n\n## Rewards\n\n\n## Status\n"
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Item page",
+      "description": "A page for an item.",
+      "triggers": [
+        "item page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Items",
+        "titlePattern": "{name}",
+        "sections": [
+          "Look",
+          "Properties",
+          "History"
+        ],
+        "tags": [
+          "item"
+        ],
+        "body": "## Look\n\n\n## Properties\n\n\n## History\n"
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Deity page",
+      "description": "A page for a god.",
+      "triggers": [
+        "deity page",
+        "god page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Religion",
+        "titlePattern": "{name}",
+        "sections": [
+          "Domains",
+          "Symbol",
+          "Followers",
+          "Temples",
+          "Holy days"
+        ],
+        "tags": [
+          "deity"
+        ],
+        "body": "## Domains\n\n\n## Symbol\n\n\n## Followers\n\n\n## Temples\n\n\n## Holy days\n"
+      }
+    },
+    {
+      "kind": "library",
+      "name": "Player character page",
+      "description": "A page for a PC.",
+      "triggers": [
+        "character page"
+      ],
+      "enabled": true,
+      "spec": {
+        "folder": "Party",
+        "titlePattern": "{name}",
+        "sections": [
+          "Look",
+          "Background",
+          "Goals",
+          "Bonds",
+          "Party notes"
+        ],
+        "tags": [
+          "pc"
+        ],
+        "body": "## Look\n\n\n## Background\n\n\n## Goals\n\n\n## Bonds\n\n\n## Party notes\n"
+      }
+    }
+  ]
+}

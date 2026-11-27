@@ -1,0 +1,51 @@
+{
+  "kit": 2,
+  "id": "spell-points",
+  "name": "Spell points",
+  "version": "1.1.0",
+  "author": "Alexandria",
+  "group": "magic",
+  "summary": "The standard spell points variant: every character casts from a pool of points instead of spell slots. Pool by caster level (full caster table), cost by spell level, full refill on a long rest.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex", "sheet"]
+  },
+  "presets": {
+    "spellMana": true,
+    "spellManaName": "Spell points",
+    "spellManaOverdraw": false,
+    "spellManaCosts": [0, 2, 3, 5, 6, 7, 9, 10, 11, 13],
+    "spellManaPool": {
+      "mode": "table",
+      "formula": "level * 4 + mod",
+      "table": [4, 6, 14, 17, 27, 32, 38, 44, 57, 64, 73, 73, 83, 83, 94, 94, 107, 114, 123, 133]
+    },
+    "spellManaRest": {
+      "long": "full",
+      "short": "none"
+    },
+    "spellManaMaxLevel": {
+      "on": true,
+      "table": [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 9, 9]
+    }
+  },
+  "rules": [
+    {
+      "term": "Spell points (house rule)",
+      "text": "Spells are cast with spell points instead of slots. A spell costs 2 points at 1st level, 3 at 2nd, 5 at 3rd, 6 at 4th, 7 at 5th, 9 at 6th, 10 at 7th, 11 at 8th and 13 at 9th. Your pool grows with your caster level and refills on a long rest. You can cast each spell of 6th level or higher only once between long rests. Half casters count half their level, rounded up; third casters a third."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "spell points",
+      "spell point",
+      "casting cost"
+    ],
+    "tools": [
+      "my_spell_codex",
+      "read_spell"
+    ],
+    "player": "This table uses spell points instead of spell slots. A spell costs points by its level: 1st 2, 2nd 3, 3rd 5, 4th 6, 5th 7, 6th 9, 7th 10, 8th 11, 9th 13. A long rest refills the pool, and a caster's level caps the highest spell level they can cast. To answer what they can still cast, read my_spell_codex for their pool and known spells.",
+    "dm": "This table uses spell points instead of spell slots: 1st 2, 2nd 3, 3rd 5, 4th 6, 5th 7, 6th 9, 7th 10, 8th 11, 9th 13 points, refilled on a long rest."
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "kit": 2,
+  "id": "luck-points",
+  "name": "Luck points",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Each player has a few luck points to reroll a d20 they don't like; they come back each session.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "chat",
+      "assistant"
+    ]
+  },
+  "options": {
+    "max": {
+      "type": "int",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "label": "Luck points each"
+    }
+  },
+  "triggers": [
+    {
+      "on": "sessionStart",
+      "resource": "luck",
+      "add": 10
+    }
+  ],
+  "commands": [
+    {
+      "word": "luck",
+      "action": "use"
+    }
+  ],
+  "sheet": {
+    "title": "Luck",
+    "resources": [
+      "luck"
+    ]
+  },
+  "dmBand": {
+    "chips": [
+      "luck"
+    ],
+    "actions": [
+      "give"
+    ]
+  },
+  "resources": [
+    {
+      "id": "luck",
+      "label": "Luck point",
+      "icon": "fa-clover",
+      "max": "$max",
+      "start": "$max"
+    }
+  ],
+  "actions": [
+    {
+      "id": "give",
+      "label": "Give",
+      "by": "dm",
+      "resource": "luck",
+      "add": 1,
+      "askReason": true
+    },
+    {
+      "id": "use",
+      "label": "Use",
+      "by": "owner",
+      "resource": "luck",
+      "add": -1,
+      "effect": {
+        "chat": "{name} spends a luck point to reroll ({note})"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "term": "Luck points (house rule)",
+      "text": "Each player has **luck points** (3 by default). Spend one **after seeing a d20 roll** to roll again and take either result. They refill at the start of each session."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "luck",
+      "reroll",
+      "luck point"
+    ],
+    "dm": "Players have luck points that refill each session. A player spends one after a d20 roll to reroll and keep either result.",
+    "player": "You have luck points that refill each session: spend one after a bad d20 roll to reroll it and keep either result. Type /luck in chat."
+  }
+}
