@@ -92,7 +92,7 @@ Something can happen on a downtime day: rats boil out of the cellar you are
 cleaning, a fight breaks out where you work, or a dwarf challenges you to a
 drinking contest.
 
-- **How often:** each activity can have up to 12 events. Every downtime day
+- **How often:** each activity can have up to 40 events. Every downtime day
   spent on it has a chance of one, at most one per task per pick. The chance
   is the activity's `eventChance`, or else the world's (the rule's
   `eventChance` option, `downtimeEventChance`). The default is 10%, and 0
@@ -115,9 +115,15 @@ drinking contest.
 - **The record:** every event, roll and result is in the log and in table
   chat.
 
-The rule ships events for Clean out a cellar (a new common job), Work a job,
-Carouse, Gather herbs, Research lore, Pit fighting, Religious service, Chase
-rumours, Craft an item and Run a business together.
+DownTime ships 504 original events: 21 for each of the 23 ready-made
+activities (Clean out a cellar is a new common job), and 21 general ones for
+a player's own activity or the DM's one-off. They live in
+`librarian/src/features/downtime/data/events.json`, keyed by activity id,
+with `_general` for the rest. A Codex spell study uses the Study a spell
+list. The stakes grow with the tier: a common job risks a few coins or a
+bruise, a legendary craft risks weeks of work. A ready-made activity uses
+its library list until the DM edits its events, which makes the world's
+own copy.
 
 ![A random event on a phone](screenshots/downtime/9-player-event-phone.png)
 

@@ -4,7 +4,7 @@
 // and a daily vigil, and sends; the DM sees her answer, picks for Anselm,
 // adds a day to Tomas, closes the round, finishes and rewards a task, and
 // reads the log; Jess sees her tasks on her sheet and joins the party's group
-// stronghold from her Downtime page; a random event (rats in the cellar) pops
+// stronghold from her Downtime page; a random event from the cellar list pops
 // up for her to roll, and the DM decides one for Tomas. Screenshots go to SHOTS.
 // Run from web/: npm run build && node e2e/downtime.mjs   (DOWNTIME_PORT, default 19822)
 import fs from 'node:fs';
@@ -146,7 +146,7 @@ try {
   await shot(pl, '8-player-group-tasks');
   note('player: personal and group tasks apart, joined the party stronghold');
 
-  // 8. Random events: every downtime day has one. Jess cleans a cellar and the rats come out; she rolls on her phone.
+  // 8. Random events: every downtime day has one. Jess cleans a cellar and one of its events comes up; she rolls on her phone.
   await api(dmLogin.token, 'PATCH', '/settings', { downtimeEventChance: 100 });
   await pl.waitForTimeout(1500); // the settings change reloads the world on her phone first
   await api(dmLogin.token, 'POST', '/downtime/rounds', { days: 1, advance: false, note: 'A quiet day in town' });

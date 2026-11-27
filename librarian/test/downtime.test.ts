@@ -11,8 +11,8 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { tierByWords } from '../src/features/downtime/suggest.ts';
 import { premadeFrom } from '../src/features/downtime/catalog.ts';
-import { rollForPick } from '../src/features/downtime/events.ts';
-import { generalEvents, libraryEvents } from '../src/features/downtime/library.ts';
+import { rollForPick, resolveEvent } from '../src/features/downtime/events.ts';
+import { generalEvents, libraryEvents, eventLibrary } from '../src/features/downtime/library.ts';
 
 let base = '';
 let server: any;
@@ -400,4 +400,47 @@ test('TestDowntime_EventChanceIsPerDayAndTravelIsAShare', () => {
   assert.equal(rollForPick(d as any, W, full, ID.tom, [{ taskId: t.id, days: 1 }], at(400)).length, 1, '40% full day: a 400 in 1000 hits');
   assert.equal(rollForPick(d as any, W, travel, ID.tom, [{ taskId: t.id, days: 1 }], at(101)).length, 0, 'travel: 10% of 1000 is the line');
   assert.equal(rollForPick(d as any, W, { id: 'sim-travel-2', day_min: 120 }, ID.tom, [{ taskId: t.id, days: 1 }], at(100)).length, 1);
+});
+
+test('TestDowntime_EventLibraryCoversEveryActivity', async () => {
+  // About 500 ready-made events: every ready-made activity has its own list, and a one-off task uses the general one.
+  const lib = eventLibrary();
+  const acts = (await ok('GET', `${D()}/activities`, T.dm)).activities.filter((a: any) => a.source === 'premade');
+  assert.ok(acts.length >= 23);
+  for (const a of acts) assert.ok(libraryEvents(a.id).length >= 20, `${a.id} has ${libraryEvents(a.id).length} events`);
+  assert.ok(generalEvents().length >= 20);
+  const total = [...lib.values()].reduce((n, l) => n + l.length, 0);
+  assert.ok(total >= 500, `${total} events`);
+  for (const [k, l] of lib) {
+    assert.ok(k === '_general' || acts.some((a: any) => a.id === k), `${k} is a real activity`);
+    for (const e of l) {
+      assert.ok(e.text && e.title, `${k}/${e.id} has a title and text`);
+      if (e.check) assert.ok(e.dc >= 8 && e.dc <= 20, `${k}/${e.id} DC ${e.dc}`);
+      else assert.ok(!e.failure.text && !e.failure.cp && !e.failure.days, `${k}/${e.id}: no check, so no failure`);
+    }
+  }
+});
+
+test('TestDowntime_EveryLibraryEventSettlesBothWays', async () => {
+  // Fire every event in the library, then settle it as a success and again as a failure: none throws, each applies.
+  const db = deps.db;
+  const d = { db, hub: { emit() {} } };
+  const t = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Event soak', tier: 'legendary', days: 3650 } });
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 500, maxHp: 500 });
+  db.prepare("INSERT INTO ledger (id, world_id, owner, amount_cp, status, note, by_id, at) VALUES ('soak-seed', ?, ?, 100000000, 'approved', 'soak', ?, ?)").run(W, ID.tom, ID.dm, new Date().toISOString());
+  let n = 0;
+  for (const [k, list] of eventLibrary()) {
+    for (const ev of list) {
+      for (const result of ['success', 'failure'] as const) {
+        const eid = `soak-${n++}`;
+        db.prepare("INSERT INTO downtime_events (id, world_id, round_id, task_id, task_name, account_id, event, status, created_at) VALUES (?,?,NULL,?,?,?,?,'pending',?)").run(eid, W, t.id, 'Event soak', ID.tom, JSON.stringify(ev), new Date().toISOString());
+        const r = resolveEvent(d as any, W, eid, { result }, ID.dm);
+        assert.equal(r.event.status, result, `${k}/${ev.id}`);
+        assert.ok(r.event.note, `${k}/${ev.id} has a result line`);
+      }
+    }
+  }
+  assert.ok(n >= 1000);
+  db.prepare("DELETE FROM ledger WHERE world_id = ? AND owner = ?").run(W, ID.tom);
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 20, maxHp: 20, conditions: [] });
 });
