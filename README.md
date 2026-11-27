@@ -104,6 +104,13 @@ conditions, rolls and journal entries move both ways. See
 
 The full API is in [docs/API.md](docs/API.md).
 
+## Roll20
+
+A Roll20 game can stay in step with a world: HP, conditions (as token
+markers), rolls and handouts move both ways. Set it up under DM → Setup →
+Roll20, with Roll20 Pro (a Mod script in the game) or without it (the bridge
+alone). See [docs/ROLL20.md](docs/ROLL20.md).
+
 ## Online play on Owlbear Rodeo
 
 Alexandria serves an Owlbear Rodeo extension: the table screen's map picture and this world's fog of war on an Owlbear table, with the fog led from either side. DM → Setup → Owlbear Rodeo; see [docs/OWLBEAR.md](docs/OWLBEAR.md).
