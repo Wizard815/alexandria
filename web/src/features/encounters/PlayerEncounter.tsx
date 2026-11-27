@@ -3,12 +3,13 @@
 // a small game when the NPC offers one. "Later" folds it into a chip in the
 // corner. A finished talk stays up until I close it, with a button to the
 // shop when the NPC showed me one. Also the "Wander" card on the home page.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins } from '../../lib/format.ts';
 import { Empty, ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
+import { Countdown } from './Countdown.tsx';
 import { GAME_HELP, type Encounter, type EncounterConfig, type Line } from './types.ts';
 import './encounters.css';
 
@@ -38,7 +39,7 @@ function Inner() {
   if (folded === e.id) {
     return (
       <button type="button" className="enc-chip" data-testid="enc-chip" onClick={() => setFolded(null)}>
-        <i className="fa-solid fa-comment-dots" aria-hidden="true" /> {e.npc.name} {e.status === 'open' ? 'is waiting' : 'said goodbye'}
+        <i className={`fa-solid ${e.kind === 'event' ? 'fa-bolt' : 'fa-comment-dots'}`} aria-hidden="true" /> {e.npc.name} {e.kind === 'event' ? (e.status === 'open' ? ': your move' : ': done') : e.status === 'open' ? 'is waiting' : 'said goodbye'}
       </button>
     );
   }
@@ -49,7 +50,7 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
   const { w, info } = useWorld();
   const act = useAction();
   const [roll, setRoll] = useState('');
-  const [mod, setMod] = useState('0');
+  const [crit, setCrit] = useState<'' | 'high' | 'low'>('');
   const logEnd = useRef<HTMLDivElement>(null);
   const open = e.status === 'open';
   const money = (cp: number) => coins(cp, info.settings.coins);
@@ -61,6 +62,8 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
   }, [open, onFold, onClose]);
 
   const choose = (body: Record<string, unknown>) => act.run(async () => onChanged(await w.call<Encounter>('POST', `/encounters/${encodeURIComponent(e.id)}/choose`, body)));
+  // The countdown hit zero: the server picks the answer the DM set for running out of time.
+  const timeUp = useCallback(() => { void act.run(async () => onChanged(await w.call<Encounter>('POST', `/encounters/${encodeURIComponent(e.id)}/choose`, { timeout: true }))); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const leave = () => act.run(async () => onChanged(await w.call<Encounter>('POST', `/encounters/${encodeURIComponent(e.id)}/leave`)));
   // The latest NPC line is shown big; everything before it is the log.
   const history = open && e.log.length && e.log[e.log.length - 1].who !== 'you' ? e.log.slice(0, -1) : e.log;
@@ -70,11 +73,11 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
     <div className="modal-back">
       <div className="modal enc" role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="encounter">
         <div className="row between">
-          <span className="tiny enc-kicker">{e.source === 'wander' ? 'Out and about' : 'Someone approaches'}</span>
+          <span className="tiny enc-kicker">{e.kind === 'event' ? 'Something happens' : e.source === 'wander' ? 'Out and about' : 'Someone approaches'}</span>
           {open ? <button type="button" className="btn ghost small" onClick={onFold}>Later</button> : <button type="button" className="btn ghost small" onClick={onClose} aria-label="Close">✕</button>}
         </div>
         <div className="enc-npc">
-          <span className="enc-avatar" aria-hidden="true">{e.npc.name.slice(0, 1).toUpperCase()}</span>
+          <span className="enc-avatar" aria-hidden="true">{e.kind === 'event' ? <i className="fa-solid fa-bolt" /> : e.npc.name.slice(0, 1).toUpperCase()}</span>
           <div className="stack tight">
             <h2 id={titleId} style={{ fontSize: 21 }}>{e.npc.name}</h2>
             {e.npc.blurb && <span className="small muted">{e.npc.blurb}</span>}
@@ -89,14 +92,15 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
         )}
 
         {open && e.text && <p className="read enc-say">{e.text}</p>}
+        {open && e.timer?.endsAt && <Countdown endsAt={e.timer.endsAt} secs={e.timer.secs} onZero={timeUp} />}
         <ErrorBox error={act.error} />
 
         {open && g && (
           <div className="card enc-game" data-testid="enc-game">
             <div className="row between"><strong>{g.label}{g.skill ? ` · ${g.skill}` : ''}</strong>
-              <span className="small muted">{g.stakeCp ? `Stake ${money(g.stakeCp)}` : 'Free to play'}{g.winCp ? ` · win ${money(g.winCp)}` : ''}</span>
+              {(e.kind !== 'event' || g.stakeCp > 0 || g.winCp > 0) && <span className="small muted">{g.stakeCp ? `Stake ${money(g.stakeCp)}` : 'Free to play'}{g.winCp ? ` · win ${money(g.winCp)}` : ''}</span>}
             </div>
-            <span className="tiny faint">{GAME_HELP[g.kind]}</span>
+            {g.kind !== 'check' && <span className="tiny faint">{GAME_HELP[g.kind]}</span>}
             {g.kind === 'coin' && (
               <div className="row">{['Heads', 'Tails'].map((s, i) => <button key={s} type="button" className="btn primary" disabled={act.busy} onClick={() => void choose({ play: true, pick: i })}>{s}</button>)}</div>
             )}
@@ -107,16 +111,21 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
             )}
             {g.kind === 'dice' && <div className="row"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void choose({ play: true })}><i className="fa-solid fa-dice" aria-hidden="true" /> Roll</button></div>}
             {g.kind === 'check' && (
-              <div className="row" style={{ alignItems: 'flex-end' }}>
-                <label className="field" style={{ width: 120 }}><span className="label">Your d20</span>
-                  <input inputMode="numeric" value={roll} placeholder="1–20" onChange={(ev) => setRoll(ev.target.value.replace(/\D/g, '').slice(0, 2))} />
-                </label>
-                <label className="field" style={{ width: 100 }}><span className="label">Modifier</span>
-                  <input inputMode="numeric" value={mod} onChange={(ev) => setMod(ev.target.value.replace(/[^\d-]/g, '').slice(0, 3))} />
-                </label>
-                <button type="button" className="btn primary" disabled={act.busy || !roll || Number(roll) < 1 || Number(roll) > 20} onClick={() => void choose({ play: true, roll: Number(roll), modifier: Number(mod) || 0 })}>Send roll</button>
-                <button type="button" className="btn" disabled={act.busy} onClick={() => void choose({ play: true, modifier: Number(mod) || 0 })}>Roll for me</button>
-              </div>
+              <form className="stack tight" data-testid="enc-roll" onSubmit={(ev) => { ev.preventDefault(); const t = roll !== '' && roll !== '-' ? Number(roll) : undefined; if (t !== undefined || crit) void choose({ play: true, total: t, crit: crit || undefined }); }}>
+                <span className="small"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Roll a d20{g.skill ? ` for ${g.skill}` : ''}, add your bonus, and enter the total.</span>
+                <div className="row" style={{ alignItems: 'flex-end' }}>
+                  <label className="field" style={{ width: 120 }}><span className="label">Your total</span>
+                    <input inputMode="numeric" value={roll} placeholder="e.g. 14" aria-label="Your total" autoFocus onChange={(ev) => setRoll(ev.target.value.replace(/[^\d-]/g, '').replace(/(?!^)-/g, '').slice(0, 3))} />
+                  </label>
+                  <button type="submit" className="btn primary" disabled={act.busy || ((roll === '' || roll === '-') && !crit)}>Send roll</button>
+                  {e.kind !== 'event' && <button type="button" className="btn" disabled={act.busy} onClick={() => void choose({ play: true })}>Roll for me</button>}
+                </div>
+                <div className="row enc-crit" role="group" aria-label="Natural 20 or 1">
+                  <button type="button" className={`btn small${crit === 'high' ? ' on' : ''}`} aria-pressed={crit === 'high'} onClick={() => setCrit(crit === 'high' ? '' : 'high')}><i className="fa-solid fa-star" aria-hidden="true" /> Natural 20</button>
+                  <button type="button" className={`btn small${crit === 'low' ? ' on' : ''}`} aria-pressed={crit === 'low'} onClick={() => setCrit(crit === 'low' ? '' : 'low')}><i className="fa-solid fa-skull" aria-hidden="true" /> Natural 1</button>
+                  {crit && <span className="tiny faint">{crit === 'high' ? 'Passes whatever the total.' : 'Fails whatever the total.'}</span>}
+                </div>
+              </form>
             )}
           </div>
         )}
