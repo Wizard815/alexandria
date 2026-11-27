@@ -15,7 +15,7 @@ export default function MyDiscord() {
   const m = me.data;
   return (
     <div className="stack loose">
-      <PageHead title="Discord" lead="Use your character from your table's Discord server: roll dice, ask your quick helper, read the last recap, and get the broker's answers as Discord messages." />
+      <PageHead title="Discord" lead="Use your character from your table's Discord server: roll dice, ask your Squire, read the last recap, and get The Broker's answers as Discord messages." />
       <ErrorBox error={me.error || act.error} />
       {!m.available && <div className="card muted">Your DM has not set up a Discord bot for this world yet.</div>}
       {m.available && m.linked && (

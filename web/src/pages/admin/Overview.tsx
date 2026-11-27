@@ -12,7 +12,7 @@ import { Bars, HealthPill, useConnStatuses } from '../../features/gwstatus/ConnS
 import { ago, clock } from '../../features/gwstatus/api.ts';
 
 const RUN: Record<string, 'ok' | 'bad' | 'teal' | ''> = { ok: 'ok', error: 'bad', stopped: '', running: 'teal' };
-const MODEL_NAMES: Record<string, string> = { chat: 'Chat (DM and players)', audit: 'Audit (decisions)', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank' };
+const MODEL_NAMES: Record<string, string> = { chat: 'Chat (Minerva and The Broker)', audit: 'Audit (decisions)', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Historian (embeddings)', rerank: 'Arbiter (rerank)' };
 const SEEN: Record<string, [string, 'ok' | 'warn' | 'bad' | '']> = { loaded: ['Warm', 'ok'], unloaded: ['Not loaded', 'warn'], unknown: ['Status unknown', ''], missing: ['Model not found', 'bad'], unreachable: ['Not reachable', 'bad'] };
 
 interface Gw {

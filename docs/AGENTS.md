@@ -3,7 +3,9 @@
 Two agents share one chat model and one set of tools (`features/agent`):
 
 - **Minerva**, the DM's assistant. She sees everything the DM sees (never classified text). She has two modes.
-- **The broker**, the players' assistant, in the information broker's name and voice. It sees only what that player may see. Players never meet Minerva: the word does not appear on any player screen, route, event or reply, and anything Minerva changes at the table shows up as an ordinary table change.
+- **The Broker**, the players' assistant, in the information broker's name and voice. It sees only what that player may see. Players never meet Minerva: the word does not appear on any player screen, route, event or reply, and anything Minerva changes at the table shows up as an ordinary table change.
+
+The other AI roles have names too: **Squire** (each player's small quick helper, which the player can name and give a personality), **Oracle** (map vision), **Arbiter** (ranking), **Historian** (embeddings). See [MODELS.md](MODELS.md#the-jobs).
 
 Everything below is built unless it says *planned*.
 
@@ -126,7 +128,7 @@ tested with a fake model but were not measured on the real model: off by default
 - **Who can ask:** the DM and every player, each in their own chats (a player has the broker and
   the table helper). A chat is private to its owner: anyone else gets "not found". One message
   at a time per chat; different people's messages run side by side.
-- **The quick helper:** above the table helper, a player has one-tap answers (my turn with their weapons,
+- **Squire, the quick helper:** above the table helper, a player has one-tap answers (my turn with their weapons,
   features and spells, sum up my sheet, what next, story so far, a quick rules question) from a small second model, the `helper` job. It keeps
   no chat: each tap is one fresh call with a short brief of what that player may see, and
   anything bigger is handed to the broker (which it can ask in the background) or the table helper. See docs/MODELS.md, "The players'

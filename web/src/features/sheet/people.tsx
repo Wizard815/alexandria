@@ -62,7 +62,7 @@ export function PeopleMod({ entries, readOnly, onChange, onAsk }: { entries: Per
               </span>
               <span className="tiny muted sht-pnote"><i className={`fa-solid ${REL[p.kind].icon}`} aria-hidden="true" /> {REL[p.kind].label}{p.note ? ` · ${p.note}` : ''}</span>
             </span>
-            {onAsk && <button type="button" className="btn small" title="Ask the broker about them" aria-label={`Ask the broker about ${p.name}`} onClick={() => onAsk({ name: p.name, what: 'person', pageId: p.pageId })}>Ask</button>}
+            {onAsk && <button type="button" className="btn small" title="Ask The Broker about them" aria-label={`Ask The Broker about ${p.name}`} onClick={() => onAsk({ name: p.name, what: 'person', pageId: p.pageId })}>Ask</button>}
           </li>
         ))}
       </ul>
@@ -120,16 +120,16 @@ export function AskModal({ subject, onClose }: { subject: Subject; onClose: () =
   const ideas = SUGGEST[subject.what].map((f) => f(subject.name));
   const [q, setQ] = useState(ideas[0]);
   return (
-    <Modal title={`Ask the broker about ${subject.name}`} onClose={onClose}>
+    <Modal title={`Ask The Broker about ${subject.name}`} onClose={onClose}>
       <div className="stack tight">
         <span className="small" style={{ fontWeight: 500 }}>Start from an idea</span>
         <div className="sht-chips">{ideas.map((x) => <button key={x} type="button" className={`btn small${q === x ? ' on' : ''}`} onClick={() => setQ(x)}>{x}</button>)}</div>
       </div>
       <label className="field"><span className="label">Your question</span><textarea rows={3} maxLength={500} value={q} onChange={(e) => setQ(e.target.value)} /></label>
-      <p className="tiny muted" style={{ margin: 0 }}>The broker names a price before anything is spent.{subject.pageId ? <> You can also <Link to={libraryHref(subject.pageId)} onClick={onClose}>read their page</Link> first.</> : null}</p>
+      <p className="tiny muted" style={{ margin: 0 }}>The Broker names a price before anything is spent.{subject.pageId ? <> You can also <Link to={libraryHref(subject.pageId)} onClick={onClose}>read their page</Link> first.</> : null}</p>
       <div className="row end" style={{ gap: 6 }}>
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn primary" disabled={!q.trim()} data-testid="ask-go" onClick={() => nav(`/w/${info.slug}/broker?ask=${encodeURIComponent(q.trim())}`)}>Ask the broker</button>
+        <button type="button" className="btn primary" disabled={!q.trim()} data-testid="ask-go" onClick={() => nav(`/w/${info.slug}/broker?ask=${encodeURIComponent(q.trim())}`)}>Ask The Broker</button>
       </div>
     </Modal>
   );

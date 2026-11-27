@@ -20,7 +20,7 @@ export function Questions() {
   return (
     <div className="stack">
       <ErrorBox error={act.error ?? data.error} />
-      <Field label="Ask for more than you know" help="If your own view cannot answer it, the broker takes it to the DM."><input value={text} maxLength={500} onChange={(e) => setText(e.target.value)} /></Field>
+      <Field label="Ask for more than you know" help="If your own view cannot answer it, The Broker takes it to the DM."><input value={text} maxLength={500} onChange={(e) => setText(e.target.value)} /></Field>
       <div className="row"><button type="button" className="btn" disabled={act.busy || !text.trim()} onClick={() => void ask()}>Ask</button></div>
       {note && <p className="small" role="status">{note}</p>}
       {data.data?.escalations.length === 0 && <Empty>Nothing asked yet.</Empty>}

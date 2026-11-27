@@ -19,7 +19,7 @@ export default function DMBroker() {
 
   if (!enabled) return (
     <div className="page"><PageHead title="Broker" />
-      <Empty>The broker is turned off. Turn it on in <Link to={`/w/${info.slug}/dm/settings`}>Settings</Link>.</Empty></div>
+      <Empty>The Broker is turned off. Turn it on in <Link to={`/w/${info.slug}/dm/settings`}>Settings</Link>.</Empty></div>
   );
   const open = (list.data?.requests ?? []).filter((q) => ['pricing', 'offered', 'waiting'].includes(q.status));
   const review = (list.data?.requests ?? []).filter((q) => q.needs_review).length;
@@ -56,7 +56,7 @@ function Queue({ list, reload }: { list: BrokerRequest[] | null; reload: () => P
         <span className="tiny faint">{list.length} asked · {coins(sold, info.settings.coins)} earned</span>
         <ErrorBox error={act.error} />
       </div>
-      {!rows.length ? <Empty>{filter === 'review' ? 'No answers are waiting for your approval.' : filter === 'open' ? 'Nothing waiting on you.' : 'No one has asked the broker anything yet.'}</Empty> : rows.map((q) => (
+      {!rows.length ? <Empty>{filter === 'review' ? 'No answers are waiting for your approval.' : filter === 'open' ? 'Nothing waiting on you.' : 'No one has asked The Broker anything yet.'}</Empty> : rows.map((q) => (
         <article key={q.id} className="list-item" style={{ display: 'block', padding: '12px 14px' }}>
           <div className="row between" style={{ alignItems: 'flex-start' }}>
             <div className="stack tight grow">
@@ -117,8 +117,8 @@ function AnswerModal({ q, onClose, onSaved }: { q: BrokerRequest; onClose: () =>
           </div>
         </>
       )}
-      <Field label="Answer, in the broker's words" help={pricing ? 'Only revealed once paid and the wait is over.' : 'Players see it when it is ready.'}><textarea rows={6} maxLength={10000} value={answer} onChange={(e) => setAnswer(e.target.value)} /></Field>
-      <Field label="Note to the player (optional)"><input value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="This one cost the broker a favor." /></Field>
+      <Field label="Answer, in The Broker's words" help={pricing ? 'Only revealed once paid and the wait is over.' : 'Players see it when it is ready.'}><textarea rows={6} maxLength={10000} value={answer} onChange={(e) => setAnswer(e.target.value)} /></Field>
+      <Field label="Note to the player (optional)"><input value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="This one cost The Broker a favor." /></Field>
       <ErrorBox error={act.error} />
       <div className="row end">
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -200,14 +200,14 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
             <Field key={l.id} label={`${l.name} costs ×`}><input type="number" min={0} step="0.5" value={l.multiplier} onChange={(e) => setC({ ...c, lengths: c.lengths.map((x, j) => (j === i ? { ...x, multiplier: Number(e.target.value) || 0 } : x)) })} /></Field>
           ))}
         </div>
-        <Field label="Questions the broker can't answer" help="Includes questions that touch your secrets. Players can't tell the two apart either way.">
+        <Field label="Questions The Broker can't answer" help="Includes questions that touch your secrets. Players can't tell the two apart either way.">
           <select value={c.unknown ?? 'dm'} onChange={(e) => setC({ ...c, unknown: e.target.value as 'dm' | 'refuse' })}>
             <option value="dm">Come to me to price or refuse</option>
             <option value="refuse">Turned away ("never heard of it"); I still see what was asked</option>
           </select>
         </Field>
         <p className="tiny faint">Rules and item questions are "Other": always free and answered at once. They are not a tier.</p>
-        <p className="tiny faint">Players choose how to pay once a price is set: {c.partyPay ? 'their own coin or the party pouch' : 'their own coin (the party pouch is off for the broker)'}. Change it in Settings.</p>
+        <p className="tiny faint">Players choose how to pay once a price is set: {c.partyPay ? 'their own coin or the party pouch' : 'their own coin (the party pouch is off for The Broker)'}. Change it in Settings.</p>
         <ErrorBox error={act.error} />
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save prices and persona</button></div>
       </section>
@@ -232,7 +232,7 @@ function Scope() {
   return (
     <section className="card" aria-labelledby="scope-h">
       <h2 id="scope-h">Scope and site link</h2>
-      <p className="small muted">The broker answers only about your world. Add real-world topics it may also discuss, one per line, like “Feudal Japan: history, folklore, customs”. Anything else is refused in character, free.</p>
+      <p className="small muted">The Broker answers only about your world. Add real-world topics it may also discuss, one per line, like “Feudal Japan: history, folklore, customs”. Anything else is refused in character, free.</p>
       <Field label="Allowed real-world topics"><textarea rows={3} value={topics} onChange={(e) => setTopics(e.target.value)} placeholder="Feudal Japan: history, folklore, customs" /></Field>
       <Field label="World site link (optional)" help="Shown on the players' broker page"><input value={url} maxLength={500} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></Field>
       <Field label="Link label"><input value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} placeholder="Campaign wiki" /></Field>
@@ -325,7 +325,7 @@ function Offers() {
         <h2 id="newoffer-h">Send an offer</h2>
         <p className="small muted">“A hooded figure offers you knowledge of…” It shows on their broker page (not a pop-up) until they pay, decline, or time runs out.</p>
         <Field label="What it's about"><input value={f.title} maxLength={120} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="The lighthouse keeper" /></Field>
-        <Field label="What the broker says (optional)"><input value={f.teaser} maxLength={400} onChange={(e) => setF({ ...f, teaser: e.target.value })} placeholder="I know who pays the keeper. Interested?" /></Field>
+        <Field label="What The Broker says (optional)"><input value={f.teaser} maxLength={400} onChange={(e) => setF({ ...f, teaser: e.target.value })} placeholder="I know who pays the keeper. Interested?" /></Field>
         <PagePicker label="Start from a page (optional)" help="Copies the page text below for you to trim. Linked only if players can open it." value={f.pageId} onChange={(v) => void fill(v)} />
         <Field label="What they learn when they pay"><textarea rows={5} maxLength={10000} value={f.info} onChange={(e) => setF({ ...f, info: e.target.value })} /></Field>
         <Field label="Price" help="e.g. 50 gp"><input value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} placeholder="50 gp" /></Field>
@@ -383,9 +383,9 @@ function Notes() {
     <div className="cols">
       <section className="col-1 card" aria-labelledby="note-h">
         <h2 id="note-h">{f.id ? 'Edit note' : 'Add a note'}</h2>
-        <p className="small muted">The broker only sells what players can already read in the library, plus these notes. Add one to fill a gap or correct an answer. Players see a note only when they buy it.</p>
+        <p className="small muted">The Broker only sells what players can already read in the library, plus these notes. Add one to fill a gap or correct an answer. Players see a note only when they buy it.</p>
         <Field label="Topic" help="Words people would ask with"><input value={f.topic} maxLength={200} onChange={(e) => setF({ ...f, topic: e.target.value })} placeholder="Greywater ford ferry toll" /></Field>
-        <Field label="What the broker can tell"><textarea rows={4} maxLength={5000} value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
+        <Field label="What The Broker can tell"><textarea rows={4} maxLength={5000} value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           <Field label="Price tier"><select value={f.knowledge} onChange={(e) => setF({ ...f, knowledge: e.target.value as BrokerNote['knowledge'] })}><option value="common">Common</option><option value="local">Local</option><option value="deep">Deep</option></select></Field>
         </div>
@@ -432,7 +432,7 @@ function Tune({ cfg }: { cfg: BrokerConfig }) {
     <div className="cols">
       <section className="col-2 card" aria-labelledby="try-h">
         <h2 id="try-h">Try a question</h2>
-        <p className="small muted">See how the broker would judge it, what it would sell and for how much. Nobody is charged.</p>
+        <p className="small muted">See how The Broker would judge it, what it would sell and for how much. Nobody is charged.</p>
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div className="grow"><Field label="Question"><input value={q} maxLength={500} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && q.trim()) void act.run(async () => setRes(await w.call('POST', '/broker/classify', { question: q.trim() }))); }} placeholder="Who really runs the harbour?" /></Field></div>
           <button type="button" className="btn" disabled={act.busy || !q.trim()} onClick={() => void act.run(async () => setRes(await w.call('POST', '/broker/classify', { question: q.trim() })))}>Judge it</button>

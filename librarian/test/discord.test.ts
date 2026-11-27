@@ -225,7 +225,7 @@ test('TestDiscord_AskUsesTheQuickHelperPrivately', async () => {
   assert.match((await answerTo(fake.interaction(DM, 'ask', { question: 'Hi?' })) as any).content, /for players/);
   // The DM switches the helper off for Discord.
   await ok('PUT', w('/discord'), T.dm, { helper: false });
-  assert.match((await answerTo(fake.interaction(JESS, 'ask', { question: 'What does Dodge do?' })) as any).content, /turned the quick helper off in Discord/);
+  assert.match((await answerTo(fake.interaction(JESS, 'ask', { question: 'What does Dodge do?' })) as any).content, /turned the Squire off in Discord/);
   await ok('PUT', w('/discord'), T.dm, { helper: true });
 });
 

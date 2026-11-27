@@ -57,7 +57,7 @@ export default function DiscordPage() {
 
   return (
     <div className="stack loose">
-      <PageHead title="Discord" lead="A bot in your Discord server. It posts recaps when you publish them and the table's dice rolls, sends players their broker answers, and lets linked players /roll, /ask their quick helper and read /recap." />
+      <PageHead title="Discord" lead="A bot in your Discord server. It posts recaps when you publish them and the table's dice rolls, sends players their broker answers, and lets linked players /roll, /ask their Squire and read /recap." />
       <ErrorBox error={v.error || act.error} />
 
       <section className="card stack">
@@ -110,8 +110,8 @@ export default function DiscordPage() {
         <label className="row small"><Switch label="Post recaps when I publish them" checked={d.postRecaps} onChange={(x) => void save({ postRecaps: x })} /> Post recaps when I publish them</label>
         <label className="row small"><Switch label="Post table-chat dice rolls" checked={d.postRolls} onChange={(x) => void save({ postRolls: x })} /> Post table-chat dice rolls</label>
         <label className="row small"><Switch label="Send players their broker messages as Discord DMs" checked={d.brokerDms} onChange={(x) => void save({ brokerDms: x })} /> Send players their broker messages as Discord DMs</label>
-        {d.brokerDms && <label className="row small"><Switch label="Include the broker's answer in the DM (off: only a note to open the app)" checked={d.brokerText} onChange={(x) => void save({ brokerText: x })} /> Include the broker's answer in the DM (off: only a note to open the app)</label>}
-        <label className="row small"><Switch label="Players can /ask their quick helper in Discord" checked={d.helper} onChange={(x) => void save({ helper: x })} /> Players can /ask their quick helper in Discord</label>
+        {d.brokerDms && <label className="row small"><Switch label="Include The Broker's answer in the DM (off: only a note to open the app)" checked={d.brokerText} onChange={(x) => void save({ brokerText: x })} /> Include The Broker's answer in the DM (off: only a note to open the app)</label>}
+        <label className="row small"><Switch label="Players can /ask their Squire in Discord" checked={d.helper} onChange={(x) => void save({ helper: x })} /> Players can /ask their Squire in Discord</label>
         <label className="row small"><Switch label="Bot on" checked={d.enabled} onChange={(x) => void save({ enabled: x })} /> Bot on</label>
         <p className="small muted">Nothing DM-only is ever posted. A player's /ask answer and /recap are only shown to them unless they choose to share. Your requests to the local models still go first.</p>
       </section>

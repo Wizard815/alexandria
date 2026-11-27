@@ -115,7 +115,7 @@ function Bar({ value, max, label }: { value: number; max: number; label: string 
 }
 
 function EmbeddingsBox({ e }: { e: Overview['embeddings'] }) {
-  if (!e.configured) return <div className="note"><strong>No embeddings model is set.</strong> The library works and keyword search is on; semantic search is off. Set a model in <Link to="/admin/models">Models</Link>, then press Re-index.</div>;
+  if (!e.configured) return <div className="note"><strong>No embeddings model (Historian) is set.</strong> The library works and keyword search is on; semantic search is off. Set a model in <Link to="/admin/models">Models</Link>, then press Re-index.</div>;
   return (
     <div className="stack tight">
       <div className="row between wrap small"><span>Embeddings: <strong>{e.model}</strong>{e.location ? <span className="muted"> ({e.location})</span> : null}</span><span><strong>{e.pages.indexed.toLocaleString()}</strong> of {e.pages.eligible.toLocaleString()} pages indexed · {e.chunks.toLocaleString()} chunks · {e.pages.pending.toLocaleString()} pending</span></div>
@@ -130,7 +130,7 @@ function EmbeddingsBox({ e }: { e: Overview['embeddings'] }) {
 }
 
 const SCOPE_LABEL: [string, string][] = [['dm', 'DM copy'], ['broker', 'Broker copy'], ['party', 'Player copy'], ['lifted', 'Shared with some']];
-const EMBED_TEXT: Record<string, string> = { waiting: 'Waiting for the library', running: 'Embedding', done: 'Done', 'no-model': 'No embeddings model set: library only', error: 'Stopped on an error', cancelled: 'Cancelled' };
+const EMBED_TEXT: Record<string, string> = { waiting: 'Waiting for the library', running: 'Embedding', done: 'Done', 'no-model': 'No Historian (embeddings) model set: library only', error: 'Stopped on an error', cancelled: 'Cancelled' };
 
 function CrawlPanel({ crawl, live, onLog }: { crawl: Crawl; live: Progress['levels']; onLog: () => void }) {
   const p = crawl.progress;

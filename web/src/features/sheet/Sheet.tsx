@@ -319,7 +319,7 @@ function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Par
         <li key={x.name}>
           <span className="grow small" title={`Session ${x.session}: ${x.sessionTitle}`}>{x.pageId ? <Link to={`../library?page=${encodeURIComponent(x.pageId)}`}>{x.name}</Link> : x.name}</span>
           <span className="tiny faint" title={x.sessionTitle}>#{x.session}</span>
-          {onAsk && <button type="button" className="btn small" title="Ask the broker about this" aria-label={`Ask the broker about ${x.name}`} onClick={() => onAsk({ name: x.name, what, pageId: x.pageId })}>Ask</button>}
+          {onAsk && <button type="button" className="btn small" title="Ask The Broker about this" aria-label={`Ask The Broker about ${x.name}`} onClick={() => onAsk({ name: x.name, what, pageId: x.pageId })}>Ask</button>}
           {what === 'person' && onAdd && <button type="button" className="btn small ghost" title="Add to my people" aria-label={`Add ${x.name} to my people`} onClick={() => onAdd({ name: x.name, kind: 'ally', note: '', pageId: x.pageId, personId: x.personId })}>＋ Add</button>}
         </li>
       ))}</ul>

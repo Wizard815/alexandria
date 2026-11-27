@@ -1,8 +1,10 @@
-// The quick helper: one-tap answers from a small second model (rules, my turn, my sheet, what next). It keeps no
+// Squire, the quick helper: one-tap answers from a small second model (rules, my turn, my sheet, what next). It keeps no
 // chat; every tap starts fresh from the player's sheet, recent events and a few rules and library passages. When a
 // question needs more, it hands off: the text goes into the table helper's box, or to the broker. A question the
 // player's character does not know the answer to can go to the broker in the background: it is priced like any
 // broker question, the player pays (or not), and the answer arrives on the Broker page as usual.
+// Each player may name their Squire and give it a personality trait (PUT /helper/squire); a trait that would change
+// what it may say is not used, and the card says so.
 import { useEffect, useState } from 'react';
 import { Markdown } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
@@ -40,14 +42,14 @@ function BrokerInBackground({ question, onChat }: { question: string; onChat: (q
     if (!quote) return;
     const r = await w.call<any>('POST', '/broker/ask', { quoteId: quote.quoteId });
     setQuote(null);
-    setDone(r.status === 'pricing' ? 'Sent. The DM sets the price; you will see it on the Broker page.' : r.status === 'noted' ? 'The broker has nothing for you on that.' : 'Sent. The broker is asking around; the answer will show up on the Broker page.');
+    setDone(r.status === 'pricing' ? 'Sent. The DM sets the price; you will see it on the Broker page.' : r.status === 'noted' ? 'The Broker has nothing for you on that.' : 'Sent. The Broker is asking around; the answer will show up on the Broker page.');
   });
   if (done) return <p className="small" data-testid="quick-broker-done" style={{ margin: '4px 0' }}>{done}</p>;
   return (
     <div data-testid="quick-broker">
       <div className="row" style={{ gap: 6 }}>
-        <input className="input grow" value={text} onChange={(e) => { setText(e.target.value); setQuote(null); }} maxLength={500} placeholder="What should the broker find out?" aria-label="Question for the broker" />
-        {!quote && <button type="button" className="btn small primary" disabled={busy || !text.trim()} onClick={() => void price()}>{busy ? <i className="fa-solid fa-spinner fa-spin" aria-hidden /> : 'Ask the broker'}</button>}
+        <input className="input grow" value={text} onChange={(e) => { setText(e.target.value); setQuote(null); }} maxLength={500} placeholder="What should The Broker find out?" aria-label="Question for The Broker" />
+        {!quote && <button type="button" className="btn small primary" disabled={busy || !text.trim()} onClick={() => void price()}>{busy ? <i className="fa-solid fa-spinner fa-spin" aria-hidden /> : 'Ask The Broker'}</button>}
       </div>
       {quote && (
         <div className="row" style={{ gap: 6, marginTop: 6 }}>
@@ -57,14 +59,45 @@ function BrokerInBackground({ question, onChat }: { question: string; onChat: (q
         </div>
       )}
       {error && <p className="error small" role="alert">{error}</p>}
-      <button type="button" className="btn small ghost quick-link" onClick={() => onChat(text)}>Talk to the broker instead</button>
+      <button type="button" className="btn small ghost quick-link" onClick={() => onChat(text)}>Talk to The Broker instead</button>
     </div>
+  );
+}
+
+interface SquireView { name: string; trait: string; traitUsed: boolean; traitNote: string }
+
+/** The player names their Squire and gives it a personality trait. */
+function SquireSetup({ squire, onSaved, onClose }: { squire: SquireView; onSaved: (s: SquireView) => void; onClose: () => void }) {
+  const { w } = useWorld();
+  const [name, setName] = useState(squire.name === 'Squire' ? '' : squire.name);
+  const [trait, setTrait] = useState(squire.trait);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try { onSaved(await w.call<SquireView>('PUT', '/helper/squire', { name, trait })); onClose(); }
+    catch (err: any) { setError(err?.message ?? String(err)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form className="stack tight quick-squire" onSubmit={save} data-testid="squire-setup" style={{ margin: '6px 0' }}>
+      <label className="small">Name <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder="Squire" aria-label="Your Squire's name" /></label>
+      <label className="small">Personality <input className="input" value={trait} onChange={(e) => setTrait(e.target.value)} maxLength={200} placeholder="e.g. a nervous halfling who loves pies" aria-label="Your Squire's personality" /></label>
+      <p className="muted small" style={{ margin: 0 }}>Your Squire answers in this personality. It changes how it sounds, never what it may tell you.</p>
+      {error && <p className="error small" role="alert">{error}</p>}
+      <div className="row" style={{ gap: 6 }}>
+        <button type="submit" className="btn small primary" disabled={busy}>Save</button>
+        <button type="button" className="btn small ghost" onClick={onClose}>Cancel</button>
+      </div>
+    </form>
   );
 }
 
 export default function QuickHelp({ onHandoff }: { onHandoff: (h: QuickHandoff) => void }) {
   const { w, info } = useWorld();
-  const [status, setStatus] = useState<{ on: boolean; available: boolean; model: string | null } | null>(null);
+  const [status, setStatus] = useState<{ on: boolean; available: boolean; model: string | null; squire?: SquireView | null } | null>(null);
+  const [setup, setSetup] = useState(false);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<QuickTask | null>(null);
   const [res, setRes] = useState<Answer | null>(null);
@@ -74,6 +107,7 @@ export default function QuickHelp({ onHandoff }: { onHandoff: (h: QuickHandoff) 
 
   useEffect(() => { w.call<any>('GET', '/helper/quick').then(setStatus).catch(() => setStatus(null)); }, [w, settingOn]);
   if (!settingOn || !status?.on || !status.available) return null;
+  const squire = status.squire ?? null;
 
   const run = async (task: QuickTask, question = '') => {
     setBusy(task); setError(''); setRes(null);
@@ -91,9 +125,14 @@ export default function QuickHelp({ onHandoff }: { onHandoff: (h: QuickHandoff) 
   return (
     <section className="card quick-help" aria-label="Quick help" data-testid="quick-help">
       <div className="row between">
-        <strong><i className="fa-solid fa-bolt" aria-hidden /> Quick help</strong>
-        {status.model && <span className="muted small" title="The small model that answers">{status.model}</span>}
+        <strong><i className="fa-solid fa-bolt" aria-hidden /> Quick help <span className="muted small" data-testid="squire-name">· {squire?.name ?? 'Squire'}</span></strong>
+        <span className="row" style={{ gap: 6 }}>
+          {status.model && <span className="muted small" title="The small model your Squire runs on">{status.model}</span>}
+          {squire && <button type="button" className="btn small ghost" onClick={() => setSetup((v) => !v)} aria-expanded={setup} title="Name your Squire and give it a personality" data-testid="squire-edit"><i className="fa-solid fa-pen" aria-hidden /> Your Squire</button>}
+        </span>
       </div>
+      {setup && squire && <SquireSetup squire={squire} onSaved={(sq) => setStatus((st) => (st ? { ...st, squire: sq } : st))} onClose={() => setSetup(false)} />}
+      {squire?.traitNote && !setup && <p className="muted small" style={{ margin: '4px 0' }} data-testid="squire-trait-note">{squire.traitNote}</p>}
       <div className="row" style={{ gap: 6, margin: '6px 0' }}>
         {BUTTONS.map((b) => (
           <button key={b.task} type="button" className="btn small" disabled={!!busy} onClick={() => void run(b.task)} data-testid={`quick-${b.task}`}>

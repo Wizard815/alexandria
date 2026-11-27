@@ -31,7 +31,7 @@ export default function AskPage() {
       <PageHead title="Ask" lead={m === 'helper' ? 'Your table helper: your character, your items, the rules and what the party learned tonight. Out of character; it cannot change anything.' : 'Ask about what your character knows: places, people, what happened and your items. It cannot change anything.'} />
       {helperOn && brokerOn && (
         <div className="row" role="tablist" aria-label="Who to ask" style={{ marginBottom: 8 }}>
-          <button type="button" role="tab" aria-selected={m === 'broker'} className={`btn small${m === 'broker' ? ' on' : ''}`} onClick={() => pick('broker')} data-testid="ask-broker">The broker</button>
+          <button type="button" role="tab" aria-selected={m === 'broker'} className={`btn small${m === 'broker' ? ' on' : ''}`} onClick={() => pick('broker')} data-testid="ask-broker">The Broker</button>
           <button type="button" role="tab" aria-selected={m === 'helper'} className={`btn small${m === 'helper' ? ' on' : ''}`} onClick={() => pick('helper')} data-testid="ask-helper">Table helper</button>
         </div>
       )}

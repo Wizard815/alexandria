@@ -18,7 +18,7 @@ const OUT_HELP: Record<OutputKey, string> = {
   stage: 'Players see only the parts meant for them',
   combat: 'Everything lands in initiative',
   send: 'A message to every player',
-  broker: 'The broker may sell the player-safe text',
+  broker: 'The Broker may sell the player-safe text',
 };
 
 export default function Workshop({ tpl, initial, context, autoSculpt, preset, onDone }: { tpl: Tpl; initial?: Values; context?: SculptContext; autoSculpt?: boolean; preset?: Partial<Record<OutputKey, boolean>>; onDone?: (what: string) => void }) {
