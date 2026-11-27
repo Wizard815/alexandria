@@ -26,6 +26,8 @@ const KEY = process.env.TABLENIGHT_KEY || 'sk-or-proxy';
 const CHAT = process.env.TABLENIGHT_CHAT || 'tencent/hy4-flash';
 const FALLBACK = process.env.TABLENIGHT_FALLBACK || 'deepseek/deepseek-v4.1-flash';
 const EMBED = process.env.TABLENIGHT_EMBED || 'baai/bge-m3';
+// The players' quick helper: a small second model (Wizard: 4B or less, or the ternary Bonsai 9B).
+const HELPER = process.env.TABLENIGHT_HELPER || 'prism-ml/ternary-bonsai-2-9b';
 const OUT = process.env.TABLENIGHT_OUT || tmpDir('tablenight');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -207,6 +209,7 @@ try {
     chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 }, fallback: { providerId: pid, model: FALLBACK, allowCloud: true } },
     audit: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off' } },
     extra: { providerId: pid, model: EMBED, enabled: true },
+    helper: { providerId: pid, model: HELPER, enabled: true, options: { reasoning: 'off', reasoningModel: false, contextTokens: 4096, maxConcurrent: 4 } },
   } });
   S.admin = admin;
   const t = await http(admin, 'POST', '/api/admin/models/chat/test', {}).catch((e) => ({ error: e.message }));

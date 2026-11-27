@@ -15,6 +15,9 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\bfoundry\b|\bvtt\b|\b(move|drag|put) (the |my |our )?[\w' -]{0,30}token\b|\btokens?\b.*\b(scene|map)\b/i, tools: ['foundry_status', 'foundry_move_token', 'foundry_send_map', 'foundry_send_handout', 'foundry_say', 'list_pages'] },
+  { re: /\broll ?20\b/i, tools: ['roll20_status', 'roll20_send_handout', 'roll20_say', 'list_pages'] },
+  { re: /\bowlbear\b|\bvtt\b|\bvirtual table(top)?\b/i, tools: ['owlbear_status', 'owlbear_link'] },
   { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
   { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
   { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
@@ -43,6 +46,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(initiative|end (the )?(fight|combat|battle|encounter)|flee|fled|flees|run away|remove|removed|kill(ed)?|dead|dies|died|defeated|slain)\b/i, tools: ['set_initiative', 'remove_combatant', 'set_combat', 'damage_combatant', 'add_combatant', 'next_turn'] },
   { re: /\b(concentrat\w*|temp(orary)? (hp|hit points)|death sav\w*|saving throws? (at|on) 0|stabili[sz]e\w*|unconscious|dying|nat(ural)? (20|1)|crit(ical)?)\b/i, tools: ['give_temp_hp', 'set_concentration', 'concentration_save', 'death_save', 'set_combatant_state', 'damage_combatant', 'heal_combatant', 'get_combat'] },
   { re: /\b(party (status|health|hp|mana)|(player|character|their|his|her)'?s? (hp|health|hit points|mana|sheet)|how (hurt|healthy) is|sheets?|re-?rolls?|inspiration)\b/i, tools: ['party_status', 'change_player_hp', 'give_reroll'] },
+  { re: /\b(open5e|dnd5e ?api|5e (srd )?api|srd|tome of (beasts|heroes)|creature codex|deep magic|vault of magic|black flag|a5e|(import|pull)( in)? (more |new )?(spells|monsters|creatures|magic items|items|books?|content|feats|backgrounds|species)|(more|new) (monsters|spells|magic items) from|third[- ]party (books?|content|monsters|spells))\b/i, tools: ['list_content_books', 'import_content', 'lookup_term'] },
   { re: /\b(stat ?blocks?|stats? for|cr \d|challenge rating)\b/i, tools: ['make_statblock', 'lookup_term', 'read_term', 'add_combatant'] },
   { re: /\b(combat|turn|round|fight|battle|damage|damaged|hit|hits|heal|heals|healed|hp|hit points|condition|prone|poisoned|stunned|grappled|frightened|encounter|attack|add \d|goblins?|orcs?|ogres?|kobolds?|skeletons?|zombies?|wolf|wolves|bandits?|cultists?|takes \d+)\b/i, tools: ['add_combatant', 'damage_combatant', 'heal_combatant', 'next_turn', 'set_initiative', 'set_conditions', 'remove_combatant', 'set_combat'] },
   { re: /\b(start a mystery|new mystery|a mystery:|create a mystery)\b/i, tools: ['revelation_create', 'revelation_mark', 'context_for'] },

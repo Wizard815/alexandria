@@ -12,8 +12,13 @@ import { playerCard } from './hide.ts';
 import { summarize, preview } from './format.ts';
 import { readModule } from './importers.ts';
 import { findMatches } from './match.ts';
+import { feedModule, readFeed } from './feed.ts';
+import { DND5EAPI_BASE, open5eDocuments } from './sources.ts';
+import { OPEN5E_BASE, OPEN5E_ENDPOINTS } from './open5e.ts';
 import { searchRules, searchTerms } from './search.ts';
-import { SCHEMA, available, moduleDoc, removeImported, saveImported, setEnabled, worldModules } from './store.ts';
+import { SCHEMA, available, leftOut, moduleDoc, setLeftOut, removeImported, removeServer, saveImported, saveServer, serverModules, serverRows, setEnabled, worldModules } from './store.ts';
+import { clearSourceCache } from './sources.ts';
+import { parseJson } from '../../core/util.ts';
 
 // (app.ts imports the feature registry, so features write the audit row themselves.)
 const audit = (db: any, worldId: string, accountId: string, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
@@ -101,6 +106,74 @@ function routes(d: Deps) {
     throw new HttpError(404, 'Unknown card source');
   });
 
+  // ---- free content sources (DM): what can be pulled in one step ----
+  r.get('/sources', requireDM, async (req, res) => {
+    const kinds = [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))];
+    let open5e: any;
+    try { open5e = await open5eDocuments(d, { base: typeof req.query.open5e === 'string' ? req.query.open5e : undefined }); }
+    catch (e: any) { open5e = { base: OPEN5E_BASE, documents: [], error: String(e?.message ?? e).slice(0, 200) }; }
+    res.json({
+      open5e: { ...open5e, kinds, lists: OPEN5E_ENDPOINTS.map((e) => ({ kind: e.kind, label: e.label })) },
+      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
+    });
+  });
+
+  // ---- browse one module and leave single entries out of this world (DM) ----
+  r.get('/browse/:id', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const m = moduleDoc(d.db, W(res), id)!;
+    const out = leftOut(d.db, W(res), id);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase().slice(0, 100) : '';
+    const kind = typeof req.query.kind === 'string' ? req.query.kind : '';
+    const only = req.query.left === '1';
+    const counts: Record<string, number> = {};
+    for (const t of m.doc.terms) counts[t.kind] = (counts[t.kind] ?? 0) + 1;
+    const list = m.doc.terms.filter((t) => (!kind || t.kind === kind) && (!only || out.has(t.id)) && (!q || t.term.toLowerCase().includes(q) || t.aliases.some((a) => a.toLowerCase().includes(q))))
+      .sort((a, b) => a.term.localeCompare(b.term));
+    const offset = Math.max(0, intQ(req.query.offset, 0));
+    const limit = Math.min(200, Math.max(1, intQ(req.query.limit, 50)));
+    res.json({
+      module: { id: m.doc.id, name: m.doc.name, builtin: m.builtin, server: !!m.server },
+      counts, leftOut: out.size, total: list.length,
+      terms: list.slice(offset, offset + limit).map((t) => ({ id: t.id, term: t.term, kind: t.kind, summary: t.summary, leftOut: out.has(t.id) })),
+    });
+  });
+
+  r.get('/browse/:id/:termId', requireDM, (req, res) => {
+    const id = String(req.params.id);
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const t = moduleDoc(d.db, W(res), id)!.doc.terms.find((x) => x.id === String(req.params.termId));
+    if (!t) throw new HttpError(404, 'Term not found');
+    res.json({ id: t.id, term: t.term, kind: t.kind, aliases: t.aliases, summary: t.summary, text: t.text, data: t.data ?? null, leftOut: leftOut(d.db, W(res), id).has(t.id) });
+  });
+
+  r.put('/left-out', requireDM, (req, res) => {
+    const id = str(req.body?.module, 'module', { max: 120 });
+    const m = available(d.db, W(res)).some((x) => x.id === id) ? moduleDoc(d.db, W(res), id) : null;
+    if (!m) throw new HttpError(404, 'Module not found');
+    const ids: unknown = req.body?.terms;
+    if (!Array.isArray(ids) || !ids.length || ids.length > 5000) throw new HttpError(400, 'terms must be a list of term ids');
+    const known = new Set(m.doc.terms.map((t) => t.id));
+    const clean = [...new Set(ids.map(String))].filter((x) => known.has(x));
+    if (!clean.length) throw new HttpError(400, 'None of those terms are in the module');
+    const out = req.body?.out !== false;
+    setLeftOut(d.db, W(res), id, clean, out);
+    audit(d.db, W(res), me(res), out ? 'modules.leave-out' : 'modules.put-back', `${id}: ${clean.slice(0, 20).join(', ')}${clean.length > 20 ? ` +${clean.length - 20}` : ''}`);
+    d.hub.emit(W(res), 'modules', {}, () => true);
+    res.json({ ok: true, leftOut: leftOut(d.db, W(res), id).size });
+  });
+
+  // A module the world already has (the server library's or an import): its spells into the Codex, its items into the shop.
+  r.post('/feed', requireDM, (req, res) => {
+    const id = str(req.body?.id, 'id', { max: 120 });
+    if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
+    const feed = readFeed({ spells: req.body?.spells !== false, items: req.body?.items !== false, replace: req.body?.replace === true })!;
+    const fed = feedModule(d, W(res), id, feed, me(res));
+    audit(d.db, W(res), me(res), 'modules.feed', `${id}${fed.spells ? ` spells +${fed.spells.added} =${fed.spells.skipped}` : ''}${fed.items ? ` items +${fed.items.added} =${fed.items.skipped}` : ''}`);
+    res.json({ fed });
+  });
+
   // ---- import (DM): always preview, then save ----
   const raw = express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '16mb' });
   const body = (req: any): { b: any; zip?: Buffer } => {
@@ -117,8 +190,8 @@ function routes(d: Deps) {
     const { b, zip } = body(req);
     const m = await readModule(b, d, zip);
     const p = preview(m.module, m.warnings);
-    const exists = available(d.db, W(res)).some((x) => x.id === m.module.id && !x.builtin);
-    const reserved = available(d.db, W(res)).some((x) => x.id === m.module.id && x.builtin);
+    const exists = available(d.db, W(res)).some((x) => x.id === m.module.id && !x.builtin && !x.server);
+    const reserved = available(d.db, W(res)).some((x) => x.id === m.module.id && (x.builtin || x.server));
     res.json({ ...p, exists, reserved });
   });
 
@@ -128,15 +201,74 @@ function routes(d: Deps) {
     saveImported(d.db, W(res), m.module, m.source, b.replace === true, b.enable !== false);
     audit(d.db, W(res), me(res), 'modules.import', `${m.module.id} ${m.module.terms.length} terms`);
     d.hub.emit(W(res), 'modules', {}, () => true);
-    res.json({ ...preview(m.module, m.warnings), saved: true, modules: worldModules(d.db, W(res)).enabled });
+    // Optionally, spells into the Codex and items into the shop's item database, in the same step.
+    const feed = readFeed(b.feed);
+    const fed = feed ? feedModule(d, W(res), m.module.id, { ...feed, replace: feed.replace || b.replace === true }, me(res)) : null;
+    if (fed) audit(d.db, W(res), me(res), 'modules.feed', `${m.module.id}${fed.spells ? ` spells +${fed.spells.added} ~${fed.spells.replaced} =${fed.spells.skipped}` : ''}${fed.items ? ` items +${fed.items.added} ~${fed.items.updated} =${fed.items.skipped}` : ''}`);
+    res.json({ ...preview(m.module, m.warnings), saved: true, modules: worldModules(d.db, W(res)).enabled, ...(fed ? { fed } : {}) });
   });
 
   void moduleDoc;
   return r;
 }
 
+// ---- the server's content library (admins): pull a book once, every world can turn it on ----
+function adminRoutes(d: Deps) {
+  const r = Router();
+  const adminAudit = (accountId: string, action: string, detail: string) => run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (NULL, ?, ?, ?, ?)', accountId, action, detail.slice(0, 500), now());
+  const FREE = ['open5e', 'dnd5eapi', 'json'];
+  const check = (b: any) => { if (!FREE.includes(String(b?.type))) throw new HttpError(400, `type must be one of: ${FREE.join(', ')}`); return b; };
+
+  r.get('/', (_req, res) => res.json({ modules: serverModules(d.db) }));
+
+  r.get('/sources', async (req, res) => {
+    let open5e: any;
+    try { open5e = await open5eDocuments(d, { base: typeof req.query.open5e === 'string' ? req.query.open5e : undefined }); }
+    catch (e: any) { open5e = { base: OPEN5E_BASE, documents: [], error: String(e?.message ?? e).slice(0, 200) }; }
+    const have = new Set(serverModules(d.db).map((m) => m.id));
+    res.json({ open5e: { ...open5e, kinds: [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))] }, dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }] }, have: [...have] });
+  });
+
+  r.post('/preview', async (req, res) => {
+    const m = await readModule(check(req.body ?? {}), d);
+    res.json({ ...preview(m.module, m.warnings), edition: m.edition, exists: serverModules(d.db).some((x) => x.id === m.module.id) });
+  });
+
+  r.post('/', async (req, res) => {
+    const b = check(req.body ?? {});
+    const m = await readModule(b, d);
+    const { replace: _r, ...request } = b;
+    saveServer(d.db, m.module, { source: m.source, request: b.type === 'json' ? undefined : request, edition: m.edition, replace: b.replace === true });
+    adminAudit((res.locals.auth as any).account.id, 'content.save', `${m.module.id} ${m.module.terms.length} terms`);
+    res.json({ ...preview(m.module, m.warnings), edition: m.edition, saved: true, modules: serverModules(d.db) });
+  });
+
+  // Pull the same request again (a book Open5e has fixed, a newer SRD).
+  r.post('/:id/refresh', async (req, res) => {
+    const row = serverRows(d.db).find((x) => x.id === String(req.params.id));
+    if (!row) throw new HttpError(404, 'Not in the content library');
+    const request = parseJson<any>(row.request ?? '', null);
+    if (!request) throw new HttpError(400, 'This one was uploaded, not pulled; upload it again to change it');
+    clearSourceCache();
+    const m = await readModule(request, d);
+    if (m.module.id !== row.id) m.module.id = row.id;
+    saveServer(d.db, m.module, { source: m.source, request, edition: m.edition, replace: true });
+    adminAudit((res.locals.auth as any).account.id, 'content.refresh', `${row.id} ${m.module.terms.length} terms`);
+    res.json({ ...preview(m.module, m.warnings), refreshed: true, modules: serverModules(d.db) });
+  });
+
+  r.delete('/:id', (req, res) => {
+    removeServer(d.db, String(req.params.id));
+    adminAudit((res.locals.auth as any).account.id, 'content.remove', String(req.params.id));
+    res.json({ ok: true, modules: serverModules(d.db) });
+  });
+  return r;
+}
+
 const feature: Feature = {
   id: 'modules',
+  adminMount: 'content',
+  adminRoutes,
   schema: SCHEMA,
   worldMount: 'modules',
   worldRoutes: routes,
@@ -154,6 +286,26 @@ const feature: Feature = {
       props: { term: { type: 'string', description: 'The name to look up' }, kind: { type: 'string', enum: ['spell', 'condition', 'monster', 'rule', 'item', 'action', 'class', 'other'] } },
       required: ['term'],
       call: (a) => ({ method: 'GET', path: `/modules/terms?q=${encodeURIComponent(a.term)}${a.kind ? `&kind=${encodeURIComponent(a.kind)}` : ''}&limit=10` }),
+    },
+    {
+      name: 'list_content_books', dmOnly: true,
+      description: "DM: the free books Alexandria can pull spells, monsters, magic items, gear, conditions, feats, backgrounds and species from: Open5e's books (Tome of Beasts 1-3, Creature Codex, Deep Magic, Vault of Magic, Tome of Heroes, Level Up A5e, Black Flag, the SRDs ...) with their keys, publisher and licence, and the 5e SRD API editions. Use the keys with import_content.",
+      props: {},
+      call: () => ({ method: 'GET', path: '/modules/sources' }),
+    },
+    {
+      name: 'import_content', write: true,
+      description: "DM: add a game module from Open5e books (source open5e, books = keys from list_content_books, e.g. tob, deepm, vom) or a fresh copy of the SRD from the 5e SRD API (source dnd5eapi, edition 2014 or 2024). Its monsters go straight into the encounter builder and initiative; its spells into the Codex and its items into the shop's item database unless told not to. Optionally only some kinds.",
+      props: {
+        source: { type: 'string', enum: ['open5e', 'dnd5eapi'] },
+        books: { type: 'array', items: { type: 'string' }, description: 'Open5e book keys (open5e only), at most 12' },
+        edition: { type: 'string', enum: ['2024', '2014'], description: 'dnd5eapi only' },
+        kinds: { type: 'array', items: { type: 'string', enum: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] }, description: 'Only these kinds (default: all)' },
+        addSpellsToCodex: { type: 'boolean', description: 'Default true' },
+        addItemsToShop: { type: 'boolean', description: 'Default true' },
+      },
+      required: ['source'],
+      call: (a) => ({ method: 'POST', path: '/modules/import', body: { type: a.source === 'dnd5eapi' ? 'dnd5eapi' : 'open5e', ...(a.source === 'dnd5eapi' ? { edition: a.edition === '2014' ? '2014' : '2024' } : { documents: Array.isArray(a.books) ? a.books : typeof a.books === 'string' ? String(a.books).split(/[\s,]+/).filter(Boolean) : [] }), ...(Array.isArray(a.kinds) && a.kinds.length ? { kinds: a.kinds } : {}), replace: true, feed: { spells: a.addSpellsToCodex !== false, items: a.addItemsToShop !== false } } }),
     },
     {
       name: 'read_term',

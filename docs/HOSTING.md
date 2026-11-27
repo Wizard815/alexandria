@@ -98,6 +98,10 @@ Needs Node 22.13 or newer. Data goes to `librarian/data` unless
 | `ALX_APPS_MAX_MB` | The largest build an admin can upload in Admin, App builds (default 1536). A reverse proxy in front of the server needs to allow bodies that big too (nginx: `client_max_body_size 1536m;` for `/api/admin/apps/`). |
 | `ALX_APP_RELEASES_REPO` | The GitHub repository those builds come from (default `Wizard815/alexandria`). |
 | `ALX_APP_DOWNLOADS` | Where the public **Get the app** page (`/get-app`) sends people for the Android APK and the desktop installers (default: this project's GitHub releases page). Only an http(s) address is used. |
+| `ALX_WORLDANVIL_APP_KEY` | The World Anvil application key for every World Anvil connection that has none of its own (see CONNECTORS.md, "World Anvil"). |
+| `ALX_OBSIDIANPORTAL_KEY`, `ALX_OBSIDIANPORTAL_SECRET` | The Obsidian Portal app's consumer key and secret for every Obsidian Portal connection that has none of its own (see CONNECTORS.md, "Obsidian Portal"). |
+| `ALX_OBSIDIAN_BIN` | The Obsidian headless client for Obsidian Sync sources (default `ob` on the PATH). |
+| `ALX_OBSIDIAN_HOME` | Where that client keeps its sign-in (its `HOME`). The `with-obsidian` image sets `/data/obsidian-home`. |
 | `ALX_CORS_ORIGINS` | Other origins allowed to call the API (e.g. a dev server). Empty (the default) means none. |
 | `ALX_MEMORY_MB` | The heap size the memory guard measures against (default: V8's limit, `NODE_OPTIONS=--max-old-space-size`) |
 | `ALX_AUDIO_STALE_MIN` | Minutes without a line or audio after which a recording session is closed (default 30; 0 turns it off) |
@@ -109,6 +113,25 @@ Notes on local MCP servers:
   standard image has Node only. For Kanka, the **Kanka (API token)**
   connector needs no MCP server at all.
 - To run mcp-kanka over stdio, build an image that adds Python and `uv`.
+
+### Obsidian Sync
+
+The **Obsidian Sync** source runs Obsidian's official headless client (`ob`,
+npm `obsidian-headless`, Node 22+) and needs an Obsidian Sync subscription.
+
+1. Build the image with it: in `docker-compose.override.yml` give the
+   `alexandria` service `build: { context: .., target: with-obsidian }`, then
+   `up -d --build`. Without Docker: `npm install -g obsidian-headless`.
+2. Sign in once, as the user the server runs as:
+   `docker compose exec -u node alexandria ob login`. The sign-in is kept in
+   `/data/obsidian-home` (`ALX_OBSIDIAN_HOME`), so it survives restarts and
+   upgrades. If it expires, a sync says "Obsidian Sync is not signed in".
+3. Add an Obsidian Sync source: the remote vault's name (`ob sync-list-remote`
+   lists them, shared vaults too) and an empty folder under `ALX_VAULTS_DIR`.
+   The first sync links the folder (`ob sync-setup`); every sync runs `ob sync`.
+
+The source is pull-only (`ob sync-config --mode pull-only`): the server never
+changes the vault. Turn on **Two-way** only to let WorldLore send its pages back.
 
 ## Memory, a busy server and starting up
 

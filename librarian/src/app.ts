@@ -8,6 +8,8 @@ import { Jobs, jobsOf } from './core/jobs.ts';
 import { Library } from './core/library.ts';
 import { authenticate, loadWorld, requireAdmin, Throttle } from './core/auth.ts';
 import { HttpError, now } from './core/util.ts';
+import { DM_PRIORITY, withPriority } from './core/ai.ts';
+import type { WorldCtx } from './core/auth.ts';
 import authRoutes from './routes/auth.ts';
 import adminRoutes from './routes/admin.ts';
 import sourceRoutes from './routes/sources.ts';
@@ -154,7 +156,7 @@ export function createApp(opts: AppOptions = {}) {
   for (const f of FEATURES) if (f.adminRoutes) app.use(`/api/admin/${f.adminMount ?? f.id}`, authenticate(db), requireAdmin, f.adminRoutes(deps));
 
   const w = express.Router({ mergeParams: true });
-  w.use(authenticate(db), loadWorld(db));
+  w.use(authenticate(db), loadWorld(db), dmGoesFirst);
   w.use(worldRoutes(deps));
   w.use('/library', libraryRoutes(deps));
   w.use('/requests', requestRoutes(deps));
@@ -208,4 +210,13 @@ export function createApp(opts: AppOptions = {}) {
   timer.unref();
 
   return { app, deps };
+}
+
+/**
+ * Model calls made while answering the DM of a world (a generator, a statblock, the assistant's tools) go before the
+ * players' (core/ai.ts, the queue). Work that sets its own priority (background passes, tracked jobs) keeps it.
+ */
+function dmGoesFirst(_req: Request, res: Response, next: NextFunction) {
+  if ((res.locals.w as WorldCtx | undefined)?.viewer.role !== 'dm') return next();
+  void withPriority(DM_PRIORITY, async () => next());
 }

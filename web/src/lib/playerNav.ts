@@ -24,7 +24,7 @@ put('At the table', '', 'live', 'assistant', 'stage', 'chat', 'rules', 'whiteboa
 put('My character', 'sheet', 'me', 'inventory', 'codex', 'journal');
 put('World', 'library', 'people', 'encounters', 'calendar', 'bible', 'log', 'broker', 'shop', 'messages');
 // Device and table setup: the phone as a microphone, its recordings, and the colour the room lights show on your turn.
-put('Settings & account', 'audio', 'recordings', 'lights', 'app', 'my-keys', 'connect');
+put('Settings & account', 'audio', 'recordings', 'lights', 'app', 'discord', 'my-keys', 'connect');
 /** A page nobody has filed yet lands in "More", so a new feature never goes missing. */
 export const groupOf = (to: string): string => GROUP_OF[to] ?? FALLBACK_GROUP;
 

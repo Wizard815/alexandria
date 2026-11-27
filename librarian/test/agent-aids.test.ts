@@ -13,7 +13,7 @@ import { selectTools, DM_CORE_TOOLS } from '../src/features/agent/intent.ts';
 import { CONCISE } from '../src/features/agent/descriptions.ts';
 import { nearestTools } from '../src/features/agent/toolselect.ts';
 import { syncEmbeddings } from '../src/features/search/embeddings.ts';
-import { routeQuestion, nearCaution, examplesMode } from '../src/features/broker2/routing.ts';
+import { routeQuestion, nearCaution, examplesMode, keywordLabels } from '../src/features/broker2/routing.ts';
 import { EXAMPLES, similarExamples } from '../src/features/broker2/examples.ts';
 import { LINE_EXAMPLES, examplesOn, similarLineExamples } from '../src/features/active/examples.ts';
 import { run } from '../src/core/db.ts';
@@ -207,6 +207,11 @@ test('TestBrokerExamples_NearestCautionCanOnlyAddCaution', async () => {
   chatReply = { scope: 'world', intent: 'spoiler-seeking', type: 'who', confidence: 0.9 };
   const kept = await routeQuestion(h.deps, h.wid, 'What are the harbour fees at the quay?', [], []);
   assert.equal(kept.intent, 'spoiler-seeking');
+});
+
+test('TestBrokerRouting_WhoRulesIsNotARulesQuestion', () => {
+  const h = boot({});
+  assert.equal(keywordLabels(h.deps, h.wid, 'Who rules the lighthouse?', [], []).scope, 'world');
 });
 
 test('TestBrokerExamples_FewShotRidesInThePromptAndDegrades', async () => {
