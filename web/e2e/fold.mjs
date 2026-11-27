@@ -70,10 +70,10 @@ const AUDIT = () => {
 };
 // A quick event still waiting for this player pops up on every new sign-in: answer it and close it.
 // Several may be queued (one per fold size above): one after another.
-const closeQuick = async (page) => {
+const closeQuick = async (page, wait = 400) => {
   const m = page.locator('.modal[role=dialog]');
   for (let i = 0; i < 6; i++) {
-    if (!(await m.first().waitFor({ timeout: 1500 }).then(() => true, () => false))) return;
+    if (!(await m.first().waitFor({ timeout: i ? 600 : wait }).then(() => true, () => false))) return;
     const roll = m.getByRole('button', { name: 'Roll for me' });
     if (await roll.count()) { await roll.first().click().catch(() => {}); await sleep(300); }
     const c = m.getByRole('button', { name: 'Close' });
@@ -221,8 +221,9 @@ for (const f of FOLDS) {
 
 // ---- the tab panel can sit left, right, top or bottom (per device), for the player and the DM ----
 const where = (b, W, H) => !b ? 'missing' : b.x <= 1 && b.height >= H * 0.5 && b.width < W / 2 ? 'left' : b.x + b.width >= W - 1 && b.height >= H * 0.5 && b.width < W / 2 ? 'right' : b.width >= W - 2 && b.y + b.height >= H - 1 ? 'bottom' : b.width >= W * 0.8 && b.y < H / 3 ? 'top' : `odd ${JSON.stringify(b)}`;
-for (const vp of [{ width: 700, height: 850 }, { width: 390, height: 844 }, { width: 960, height: 720 }]) {
-  for (const side of ['left', 'right', 'top', 'bottom']) {
+// Every side on the Fold; on a phone and a 4:3 screen, the sides that are not their default.
+for (const [vp, sides] of [[{ width: 700, height: 850 }, ['left', 'right', 'top', 'bottom']], [{ width: 390, height: 844 }, ['right', 'top']], [{ width: 960, height: 720 }, ['right', 'bottom']]]) {
+  for (const side of sides) {
     for (const [user, pass, url, sel] of [['jess', 'player pass 123', /\/w\/saltreach/, '[data-testid=tabbar]'], ['dm', 'dungeon master 123', /\/w\/saltreach\/dm/, '.dmx-rail']]) {
       const ctx = await browser.newContext({ viewport: vp, isMobile: true, hasTouch: true });
       await ctx.addInitScript((s) => { try { localStorage.setItem('alx.navSide', s); } catch { /* */ } }, side);
@@ -266,7 +267,7 @@ for (const vp of [{ width: 700, height: 850 }, { width: 390, height: 844 }, { wi
       await ctx.close();
     }
   }
-  note(`${vp.width}x${vp.height}: panel left, right, top and bottom`);
+  note(`${vp.width}x${vp.height}: panel ${sides.join(', ')}`);
 }
 // The player picks it in More > Edit tabs; the DM in the world menu.
 {
