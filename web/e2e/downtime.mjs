@@ -18,7 +18,7 @@ const W = `${base}/w/saltreach`;
 const problems = [];
 const note = (m) => console.log('  ' + m);
 const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
-const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: false }); } };
+const shot = async (page, name, el) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await (el ?? page).screenshot({ path: path.join(SHOTS, `${name}.png`), ...(el ? {} : { fullPage: false }) }); } };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('downtime'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
@@ -201,13 +201,22 @@ try {
   await dm.getByLabel('Events to import').fill(JSON.stringify([{ title: 'A cellar ghost', text: 'A cold hand on your shoulder.', check: 'Wisdom', dc: 13, success: { text: 'You stay calm', gp: 3 }, failure: { text: 'You flee', noReward: true } }]));
   await dm.getByRole('button', { name: 'Add to the list' }).click();
   await evs.getByText(/Added 1 event/).waitFor({ timeout: 8000 });
+  // Build one from blocks: a fight starter, rename it, and snap "job fails" onto its failure block.
+  await evs.getByRole('button', { name: 'A fight' }).click();
+  await dm.getByLabel('Event title').last().fill('A cellar thief');
+  const blk = dm.getByTestId('dt-event-block').last();
+  await blk.locator('.blk-outcome-fail').getByRole('button', { name: '+ Effect' }).click();
+  await blk.locator('.blk-outcome-fail').getByRole('button', { name: 'Job fails' }).click();
+  check(await blk.getByText('The job fails: no reward for the task').count() === 1, 'the job-fails piece snapped on');
   await dm.getByLabel('Event title').last().scrollIntoViewIfNeeded();
   await shot(dm, '12-dm-event-import');
+  await shot(dm, '13-dm-event-blocks', dm.getByTestId('dt-event-block').last());
   await dm.getByRole('button', { name: 'Save', exact: true }).click();
   await dm.getByRole('button', { name: 'Save', exact: true }).waitFor({ state: 'detached', timeout: 8000 });
   const [dl] = await Promise.all([dm.waitForEvent('download', { timeout: 8000 }), dm.getByRole('button', { name: 'Share events as a pack' }).click()]);
   const packFile = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
   check(packFile.content?.downtimeEvents?.['pre-cellar']?.some((e) => e.title === 'A cellar ghost'), 'the shared pack has the imported event');
+  check(packFile.content.downtimeEvents['pre-cellar'].some((e) => e.title === 'A cellar thief' && e.failure?.noReward === true), 'the block-built event saved with job fails');
   check(!packFile.content.downtimeEvents['pre-cellar'].some((e) => e.pack), 'the shared pack leaves out other packs\' events');
   note(`dm: pack events shown, imported one, shared ${dl.suggestedFilename()}`);
 } catch (e) {

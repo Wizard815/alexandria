@@ -8,7 +8,8 @@ import { useLoad, useWorld } from '../../lib/world.tsx';
 import { download } from '../../lib/offline.ts';
 import { Empty, ErrorBox, Loading, Modal, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { EventCard, LogList, PickModal, TaskLine } from './Player.tsx';
-import { CSS, GroupChip, NO_OUTCOME, TierChip, splitScope, useDowntime, type EventDef, type Outcome, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
+import { EventsEditor } from './EventBlocks.tsx';
+import { CSS, GroupChip, TierChip, splitScope, useDowntime, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
 
 const PARTY = 'party';
 const TIERS: [Tier, string][] = [['common', 'Common'], ['uncommon', 'Uncommon'], ['rare', 'Rare'], ['very-rare', 'Very rare'], ['legendary', 'Legendary']];
@@ -362,75 +363,3 @@ export function Activities() {
   );
 }
 
-const blankEvent = (): EventDef => ({ title: '', text: '', check: '', dc: 12, success: { ...NO_OUTCOME }, failure: { ...NO_OUTCOME } });
-
-/** Random events on an activity: what happens, the check and DC, what success and failure do. */
-function EventsEditor({ activity, name, events, packed, chance, onChange }: { activity: string; name: string; events: EventDef[]; packed: EventDef[]; chance: number | null; onChange: (e: EventDef[], chance: number | null) => void }) {
-  const { w } = useWorld();
-  const act = useAction();
-  const [paste, setPaste] = useState<string | null>(null);
-  const [said, setSaid] = useState('');
-  const take = (how: 'add' | 'replace', data: string) => act.run(async () => {
-    const x = await w.call<{ events: EventDef[]; from: string }>('POST', '/downtime/event-import', { activity, data });
-    onChange(how === 'add' ? [...events, ...x.events].slice(0, 40) : x.events, chance);
-    setPaste(null);
-    setSaid(`${how === 'add' ? 'Added' : 'Now'} ${x.events.length} event${x.events.length === 1 ? '' : 's'}${x.from === 'pack-general' ? " (the pack's general list)" : x.from === 'pack' ? ' from the pack' : ''}. Save to keep ${how === 'add' ? 'them' : 'it'}.`);
-  });
-  const exportList = () => download(`${(name || 'activity').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'activity'}-events.json`, JSON.stringify({ type: 'alexandria-downtime-events', activity, name, events: events.map(({ id: _i, pack: _p, ...e }) => e) }, null, 2), 'application/json');
-  const set = (i: number, e: EventDef) => onChange(events.map((x, j) => (j === i ? e : x)), chance);
-  const out = (o: Outcome, f: (o: Outcome) => void, label: string, bad = false) => (
-    <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-      <span className="tiny" style={{ width: 56 }}>{label}</span>
-      <input className="input grow" value={o.text} maxLength={300} onChange={(ev) => f({ ...o, text: ev.target.value })} placeholder={bad ? 'Bitten and chased off' : 'You clear them out'} aria-label={`${label} text`} />
-      <label className="tiny">gp <input className="input" type="number" style={{ width: 64 }} value={o.cp / 100} onChange={(ev) => f({ ...o, cp: Math.round(Number(ev.target.value) * 100) || 0 })} aria-label={`${label} gp`} /></label>
-      <label className="tiny">days <input className="input" type="number" style={{ width: 56 }} value={o.days} onChange={(ev) => f({ ...o, days: Math.round(Number(ev.target.value)) || 0 })} aria-label={`${label} days`} /></label>
-      {bad && <label className="tiny">damage <input className="input" type="number" min={0} style={{ width: 56 }} value={o.damage} onChange={(ev) => f({ ...o, damage: Math.max(0, Math.round(Number(ev.target.value)) || 0) })} aria-label={`${label} damage`} /></label>}
-      {bad && <label className="tiny">exhaustion <input className="input" type="number" min={0} max={6} style={{ width: 48 }} value={o.exhaustion} onChange={(ev) => f({ ...o, exhaustion: Math.max(0, Math.min(6, Math.round(Number(ev.target.value)) || 0)) })} aria-label={`${label} exhaustion`} /></label>}
-      <input className="input" style={{ width: 120 }} value={o.item} maxLength={120} onChange={(ev) => f({ ...o, item: ev.target.value })} placeholder="Item" aria-label={`${label} item`} />
-      {bad && <label className="tiny"><input type="checkbox" checked={!!o.noReward} onChange={(ev) => f({ ...o, noReward: ev.target.checked })} /> Job fails, no reward</label>}
-    </div>
-  );
-  return (
-    <details className="stack tight" open={events.length > 0 && events.length <= 3}>
-      <summary className="small"><strong>Random events</strong> ({events.length}{packed.length ? ` + ${packed.length} from packs` : ''}) · things that can happen on a downtime day</summary>
-      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <button type="button" className="btn small ghost" onClick={() => setPaste(paste === null ? '' : null)} aria-expanded={paste !== null}>Import events</button>
-        <button type="button" className="btn small ghost" disabled={!events.length} onClick={exportList}>Export events</button>
-        {said && <span className="tiny muted" role="status">{said}</span>}
-      </div>
-      {paste !== null && (
-        <div className="card stack tight" style={{ padding: 8 }} data-testid="dt-event-import">
-          <span className="tiny muted">Paste a list of events, an exported events file, or an event pack (its list for this activity is used), or choose a file.</span>
-          <textarea className="input" rows={5} value={paste} onChange={(ev) => setPaste(ev.target.value)} placeholder='[{ "title": "Rats!", "check": "Athletics", "dc": 12, "success": { "gp": 5 }, "failure": { "damage": 3 } }]' aria-label="Events to import" />
-          <input type="file" accept=".json,application/json" aria-label="Events file" onChange={(ev) => { const f = ev.target.files?.[0]; if (f) void f.text().then(setPaste); }} />
-          <ErrorBox error={act.error} />
-          <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn small" disabled={act.busy || !paste.trim()} onClick={() => void take('replace', paste)}>Replace the list</button>
-            <button type="button" className="btn small primary" disabled={act.busy || !paste.trim()} onClick={() => void take('add', paste)}>Add to the list</button>
-          </div>
-        </div>
-      )}
-      <label className="small">Chance per day <input className="input" type="number" min={0} max={100} style={{ width: 64 }} value={chance ?? ''} placeholder="world" onChange={(ev) => onChange(events, ev.target.value === '' ? null : Math.max(0, Math.min(100, Number(ev.target.value) || 0)))} aria-label="Event chance per day" /> % <span className="tiny muted">(empty: the world's default)</span></label>
-      {events.map((e, i) => (
-        <div key={i} className="card stack tight" style={{ padding: 8 }}>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <input className="input grow" value={e.title} maxLength={80} onChange={(ev) => set(i, { ...e, title: ev.target.value })} placeholder="Rats in the cellar!" aria-label="Event title" />
-            <input className="input" style={{ width: 120 }} value={e.check} maxLength={40} onChange={(ev) => set(i, { ...e, check: ev.target.value })} placeholder="Check (Athletics)" aria-label="Check" />
-            <label className="small">DC <input className="input" type="number" min={1} max={40} style={{ width: 56 }} value={e.dc} onChange={(ev) => set(i, { ...e, dc: Math.max(1, Number(ev.target.value) || 12) })} /></label>
-            <button type="button" className="btn small ghost" onClick={() => onChange(events.filter((_, j) => j !== i), chance)} aria-label={`Remove ${e.title || 'event'}`}>✕</button>
-          </div>
-          <input className="input" value={e.text} maxLength={400} onChange={(ev) => set(i, { ...e, text: ev.target.value })} placeholder="A swarm of rats boils out of a broken barrel." aria-label="What happens" />
-          {out(e.success, (o) => set(i, { ...e, success: o }), e.check ? 'Success' : 'Result')}
-          {e.check && out(e.failure, (o) => set(i, { ...e, failure: o }), 'Failure', true)}
-        </div>
-      ))}
-      <button type="button" className="btn small" onClick={() => onChange([...events, blankEvent()], chance)}>＋ Event</button>
-      {packed.length > 0 && (
-        <div className="stack tight">
-          <span className="tiny muted">From event packs (turn a pack off under House rules to remove its events):</span>
-          {packed.map((e, i) => <div key={i} className="tiny"><strong>{e.title}</strong>{e.check ? ` · ${e.check} DC ${e.dc}` : ''} <span className="muted">({e.pack})</span></div>)}
-        </div>
-      )}
-    </details>
-  );
-}

@@ -20,15 +20,18 @@ export function DowntimePopup() {
 function PopupInner() {
   const o = useDowntime();
   const [later, setLater] = useState<string | null>(() => { try { return sessionStorage.getItem(FOLD); } catch { return null; } });
+  // The event whose result is on screen stays until Continue, even when the live reload has already settled it.
+  const [settled, setSettled] = useState<DtEvent | null>(null);
   const r = o.data?.round;
-  const pending = o.data?.events ?? [];
+  const live = o.data?.events ?? [];
+  const pending = settled && !live.some((e) => e.id === settled.id) ? [settled, ...live] : live;
   if (!o.data) return null;
   // After the pick (or with no round open): an event that happened on those days waits for a roll.
   if ((!r || r.mine) && pending.length) {
     const key = `ev:${pending[0].id}`;
     const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
     if (later === key) return <button type="button" className="btn dt-chip" data-testid="downtime-event-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Downtime event: roll</button>;
-    return <EventModal events={pending} onClose={() => fold(key)} onDone={() => void o.reload()} />;
+    return <EventModal events={pending} onClose={() => fold(key)} onResult={setSettled} onDone={() => { setSettled(null); void o.reload(); }} />;
   }
   if (!r || r.mine) return null;
   const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
@@ -146,7 +149,7 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
 }
 
 /** Something happened during downtime: the event cards, one after another. */
-function EventModal({ events, onClose, onDone }: { events: DtEvent[]; onClose: () => void; onDone: () => void }) {
+function EventModal({ events, onClose, onDone, onResult }: { events: DtEvent[]; onClose: () => void; onDone: () => void; onResult: (e: DtEvent) => void }) {
   useEffect(() => {
     const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose(); };
     window.addEventListener('keydown', k);
@@ -158,7 +161,7 @@ function EventModal({ events, onClose, onDone }: { events: DtEvent[]; onClose: (
       <div className="modal stack" role="dialog" aria-modal="true" aria-labelledby="dt-ev" data-testid="downtime-event-popup" style={{ maxWidth: 520 }}>
         <div className="row between"><h2 id="dt-ev" style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Something happens</h2><button type="button" className="btn ghost small" onClick={onClose} title="It stays waiting: only the DM can cancel an event">Roll later</button></div>
         <p className="tiny muted" style={{ margin: 0 }}>Part of the downtime you picked: it can wait, but not be skipped.</p>
-        <EventCard key={events[0].id} e={events[0]} onDone={onDone} />
+        <EventCard key={events[0].id} e={events[0]} onDone={onDone} onResult={onResult} />
         {events.length > 1 && <span className="tiny muted">{events.length - 1} more after this one</span>}
       </div>
     </div>
@@ -166,7 +169,7 @@ function EventModal({ events, onClose, onDone }: { events: DtEvent[]; onClose: (
 }
 
 /** One quick-time event: what happens, the check, the stakes, and the roll. */
-export function EventCard({ e, onDone, dm = false }: { e: DtEvent; onDone?: () => void; dm?: boolean }) {
+export function EventCard({ e, onDone, onResult, dm = false }: { e: DtEvent; onDone?: () => void; onResult?: (e: DtEvent) => void; dm?: boolean }) {
   const { w } = useWorld();
   const act = useAction();
   const [bonus, setBonus] = useState('');
@@ -174,7 +177,8 @@ export function EventCard({ e, onDone, dm = false }: { e: DtEvent; onDone?: () =
   const [done, setDone] = useState<DtEvent | null>(null);
   const shown = done ?? e;
   // The player sees the result first and moves on with Continue; the DM's list just updates.
-  const roll = (body: object) => act.run(async () => { setDone(await w.call<DtEvent>('POST', `/downtime/events/${e.id}/roll`, body)); if (dm) onDone?.(); });
+  // Held before the call: the live reload that settles it can arrive before the answer does.
+  const roll = (body: object) => act.run(async () => { onResult?.(e); const x = await w.call<DtEvent>('POST', `/downtime/events/${e.id}/roll`, body); setDone(x); if (dm) onDone?.(); });
   const decide = (result: string) => act.run(async () => { setDone(await w.call<DtEvent>('POST', `/downtime/events/${e.id}/decide`, { result })); onDone?.(); });
   return (
     <div className={`dt-event ${shown.status}`} data-testid="downtime-event">
