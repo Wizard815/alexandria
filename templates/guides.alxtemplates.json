@@ -1,0 +1,326 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter agent guides",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "guide",
+      "name": "Towns",
+      "description": "Make a town that fits the world around it.",
+      "triggers": [
+        "town",
+        "village",
+        "city",
+        "settlement"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make a town",
+        "instructions": "Ground the town in the world: who rules it, what it trades, what it fears. Give three named NPCs with a want each, two places to visit, and three rumours (one true, one half true, one false, marked for the DM).",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for the region, its rulers and nearby places."
+          },
+          {
+            "kind": "neighbours",
+            "text": "Find the neighbouring places and keep trade routes and rivalries consistent."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write the page with the sections below; put secrets in a DM-only callout."
+          }
+        ],
+        "sections": [
+          "Overview",
+          "Rulers and law",
+          "Trade",
+          "People",
+          "Places",
+          "Rumours",
+          "Secrets"
+        ],
+        "tone": "Grounded and specific, with sensory details.",
+        "folder": "Places/Towns",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "NPCs",
+      "description": "Make a memorable NPC with a want, a secret and a voice.",
+      "triggers": [
+        "npc",
+        "character",
+        "shopkeeper",
+        "villain"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make an NPC",
+        "instructions": "Every NPC gets a look in one line, a voice or habit the DM can act out, something they want, something they fear and a secret. Tie them to at least one place or faction already in the library.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for the place and factions this NPC belongs to."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write the page; keep the secret in a DM-only callout."
+          }
+        ],
+        "sections": [
+          "Look",
+          "Voice and manner",
+          "Wants",
+          "Fears",
+          "Ties",
+          "Secret"
+        ],
+        "tone": "Vivid and playable at the table.",
+        "folder": "People",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "Quests",
+      "description": "Turn an idea into a quest the party can follow.",
+      "triggers": [
+        "quest",
+        "adventure hook",
+        "mission",
+        "job"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make a quest",
+        "instructions": "Give a hook the party can find, who asks and why, three steps with a choice or obstacle each, a twist, and what success and failure change in the world. Suggest a reward that fits the party's level.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for the people and places involved."
+          },
+          {
+            "kind": "neighbours",
+            "text": "Check nearby places for where steps can happen."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write the quest page with the sections below."
+          }
+        ],
+        "sections": [
+          "Hook",
+          "Who asks and why",
+          "Steps",
+          "Twist",
+          "Rewards",
+          "If they fail"
+        ],
+        "tone": "Clear and table-ready.",
+        "folder": "Quests",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "Factions",
+      "description": "Make a faction with goals, ranks and enemies.",
+      "triggers": [
+        "faction",
+        "guild",
+        "order",
+        "cult",
+        "organisation"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make a faction",
+        "instructions": "Give the faction a goal, a method, a leader, two notable members, ranks the party could earn, allies and enemies from the library, and what it wants from the party.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for related factions, rulers and places."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write the faction page; secrets go in a DM-only callout."
+          }
+        ],
+        "sections": [
+          "Goal",
+          "Methods",
+          "Leaders",
+          "Ranks",
+          "Allies and enemies",
+          "What they want from the party",
+          "Secrets"
+        ],
+        "tone": "Political and concrete.",
+        "folder": "Factions",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "Dungeons",
+      "description": "Make a five-room dungeon.",
+      "triggers": [
+        "dungeon",
+        "lair",
+        "crypt",
+        "ruin",
+        "five room"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make a dungeon",
+        "instructions": "Use the five-room structure: an entrance with a guardian, a puzzle or roleplay room, a setback or trick, the climax, and a reward or revelation. Give each room a short read-aloud, what is there, and how it changes if the party is noisy.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for the dungeon's history and who lives there."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write one section per room with read-aloud text in a quote."
+          }
+        ],
+        "sections": [
+          "History",
+          "1. Entrance",
+          "2. Puzzle",
+          "3. Setback",
+          "4. Climax",
+          "5. Reward",
+          "Wandering threats"
+        ],
+        "tone": "Atmospheric, short read-alouds.",
+        "folder": "Places/Dungeons",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "Session recap",
+      "description": "Write a recap of last session for the players.",
+      "triggers": [
+        "recap",
+        "last session",
+        "previously"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Write a session recap",
+        "instructions": "Write a short recap in past tense from the players' view: what they did, who they met, what they learned, and open threads. Never reveal DM-only facts.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Read the session log and notes from the last session."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write five to eight short paragraphs and a list of open threads."
+          }
+        ],
+        "sections": [
+          "What happened",
+          "Who we met",
+          "What we learned",
+          "Open threads"
+        ],
+        "tone": "Story-like, like the opening of a TV episode.",
+        "folder": "Sessions",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "Magic items",
+      "description": "Make a magic item with a history.",
+      "triggers": [
+        "magic item",
+        "artifact",
+        "relic",
+        "enchanted"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make a magic item",
+        "instructions": "Give the item a rarity, what it does in 5e terms (keep it balanced for the rarity), how it looks, who made it and a hook. Optional: a quirk or a curse marked for the DM.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for the item's maker and places."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write the item page with rules text in the Properties section."
+          }
+        ],
+        "sections": [
+          "Look",
+          "Properties",
+          "History",
+          "Quirk",
+          "Hook"
+        ],
+        "tone": "Evocative, rules accurate.",
+        "folder": "Items",
+        "exemplars": [],
+        "always": false
+      }
+    },
+    {
+      "kind": "guide",
+      "name": "Monsters",
+      "description": "Make a monster that fits its region.",
+      "triggers": [
+        "monster",
+        "creature",
+        "beast",
+        "stat block"
+      ],
+      "enabled": true,
+      "spec": {
+        "task": "Make a monster",
+        "instructions": "Give the creature a niche in its region's ecology, signs the party sees before meeting it, tactics, a weakness clever players can find, and a stat block at the asked challenge rating.",
+        "steps": [
+          {
+            "kind": "library",
+            "text": "Search the library for the region and what lives there."
+          },
+          {
+            "kind": "neighbours",
+            "text": "Check nearby places for where it hunts."
+          },
+          {
+            "kind": "instruction",
+            "text": "Write the page with a stat block in the Stats section."
+          }
+        ],
+        "sections": [
+          "Look",
+          "Ecology",
+          "Signs",
+          "Tactics",
+          "Weakness",
+          "Stats"
+        ],
+        "tone": "Ominous, practical.",
+        "folder": "Bestiary",
+        "exemplars": [],
+        "always": false
+      }
+    }
+  ]
+}
