@@ -17,11 +17,16 @@ import { DND5EAPI_BASE, open5eDocuments } from './sources.ts';
 import { OPEN5E_BASE, OPEN5E_ENDPOINTS } from './open5e.ts';
 import { searchRules, searchTerms } from './search.ts';
 import { SCHEMA, available, leftOut, moduleDoc, setLeftOut, removeImported, saveImported, setEnabled, worldModules } from './store.ts';
-import { serverModGate } from '../mods/server.ts';
+import { featureSetting } from '../../core/policy.ts';
 
 // (app.ts imports the feature registry, so features write the audit row themselves.)
 const audit = (db: any, worldId: string, accountId: string, action: string, detail = '') => run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now());
 const intQ = (v: unknown, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : d; };
+
+// Open5e and the 5e SRD API are a house rule (features/open5e): off, the world cannot pull from them.
+const OPEN5E_OFF = 'Open5e is off in this world: the DM turns it on under House rules';
+const open5eOn = (res: any) => featureSetting<boolean>(settings(res), 'open5e') === true;
+const needOpen5e = (req: any, res: any, next: any) => (open5eOn(res) ? next() : next(new HttpError(403, OPEN5E_OFF)));
 
 function routes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -106,7 +111,7 @@ function routes(d: Deps) {
   });
 
   // ---- free content sources (DM): what can be pulled in one step ----
-  r.get('/sources', requireDM, serverModGate(d.db, 'open5e'), async (req, res) => {
+  r.get('/sources', requireDM, needOpen5e, async (req, res) => {
     const kinds = [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))];
     let open5e: any;
     try { open5e = await open5eDocuments(d, { base: typeof req.query.open5e === 'string' ? req.query.open5e : undefined }); }
@@ -187,6 +192,7 @@ function routes(d: Deps) {
 
   r.post('/import/preview', requireDM, raw, async (req, res) => {
     const { b, zip } = body(req);
+    if (!zip && (b?.type === 'open5e' || b?.type === 'dnd5eapi') && !open5eOn(res)) throw new HttpError(403, OPEN5E_OFF);
     const m = await readModule(b, d, zip);
     const p = preview(m.module, m.warnings);
     const exists = available(d.db, W(res)).some((x) => x.id === m.module.id && !x.builtin && !x.server);
@@ -196,6 +202,7 @@ function routes(d: Deps) {
 
   r.post('/import', requireDM, raw, async (req, res) => {
     const { b, zip } = body(req);
+    if (!zip && (b?.type === 'open5e' || b?.type === 'dnd5eapi') && !open5eOn(res)) throw new HttpError(403, OPEN5E_OFF);
     const m = await readModule(b, d, zip);
     saveImported(d.db, W(res), m.module, m.source, b.replace === true, b.enable !== false);
     audit(d.db, W(res), me(res), 'modules.import', `${m.module.id} ${m.module.terms.length} terms`);

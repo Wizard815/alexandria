@@ -564,7 +564,7 @@ test('Mods: the Mod studio guide covers every part, and every rule shipped or in
   }
   assert.match((await ok('GET', `${M()}/guide?part=presets`, T.dm)).text, /sheetRerolls: false/);
   assert.equal((await call('GET', `${M()}/guide`, T.jess)).status, 403);
-  const ids = [...shippedMods().filter((s) => s.mod.scope !== 'server').map((s) => s.mod.id), 'hero-points', 'downtime-lite']; // server rules are not a world's
+  const ids = [...shippedMods().map((s) => s.mod.id), 'hero-points', 'downtime-lite'];
   for (const id of ids) {
     const f = await ok('GET', `${M()}/${id}/file`, T.dm);
     const back = checkMod(f.file);

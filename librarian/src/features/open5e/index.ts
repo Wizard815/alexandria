@@ -1,7 +1,7 @@
-// Open5e and the 5e SRD API as a server mod (mods/open5e.alxmod.json, Admin → Mods): the server's content library
-// (Admin → Content library) and the assistant's import tools. While the admin has it off, those answer 404 and the
-// tools are left out; the modules feature also refuses the open5e and dnd5eapi import types and hides the sources.
-// Books already in the library stay usable by worlds: they are stored here, nothing is downloaded again.
+// Open5e and the 5e SRD API: a house rule each world turns on (mods/open5e.alxmod.json, World → House rules), which
+// sets the world setting `open5e`. While it is off the world's Open5e and 5e SRD API imports and GET /modules/sources
+// refuse (features/modules), and the Game module settings hide those tabs. The server's content library (Admin →
+// Content library) is not a mod: books the admin keeps there are offered to every world under Available.
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
@@ -68,7 +68,8 @@ function adminRoutes(d: Deps) {
 
 const feature: Feature = {
   id: 'open5e',
-  serverMod: 'open5e',
+  settings: { open5e: { type: 'boolean', default: false } },
+  houseRules: ['open5e'],
   adminMount: 'content',
   adminRoutes,
   mcpTools: [
