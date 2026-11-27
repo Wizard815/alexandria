@@ -9,6 +9,7 @@ import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '
 import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { ConditionChip, useConditions } from './conditions.tsx';
 import { RerollMod } from './rerolls.tsx';
+import { TradeOffers } from '../sessionchat/TradeDialog.tsx';
 import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -286,7 +287,7 @@ export function ManaMod({ s, onChange, busy, name = 'Mana' }: { s: SheetT; onCha
   );
 }
 
-// ---- inventory (read from the pack) ----
+// ---- inventory (read from the pack; on my own sheet, open trades on top) ----
 
 function Inventory({ account, own }: { account: string; own: boolean }) {
   const { w } = useWorld();
@@ -295,6 +296,7 @@ function Inventory({ account, own }: { account: string; own: boolean }) {
   const items = (inv.data?.items ?? []).filter((it: any) => it.status !== 'pending');
   return (
     <div className="stack tight">
+      {own && <TradeOffers compact />}
       {items.length ? <ul className="sht-list">{items.slice(0, 30).map((it: any) => <li key={it.id}><span className="grow small">{it.name}</span>{it.qty !== 1 && <span className="tiny muted">×{it.qty}</span>}</li>)}</ul> : <span className="tiny muted">Nothing in the pack.</span>}
       {items.length > 30 && <span className="tiny faint">and {items.length - 30} more</span>}
       {own && <Link className="tiny" to="../inventory">Open inventory</Link>}

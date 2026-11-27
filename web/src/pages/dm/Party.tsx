@@ -1,7 +1,8 @@
 // Party & inventory: each player's pack and coin, the party's shared
 // pack and purse, and who is at the table. DM notes on items stay DM-only.
 // Players' proposed changes show inline to approve; the DM's own changes to
-// someone else's things need a reason and alert the owner. Players' free
+// someone else's things need a reason and alert the owner, unless the DM
+// ticks "Don't tell" (a secret for the story; off by default). Players' free
 // gives (coin and items between them and the party) show in a log here.
 // Items can carry a picture.
 import { useState, type FormEvent } from 'react';
@@ -13,7 +14,7 @@ import { usePlayers } from './shared.tsx';
 import { extra } from '../broker/shared.tsx';
 import { ItemHover } from '../../features/itemcards/index.tsx';
 import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
-import { type Item, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, TransfersList } from '../inventory/giving.tsx';
+import { type Item, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, QuietToggle, TransfersList } from '../inventory/giving.tsx';
 
 /** "Why" for a DM change, when Settings ask for one. */
 function useReason() {
@@ -96,6 +97,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
   const [pageId, setPageId] = useState<string | null>(null);
   const reason = useReason();
   const [why, setWhy] = useState('');
+  const [quiet, setQuiet] = useState(false);
   const act = useAction();
   const [name, setName] = useState('');
   const [qty, setQty] = useState('1');
@@ -108,7 +110,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
 
   const add = (e: FormEvent) => act.run(async () => {
     e.preventDefault();
-    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, ...(weightOn && weight ? { weight: Number(weight) } : {}), note, dmNote, reason: why.trim(), image, ...(pageId ? { pageId } : {}) });
+    await w.addItem({ owner, name: name.trim(), qty: parseInt(qty, 10) || 1, ...(weightOn && weight ? { weight: Number(weight) } : {}), note, dmNote, reason: why.trim(), image, ...(pageId ? { pageId } : {}), ...(quiet ? { quiet: true } : {}) });
     setPageId(null); setName(''); setQty('1'); setWeight(''); setNote(''); setDmNote(''); setWhy(''); setImage(null);
     void inv.reload();
   });
@@ -167,9 +169,10 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
           </div>
           <PagePicker value={pageId} onChange={setPageId} />
           <ImageField value={image} name={name} onChange={setImage} />
-          {reason.need && <Field label="Why" help={owner === 'party' ? 'The party sees this with the change' : 'The player sees this and can confirm or dispute'}><input required value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Loot from the crypt" /></Field>}
+          <QuietToggle on={quiet} set={setQuiet} party={owner === 'party'} />
+          {reason.need && !quiet && <Field label="Why" help={owner === 'party' ? 'The party sees this with the change' : 'The player sees this and can confirm or dispute'}><input required value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Loot from the crypt" /></Field>}
           <ErrorBox error={act.error} />
-          <div className="row end"><button type="submit" className="btn primary small" disabled={act.busy || !name.trim() || (reason.need && !why.trim())}>Add item</button></div>
+          <div className="row end"><button type="submit" className="btn primary small" disabled={act.busy || !name.trim() || (reason.need && !quiet && !why.trim())}>Add item</button></div>
         </form>
       )}
     </div>
@@ -186,10 +189,11 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
   const [dmNote, setDmNote] = useState(it.dm_note ?? '');
   const [owner, setOwner] = useState(it.owner);
   const [why, setWhy] = useState('');
+  const [quiet, setQuiet] = useState(false);
   const [image, setImage] = useState<string | null>(it.image ?? null);
   const [pageId, setPageId] = useState<string | null>(it.pageId ?? null);
   const save = () => act.run(async () => {
-    await w.updateItem(it.id, { name, qty: parseInt(qty, 10) || 0, note, dmNote, owner, image, pageId, reason: why.trim(), ...(weightOn ? { weight: weight === '' ? null : Number(weight) } : {}) });
+    await w.updateItem(it.id, { name, qty: parseInt(qty, 10) || 0, note, dmNote, owner, image, pageId, reason: why.trim(), ...(quiet ? { quiet: true } : {}), ...(weightOn ? { weight: weight === '' ? null : Number(weight) } : {}) });
     onDone();
   });
   return (
@@ -213,10 +217,11 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
           </div>
           <PagePicker value={pageId} onChange={setPageId} />
           <ImageField value={image} name={name} onChange={setImage} />
-          <Field label="Why" help="The owner sees this and can confirm or dispute"><input value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Used it on the door" /></Field>
+          <QuietToggle on={quiet} set={setQuiet} party={it.owner === 'party'} />
+          {!quiet && <Field label="Why" help="The owner sees this and can confirm or dispute"><input value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="Used it on the door" /></Field>}
           <ErrorBox error={act.error} />
           <div className="row end">
-            <button type="button" className="btn small danger" disabled={act.busy} onClick={() => { const r = why.trim() || ask(`remove ${it.name}`); if (r !== null && confirm(`Remove ${it.name}?`)) void act.run(async () => { await w.call('DELETE', `/inventory/${it.id}`, { reason: r }); onDone(); }); }}>Remove</button>
+            <button type="button" className="btn small danger" disabled={act.busy} onClick={() => { const r = quiet ? '' : why.trim() || ask(`remove ${it.name}`); if (r !== null && confirm(`Remove ${it.name}?`)) void act.run(async () => { await w.call('DELETE', `/inventory/${it.id}`, { reason: r, ...(quiet ? { quiet: true } : {}) }); onDone(); }); }}>Remove</button>
             <button type="button" className="btn small" onClick={onDone}>Cancel</button>
             <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void save()}>Save</button>
           </div>

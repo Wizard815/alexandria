@@ -87,7 +87,8 @@ const feature: WebFeature = {
   dmNav: [{ group: 'At the table', to: 'clock', label: '☾ World clock' }],
   playerNav: [{ to: 'log', label: 'Session log', icon: 'fa-scroll' }],
   settings: { title: 'World clock', component: ClockSettings }, // a tab in World settings
-  dmHome: [TodayCard], playerHome: [TodayCard],                 // cards on the home pages
+  dmTable: [{ id: 'clock', label: 'World clock', zone: 'now', component: TableNow }], // a block on the DM's Table
+  dmHome: [ReadyCard], playerHome: [TodayCard],                 // notice cards on the DM's Table; cards on the player's home
   topbar: WorldDate,                                            // next to the world name
   overlay: TranscriptIsland,                                    // on every DM and player page
   dmBand: PartyStatusBar,                                       // across the top of every DM page
@@ -98,3 +99,11 @@ export default feature;
 - Call your endpoints with `const { w } = useWorld(); w.call('GET', '/clock')`.
 - Use `useLoad(fn, deps, ['event-type'])` so screens update live.
 - UI pieces are in `web/src/ui/index.tsx`.
+- **The DM's Table** (`pages/dm/Table.tsx`, the DM's splash page) has four zones: `now` (the band across the top: the
+  world's date, the session, who is at the table), `main` (the play: the fight, the map on the table, scenes), `side`
+  (what waits on the DM: inbox, encounters, world events, messages) and `world` (shops, the party pouch, the library).
+  A feature adds a block with `dmTable: [{ id, label, zone, order?, component }]`; build it with `TableCard` from
+  `ui/TableCard.tsx` and pass `quiet="..."` when there is nothing going on, so it shrinks to one line. The zone and order
+  are only the defaults: in *Arrange* the DM drags blocks (or uses the arrows and place picker) to any zone, makes a block
+  wide in the top band or the world row, hides it, or brings it back. The layout is kept per device
+  (`alx.dm.table.layout.<world>`). `dmHome` cards still show at the top of the side column, unhideable.
