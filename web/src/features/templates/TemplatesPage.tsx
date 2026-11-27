@@ -34,7 +34,7 @@ const blank = (kind: Kind): Tpl => ({ kind, name: '', description: '', triggers:
 
 export default function TemplatesPage() {
   const { w } = useWorld();
-  const [tab, setTab] = useState<'list' | 'new' | 'examples' | 'web'>('list');
+  const [tab, setTab] = useState<'list' | 'starters' | 'new' | 'examples' | 'web'>('list');
   const [editing, setEditing] = useState<Tpl | null>(null);
   const list = useLoad(() => w.call<{ templates: Tpl[]; model: boolean }>('GET', '/templates'), [w]);
   const web = useLoad(() => w.call<{ config: WebCfg; providers: { id: string; name: string }[]; shop: boolean }>('GET', '/templates/web'), [w]);
@@ -42,13 +42,57 @@ export default function TemplatesPage() {
   return (
     <div className="stack tpl-page">
       <PageHead title="Templates & guides" lead="Guides the assistant follows for a kind of task, and templates for generators, macros, panels, shops and pages. Make them with the assistant." />
-      <Tabs label="Templates" value={tab} onChange={(v) => { setTab(v); setEditing(null); }} items={[['list', 'Templates'], ['new', 'New with the assistant'], ['examples', 'From examples'], ['web', 'Web research']]} />
+      <Tabs label="Templates" value={tab} onChange={(v) => { setTab(v); setEditing(null); }} items={[['list', 'Templates'], ['starters', 'Starters'], ['new', 'New with the assistant'], ['examples', 'From examples'], ['web', 'Web research']]} />
       {tab === 'list' && (editing
         ? <Editor initial={editing} shop={!!web.data?.shop} onDone={() => { setEditing(null); void list.reload(); }} />
         : <TemplateList data={list.data?.templates ?? null} error={list.error} reload={list.reload} onEdit={open} onNew={(k) => open(blank(k))} shop={!!web.data?.shop} />)}
+      {tab === 'starters' && <Starters onAdded={() => void list.reload()} />}
       {tab === 'new' && <MakeWithAssistant model={!!list.data?.model} onSaved={() => { void list.reload(); setTab('list'); }} />}
       {tab === 'examples' && <FromExamples onSaved={() => { void list.reload(); setTab('list'); }} />}
       {tab === 'web' && (web.data ? <WebSettings data={web.data} reload={web.reload} /> : <><ErrorBox error={web.error} />{!web.error && <Loading what="web research" />}</>)}
+    </div>
+  );
+}
+
+// ---- starter templates (the templates/ folder): add one or a whole pack ----
+
+interface StarterPack { id: string; name: string; templates: { kind: Kind; name: string; description: string; added: boolean }[] }
+
+function Starters({ onAdded }: { onAdded: () => void }) {
+  const { w } = useWorld();
+  const packs = useLoad(() => w.call<{ packs: StarterPack[] }>('GET', '/templates/starters'), [w]);
+  const { busy, error, run } = useAction();
+  const { toast, toastNode } = useToast();
+  const add = (pack: string, names?: string[]) => run(async () => {
+    const r = await w.call<{ created: string[] }>('POST', '/templates/starters/add', { pack, ...(names ? { names } : {}) });
+    toast(r.created.length ? `Added ${r.created.join(', ')}. Change them under Templates.` : 'You already have those.');
+    await packs.reload(); onAdded();
+  });
+  if (!packs.data) return <>{packs.error ? <ErrorBox error={packs.error} /> : <Loading what="starter templates" />}</>;
+  return (
+    <div className="stack" data-testid="tpl-starters">
+      <p className="small muted">Ready-made templates to start from. Adding one copies it into this world, where you can change it like your own. One you already have is left as it is.</p>
+      <ErrorBox error={error} />
+      {packs.data.packs.map((p) => {
+        const left = p.templates.filter((t) => !t.added).length;
+        return (
+          <div className="card stack tight" key={p.id} data-testid={`tpl-pack-${p.id}`}>
+            <div className="row between">
+              <strong>{p.name}</strong>
+              <button type="button" className="btn small" disabled={busy || !left} onClick={() => void add(p.id)}>{left ? `Add all ${left}` : 'All added'}</button>
+            </div>
+            <ul className="tpl-list">
+              {p.templates.map((t) => (
+                <li key={t.name} className="row between">
+                  <span className="small"><b>{t.name}</b> <span className="tiny muted">{t.description}</span></span>
+                  {t.added ? <span className="chip">Added</span> : <button type="button" className="btn small" disabled={busy} onClick={() => void add(p.id, [t.name])}>Add</button>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+      {toastNode}
     </div>
   );
 }
@@ -126,7 +170,7 @@ function TemplateList({ data, error, reload, onEdit, onNew, shop }: { data: Tpl[
         <button type="button" className="btn small" disabled={busy || !shown.length} title="A .alxtemplates.json file to take to another world or table" data-testid="tpl-export" onClick={() => void run(async () => saveFile(filter ? KIND_LABEL[filter] : 'templates', await w.call<any>('GET', `/templates/export?ids=${shown.map((t) => t.id).join(',')}`)))}>Export {filter ? 'these' : 'all'}</button>
         <ImportTemplates reload={reload} />
       </div>
-      {!shown.length && <Empty>No templates yet. Use <b>New with the assistant</b>: describe what you want, e.g. “Towns: always research the real Japanese town it is based on, my own world lore and the towns around it.”</Empty>}
+      {!shown.length && <Empty>No templates yet. Add some from <b>Starters</b>, or use <b>New with the assistant</b>: describe what you want, e.g. “Towns: always research the real Japanese town it is based on, my own world lore and the towns around it.”</Empty>}
       <ul className="tpl-list">
         {shown.map((t) => (
           <li key={t.id} className="card tpl-item" data-testid="tpl-item" data-name={t.name}>

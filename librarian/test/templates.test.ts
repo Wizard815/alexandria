@@ -375,3 +375,23 @@ test('Templates: export a package and import it into another world (all or none;
   await dm('DELETE', `/templates/${g.id}`);
   await dm('DELETE', `/templates/${m.id}`);
 });
+
+test('Templates: starter packs ship 8 of each kind; adding them makes ordinary templates and leaves changed ones alone', async () => {
+  const W3 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Starterville', dmAccountId: dmId })).id;
+  const w3 = (p: string) => `/api/worlds/${W3}${p}`;
+  assert.equal((await call('GET', w('/templates/starters'), T.jess)).status, 403);
+  const { packs } = await ok('GET', w3('/templates/starters'), T.dm);
+  const kinds = new Map<string, number>();
+  for (const p of packs) for (const t of p.templates) kinds.set(t.kind, (kinds.get(t.kind) ?? 0) + 1);
+  assert.deepEqual([...kinds.entries()].sort(), [['assist', 8], ['generator', 8], ['guide', 8], ['library', 8], ['macro', 8], ['shop', 8]]);
+  const one = await ok('POST', w3('/templates/starters/add'), T.dm, { pack: 'guides', names: ['Towns'] });
+  assert.deepEqual(one.created, ['Towns']);
+  const towns = (await ok('GET', w3('/templates'), T.dm)).templates.find((t: any) => t.name === 'Towns');
+  await ok('PUT', w3(`/templates/${towns.id}`), T.dm, { description: 'My own towns' });
+  for (const p of packs) await ok('POST', w3('/templates/starters/add'), T.dm, { pack: p.id });
+  const all = (await ok('GET', w3('/templates'), T.dm)).templates;
+  assert.equal(all.length, 48);
+  assert.equal(all.find((t: any) => t.name === 'Towns').description, 'My own towns', 'a changed starter is not reset');
+  assert.ok((await ok('GET', w3('/templates/starters'), T.dm)).packs.every((p: any) => p.templates.every((t: any) => t.added)));
+  assert.equal((await call('POST', w3('/templates/starters/add'), T.dm, { pack: 'nope' })).status, 404);
+});
